@@ -3,3 +3,5 @@ data/
 *.db
 config.yaml
 .env
+docs-site/node_modules/
+web/node_modules/
