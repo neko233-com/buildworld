@@ -1,0 +1,35 @@
+server:
+  host: "0.0.0.0"
+  port: 6050
+  tls: false
+
+database:
+  path: "./data/buildworld.db"
+
+auth:
+  jwt_secret: ""
+  oauth:
+    github:
+      client_id: ""
+      client_secret: ""
+
+plugins:
+  path: "./plugins"
+  hot_reload: true
+
+storage:
+  workspace: "./workspace"
+  artifacts: "./artifacts"
+  logs: "./logs"
+
+git:
+  ssh_key_path: ""
+  known_hosts: ""
+
+workers:
+  local:
+    enabled: true
+    max_concurrent_builds: 4
+    workspace: "./workspace"
+    labels: []
+  remote: []
