@@ -154,94 +154,250 @@ Trigger (webhook/cron/manual)
 
 ---
 
-## [S3.5] Worker Node System
+## [S3.5] Worker Node System (Agent-First Architecture)
 
 ### Overview
 
-buildworld233 uses a **central scheduler + distributed worker** architecture:
+buildworld233 uses an **agent-first architecture** where workers (agents) are the primary execution units:
 
-- **Server** = Scheduler + API + UI + Storage (the brain)
-- **Worker** = Build executor (the muscle)
-- **Local worker** = Built-in, starts automatically with server
-- **Remote workers** = Connect via gRPC, can be added on-demand
+- **Server** = Coordinator + API + UI + Storage (the brain)
+- **Agent** = Build executor (the muscle) - this is the primary design concept
+- **Local agent** = Built-in, starts automatically with server
+- **Remote agents** = Connect via gRPC, can be added on-demand
+- **Agent pool** = Dynamic scaling of agents based on workload
 
-### Worker Configuration
+**Agent-First Principles:**
+1. Agents are self-contained and autonomous
+2. Agents can operate independently if server is temporarily unavailable
+3. Agents report status proactively, not just on request
+4. Agent discovery is automatic via registration
+5. Agent health is continuously monitored
+
+### Agent Configuration
 
 ```yaml
 # config.yaml
-workers:
-  # Local worker (built-in, always available)
+agents:
+  # Local agent (built-in, always available)
   local:
     enabled: true
-    max_concurrent_builds: 4  # number of parallel builds
+    max_concurrent_builds: 4
     workspace: "./data/workspaces"
     labels: ["linux", "amd64", "default"]
     
-  # Remote worker registration
+  # Remote agent registration
   remote:
-    - name: "node-01"
+    - name: "agent-01"
       address: "192.168.1.100:7050"
-      token: "worker-registration-token"
+      token: "agent-registration-token"
       labels: ["linux", "amd64", "gpu"]
       max_concurrent_builds: 8
       
-    - name: "node-02"
+    - name: "agent-02"
       address: "192.168.1.101:7050"
-      token: "worker-registration-token"
+      token: "agent-registration-token"
       labels: ["macos", "arm64", "ios"]
-      max_concurrent_builds: 4
-      
-    - name: "windows-node"
-      address: "192.168.1.102:7050"
-      token: "worker-registration-token"
-      labels: ["windows", "amd64", "dotnet"]
       max_concurrent_builds: 4
 ```
 
-### Worker Node Architecture
+### Agent Node Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Worker Node                              │
+│                    Agent Node (buildworld233-agent)         │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │  gRPC Server (port 7050)                            │   │
-│  │  - Register with server                             │   │
-│  │  - Receive build tasks                              │   │
-│  │  - Stream logs back to server                       │   │
-│  │  - Report health status                             │   │
+│  │  Agent Controller                                    │   │
+│  │  - Self-registration with server                     │   │
+│  │  - Heartbeat management                              │   │
+│  │  - Task queue management                             │   │
+│  │  - Graceful shutdown                                 │   │
 │  └─────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │  Build Executor                                     │   │
 │  │  - Execute shell commands                           │   │
 │  │  - Manage workspace directories                     │   │
-│  │  - Capture stdout/stderr                            │   │
+│  │  - Capture stdout/stderr with rolling buffer        │   │
 │  │  - Collect artifacts                                │   │
+│  │  - Environment variable resolution                  │   │
 │  └─────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │  Health Monitor                                     │   │
-│  │  - Report CPU/memory/disk usage                     │   │
-│  │  - Report active build count                        │   │
+│  │  - CPU/memory/disk metrics                          │   │
+│  │  - Active build tracking                            │   │
 │  │  - Auto-reconnect to server                         │   │
+│  │  - Offline queue for failed connections             │   │
+│  └─────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  Credential Vault                                   │   │
+│  │  - Secure SSH key storage (encrypted at rest)       │   │
+│  │  - SSH password authentication support              │   │
+│  │  - Token-based auth for git servers                 │   │
+│  │  - Environment variable secrets                     │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Worker Registration Flow
+### Agent Registration Flow
 
 ```
-1. Worker starts → generates unique worker ID
-2. Worker connects to server via gRPC
-3. Worker sends registration:
-   - worker_id, name, labels, max_concurrent_builds
+1. Agent starts → generates unique agent ID
+2. Agent connects to server via gRPC
+3. Agent sends registration:
+   - agent_id, name, labels, max_concurrent_builds
    - public_key for authentication
 4. Server validates token
-5. Server adds worker to registry
-6. Worker starts heartbeat (every 10s)
-7. Server marks worker as "online"
+5. Server adds agent to registry
+6. Agent starts heartbeat (every 10s)
+7. Server marks agent as "online"
+8. Agent enters ready state, waiting for tasks
 ```
+
+### Secure Credential Storage
+
+```go
+type CredentialVault struct {
+    mu       sync.RWMutex
+    store    *store.Store
+    cipher   *Cipher
+}
+
+type StoredCredential struct {
+    ID        int64     `json:"id"`
+    Type      string    `json:"type"`  // ssh_key, ssh_password, token, oauth
+    Name      string    `json:"name"`
+    Encrypted []byte    `json:"encrypted"`  // AES-256-GCM encrypted
+    Salt      []byte    `json:"salt"`       // For key derivation
+    IV        []byte    `json:"iv"`         // Initialization vector
+    CreatedAt time.Time `json:"created_at"`
+    ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// SSH Password Storage
+type SSHPasswordCredential struct {
+    Username string `json:"username"`
+    Password string `json:"password"`  // Encrypted
+    Host     string `json:"host"`
+    Port     int    `json:"port"`
+}
+
+// Encryption at rest using AES-256-GCM
+func (v *CredentialVault) Encrypt(plaintext []byte) ([]byte, error) {
+    // Generate random salt and IV
+    // Derive key using PBKDF2
+    // Encrypt using AES-256-GCM
+    // Return encrypted data with salt and IV
+}
+
+func (v *CredentialVault) Decrypt(ciphertext []byte) ([]byte, error) {
+    // Extract salt and IV
+    // Derive key using PBKDF2
+    // Decrypt using AES-256-GCM
+    // Return plaintext
+}
+```
+
+### SSH Authentication Methods
+
+```go
+type SSHAuthMethod struct {
+    Type       string `json:"type"`
+    // Key-based
+    PrivateKey  string `json:"private_key,omitempty"`
+    Passphrase  string `json:"passphrase,omitempty"`  // For encrypted keys
+    // Password-based
+    Username    string `json:"username,omitempty"`
+    Password    string `json:"password,omitempty"`
+    // Connection
+    Host        string `json:"host"`
+    Port        int    `json:"port"`
+}
+
+// Supported SSH auth methods:
+// 1. Public key authentication (SSH key pair)
+// 2. Password authentication (username + password)
+// 3. Keyboard-interactive authentication
+// 4. Certificate authentication (future)
+```
+
+### Agent Task Execution
+
+```
+1. Server assigns task to agent
+2. Agent receives task via gRPC
+3. Agent validates task permissions
+4. Agent resolves environment variables:
+   - ${global.VAR} → from server global env
+   - ${project.VAR} → from project env
+   - ${secret.VAR} → from credential vault
+5. Agent clones repository (using stored credentials)
+6. Agent executes build steps sequentially
+7. Agent streams logs to server (rolling buffer)
+8. Agent reports completion/failure
+9. Agent cleans up workspace
+```
+
+### Agent Health Check
+
+```go
+type AgentHealth struct {
+    AgentID       string
+    Status        string  // online, offline, busy, disabled
+    CPUUsage      float64
+    MemoryUsage   float64
+    DiskUsage     float64
+    ActiveBuilds  int
+    MaxBuilds     int
+    LastHeartbeat time.Time
+    Uptime        time.Duration
+    Version       string
+    OS            string
+    Arch          string
+}
+```
+
+### CLI Commands for Agent Management
+
+```bash
+# Server-side
+buildworld233 agent list                    # List all agents
+buildworld233 agent status <agent-id>       # Show agent status
+buildworld233 agent enable <agent-id>       # Enable agent
+buildworld233 agent disable <agent-id>      # Disable agent
+buildworld233 agent remove <agent-id>       # Remove agent
+buildworld233 agent generate-token          # Generate registration token
+
+# Agent-side (standalone agent binary)
+buildworld233-agent start --server <server-url> --token <token>
+buildworld233-agent status
+buildworld233-agent stop
+```
+
+### Agent Binary
+
+```bash
+# Build agent binary
+go build -o buildworld233-agent ./cmd/agent
+
+# Run agent
+./buildworld233-agent \
+  --server http://localhost:6050 \
+  --token <registration-token> \
+  --name "my-agent" \
+  --labels "linux,amd64" \
+  --max-builds 4
+```
+
+### Fault Tolerance
+
+- **Heartbeat timeout**: If no heartbeat for 30s → mark agent offline
+- **Build failover**: If agent goes offline mid-build → reassign to another agent
+- **Auto-reconnect**: Agents automatically reconnect to server
+- **Graceful shutdown**: Agent finishes current builds before stopping
+- **Offline queue**: Tasks queued locally if server unreachable
 
 ### Build Task Assignment
 
