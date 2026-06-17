@@ -448,25 +448,72 @@ type User struct {
 
 ## [S6] Git/SVN Integration & SSH
 
-### Git Support
+### Supported Git Servers
+
+buildworld233 supports all major Git hosting platforms:
+
+| Platform | Webhook | OAuth | API | Status |
+|----------|---------|-------|-----|--------|
+| GitHub | ✅ | ✅ | ✅ | Built-in |
+| GitLab | ✅ | ✅ | ✅ | Built-in |
+| Gitee | ✅ | ✅ | ✅ | Built-in |
+| Gitea | ✅ | ✅ | ✅ | Built-in |
+| Custom | ✅ | ❌ | ❌ | URL-based |
 
 ```go
-type GitConfig struct {
-    URL         string
-    Branch      string
-    Credentials *Credentials  // SSH key, token, or OAuth
-    Depth       int
-    Submodules  bool
-    Shallow     bool
+type GitServer struct {
+    ID          int64     `json:"id"`
+    Name        string    `json:"name"`
+    Type        string    `json:"type"`  // github, gitlab, gitee, gitea, custom
+    URL         string    `json:"url"`   // For custom servers
+    APIURL      string    `json:"api_url,omitempty"`
+    WebhookURL  string    `json:"webhook_url,omitempty"`
+    OAuthID     string    `json:"oauth_id,omitempty"`
+    OAuthSecret string    `json:"oauth_secret,omitempty"`
+    CreatedAt   time.Time `json:"created_at"`
+}
+
+type GitCredentials struct {
+    ID        int64     `json:"id"`
+    ServerID  int64     `json:"server_id"`
+    UserID    int64     `json:"user_id"`
+    Type      string    `json:"type"`  // token, ssh_key, ssh_password, oauth
+    Username  string    `json:"username,omitempty"`
+    Token     string    `json:"token,omitempty"`      // PAT or OAuth token
+    SSHKey    string    `json:"ssh_key,omitempty"`    // Private key content
+    Password  string    `json:"password,omitempty"`   // SSH password
+    CreatedAt time.Time `json:"created_at"`
+}
+```
+
+### SSH Support
+
+SSH supports both key-based and password-based authentication:
+
+```go
+type SSHConfig struct {
+    // Key-based auth
+    PrivateKey     string `json:"private_key,omitempty"`
+    PrivateKeyFile string `json:"private_key_file,omitempty"`
+    
+    // Password-based auth (for servers that support it)
+    Username       string `json:"username,omitempty"`
+    Password       string `json:"password,omitempty"`
+    
+    // Known hosts
+    KnownHostsFile string `json:"known_hosts_file,omitempty"`
+    StrictHostKey  bool   `json:"strict_host_key"`
 }
 ```
 
 **Features:**
 - Clone/fetch/push operations
-- Webhook receivers for GitHub/GitLab/Bitbucket
+- Webhook receivers for all supported platforms
 - SSH key management per user
+- SSH password authentication
 - OAuth token management
 - Branch/PR/merge request triggers
+- Custom git server URL recording
 
 ### SVN Support
 
@@ -485,22 +532,399 @@ type SVNConfig struct {
 - Certificate-based auth
 - Revision tracking
 
-### SSH Key Management
+---
+
+## [S6.5] Environment Variables & Parameterized Builds
+
+### Environment Variable System
+
+buildworld233 supports hierarchical environment variables with secure field types:
 
 ```go
-type SSHKey struct {
-    ID          int64
-    UserID      int64
-    Name        string
-    PublicKey   string
-    Fingerprint string
-    CreatedAt   time.Time
+type EnvVar struct {
+    ID          int64  `json:"id"`
+    Scope       string `json:"scope"`       // global, project
+    Name        string `json:"name"`
+    Value       string `json:"value"`
+    IsSecret    bool   `json:"is_secret"`   // Hidden in UI after config
+    Description string `json:"description,omitempty"`
+}
+
+// Variable syntax:
+// ${global.FIELD_NAME}   - Global environment variable
+// ${project.FIELD_NAME}  - Project-level environment variable
+```
+
+**Variable Resolution:**
+1. Project variables override global variables
+2. Secret fields are masked in logs and UI
+3. Variables available in all pipeline steps
+
+**Example:**
+```yaml
+# Global variables (Settings → Environment)
+GLOBAL_TOKEN: ${global.TOKEN}          # Secret, hidden after config
+GLOBAL_REGISTRY: ${global.REGISTRY}    # Visible
+
+# Project variables (Project → Settings)
+PROJECT_API_KEY: ${project.API_KEY}    # Secret
+PROJECT_DEPLOY_PATH: ${project.PATH}   # Visible
+```
+
+### Parameterized Builds
+
+Like Jenkins, builds can accept parameters for dynamic configuration:
+
+```go
+type BuildParameter struct {
+    Name         string      `json:"name"`
+    Type         string      `json:"type"`  // string, choice, boolean, password, text
+    Description  string      `json:"description"`
+    Default      interface{} `json:"default"`
+    Required     bool        `json:"required"`
+    Choices      []string    `json:"choices,omitempty"`  // For choice type
+    IsSecret     bool        `json:"is_secret"`          // For password type
+}
+
+type PipelineConfig struct {
+    // ... other fields
+    Parameters []BuildParameter `json:"parameters"`
 }
 ```
 
-- Users can add multiple SSH keys
-- Keys used for git clone/push operations
-- Keys stored encrypted in SQLite
+**Parameter Types:**
+| Type | UI Widget | Example |
+|------|-----------|---------|
+| string | Text input | `branch: main` |
+| choice | Dropdown | `environment: [dev, staging, prod]` |
+| boolean | Checkbox | `deploy: true` |
+| password | Password input (masked) | `api_key: ***` |
+| text | Textarea | `changelog: Multi-line text` |
+
+**Example Pipeline with Parameters:**
+```typescript
+pipeline({
+  name: "deploy-app",
+  parameters: [
+    {
+      name: "environment",
+      type: "choice",
+      description: "Target environment",
+      choices: ["development", "staging", "production"],
+      default: "staging",
+      required: true,
+    },
+    {
+      name: "version",
+      type: "string",
+      description: "Version to deploy",
+      default: "latest",
+    },
+    {
+      name: "api_key",
+      type: "password",
+      description: "API key for deployment",
+      required: true,
+      is_secret: true,
+    },
+    {
+      name: "skip_tests",
+      type: "boolean",
+      description: "Skip test execution",
+      default: false,
+    },
+  ],
+  stages: [
+    {
+      name: "Deploy",
+      steps: [
+        shell("deploy.sh --env ${parameter.environment} --version ${parameter.version}"),
+      ],
+    },
+  ],
+});
+```
+
+**Parameter UI (Feishu-style):**
+```
+Build: deploy-app
+┌─────────────────────────────────────────────────────────────┐
+│  Parameters                                                 │
+├─────────────────────────────────────────────────────────────┤
+│  Environment *                                              │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ ▼ staging                                            │   │
+│  │   development                                        │   │
+│  │   staging                                            │   │
+│  │   production                                         │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  Target environment                                         │
+│                                                             │
+│  Version                                                    │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ latest                                               │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  Version to deploy                                          │
+│                                                             │
+│  API Key *                                                  │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ ••••••••••••                                         │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  API key for deployment (hidden after save)                 │
+│                                                             │
+│  ☐ Skip Tests                                               │
+│  Skip test execution                                        │
+│                                                             │
+│  [Cancel]  [Build]                                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Build Now = Execute Packaging
+
+**Important clarification:** In buildworld233, "Build Now" means "Execute Packaging" (执行打包). This is the same as Jenkins' "Build Now" - it triggers a build execution with the current configuration and parameters.
+
+---
+
+## [S6.6] Built-in Development Environments
+
+### Auto-installed Environments
+
+buildworld233 can automatically install and configure development environments:
+
+```go
+type DevEnvironment struct {
+    Name        string   `json:"name"`
+    Version     string   `json:"version"`
+    InstallCmd  string   `json:"install_cmd"`
+    BinaryPath  string   `json:"binary_path"`
+    EnvVars     []string `json:"env_vars"`
+    AutoInstall bool     `json:"auto_install"`
+}
+
+var DefaultEnvironments = []DevEnvironment{
+    {
+        Name:        "JDK",
+        Version:     "21",
+        InstallCmd:  "https://adoptium.net/temurin/releases/",
+        BinaryPath:  "/usr/lib/jvm/java-21",
+        EnvVars:     ["JAVA_HOME=/usr/lib/jvm/java-21", "PATH=$JAVA_HOME/bin:$PATH"],
+        AutoInstall: true,
+    },
+    {
+        Name:        "Maven",
+        Version:     "3.9.6",
+        InstallCmd:  "https://maven.apache.org/download.cgi",
+        BinaryPath:  "/opt/maven",
+        EnvVars:     ["MAVEN_HOME=/opt/maven", "PATH=$MAVEN_HOME/bin:$PATH"],
+        AutoInstall: true,
+    },
+    {
+        Name:        "Gradle",
+        Version:     "8.5",
+        InstallCmd:  "https://gradle.org/releases/",
+        BinaryPath:  "/opt/gradle",
+        EnvVars:     ["GRADLE_HOME=/opt/gradle", "PATH=$GRADLE_HOME/bin:$PATH"],
+        AutoInstall: true,
+    },
+    {
+        Name:        "Node.js",
+        Version:     "24",
+        InstallCmd:  "https://nodejs.org/en/download/",
+        BinaryPath:  "/usr/local/node",
+        EnvVars:     ["NODE_HOME=/usr/local/node", "PATH=$NODE_HOME/bin:$PATH"],
+        AutoInstall: true,
+    },
+    {
+        Name:        "npm",
+        Version:     "latest",
+        InstallCmd:  "Bundled with Node.js",
+        BinaryPath:  "/usr/local/node/bin/npm",
+        EnvVars:     [],
+        AutoInstall: true,
+    },
+}
+```
+
+### One-Click Environment Setup
+
+```
+Settings → Environments → Setup Wizard
+┌─────────────────────────────────────────────────────────────┐
+│  Development Environment Setup                              │
+├─────────────────────────────────────────────────────────────┤
+│  Detected: Windows 11, x64                                  │
+│                                                             │
+│  Available Environments:                                     │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ ☑ JDK 21 (Adoptium)           [Auto-detect source] │   │
+│  │ ☑ Maven 3.9.6                  [Auto-detect source] │   │
+│  │ ☑ Gradle 8.5                   [Auto-detect source] │   │
+│  │ ☑ Node.js 24 LTS               [Auto-detect source] │   │
+│  │ ☑ npm (bundled)                [Auto-detect source] │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  Download Source: [Auto-detect ▼]                           │
+│  - Auto (recommended)                                       │
+│  - China Mirror (npmmirror.com)                             │
+│  - International (official)                                 │
+│                                                             │
+│  Install Location: [C:\\buildworld233\\env]                │
+│                                                             │
+│  [Install Selected]                                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Auto-detect Download Source
+
+```go
+type DownloadSource struct {
+    Name       string
+    URL        string
+    Region     string  // china, international
+    AutoDetect bool
+}
+
+var DownloadSources = map[string][]DownloadSource{
+    "jdk": {
+        {Name: "Adoptium (International)", URL: "https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jdk/hotspot/normal/eclipse", Region: "international"},
+        {Name: "Adoptium (China Mirror)", URL: "https://mirrors.tuna.tsinghua.edu.cn/Adoptium/21/jdk/x64/windows/", Region: "china"},
+    },
+    "maven": {
+        {Name: "Apache (International)", URL: "https://dlcdn.apache.org/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.zip", Region: "international"},
+        {Name: "Aliyun Mirror", URL: "https://mirrors.aliyun.com/apache/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.zip", Region: "china"},
+    },
+    "node": {
+        {Name: "Node.js (International)", URL: "https://nodejs.org/dist/v24.0.0/node-v24.0.0-x64.msi", Region: "international"},
+        {Name: "Node.js (China Mirror)", URL: "https://npmmirror.com/mirrors/node/v24.0.0/node-v24.0.0-x64.msi", Region: "china"},
+    },
+    "gradle": {
+        {Name: "Gradle (International)", URL: "https://services.gradle.org/distributions/gradle-8.5-bin.zip", Region: "international"},
+        {Name: "TUNA Mirror", URL: "https://mirrors.tuna.tsinghua.edu.cn/gradle/gradle-8.5-bin.zip", Region: "china"},
+    },
+}
+
+func DetectRegion() string {
+    // Check timezone or try to access a known China-only endpoint
+    // Return "china" or "international"
+}
+```
+
+---
+
+## [S6.7] Security & HTTPS
+
+### Security Features
+
+- **HTTPS/TLS** — Built-in TLS support
+- **CORS** — Configurable CORS policies
+- **Rate Limiting** — API rate limiting
+- **CSRF Protection** — Cross-site request forgery protection
+- **Input Validation** — All inputs sanitized
+- **SQL Injection Prevention** — Parameterized queries
+- **XSS Protection** — Content Security Policy headers
+
+### proxysss Integration
+
+buildworld233 integrates with neko233-com/proxysss for automatic HTTPS:
+
+```yaml
+# config.yaml
+security:
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+  
+  # proxysss integration for automatic HTTPS
+  proxysss:
+    enabled: true
+    domain: "build.example.com"
+    email: "admin@example.com"
+    auto_renew: true
+```
+
+**One-click HTTPS Setup:**
+```
+Settings → Security → HTTPS Setup
+┌─────────────────────────────────────────────────────────────┐
+│  Automatic HTTPS with proxysss                              │
+├─────────────────────────────────────────────────────────────┤
+│  Domain: [build.example.com        ]                       │
+│  Email:  [admin@example.com        ]                       │
+│                                                             │
+│  [Setup HTTPS]                                              │
+│                                                             │
+│  Status: ✅ Certificate issued, HTTPS enabled               │
+│  Expires: 2026-09-15 (auto-renew enabled)                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## [S6.8] Multi-language Support (i18n)
+
+### Supported Languages
+
+- English (en)
+- Chinese Simplified (zh-CN)
+- Chinese Traditional (zh-TW) — future
+- Japanese (ja) — future
+- Korean (ko) — future
+
+### Implementation
+
+```typescript
+// web/src/i18n/locales/en.json
+{
+  "dashboard": {
+    "title": "Dashboard",
+    "recentBuilds": "Recent Builds",
+    "systemStatus": "System Status"
+  },
+  "projects": {
+    "title": "Projects",
+    "newProject": "New Project",
+    "fromTemplate": "From Template"
+  },
+  "builds": {
+    "title": "Builds",
+    "buildNow": "Build Now",
+    "buildHistory": "Build History"
+  }
+}
+
+// web/src/i18n/locales/zh-CN.json
+{
+  "dashboard": {
+    "title": "仪表盘",
+    "recentBuilds": "最近构建",
+    "systemStatus": "系统状态"
+  },
+  "projects": {
+    "title": "项目",
+    "newProject": "新建项目",
+    "fromTemplate": "从模板创建"
+  },
+  "builds": {
+    "title": "构建",
+    "buildNow": "立即构建",
+    "buildHistory": "构建历史"
+  }
+}
+```
+
+**Language Selector:**
+```
+Settings → General → Language
+┌─────────────────────────────────────────────────────────────┐
+│  Language                                                   │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ ▼ English                                            │   │
+│  │   English                                            │   │
+│  │   简体中文 (Chinese Simplified)                       │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -674,6 +1098,7 @@ CREATE TABLE users (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     avatar_url TEXT,
+    language TEXT DEFAULT 'en',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_login DATETIME
 );
@@ -690,10 +1115,35 @@ CREATE TABLE ssh_keys (
 CREATE TABLE oauth_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
-    provider TEXT NOT NULL,  -- github, gitlab
+    provider TEXT NOT NULL,  -- github, gitlab, gitee
     provider_id TEXT NOT NULL,
     access_token TEXT NOT NULL,
     refresh_token TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Git Servers
+CREATE TABLE git_servers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,  -- github, gitlab, gitee, gitea, custom
+    url TEXT,  -- For custom servers
+    api_url TEXT,
+    webhook_url TEXT,
+    oauth_id TEXT,
+    oauth_secret TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE git_credentials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER NOT NULL REFERENCES git_servers(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    type TEXT NOT NULL,  -- token, ssh_key, ssh_password, oauth
+    username TEXT,
+    token TEXT,
+    ssh_key TEXT,
+    password TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -720,12 +1170,40 @@ CREATE TABLE builds (
     trigger TEXT NOT NULL,  -- manual, webhook, schedule
     branch TEXT,
     commit_sha TEXT,
+    parameters TEXT,  -- JSON parameters used for this build
     started_at DATETIME,
     finished_at DATETIME,
     duration_ms INTEGER,
     log TEXT,
     FOREIGN KEY (project_id) REFERENCES projects(id),
     UNIQUE(project_id, number)
+);
+
+-- Build Parameters
+CREATE TABLE build_parameters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id),
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,  -- string, choice, boolean, password, text
+    description TEXT,
+    default_value TEXT,
+    choices TEXT,  -- JSON array for choice type
+    required BOOLEAN DEFAULT FALSE,
+    is_secret BOOLEAN DEFAULT FALSE,
+    sort_order INTEGER DEFAULT 0,
+    UNIQUE(project_id, name)
+);
+
+-- Environment Variables
+CREATE TABLE env_vars (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL,  -- global, project
+    project_id INTEGER,  -- NULL for global
+    name TEXT NOT NULL,
+    value TEXT NOT NULL,
+    is_secret BOOLEAN DEFAULT FALSE,
+    description TEXT,
+    UNIQUE(scope, project_id, name)
 );
 
 -- Artifacts
@@ -757,6 +1235,32 @@ CREATE TABLE notifications (
     status TEXT NOT NULL,  -- pending, sent, failed
     config TEXT NOT NULL,  -- JSON notification config
     sent_at DATETIME
+);
+
+-- Dev Environments
+CREATE TABLE dev_environments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    install_path TEXT,
+    is_installed BOOLEAN DEFAULT FALSE,
+    auto_install BOOLEAN DEFAULT TRUE,
+    download_source TEXT,  -- china, international, auto
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Templates
+CREATE TABLE templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    description TEXT,
+    icon TEXT,
+    difficulty TEXT,  -- beginner, intermediate, advanced
+    config TEXT NOT NULL,  -- JSON pipeline config
+    is_builtin BOOLEAN DEFAULT TRUE,
+    created_by INTEGER REFERENCES users(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -1301,7 +1805,221 @@ Settings → System → Backup & Restore
 
 ---
 
-## [S16] Testing Strategy
+## [S16] Pipeline Templates
+
+### Template System
+
+Templates provide pre-built pipeline configurations for common workflows. Users can:
+- Browse templates in the UI
+- One-click create project from template
+- Customize templates before use
+- Share custom templates
+
+### Template Categories
+
+```
+templates/
+├── languages/
+│   ├── nodejs/
+│   │   ├── node-typescript.json
+│   │   ├── node-javascript.json
+│   │   └── node-monorepo.json
+│   ├── go/
+│   │   ├── go-cli.json
+│   │   ├── go-api.json
+│   │   └── go-microservice.json
+│   ├── python/
+│   │   ├── python-django.json
+│   │   ├── python-flask.json
+│   │   └── python-data-science.json
+│   ├── java/
+│   │   ├── java-maven.json
+│   │   ├── java-gradle.json
+│   │   └── java-spring-boot.json
+│   └── dotnet/
+│       ├── dotnet-web-api.json
+│       └── dotnet-console.json
+├── platforms/
+│   ├── docker/
+│   │   ├── docker-build-push.json
+│   │   └── docker-compose-deploy.json
+│   ├── kubernetes/
+│   │   ├── k8s-deploy.json
+│   │   └── k8s-helm.json
+│   └── cloud/
+│       ├── aws-ecs.json
+│       ├── aws-lambda.json
+│       ├── gcp-run.json
+│       └── azure-app-service.json
+├── game-dev/
+│   ├── unity-android.json
+│   ├── unity-ios.json
+│   ├── unity-webgl.json
+│   ├── unreal-android.json
+│   └── godot-export.json
+├── frontend/
+│   ├── react-vercel.json
+│   ├── vue-netlify.json
+│   ├── angular-firebase.json
+│   └── nextjs-vercel.json
+├── devops/
+│   ├── terraform-plan.json
+│   ├── terraform-apply.json
+│   ├── ansible-deploy.json
+│   └── monitoring-setup.json
+└── templates/
+    ├── ci-only.json
+    ├── cd-only.json
+    ├── full-pipeline.json
+    └── custom-step.json
+```
+
+### Template JSON Format
+
+```json
+{
+  "id": "node-typescript",
+  "name": "Node.js TypeScript",
+  "description": "Build, test, and deploy Node.js TypeScript projects",
+  "category": "languages/nodejs",
+  "icon": "nodejs",
+  "difficulty": "beginner",
+  "tags": ["node", "typescript", "npm", "javascript"],
+  "stages": [
+    {
+      "name": "Checkout",
+      "steps": [
+        { "type": "git.clone", "config": { "depth": 1 } }
+      ]
+    },
+    {
+      "name": "Install",
+      "steps": [
+        { "type": "shell", "config": { "command": "npm ci" } }
+      ]
+    },
+    {
+      "name": "Lint",
+      "steps": [
+        { "type": "shell", "config": { "command": "npm run lint" } }
+      ],
+      "optional": true
+    },
+    {
+      "name": "Test",
+      "steps": [
+        { "type": "shell", "config": { "command": "npm test" } }
+      ]
+    },
+    {
+      "name": "Build",
+      "steps": [
+        { "type": "shell", "config": { "command": "npm run build" } }
+      ]
+    }
+  ],
+  "variables": [
+    { "name": "NODE_VERSION", "default": "20", "description": "Node.js version" },
+    { "name": "BUILD_COMMAND", "default": "npm run build", "description": "Build command" },
+    { "name": "TEST_COMMAND", "default": "npm test", "description": "Test command" }
+  ]
+}
+```
+
+### Template UI
+
+```
+Projects → New Project → From Template
+┌─────────────────────────────────────────────────────────────┐
+│  Search templates...                                        │
+├─────────────────────────────────────────────────────────────┤
+│  Categories: [All] [Languages] [Platforms] [Game Dev]      │
+├─────────────────────────────────────────────────────────────┤
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
+│  │ Node.js  │ │ Go       │ │ Python   │ │ Java         │  │
+│  │ TS       │ │ CLI      │ │ Django   │ │ Maven        │  │
+│  │ Beginner │ │ Beginner │ │ Medium   │ │ Medium       │  │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
+│  │ Docker   │ │ K8s      │ │ Unity    │ │ React        │  │
+│  │ Build    │ │ Deploy   │ │ Android  │ │ Vercel       │  │
+│  │ Medium   │ │ Advanced │ │ Advanced │ │ Beginner     │  │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## [S17] Visual Operations & Beginner Experience
+
+### Visual Pipeline Editor
+
+```
+Pipeline Editor
+┌─────────────────────────────────────────────────────────────┐
+│  Pipeline: my-app-build                                     │
+├─────────────────────────────────────────────────────────────┤
+│  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────┐  │
+│  │ Checkout │ →  │ Install  │ →  │ Test     │ →  │Deploy│  │
+│  │ git.clone│    │ npm ci   │    │ npm test │    │ aws  │  │
+│  └──────────┘    └──────────┘    └──────────┘    └──────┘  │
+│       +              +              +              +        │
+│  [Add Step]     [Add Step]     [Add Step]     [Add Step]   │
+├─────────────────────────────────────────────────────────────┤
+│  Selected: Test                                             │
+│  Command: [npm test                    ]                    │
+│  Timeout: [300] seconds                                     │
+│  [Delete] [Duplicate] [Move Left] [Move Right]             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Beginner Onboarding
+
+1. **First Login Wizard**
+   - Welcome screen
+   - Create admin account (or use default root/root)
+   - Connect GitHub/GitLab (optional)
+   - Create first project from template
+   - Run first build
+
+2. **Guided Tours**
+   - Interactive tooltips for first-time users
+   - Step-by-step guides for common tasks
+   - Contextual help buttons
+
+3. **Quick Start Templates**
+   - "Hello World" template for each language
+   - Pre-configured with sensible defaults
+   - One-click deploy to popular platforms
+
+### Visual Dashboard
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  buildworld233 Dashboard                                    │
+├──────────────────┬──────────────────────────────────────────┤
+│                  │                                          │
+│  Quick Actions   │  Recent Builds                          │
+│  ──────────────  │  ──────────────────                     │
+│  [+ New Project] │  ✅ my-app #123 - 2m ago (success)     │
+│  [Run Build]     │  ❌ api-server #45 - 5m ago (failed)   │
+│  [View Logs]     │  ✅ website #67 - 1h ago (success)     │
+│                  │  ⏳ mobile-app #89 - running            │
+│  System Status   │                                          │
+│  ──────────────  │  Worker Status                          │
+│  Workers: 3/3    │  ──────────────────                     │
+│  Builds: 2/10    │  🟢 worker-01: online (2 builds)       │
+│  Queue: 0        │  🟢 worker-02: online (1 build)        │
+│  Uptime: 99.9%   │  🟢 worker-03: online (0 builds)      │
+│                  │                                          │
+├──────────────────┴──────────────────────────────────────────┤
+│  [Projects] [Builds] [Workers] [Plugins] [Settings]        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## [S18] Testing Strategy
 
 ### Unit Tests
 
@@ -1347,13 +2065,27 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - run: go test ./...
-      - run: go test -tags=integration ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - name: Run Go tests
+        run: go test ./...
+      - name: Run Go integration tests
+        run: go test -tags=integration ./...
+      - name: Build and test frontend
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+          npm run test
       - name: E2E Tests
         run: |
           go build -o buildworld233 ./cmd/server
           ./buildworld233 start &
-          npx playwright test
+          sleep 2
+          cd web && npx playwright test
 ```
 
 ---
@@ -1361,14 +2093,14 @@ jobs:
 ## [S17] Implementation Phases
 
 ### Phase 1: Foundation (Week 1-2)
-- [ ] Go project setup with go.mod
-- [ ] SQLite database layer with migrations
-- [ ] Configuration system (YAML)
-- [ ] CLI framework (cobra)
-- [ ] Basic HTTP server (chi)
+- [x] Go project setup with go.mod
+- [x] SQLite database layer with migrations
+- [x] Configuration system (YAML)
+- [x] CLI framework (cobra)
+- [x] Basic HTTP server (chi)
 
 ### Phase 2: Core Engine (Week 3-4)
-- [ ] Build scheduler
+- [x] Build scheduler
 - [ ] Pipeline executor
 - [ ] Workspace manager
 - [ ] Shell execution engine
@@ -1397,25 +2129,49 @@ jobs:
 - [ ] Git client
 - [ ] SVN client
 - [ ] SSH key management
+- [ ] Default admin account (root / root)
 
 ### Phase 6: Web UI (Week 11-14)
-- [ ] React/Vite setup
-- [ ] Dashboard
-- [ ] Project management
-- [ ] Build history & logs
-- [ ] User management
-- [ ] Plugin manager
-- [ ] Worker management UI
-- [ ] System settings
-- [ ] Backup & restore UI
+- [ ] React/Vite setup with Node 24 LTS
+- [ ] Dashboard with visual overview
+- [ ] Project management (visual CRUD)
+- [ ] Build history & logs (real-time)
+- [ ] User management (visual)
+- [ ] Plugin manager (visual install/enable/disable)
+- [ ] Worker management UI (visual)
+- [ ] System settings (visual)
+- [ ] Backup & restore UI (visual)
+- [ ] Pipeline visual editor (drag-and-drop)
+- [ ] Template gallery browser
 
-### Phase 7: Polish & Release (Week 15-16)
+### Phase 7: Templates & Visual (Week 15-16)
+- [ ] Pipeline template system
+- [ ] 50+ pre-built templates:
+  - [ ] Node.js/TypeScript projects
+  - [ ] Go projects
+  - [ ] Python projects
+  - [ ] Java/Maven projects
+  - [ ] .NET projects
+  - [ ] Docker build & push
+  - [ ] Kubernetes deployment
+  - [ ] AWS/GCP/Azure deployment
+  - [ ] Unity game builds
+  - [ ] React/Vue/Angular frontend
+  - [ ] Static site generators
+  - [ ] Database migrations
+  - [ ] API testing
+  - [ ] Security scanning
+  - [ ] Performance testing
+- [ ] Template customizer UI
+- [ ] Template sharing/import
+
+### Phase 8: CI/CD & Release (Week 17-18)
+- [ ] GitHub Actions CI (Node 24 LTS)
+- [ ] Automated test suite (100% pass required)
 - [ ] Install scripts (.ps1, .sh) for server & worker
 - [ ] Self-update mechanism
 - [ ] Docker support (server + worker)
 - [ ] Documentation site
-- [ ] Automated testing
-- [ ] GitHub Actions CI/CD
 - [ ] v1.0.0 release
 
 ---
@@ -1436,3 +2192,8 @@ jobs:
 12. **Worker label matching** — Route builds to specific workers
 13. **Worker failover** — Automatic reassignment on failure
 14. **Worker health monitoring** — Real-time status in UI
+15. **GitHub CI fully automated** — Node 24 LTS, tests must pass before merge
+16. **Visual operations** — All features accessible via web UI (no CLI required)
+17. **Massive templates** — Pre-built pipeline templates for common workflows
+18. **Beginner friendly** — Zero-to-build in under 5 minutes
+19. **Default admin** — root / root (change on first login)
