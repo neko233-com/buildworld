@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package worker;
+
+option go_package = "github.com/neko233-com/buildworld233/internal/rpc/generated";
+
+service WorkerService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc ExecuteBuild(BuildRequest) returns (stream BuildResponse);
+  rpc ReportStatus(StatusRequest) returns (StatusResponse);
+}
+
+message RegisterRequest {
+  string worker_id = 1;
+  string name = 2;
+  string address = 3;
+  string token = 4;
+  repeated string labels = 5;
+  int32 max_concurrent_builds = 6;
+}
+
+message RegisterResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message HeartbeatRequest {
+  string worker_id = 1;
+  float cpu_usage = 2;
+  float memory_usage = 3;
+  float disk_usage = 4;
+  int32 active_builds = 5;
+}
+
+message HeartbeatResponse {
+  bool acknowledged = 1;
+}
+
+message BuildRequest {
+  string build_id = 1;
+  string project_name = 2;
+  string repo_url = 3;
+  string branch = 4;
+  string commit_sha = 5;
+  string pipeline_config = 6;
+}
+
+message BuildResponse {
+  string build_id = 1;
+  string stage = 2;
+  string step = 3;
+  string output = 4;
+  string status = 5;
+  bool is_error = 6;
+}
+
+message StatusRequest {
+  string worker_id = 1;
+}
+
+message StatusResponse {
+  string worker_id = 1;
+  string status = 2;
+  int32 active_builds = 3;
+  int32 max_builds = 4;
+}
