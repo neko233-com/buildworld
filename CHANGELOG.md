@@ -5,6 +5,21 @@ All notable changes to buildworld233 will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-06-18
+
+### Added
+
+#### Multi-Language UI
+- English and Chinese (zh-CN) language support
+- Language selector in navigation bar
+- All UI components translated
+- LocalStorage persistence for language preference
+
+#### Additional Pages
+- Settings page with general, security, and backup options
+- Users page with user management table
+- Enhanced navigation with all pages
+
 ## [1.5.0] - 2026-06-18
 
 ### Added
