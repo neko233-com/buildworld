@@ -943,13 +943,14 @@ Settings → General → Language
 │  ▸ All Projects  │  Duration: 2m 34s                       │
 │  ▸ Build History │  Triggered by: push to main             │
 │  ▸ Agents        │                                          │
-│  ▸ Users         │  Console Output:                         │
+│  ▸ Users         │  Console Output (rolling):               │
 │                  │  ──────────────────                     │
-│                  │  [Checkout] Clone repository...         │
-│                  │  [Build] npm ci...                      │
-│                  │  [Build] npm run build...               │
-│                  │  [Test] npm test...                     │
-│                  │  [Deploy] Uploading to S3...            │
+│                  │  [21:46:28] [Checkout] Clone...         │
+│                  │  [21:46:30] [Build] npm ci...           │
+│                  │  [21:46:45] [Build] npm run build...    │
+│                  │  [21:47:12] [Test] npm test...          │
+│                  │  [21:47:30] [Deploy] Uploading...       │
+│                  │  ▼ Auto-scroll: ON                      │
 │                  │                                          │
 ├──────────────────┴──────────────────────────────────────────┤
 │  Status: 3 builds running | 12 queued | Last build: 2m ago │
@@ -966,13 +967,137 @@ Settings → General → Language
 6. **Plugin Manager** — install/enable/disable plugins
 7. **System Settings** — global config, notifications, agents
 8. **Backup & Restore** — export/import data
+9. **Real-time Monitor** — live build tracking, server status
 
-### Real-time Features
+### Rolling Logs (Jenkins-style)
 
-- WebSocket for live build console output
-- Auto-refresh build status
-- Push notifications for build completion
-- Live agent status monitoring
+```go
+type RollingLog struct {
+    BuildID   int64
+    Lines     []LogLine
+    MaxLines  int  // Default 10000, configurable
+    Truncated bool
+}
+
+type LogLine struct {
+    Timestamp time.Time
+    Level     string  // info, warn, error
+    Stage     string  // Checkout, Build, Test, Deploy
+    Step      string
+    Message   string
+    IsError   bool
+}
+```
+
+**Features:**
+- Rolling buffer (configurable max lines, default 10000)
+- Auto-scroll with toggle
+- Search/filter within logs
+- Download logs as text file
+- Color-coded by level (info=gray, warn=yellow, error=red)
+- Stage/step collapsible sections
+
+### Real-time Build Tracking
+
+```go
+type BuildStatus struct {
+    BuildID     int64     `json:"build_id"`
+    ProjectID   int64     `json:"project_id"`
+    Number      int       `json:"number"`
+    Status      string    `json:"status"`  // pending, running, success, failed
+    Stage       string    `json:"current_stage"`
+    Step        string    `json:"current_step"`
+    Progress    float64   `json:"progress"`  // 0.0 - 1.0
+    StartedAt   time.Time `json:"started_at"`
+    Duration    string    `json:"duration"`
+    WorkerID    string    `json:"worker_id"`
+    WorkerName  string    `json:"worker_name"`
+}
+
+type ServerStatus struct {
+    Uptime          time.Duration `json:"uptime"`
+    ActiveBuilds    int           `json:"active_builds"`
+    QueuedBuilds    int           `json:"queued_builds"`
+    TotalBuilds     int           `json:"total_builds"`
+    Workers         []WorkerStatus `json:"workers"`
+    CPUUsage        float64       `json:"cpu_usage"`
+    MemoryUsage     float64       `json:"memory_usage"`
+    DiskUsage       float64       `json:"disk_usage"`
+}
+
+type WorkerStatus struct {
+    ID              string    `json:"id"`
+    Name            string    `json:"name"`
+    Status          string    `json:"status"`
+    ActiveBuilds    int       `json:"active_builds"`
+    MaxBuilds       int       `json:"max_builds"`
+    CPU             float64   `json:"cpu"`
+    Memory          float64   `json:"memory"`
+    LastHeartbeat   time.Time `json:"last_heartbeat"`
+}
+```
+
+### WebSocket Events
+
+```typescript
+// Client subscribes to build updates
+ws.send(JSON.stringify({
+  type: "subscribe",
+  channel: "build:123"  // Build ID
+}));
+
+// Server sends real-time updates
+ws.send(JSON.stringify({
+  type: "build:status",
+  data: {
+    build_id: 123,
+    status: "running",
+    stage: "Build",
+    step: "npm run build",
+    progress: 0.45,
+    log_line: "[21:46:45] Building for production..."
+  }
+}));
+
+// Server sends log lines (rolling)
+ws.send(JSON.stringify({
+  type: "build:log",
+  data: {
+    build_id: 123,
+    line: {
+      timestamp: "2026-06-17T21:46:45Z",
+      level: "info",
+      stage: "Build",
+      message: "Build completed successfully"
+    }
+  }
+}));
+```
+
+### Real-time Monitor UI
+
+```
+Settings → Monitor
+┌─────────────────────────────────────────────────────────────┐
+│  Server Status                                              │
+├─────────────────────────────────────────────────────────────┤
+│  Uptime: 2h 34m 56s                                        │
+│  CPU: 23%  |  Memory: 45%  |  Disk: 67%                    │
+│  Active Builds: 3  |  Queued: 2  |  Total: 1,234          │
+├─────────────────────────────────────────────────────────────┤
+│  Workers                                                    │
+├─────────────────────────────────────────────────────────────┤
+│  🟢 worker-01 (192.168.1.100)  |  2/8 builds  |  CPU: 34% │
+│  🟢 worker-02 (192.168.1.101)  |  1/4 builds  |  CPU: 12% │
+│  🟡 worker-03 (192.168.1.102)  |  0/4 builds  |  Offline   │
+├─────────────────────────────────────────────────────────────┤
+│  Live Builds                                                │
+├─────────────────────────────────────────────────────────────┤
+│  #123 my-app        |  Build  |  45%  |  1m 23s           │
+│  #456 api-server    |  Test   |  78%  |  3m 45s           │
+│  #789 website       |  Deploy |  92%  |  5m 12s           │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
