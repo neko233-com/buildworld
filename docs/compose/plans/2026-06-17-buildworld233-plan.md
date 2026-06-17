@@ -2,11 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use compose:subagent (recommended) or compose:execute to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a modern CI/CD server (Jenkins alternative) in Go 1.26 with TypeScript DSL, plugin system, distributed workers, and React dashboard.
+**Goal:** Build a modern CI/CD server (Jenkins alternative) in Go 1.26 with TypeScript DSL, plugin system, distributed workers, React dashboard, 50+ templates, and visual operations for beginners.
 
 **Architecture:** Central scheduler server + distributed worker nodes. Server handles API, UI, storage, and scheduling. Workers execute builds via gRPC. Plugins run in-process via goja (TypeScript runtime). SQLite for metadata, local filesystem for artifacts.
 
-**Tech Stack:** Go 1.26, SQLite, goja (TypeScript), gRPC, React/Vite, chi (HTTP), cobra (CLI), fsnotify (config reload)
+**Tech Stack:** Go 1.26, SQLite, goja (TypeScript), gRPC, React/Vite (Node 24 LTS), chi (HTTP), cobra (CLI), fsnotify (config reload)
+
+**Key Features:**
+- Single binary deployment (zero dependencies)
+- Visual pipeline editor (drag-and-drop)
+- 50+ pre-built templates for common workflows
+- Beginner-friendly onboarding wizard
+- GitHub CI fully automated (tests must pass)
+- Default admin: root / root
 
 ---
 
