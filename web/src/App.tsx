@@ -1,8 +1,13 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import Projects from './pages/Projects'
+import ProjectDetail from './pages/ProjectDetail'
+import CreateProject from './pages/CreateProject'
 import Builds from './pages/Builds'
+import BuildDetail from './pages/BuildDetail'
 import Pipeline from './pages/Pipeline'
+import Agents from './pages/Agents'
+import Plugins from './pages/Plugins'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
 import { useI18n } from './i18n'
@@ -28,6 +33,12 @@ function App() {
                 </a>
                 <a href="/builds" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
                   {t('nav.builds')}
+                </a>
+                <a href="/agents" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
+                  Agents
+                </a>
+                <a href="/plugins" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
+                  {t('nav.plugins')}
                 </a>
                 <a href="/users" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
                   {t('nav.users')}
@@ -56,8 +67,13 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/projects" element={<Projects />} />
+            <Route path="/projects/new" element={<CreateProject />} />
+            <Route path="/projects/:id" element={<ProjectDetail />} />
             <Route path="/pipeline" element={<Pipeline />} />
             <Route path="/builds" element={<Builds />} />
+            <Route path="/builds/:id" element={<BuildDetail />} />
+            <Route path="/agents" element={<Agents />} />
+            <Route path="/plugins" element={<Plugins />} />
             <Route path="/users" element={<Users />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
