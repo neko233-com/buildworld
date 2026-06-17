@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/yuin/gopher-lua"
 )
@@ -12,6 +13,7 @@ import (
 type Loader struct {
 	path    string
 	plugins map[string]*Plugin
+	mu      sync.RWMutex
 }
 
 func NewLoader(path string) *Loader {
@@ -53,15 +55,21 @@ func (l *Loader) Load(name string) error {
 		Path:       pluginPath,
 	}
 
+	l.mu.Lock()
 	l.plugins[name] = plugin
+	l.mu.Unlock()
 	return nil
 }
 
 func (l *Loader) Get(name string) *Plugin {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 	return l.plugins[name]
 }
 
 func (l *Loader) List() []*Plugin {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 	var list []*Plugin
 	for _, p := range l.plugins {
 		list = append(list, p)
@@ -70,6 +78,8 @@ func (l *Loader) List() []*Plugin {
 }
 
 func (l *Loader) Unload(name string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	delete(l.plugins, name)
 	return nil
 }
