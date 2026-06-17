@@ -1,0 +1,90 @@
+{
+  "app": {
+    "title": "buildworld233",
+    "tagline": "现代化 CI/CD 服务器"
+  },
+  "nav": {
+    "dashboard": "仪表盘",
+    "projects": "项目",
+    "builds": "构建",
+    "plugins": "插件",
+    "settings": "设置",
+    "users": "用户"
+  },
+  "dashboard": {
+    "title": "仪表盘",
+    "projects": "项目",
+    "activeBuilds": "活跃构建",
+    "workers": "工作节点",
+    "recentBuilds": "最近构建",
+    "systemStatus": "系统状态"
+  },
+  "projects": {
+    "title": "项目",
+    "newProject": "新建项目",
+    "fromTemplate": "从模板创建",
+    "name": "名称",
+    "status": "状态",
+    "lastBuild": "最近构建",
+    "actions": "操作",
+    "edit": "编辑",
+    "delete": "删除",
+    "build": "构建"
+  },
+  "builds": {
+    "title": "构建历史",
+    "buildNumber": "构建 #",
+    "status": "状态",
+    "duration": "耗时",
+    "trigger": "触发方式",
+    "branch": "分支",
+    "commit": "提交",
+    "logs": "日志",
+    "artifacts": "产物",
+    "parameters": "参数"
+  },
+  "plugins": {
+    "title": "插件",
+    "install": "安装",
+    "enable": "启用",
+    "disable": "禁用",
+    "uninstall": "卸载",
+    "settings": "设置"
+  },
+  "settings": {
+    "title": "设置",
+    "general": "通用",
+    "security": "安全",
+    "notifications": "通知",
+    "backup": "备份与恢复",
+    "about": "关于"
+  },
+  "users": {
+    "title": "用户管理",
+    "addUser": "添加用户",
+    "username": "用户名",
+    "email": "邮箱",
+    "role": "角色",
+    "actions": "操作",
+    "edit": "编辑",
+    "delete": "删除"
+  },
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "confirm": "确认",
+    "loading": "加载中...",
+    "error": "错误",
+    "success": "成功",
+    "search": "搜索...",
+    "noData": "暂无数据"
+  },
+  "status": {
+    "success": "成功",
+    "failed": "失败",
+    "running": "运行中",
+    "pending": "等待中",
+    "cancelled": "已取消"
+  }
+}
