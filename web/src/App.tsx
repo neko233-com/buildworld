@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import Projects from './pages/Projects'
 import Builds from './pages/Builds'
+import Pipeline from './pages/Pipeline'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
 import { useI18n } from './i18n'
@@ -21,6 +22,9 @@ function App() {
                 </a>
                 <a href="/projects" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
                   {t('nav.projects')}
+                </a>
+                <a href="/pipeline" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
+                  Pipeline
                 </a>
                 <a href="/builds" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
                   {t('nav.builds')}
@@ -52,6 +56,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/projects" element={<Projects />} />
+            <Route path="/pipeline" element={<Pipeline />} />
             <Route path="/builds" element={<Builds />} />
             <Route path="/users" element={<Users />} />
             <Route path="/settings" element={<Settings />} />
