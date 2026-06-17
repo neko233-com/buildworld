@@ -5,6 +5,20 @@ All notable changes to buildworld233 will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-06-17
+
+### Added
+
+#### TypeScript DSL Plugin System
+- **TypeScript/JavaScript runtime via goja** - Full ES5.1+ support for plugin scripts
+- Plugin scripts can now be written in `.js` or `.ts` files
+- Hot-reload now works with JavaScript files
+- All existing tests updated to use JavaScript syntax
+
+### Changed
+- Plugin loader now supports both `.js` and `.ts` file extensions
+- Removed gopher-lua dependency, replaced with goja (pure Go, no CGO)
+
 ## [1.0.0] - 2026-06-17
 
 ### Added
