@@ -5,6 +5,24 @@ All notable changes to buildworld233 will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-06-18
+
+### Added
+
+#### HTTPS/proxysss Integration
+- TLS/HTTPS support with automatic certificate management
+- proxysss integration for Let's Encrypt certificates
+- Self-signed certificate generation
+- Certificate auto-renewal
+- TLS configuration management
+
+#### Visual Pipeline Editor
+- Drag-and-drop pipeline stage management
+- Visual pipeline flow diagram
+- Step configuration editor
+- Export pipeline to JSON
+- Real-time code preview
+
 ## [1.6.0] - 2026-06-18
 
 ### Added
