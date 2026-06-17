@@ -1,7 +1,7 @@
 package main
 
-import "fmt"
+import "github.com/neko233-com/buildworld233/internal/cli"
 
 func main() {
-	fmt.Println("buildworld233 CLI")
+	cli.Execute()
 }
