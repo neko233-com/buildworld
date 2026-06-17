@@ -5,6 +5,18 @@ All notable changes to buildworld233 will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-06-18
+
+### Added
+
+#### Comprehensive Web UI
+- Build Detail page with console output, artifacts, and parameters
+- Project Detail page with configuration, builds history, and settings
+- Agents page with worker management, health monitoring, and status
+- Plugins page with install/enable/disable/uninstall functionality
+- Create Project page with template selection
+- Enhanced navigation with all pages
+
 ## [1.7.0] - 2026-06-18
 
 ### Added
