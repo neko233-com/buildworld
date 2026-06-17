@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useI18n } from '../i18n'
 
 interface PipelineStage {
   id: string
@@ -16,7 +15,6 @@ interface PipelineStep {
 }
 
 export default function PipelineEditor() {
-  const { t } = useI18n()
   const [stages, setStages] = useState<PipelineStage[]>([
     {
       id: '1',
