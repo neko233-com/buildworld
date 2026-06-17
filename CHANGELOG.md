@@ -5,6 +5,22 @@ All notable changes to buildworld233 will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-17
+
+### Added
+
+#### SVN Support
+- SVN client for checkout/update/commit operations
+- SVN repository information retrieval
+- SVN status checking
+
+#### SSH Password Authentication
+- SSH key pair generation (Ed25519)
+- SSH public key retrieval
+- SSH fingerprint generation
+- Git clone with SSH password authentication
+- Credential helper for password-based SSH auth
+
 ## [1.1.0] - 2026-06-17
 
 ### Added
