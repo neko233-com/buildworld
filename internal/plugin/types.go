@@ -8,6 +8,5 @@ type PluginMeta struct {
 
 type Plugin struct {
 	PluginMeta
-	Path    string
-	Runtime interface{}
+	Path string
 }
