@@ -24,10 +24,10 @@ func TestPluginHotReload(t *testing.T) {
 }
 `), 0644)
 
-	os.WriteFile(filepath.Join(pluginDir, "index.lua"), []byte(`
-function onLoad()
-  return "v1"
-end
+	os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`
+function onLoad() {
+  return "v1";
+}
 `), 0644)
 
 	loader := NewLoader(tmpDir)
@@ -44,10 +44,10 @@ end
 
 	watcher.Watch("test-plugin")
 
-	os.WriteFile(filepath.Join(pluginDir, "index.lua"), []byte(`
-function onLoad()
-  return "v2"
-end
+	os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`
+function onLoad() {
+  return "v2";
+}
 `), 0644)
 
 	time.Sleep(500 * time.Millisecond)
@@ -68,7 +68,7 @@ func TestHotReloadStop(t *testing.T) {
 	pluginDir := filepath.Join(tmpDir, "test-plugin")
 	os.MkdirAll(pluginDir, 0755)
 	os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{"name":"test-plugin","version":"1.0.0","description":"Test"}`), 0644)
-	os.WriteFile(filepath.Join(pluginDir, "index.lua"), []byte(`function onLoad() return "ok" end`), 0644)
+	os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`function onLoad() { return "ok"; }`), 0644)
 
 	loader := NewLoader(tmpDir)
 	loader.Load("test-plugin")
@@ -82,7 +82,7 @@ func TestHotReloadStop(t *testing.T) {
 	watcher.Stop()
 
 	// Writing after stop should not panic or cause errors
-	os.WriteFile(filepath.Join(pluginDir, "index.lua"), []byte(`function onLoad() return "v2" end`), 0644)
+	os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`function onLoad() { return "v2"; }`), 0644)
 	time.Sleep(150 * time.Millisecond)
 }
 
@@ -97,7 +97,7 @@ func TestHotReloadWatchMultiple(t *testing.T) {
 		dir := filepath.Join(tmpDir, name)
 		os.MkdirAll(dir, 0755)
 		os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{"name":"`+name+`","version":"1.0.0","description":"Test"}`), 0644)
-		os.WriteFile(filepath.Join(dir, "index.lua"), []byte(`function onLoad() return "v1" end`), 0644)
+		os.WriteFile(filepath.Join(dir, "index.js"), []byte(`function onLoad() { return "v1"; }`), 0644)
 	}
 
 	loader := NewLoader(tmpDir)
@@ -114,8 +114,8 @@ func TestHotReloadWatchMultiple(t *testing.T) {
 	watcher.Watch("plugin-b")
 
 	// Modify both plugins
-	os.WriteFile(filepath.Join(tmpDir, "plugin-a", "index.lua"), []byte(`function onLoad() return "v2" end`), 0644)
-	os.WriteFile(filepath.Join(tmpDir, "plugin-b", "index.lua"), []byte(`function onLoad() return "v2" end`), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "plugin-a", "index.js"), []byte(`function onLoad() { return "v2"; }`), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "plugin-b", "index.js"), []byte(`function onLoad() { return "v2"; }`), 0644)
 
 	time.Sleep(300 * time.Millisecond)
 
@@ -137,7 +137,7 @@ func TestHotReloadDebounce(t *testing.T) {
 	pluginDir := filepath.Join(tmpDir, "test-plugin")
 	os.MkdirAll(pluginDir, 0755)
 	os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{"name":"test-plugin","version":"1.0.0","description":"Test"}`), 0644)
-	os.WriteFile(filepath.Join(pluginDir, "index.lua"), []byte(`function onLoad() return "v1" end`), 0644)
+	os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`function onLoad() { return "v1"; }`), 0644)
 
 	loader := NewLoader(tmpDir)
 	loader.Load("test-plugin")
@@ -152,7 +152,7 @@ func TestHotReloadDebounce(t *testing.T) {
 
 	// Rapid fire writes — debounce should coalesce them
 	for i := 0; i < 5; i++ {
-		os.WriteFile(filepath.Join(pluginDir, "index.lua"), []byte(`function onLoad() return "rapid" end`), 0644)
+		os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`function onLoad() { return "rapid"; }`), 0644)
 		time.Sleep(20 * time.Millisecond)
 	}
 

@@ -26,10 +26,10 @@ func TestPluginLoader(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(pluginDir, "index.lua"), []byte(`
-function onLoad()
-  return "Plugin loaded!"
-end
+	if err := os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`
+function onLoad() {
+  return "Plugin loaded!";
+}
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -73,10 +73,10 @@ func TestPluginList(t *testing.T) {
 }`), 0644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "index.lua"), []byte(`
-function onLoad()
-  return "ok"
-end
+		if err := os.WriteFile(filepath.Join(dir, "index.js"), []byte(`
+function onLoad() {
+  return "ok";
+}
 `), 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -124,7 +124,7 @@ func TestPluginLoadInvalidJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{invalid json`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "index.lua"), []byte(`function onLoad() return "ok" end`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`function onLoad() { return "ok"; }`), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -157,7 +157,7 @@ func TestPluginLoadMissingScript(t *testing.T) {
 	loader := NewLoader(tmpDir)
 	err = loader.Load("no-script")
 	if err == nil {
-		t.Error("Load() should return error when index.lua is missing")
+		t.Error("Load() should return error when index.js is missing")
 	}
 }
 
@@ -192,7 +192,7 @@ func TestPluginLoadMultiple(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(meta), 0644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "index.lua"), []byte(`function onLoad() return "ok" end`), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "index.js"), []byte(`function onLoad() { return "ok"; }`), 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -237,7 +237,7 @@ func TestPluginMetadataParsing(t *testing.T) {
 }`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "index.lua"), []byte(`function onLoad() return "ok" end`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`function onLoad() { return "ok"; }`), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -286,10 +286,10 @@ func TestPluginUnload(t *testing.T) {
 }`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "index.lua"), []byte(`
-function onLoad()
-  return "ok"
-end
+	if err := os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`
+function onLoad() {
+  return "ok";
+}
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
