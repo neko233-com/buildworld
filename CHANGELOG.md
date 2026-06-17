@@ -5,6 +5,32 @@ All notable changes to buildworld233 will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-06-17
+
+### Added
+
+#### Development Environments
+- JDK 21 auto-detection and setup
+- Maven 3.9.6 auto-detection and setup
+- Node.js 24 auto-detection and setup
+- npm auto-detection and setup
+- Gradle 8.5 auto-detection and setup
+- Environment variable configuration
+
+#### Pipeline Templates
+- 8 built-in templates:
+  - Node.js TypeScript
+  - Go CLI Application
+  - Python Django
+  - Docker Build & Push
+  - Kubernetes Deploy
+  - Unity Android Build
+  - React (Vercel)
+- Template search and filtering
+- Custom template creation
+- Template export/import
+- Template save/load to files
+
 ## [1.3.0] - 2026-06-17
 
 ### Added
