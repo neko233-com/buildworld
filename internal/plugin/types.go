@@ -1,5 +1,7 @@
 package plugin
 
+import "github.com/dop251/goja"
+
 type PluginMeta struct {
 	Name        string `json:"name"`
 	Version     string `json:"version"`
@@ -8,5 +10,6 @@ type PluginMeta struct {
 
 type Plugin struct {
 	PluginMeta
-	Path string
+	Path    string
+	runtime *goja.Runtime
 }

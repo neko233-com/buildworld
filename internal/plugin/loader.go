@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/yuin/gopher-lua"
+	"github.com/dop251/goja"
 )
 
 type Loader struct {
@@ -37,22 +37,28 @@ func (l *Loader) Load(name string) error {
 		return fmt.Errorf("parse plugin.json: %w", err)
 	}
 
-	scriptPath := filepath.Join(pluginPath, "index.lua")
+	// Support both .ts and .js files
+	scriptPath := filepath.Join(pluginPath, "index.ts")
 	scriptData, err := os.ReadFile(scriptPath)
 	if err != nil {
-		return fmt.Errorf("read index.lua: %w", err)
+		// Fallback to .js
+		scriptPath = filepath.Join(pluginPath, "index.js")
+		scriptData, err = os.ReadFile(scriptPath)
+		if err != nil {
+			return fmt.Errorf("read index.ts/index.js: %w", err)
+		}
 	}
 
-	L := lua.NewState()
-	defer L.Close()
-
-	if err := L.DoString(string(scriptData)); err != nil {
+	vm := goja.New()
+	_, err = vm.RunString(string(scriptData))
+	if err != nil {
 		return fmt.Errorf("execute plugin: %w", err)
 	}
 
 	plugin := &Plugin{
 		PluginMeta: meta,
 		Path:       pluginPath,
+		runtime:    vm,
 	}
 
 	l.mu.Lock()
