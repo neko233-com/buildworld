@@ -1,0 +1,90 @@
+{
+  "app": {
+    "title": "buildworld233",
+    "tagline": "Modern CI/CD Server"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "projects": "Projects",
+    "builds": "Builds",
+    "plugins": "Plugins",
+    "settings": "Settings",
+    "users": "Users"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "projects": "Projects",
+    "activeBuilds": "Active Builds",
+    "workers": "Workers",
+    "recentBuilds": "Recent Builds",
+    "systemStatus": "System Status"
+  },
+  "projects": {
+    "title": "Projects",
+    "newProject": "New Project",
+    "fromTemplate": "From Template",
+    "name": "Name",
+    "status": "Status",
+    "lastBuild": "Last Build",
+    "actions": "Actions",
+    "edit": "Edit",
+    "delete": "Delete",
+    "build": "Build"
+  },
+  "builds": {
+    "title": "Build History",
+    "buildNumber": "Build #",
+    "status": "Status",
+    "duration": "Duration",
+    "trigger": "Trigger",
+    "branch": "Branch",
+    "commit": "Commit",
+    "logs": "Logs",
+    "artifacts": "Artifacts",
+    "parameters": "Parameters"
+  },
+  "plugins": {
+    "title": "Plugins",
+    "install": "Install",
+    "enable": "Enable",
+    "disable": "Disable",
+    "uninstall": "Uninstall",
+    "settings": "Settings"
+  },
+  "settings": {
+    "title": "Settings",
+    "general": "General",
+    "security": "Security",
+    "notifications": "Notifications",
+    "backup": "Backup & Restore",
+    "about": "About"
+  },
+  "users": {
+    "title": "User Management",
+    "addUser": "Add User",
+    "username": "Username",
+    "email": "Email",
+    "role": "Role",
+    "actions": "Actions",
+    "edit": "Edit",
+    "delete": "Delete"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "confirm": "Confirm",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "search": "Search...",
+    "noData": "No data"
+  },
+  "status": {
+    "success": "Success",
+    "failed": "Failed",
+    "running": "Running",
+    "pending": "Pending",
+    "cancelled": "Cancelled"
+  }
+}
