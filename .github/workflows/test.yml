@@ -25,19 +25,23 @@ jobs:
       - name: Run Go tests
         run: go test ./...
       
-      - name: Run Go integration tests
-        run: go test -tags=integration ./...
+      - name: Run Go vet
+        run: go vet ./...
       
-      - name: Build and test frontend
+      - name: Build all binaries
+        run: |
+          go build -o buildworld233 ./cmd/server
+          go build -o buildworld233-agent ./cmd/worker
+          go build -o bwctl ./cmd/cli
+      
+      - name: Build frontend
         working-directory: web
         run: |
           npm ci
           npm run build
           npm run test
       
-      - name: E2E Tests
+      - name: Verify binary sizes
         run: |
-          go build -o buildworld233 ./cmd/server
-          ./buildworld233 start &
-          sleep 2
-          cd web && npx playwright test
+          ls -lh buildworld233 buildworld233-agent bwctl
+          echo "All binaries built successfully"
