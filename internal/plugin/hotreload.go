@@ -3,15 +3,18 @@ package plugin
 import (
 	"log"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
 
 type HotReload struct {
-	watcher *fsnotify.Watcher
-	loader  *Loader
-	stop    chan struct{}
+	watcher  *fsnotify.Watcher
+	loader   *Loader
+	stop     chan struct{}
+	mu       sync.Mutex
+	timers   map[string]*time.Timer
 }
 
 func NewHotReload(loader *Loader) (*HotReload, error) {
@@ -24,6 +27,7 @@ func NewHotReload(loader *Loader) (*HotReload, error) {
 		watcher: w,
 		loader:  loader,
 		stop:    make(chan struct{}),
+		timers:  make(map[string]*time.Timer),
 	}, nil
 }
 
@@ -34,8 +38,6 @@ func (h *HotReload) Watch(pluginName string) {
 }
 
 func (h *HotReload) loop() {
-	var debounce *time.Timer
-
 	for {
 		select {
 		case event, ok := <-h.watcher.Events:
@@ -46,13 +48,15 @@ func (h *HotReload) loop() {
 				pluginName := filepath.Base(filepath.Dir(event.Name))
 				log.Printf("Plugin %s changed, reloading...", pluginName)
 
-				if debounce != nil {
-					debounce.Stop()
+				h.mu.Lock()
+				if t, exists := h.timers[pluginName]; exists {
+					t.Stop()
 				}
-				debounce = time.AfterFunc(100*time.Millisecond, func() {
+				h.timers[pluginName] = time.AfterFunc(100*time.Millisecond, func() {
 					h.loader.Unload(pluginName)
 					h.loader.Load(pluginName)
 				})
+				h.mu.Unlock()
 			}
 		case <-h.stop:
 			return
@@ -63,4 +67,9 @@ func (h *HotReload) loop() {
 func (h *HotReload) Stop() {
 	close(h.stop)
 	h.watcher.Close()
+	h.mu.Lock()
+	for _, t := range h.timers {
+		t.Stop()
+	}
+	h.mu.Unlock()
 }
