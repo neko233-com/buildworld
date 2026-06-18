@@ -5,6 +5,23 @@ All notable changes to buildworld233 will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-06-18
+
+### Added
+
+#### WebSocket Real-time Build Logs
+- WebSocket hub for managing client connections
+- Room-based message broadcasting
+- Real-time build log streaming
+- Build status updates via WebSocket
+- Client subscription to specific builds
+
+#### Webhook Receivers
+- GitHub webhook receiver with signature verification
+- GitLab webhook receiver with token verification
+- Push event handling
+- Branch and commit extraction
+
 ## [1.8.0] - 2026-06-18
 
 ### Added
