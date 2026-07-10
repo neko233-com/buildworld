@@ -280,3 +280,27 @@ type BuildQueueItem struct {
 	QueuedAt    time.Time  `json:"queued_at"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 }
+
+type GitHookEvent string
+
+const (
+	GitHookPush         GitHookEvent = "push"
+	GitHookTag          GitHookEvent = "tag_push"
+	GitHookPullRequest  GitHookEvent = "pull_request"
+	GitHookMergeRequest GitHookEvent = "merge_request"
+	GitHookRelease      GitHookEvent = "release"
+)
+
+type GitHook struct {
+	ID          int64        `json:"id"`
+	ProjectID   int64        `json:"project_id"`
+	Name        string       `json:"name"`
+	Event       GitHookEvent `json:"event"`
+	Branch      string       `json:"branch"`
+	Secret      string       `json:"secret,omitempty"`
+	Enabled     bool         `json:"enabled"`
+	BuildParams string       `json:"build_params"`
+	Description string       `json:"description,omitempty"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+}

@@ -2017,3 +2017,146 @@ func (h *handlers) serverMetrics(w http.ResponseWriter, r *http.Request) {
 // startTime 用于 metrics 的 uptime 计算
 var startTime = time.Now()
 
+// ---------------------------------------------------------------------------
+// Git Hooks
+// ---------------------------------------------------------------------------
+
+type createGitHookReq struct {
+	Name        string `json:"name"`
+	Event       string `json:"event"`
+	Branch      string `json:"branch"`
+	Secret      string `json:"secret"`
+	Enabled     *bool  `json:"enabled"`
+	BuildParams string `json:"build_params"`
+	Description string `json:"description"`
+}
+
+func (h *handlers) listGitHooks(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid project id")
+		return
+	}
+	hooks, err := h.d.Store.ListGitHooks(projectID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, hooks)
+}
+
+func (h *handlers) createGitHook(w http.ResponseWriter, r *http.Request) {
+	projectID, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid project id")
+		return
+	}
+	var req createGitHookReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.Event == "" {
+		req.Event = "push"
+	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	hook, err := h.d.Store.CreateGitHook(projectID, req.Name, store.GitHookEvent(req.Event), req.Branch, req.Secret, enabled, req.BuildParams, req.Description)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "create", "git_hook", fmt.Sprintf("%d", hook.ID), req.Name)
+	writeJSON(w, http.StatusCreated, hook)
+}
+
+func (h *handlers) getGitHook(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	hook, err := h.d.Store.GetGitHook(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "hook not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, hook)
+}
+
+func (h *handlers) updateGitHook(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	existing, err := h.d.Store.GetGitHook(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "hook not found")
+		return
+	}
+	var req createGitHookReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		req.Name = existing.Name
+	}
+	if req.Event == "" {
+		req.Event = string(existing.Event)
+	}
+	enabled := existing.Enabled
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	if err := h.d.Store.UpdateGitHook(id, req.Name, store.GitHookEvent(req.Event), req.Branch, req.Secret, enabled, req.BuildParams, req.Description); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	hook, err := h.d.Store.GetGitHook(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "update", "git_hook", fmt.Sprintf("%d", id), req.Name)
+	writeJSON(w, http.StatusOK, hook)
+}
+
+func (h *handlers) deleteGitHook(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := h.d.Store.DeleteGitHook(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "delete", "git_hook", fmt.Sprintf("%d", id), "")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// ---------------------------------------------------------------------------
+// Big Screen
+// ---------------------------------------------------------------------------
+
+func (h *handlers) getBigScreenData(w http.ResponseWriter, _ *http.Request) {
+	if h.d.BigScreen == nil {
+		writeErr(w, http.StatusServiceUnavailable, "bigscreen service not available")
+		return
+	}
+	data, err := h.d.BigScreen.GetBigScreenData()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
+}
+

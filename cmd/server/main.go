@@ -81,6 +81,7 @@ func main() {
 	statisticsService := engine.NewStatisticsService(db)
 	runner.SetStatisticsService(statisticsService)
 	approvalService := engine.NewApprovalService(db)
+	bigScreenService := engine.NewBigScreenService(db)
 	triggerChecker := engine.NewTriggerChecker(db, runner, hub)
 	triggerChecker.Start()
 	defer triggerChecker.Stop()
@@ -102,6 +103,7 @@ func main() {
 		StaticFS:   staticFS,
 		Statistics: statisticsService,
 		Approval:   approvalService,
+		BigScreen:  bigScreenService,
 	})
 
 	// Config hot-reload.

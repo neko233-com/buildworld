@@ -185,4 +185,14 @@ export const api = {
 
   // server metrics
   getServerMetrics: () => request<any>('GET', '/metrics'),
+
+  // bigscreen
+  getBigScreenData: () => request<any>('GET', '/bigscreen'),
+
+  // git hooks
+  listGitHooks: (projectId: number) => request<any[]>(`GET`, `/projects/${projectId}/hooks`),
+  createGitHook: (projectId: number, data: any) => request(`POST`, `/projects/${projectId}/hooks`, data),
+  getGitHook: (id: number) => request<any>(`GET`, `/hooks/${id}`),
+  updateGitHook: (id: number, data: any) => request(`PUT`, `/hooks/${id}`, data),
+  deleteGitHook: (id: number) => request(`DELETE`, `/hooks/${id}`),
 }

@@ -256,4 +256,18 @@ var migrations = []string{
 	`ALTER TABLE builds ADD COLUMN timeout_sec INTEGER DEFAULT 0`,
 	`ALTER TABLE builds ADD COLUMN test_result_id INTEGER`,
 	`ALTER TABLE projects ADD COLUMN group_id INTEGER REFERENCES project_groups(id)`,
+	`CREATE TABLE IF NOT EXISTS git_hooks (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		project_id INTEGER NOT NULL REFERENCES projects(id),
+		name TEXT NOT NULL,
+		event TEXT NOT NULL,
+		branch TEXT DEFAULT '',
+		secret TEXT DEFAULT '',
+		enabled BOOLEAN DEFAULT TRUE,
+		build_params TEXT DEFAULT '{}',
+		description TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_git_hooks_project ON git_hooks(project_id)`,
 }
