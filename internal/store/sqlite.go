@@ -33,10 +33,12 @@ func New(dbPath string) (*Store, error) {
 func (s *Store) migrate() error {
 	for _, m := range migrations {
 		if _, err := s.db.Exec(m); err != nil {
-			if strings.Contains(err.Error(), "duplicate column name") {
+			msg := err.Error()
+			if strings.Contains(msg, "duplicate column name") ||
+				strings.Contains(msg, "already exists") {
 				continue
 			}
-			return fmt.Errorf("migration: %w", err)
+			return fmt.Errorf("migration [%s]: %w", m[:min(60, len(m))], err)
 		}
 	}
 	return nil
