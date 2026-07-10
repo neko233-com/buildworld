@@ -13,6 +13,11 @@ export function clearToken() {
   localStorage.removeItem('token')
 }
 
+function authHeader(): Record<string, string> {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 async function request<T = any>(method: string, path: string, body?: any): Promise<T> {
   const headers: Record<string, string> = {}
   const token = getToken()
@@ -69,8 +74,15 @@ export const api = {
   // plugins
   listPlugins: () => request<any[]>('GET', '/plugins/'),
   installPlugin: (data: any) => request('POST', '/plugins/', data),
-  deletePlugin: (id: number) => request('DELETE', `/plugins/${id}`),
-  togglePlugin: (id: number, enabled: boolean) => request('PUT', `/plugins/${id}/enable`, { enabled }),
+  deletePlugin: (idOrName: number | string) => request('DELETE', `/plugins/${idOrName}`),
+  togglePlugin: (idOrName: number | string, enabled: boolean) => request('PUT', `/plugins/${idOrName}/enable`, { enabled }),
+  reloadPlugin: (name: string) => request('POST', `/plugins/${name}/reload`),
+  getPluginUI: (name: string) =>
+    fetch(`${API_BASE}/plugins/${name}/ui.js`, { headers: authHeader() }).then(r => {
+      if (!r.ok) return ''
+      return r.text()
+    }),
+  listUIExtensions: () => request<any>('GET', '/plugins/ui-extensions'),
 
   // users
   listUsers: () => request<any[]>('GET', '/users/'),

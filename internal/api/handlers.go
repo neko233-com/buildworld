@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"runtime"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/neko233-com/buildworld233/internal/auth"
 	"github.com/neko233-com/buildworld233/internal/engine"
+	"github.com/neko233-com/buildworld233/internal/plugin"
 	"github.com/neko233-com/buildworld233/internal/store"
 	"github.com/neko233-com/buildworld233/internal/webhook"
 )
@@ -429,32 +431,84 @@ func (h *handlers) generateAgentToken(w http.ResponseWriter, _ *http.Request) {
 // plugins
 // ---------------------------------------------------------------------------
 
+type pluginWithStatus struct {
+	*store.Plugin
+	Status plugin.PluginStatus `json:"status"`
+}
+
 type installPluginReq struct {
 	Name        string `json:"name"`
 	Version     string `json:"version"`
 	Description string `json:"description"`
+	Author      string `json:"author"`
 	Config      string `json:"config"`
+	Script      string `json:"script"`
+	UIScript    string `json:"ui_script"`
+	Source      string `json:"source"`
 }
 
 func (h *handlers) listPlugins(w http.ResponseWriter, _ *http.Request) {
-	// DB-installed plugins.
-	plugins, err := h.d.Store.ListPlugins()
+	dbPlugins, err := h.d.Store.ListPlugins()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Merge with runtime-loaded plugins from the loader.
+
+	pluginMap := make(map[string]*store.Plugin)
+	for _, p := range dbPlugins {
+		pluginMap[p.Name] = p
+	}
+
 	if h.d.Loader != nil {
-		for _, p := range h.d.Loader.List() {
-			plugins = append(plugins, &store.Plugin{
-				Name:        p.Name,
-				Version:     p.Version,
-				Description: p.Description,
-				Enabled:     true,
-			})
+		for _, name := range getBuiltinPluginNames(h.d.Loader) {
+			if _, exists := pluginMap[name]; !exists {
+				p := h.d.Loader.Get(name)
+				if p != nil {
+					uiExtJSON, _ := json.Marshal(p.UIExtensions())
+					dbP := &store.Plugin{
+						Name:         p.Name,
+						Version:      p.Version,
+						Description:  p.Description,
+						Author:       p.Author,
+						Enabled:      true,
+						Source:       "builtin",
+						Steps:        "[]",
+						Triggers:     "[]",
+						UIExtensions: string(uiExtJSON),
+					}
+					pluginMap[name] = dbP
+					_, _ = h.d.Store.CreatePlugin(p.Name, p.Version, p.Description, p.Author, "", "builtin")
+				}
+			}
 		}
 	}
-	writeJSON(w, http.StatusOK, plugins)
+
+	var result []pluginWithStatus
+	for _, p := range pluginMap {
+		status := plugin.PluginStatus{Loaded: false, Steps: []string{}, Triggers: []string{}}
+		if h.d.Loader != nil {
+			if rp := h.d.Loader.Get(p.Name); rp != nil {
+				status = rp.GetStatus()
+				stepsJSON, _ := json.Marshal(status.Steps)
+				triggersJSON, _ := json.Marshal(status.Triggers)
+				uiExtJSON, _ := json.Marshal(rp.UIExtensions())
+				p.Steps = string(stepsJSON)
+				p.Triggers = string(triggersJSON)
+				p.UIExtensions = string(uiExtJSON)
+			}
+		}
+		result = append(result, pluginWithStatus{Plugin: p, Status: status})
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func getBuiltinPluginNames(l *plugin.Loader) []string {
+	var names []string
+	for _, p := range l.ListAll() {
+		names = append(names, p.Name)
+	}
+	return names
 }
 
 func (h *handlers) installPlugin(w http.ResponseWriter, r *http.Request) {
@@ -467,25 +521,70 @@ func (h *handlers) installPlugin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	p, err := h.d.Store.CreatePlugin(req.Name, req.Version, req.Description, req.Config)
+	if req.Version == "" {
+		req.Version = "1.0.0"
+	}
+	if req.Source == "" {
+		req.Source = "upload"
+	}
+
+	if h.d.Loader != nil && req.Script != "" {
+		if err := h.d.Loader.InstallPlugin(req.Name, req.Version, req.Description, req.Author, req.Script, req.UIScript); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	p, err := h.d.Store.CreatePlugin(req.Name, req.Version, req.Description, req.Author, req.Config, req.Source)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Attempt to load from disk if loader is configured.
+
 	if h.d.Loader != nil {
-		_ = h.d.Loader.Load(req.Name)
+		if err := h.d.Loader.Load(req.Name); err != nil {
+			log.Printf("Warning: failed to load installed plugin %s: %v", req.Name, err)
+		} else if rp := h.d.Loader.Get(req.Name); rp != nil {
+			stepsJSON, _ := json.Marshal(rp.StepTypes())
+			triggersJSON, _ := json.Marshal(nil)
+			uiExtJSON, _ := json.Marshal(rp.UIExtensions())
+			_ = h.d.Store.UpdatePluginStatus(req.Name, true, string(stepsJSON), string(triggersJSON), string(uiExtJSON))
+		}
 	}
+
 	writeJSON(w, http.StatusCreated, p)
 }
 
 func (h *handlers) deletePlugin(w http.ResponseWriter, r *http.Request) {
-	id, err := parseIDInt64(r)
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		id, err := parseIDInt64(r)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid name or id")
+			return
+		}
+		p, err := h.d.Store.GetPlugin(id)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "plugin not found")
+			return
+		}
+		name = p.Name
+	}
+
+	p, err := h.d.Store.GetPluginByName(name)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid id")
+		writeErr(w, http.StatusNotFound, "plugin not found")
 		return
 	}
-	if err := h.d.Store.DeletePlugin(id); err != nil {
+	if p.Source == "builtin" {
+		writeErr(w, http.StatusBadRequest, "cannot delete builtin plugin")
+		return
+	}
+
+	if h.d.Loader != nil {
+		_ = h.d.Loader.DeletePlugin(name)
+	}
+	if err := h.d.Store.DeletePluginByName(name); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -493,11 +592,21 @@ func (h *handlers) deletePlugin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) togglePlugin(w http.ResponseWriter, r *http.Request) {
-	id, err := parseIDInt64(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		id, err := parseIDInt64(r)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid name or id")
+			return
+		}
+		p, err := h.d.Store.GetPlugin(id)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "plugin not found")
+			return
+		}
+		name = p.Name
 	}
+
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
@@ -505,11 +614,81 @@ func (h *handlers) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := h.d.Store.UpdatePluginEnabled(id, req.Enabled); err != nil {
+
+	p, err := h.d.Store.GetPluginByName(name)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "plugin not found")
+		return
+	}
+	if err := h.d.Store.UpdatePluginEnabled(p.ID, req.Enabled); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	if h.d.Loader != nil {
+		h.d.Loader.SetEnabled(name, req.Enabled)
+		if req.Enabled {
+			if err := h.d.Loader.Load(name); err != nil {
+				log.Printf("Warning: failed to enable plugin %s: %v", name, err)
+			}
+		} else {
+			h.d.Loader.Unload(name)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *handlers) reloadPlugin(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if h.d.Loader == nil {
+		writeErr(w, http.StatusInternalServerError, "loader not configured")
+		return
+	}
+	if err := h.d.Loader.Reload(name); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if rp := h.d.Loader.Get(name); rp != nil {
+		stepsJSON, _ := json.Marshal(rp.StepTypes())
+		triggersJSON, _ := json.Marshal(nil)
+		uiExtJSON, _ := json.Marshal(rp.UIExtensions())
+		_ = h.d.Store.UpdatePluginStatus(name, true, string(stepsJSON), string(triggersJSON), string(uiExtJSON))
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *handlers) getPluginUI(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if h.d.Loader == nil {
+		http.NotFound(w, r)
+		return
+	}
+	script, ok := h.d.Loader.GetPluginUI(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(script))
+}
+
+func (h *handlers) listUIExtensions(w http.ResponseWriter, _ *http.Request) {
+	if h.d.Loader == nil {
+		writeJSON(w, http.StatusOK, map[string][]plugin.UIExtension{})
+		return
+	}
+	exts := h.d.Loader.GetAllUIExtensions()
+	writeJSON(w, http.StatusOK, exts)
 }
 
 // ---------------------------------------------------------------------------

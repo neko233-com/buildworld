@@ -270,4 +270,11 @@ var migrations = []string{
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_git_hooks_project ON git_hooks(project_id)`,
+	`ALTER TABLE plugins ADD COLUMN author TEXT DEFAULT ''`,
+	`ALTER TABLE plugins ADD COLUMN path TEXT DEFAULT ''`,
+	`ALTER TABLE plugins ADD COLUMN source TEXT DEFAULT 'builtin'`,
+	`ALTER TABLE plugins ADD COLUMN steps TEXT DEFAULT '[]'`,
+	`ALTER TABLE plugins ADD COLUMN triggers TEXT DEFAULT '[]'`,
+	`ALTER TABLE plugins ADD COLUMN ui_extensions TEXT DEFAULT '[]'`,
+	`ALTER TABLE plugins ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`,
 }

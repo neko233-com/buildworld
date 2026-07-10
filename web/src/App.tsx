@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import Projects from './pages/Projects'
@@ -25,6 +26,7 @@ import BigScreen from './pages/BigScreen'
 import GitHooks from './pages/GitHooks'
 import { useI18n } from './i18n'
 import { clearToken } from './api'
+import { loadAllPluginUI, getExtensions } from './plugin-runtime'
 
 function NavItem({ href, label }: { href: string; label: string }) {
   return (
@@ -37,6 +39,11 @@ function NavItem({ href, label }: { href: string; label: string }) {
 function Layout({ children }: { children: React.ReactNode }) {
   const { t, locale, changeLocale, locales } = useI18n()
   const navigate = useNavigate()
+  const [pluginsLoaded, setPluginsLoaded] = useState(false)
+
+  useEffect(() => {
+    loadAllPluginUI().then(() => setPluginsLoaded(true))
+  }, [])
 
   const handleLogout = () => {
     clearToken()
@@ -48,6 +55,8 @@ function Layout({ children }: { children: React.ReactNode }) {
     window.location.href = '/login'
     return null
   }
+
+  const menuExtensions = pluginsLoaded ? getExtensions('global_menu') : []
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -75,6 +84,10 @@ function Layout({ children }: { children: React.ReactNode }) {
               <NavItem href="/api-tokens" label={t('nav.apiTokens')} />
               <NavItem href="/users" label={t('nav.users')} />
               <NavItem href="/settings" label={t('nav.settings')} />
+              {menuExtensions.map(ext => {
+                const Comp = ext.Component
+                return <Comp key={ext.key} />
+              })}
               <a href="/bigscreen" target="_blank" rel="noopener noreferrer" className="flex items-center px-3 py-2 text-cyan-600 hover:text-cyan-800 hover:bg-cyan-50 rounded transition font-medium">
                 📊 {t('nav.bigScreen')}
               </a>

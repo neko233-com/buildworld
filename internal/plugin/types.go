@@ -6,14 +6,40 @@ import (
 	"github.com/dop251/goja"
 )
 
-type PluginMeta struct {
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Description string `json:"description"`
-	Author      string `json:"author,omitempty"`
+type UIExtensionPoint string
+
+const (
+	UIExtProjectTab     UIExtensionPoint = "project_tab"
+	UIExtBuildDetail    UIExtensionPoint = "build_detail_panel"
+	UIExtPipelineStep   UIExtensionPoint = "pipeline_step_config"
+	UIExtDashboardWidget UIExtensionPoint = "dashboard_widget"
+	UIExtGlobalMenu     UIExtensionPoint = "global_menu"
+	UIExtSettingsTab    UIExtensionPoint = "settings_tab"
+)
+
+type UIExtension struct {
+	Point     UIExtensionPoint `json:"point"`
+	Name      string           `json:"name"`
+	Label     string           `json:"label"`
+	Component string           `json:"component"`
+	Icon      string           `json:"icon,omitempty"`
 }
 
-// StepContext is the execution context passed to a plugin-defined step.
+type PluginMeta struct {
+	Name         string         `json:"name"`
+	Version      string         `json:"version"`
+	Description  string         `json:"description"`
+	Author       string         `json:"author,omitempty"`
+	UIExtensions []UIExtension  `json:"ui_extensions,omitempty"`
+}
+
+type PluginStatus struct {
+	Loaded   bool     `json:"loaded"`
+	Error    string   `json:"error,omitempty"`
+	Steps    []string `json:"steps"`
+	Triggers []string `json:"triggers"`
+}
+
 type StepContext struct {
 	Workspace string
 	Branch    string
@@ -26,10 +52,8 @@ type StepContext struct {
 	FailMsg   string
 }
 
-// StepHandler executes a plugin step. Returns error on failure.
 type StepHandler func(ctx context.Context, sc *StepContext) error
 
-// TriggerHandler evaluates whether a trigger should fire.
 type TriggerHandler func(payload map[string]interface{}) bool
 
 type Plugin struct {
@@ -37,13 +61,13 @@ type Plugin struct {
 	Path    string
 	runtime *goja.Runtime
 
-	// Registered step types (e.g. "github-notify", "docker-build").
-	stepTypes map[string]StepHandler
-	// Registered trigger types (e.g. "schedule", "webhook").
+	stepTypes    map[string]StepHandler
 	triggerTypes map[string]TriggerHandler
+	uiExtensions []UIExtension
+	uiScript     string
+	loadError    string
 }
 
-// StepTypes returns the step type names this plugin registered.
 func (p *Plugin) StepTypes() []string {
 	var names []string
 	for k := range p.stepTypes {
@@ -52,12 +76,38 @@ func (p *Plugin) StepTypes() []string {
 	return names
 }
 
-// GetStep returns the handler for a step type, or nil if not found.
+func (p *Plugin) TriggerTypes() []string {
+	var names []string
+	for k := range p.triggerTypes {
+		names = append(names, k)
+	}
+	return names
+}
+
 func (p *Plugin) GetStep(name string) StepHandler {
 	return p.stepTypes[name]
 }
 
-// GetTrigger returns the handler for a trigger type, or nil if not found.
 func (p *Plugin) GetTrigger(name string) TriggerHandler {
 	return p.triggerTypes[name]
+}
+
+func (p *Plugin) UIExtensions() []UIExtension {
+	return p.uiExtensions
+}
+
+func (p *Plugin) UIScript() string {
+	return p.uiScript
+}
+
+func (p *Plugin) GetStatus() PluginStatus {
+	status := PluginStatus{
+		Loaded:   p.runtime != nil,
+		Steps:    p.StepTypes(),
+		Triggers: p.TriggerTypes(),
+	}
+	if p.loadError != "" {
+		status.Error = p.loadError
+	}
+	return status
 }

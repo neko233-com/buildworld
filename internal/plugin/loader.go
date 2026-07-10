@@ -19,7 +19,6 @@ import (
 	"github.com/dop251/goja"
 )
 
-// execCommand creates a shell command for cross-platform execution.
 func execCommand(command string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
 		return exec.Command("cmd", "/c", command)
@@ -27,21 +26,21 @@ func execCommand(command string) *exec.Cmd {
 	return exec.Command("sh", "-c", command)
 }
 
-// Loader loads plugins from disk and maintains a registry of step/trigger handlers.
 type Loader struct {
-	path    string
-	plugins map[string]*Plugin
-	mu      sync.RWMutex
+	path           string
+	plugins        map[string]*Plugin
+	enabledPlugins map[string]bool
+	mu             sync.RWMutex
 }
 
 func NewLoader(path string) *Loader {
 	return &Loader{
-		path:    path,
-		plugins: make(map[string]*Plugin),
+		path:           path,
+		plugins:        make(map[string]*Plugin),
+		enabledPlugins: make(map[string]bool),
 	}
 }
 
-// Load reads and executes a plugin from disk, registering its steps/triggers.
 func (l *Loader) Load(name string) error {
 	pluginPath := filepath.Join(l.path, name)
 
@@ -56,11 +55,12 @@ func (l *Loader) Load(name string) error {
 		return fmt.Errorf("parse plugin.json: %w", err)
 	}
 
-	// Support both .ts and .js entry files.
 	scriptData, err := readScript(pluginPath)
 	if err != nil {
 		return err
 	}
+
+	uiScriptData, _ := readUIScript(pluginPath)
 
 	p := &Plugin{
 		PluginMeta:   meta,
@@ -68,26 +68,28 @@ func (l *Loader) Load(name string) error {
 		runtime:      goja.New(),
 		stepTypes:    make(map[string]StepHandler),
 		triggerTypes: make(map[string]TriggerHandler),
+		uiExtensions: meta.UIExtensions,
+		uiScript:     string(uiScriptData),
 	}
 
-	// Expose registerStep / registerTrigger to the JS runtime.
 	l.exposeAPI(p)
 
 	if _, err := p.runtime.RunString(string(scriptData)); err != nil {
+		p.loadError = err.Error()
+		p.runtime = nil
 		return fmt.Errorf("execute plugin %s: %w", name, err)
 	}
 
 	l.mu.Lock()
 	l.plugins[name] = p
+	l.enabledPlugins[name] = true
 	l.mu.Unlock()
 
 	log.Printf("Plugin loaded: %s v%s (steps: %v)", meta.Name, meta.Version, p.StepTypes())
 	return nil
 }
 
-// exposeAPI injects registerStep/registerTrigger into the goja runtime.
 func (l *Loader) exposeAPI(p *Plugin) {
-	// registerStep(typeName, gojaFunction)
 	p.runtime.Set("registerStep", func(call goja.FunctionCall) goja.Value {
 		typeName := call.Argument(0).String()
 		fn, ok := goja.AssertFunction(call.Argument(1))
@@ -96,7 +98,6 @@ func (l *Loader) exposeAPI(p *Plugin) {
 		}
 
 		handler := func(ctx context.Context, sc *StepContext) error {
-			// Build a JS context object to pass to the plugin function.
 			jsCtx := p.runtime.NewObject()
 			_ = jsCtx.Set("workspace", sc.Workspace)
 			_ = jsCtx.Set("branch", sc.Branch)
@@ -136,7 +137,6 @@ func (l *Loader) exposeAPI(p *Plugin) {
 		return p.runtime.ToValue(nil)
 	})
 
-	// registerTrigger(typeName, gojaFunction)
 	p.runtime.Set("registerTrigger", func(call goja.FunctionCall) goja.Value {
 		typeName := call.Argument(0).String()
 		fn, ok := goja.AssertFunction(call.Argument(1))
@@ -156,8 +156,26 @@ func (l *Loader) exposeAPI(p *Plugin) {
 		return p.runtime.ToValue(nil)
 	})
 
-	// http(method, url, options) → {status, body}
-	// options: {headers: {}, body: "", timeout: 30}
+	p.runtime.Set("registerUI", func(call goja.FunctionCall) goja.Value {
+		point := call.Argument(0).String()
+		name := call.Argument(1).String()
+		label := call.Argument(2).String()
+		component := call.Argument(3).String()
+		icon := ""
+		if len(call.Arguments) > 4 {
+			icon = call.Argument(4).String()
+		}
+		ext := UIExtension{
+			Point:     UIExtensionPoint(point),
+			Name:      name,
+			Label:     label,
+			Component: component,
+			Icon:      icon,
+		}
+		p.uiExtensions = append(p.uiExtensions, ext)
+		return p.runtime.ToValue(nil)
+	})
+
 	p.runtime.Set("http", func(call goja.FunctionCall) goja.Value {
 		method := call.Argument(0).String()
 		url := call.Argument(1).String()
@@ -204,7 +222,6 @@ func (l *Loader) exposeAPI(p *Plugin) {
 		})
 	})
 
-	// exec(command) → {output, error}  — runs a shell command and captures output.
 	p.runtime.Set("exec", func(call goja.FunctionCall) goja.Value {
 		command := call.Argument(0).String()
 		cmd := execCommand(command)
@@ -229,15 +246,38 @@ func readScript(pluginPath string) ([]byte, error) {
 	return nil, fmt.Errorf("read index.js/index.ts in %s", pluginPath)
 }
 
-// Get returns a loaded plugin by name.
+func readUIScript(pluginPath string) ([]byte, error) {
+	for _, name := range []string{"ui.js", filepath.Join("ui", "index.js")} {
+		data, err := os.ReadFile(filepath.Join(pluginPath, name))
+		if err == nil {
+			return data, nil
+		}
+	}
+	return nil, fmt.Errorf("no ui script found")
+}
+
 func (l *Loader) Get(name string) *Plugin {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
+	if !l.enabledPlugins[name] {
+		return nil
+	}
 	return l.plugins[name]
 }
 
-// List returns all loaded plugins.
 func (l *Loader) List() []*Plugin {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	var list []*Plugin
+	for name, p := range l.plugins {
+		if l.enabledPlugins[name] {
+			list = append(list, p)
+		}
+	}
+	return list
+}
+
+func (l *Loader) ListAll() []*Plugin {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	var list []*Plugin
@@ -247,11 +287,13 @@ func (l *Loader) List() []*Plugin {
 	return list
 }
 
-// LookupStep finds a step handler across all loaded plugins.
 func (l *Loader) LookupStep(typeName string) StepHandler {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	for _, p := range l.plugins {
+	for name, p := range l.plugins {
+		if !l.enabledPlugins[name] {
+			continue
+		}
 		if h := p.stepTypes[typeName]; h != nil {
 			return h
 		}
@@ -259,11 +301,13 @@ func (l *Loader) LookupStep(typeName string) StepHandler {
 	return nil
 }
 
-// LookupTrigger finds a trigger handler across all loaded plugins.
 func (l *Loader) LookupTrigger(typeName string) TriggerHandler {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	for _, p := range l.plugins {
+	for name, p := range l.plugins {
+		if !l.enabledPlugins[name] {
+			continue
+		}
 		if h := p.triggerTypes[typeName]; h != nil {
 			return h
 		}
@@ -271,12 +315,11 @@ func (l *Loader) LookupTrigger(typeName string) TriggerHandler {
 	return nil
 }
 
-// LoadAll loads all plugins found in the loader's path directory.
 func (l *Loader) LoadAll() error {
 	entries, err := os.ReadDir(l.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // no plugins dir — fine
+			return nil
 		}
 		return err
 	}
@@ -294,5 +337,85 @@ func (l *Loader) Unload(name string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.plugins, name)
+	delete(l.enabledPlugins, name)
 	return nil
+}
+
+func (l *Loader) Reload(name string) error {
+	l.Unload(name)
+	return l.Load(name)
+}
+
+func (l *Loader) SetEnabled(name string, enabled bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.enabledPlugins[name] = enabled
+}
+
+func (l *Loader) IsEnabled(name string) bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.enabledPlugins[name]
+}
+
+func (l *Loader) InstallPlugin(name, version, description, author, scriptContent, uiScriptContent string) error {
+	pluginPath := filepath.Join(l.path, name)
+	if err := os.MkdirAll(pluginPath, 0o755); err != nil {
+		return fmt.Errorf("create plugin dir: %w", err)
+	}
+
+	meta := PluginMeta{
+		Name:        name,
+		Version:     version,
+		Description: description,
+		Author:      author,
+	}
+	metaData, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(pluginPath, "plugin.json"), metaData, 0o644); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(filepath.Join(pluginPath, "index.js"), []byte(scriptContent), 0o644); err != nil {
+		return err
+	}
+
+	if uiScriptContent != "" {
+		if err := os.WriteFile(filepath.Join(pluginPath, "ui.js"), []byte(uiScriptContent), 0o644); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (l *Loader) DeletePlugin(name string) error {
+	pluginPath := filepath.Join(l.path, name)
+	l.Unload(name)
+	return os.RemoveAll(pluginPath)
+}
+
+func (l *Loader) GetPluginUI(name string) (string, bool) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	p, ok := l.plugins[name]
+	if !ok {
+		return "", false
+	}
+	return p.uiScript, p.uiScript != ""
+}
+
+func (l *Loader) GetAllUIExtensions() map[string][]UIExtension {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	result := make(map[string][]UIExtension)
+	for name, p := range l.plugins {
+		if !l.enabledPlugins[name] {
+			continue
+		}
+		result[name] = p.uiExtensions
+	}
+	return result
 }
