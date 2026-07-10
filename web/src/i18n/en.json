@@ -19,7 +19,34 @@
     "auditLog": "Audit Log",
     "apiTokens": "API Tokens",
     "deployments": "Deployments",
-    "buildQueue": "Build Queue"
+    "buildQueue": "Build Queue",
+    "bigScreen": "Data Screen",
+    "gitHooks": "Git Hooks"
+  },
+  "bigScreen": {
+    "title": "CI/CD Data Screen",
+    "totalBuilds": "Total Builds",
+    "running": "Running",
+    "queued": "Queued",
+    "successToday": "Success Today",
+    "failedToday": "Failed Today",
+    "activeAgents": "Active Agents",
+    "recentBuilds": "Recent Builds",
+    "trend7d": "7-Day Trend",
+    "agentStatus": "Agent Status",
+    "projectRanking": "Project Ranking",
+    "recentEvents": "Recent Events",
+    "systemInfo": "System Info",
+    "successRate": "Success Rate",
+    "lastUpdate": "Last Update"
+  },
+  "gitHooks": {
+    "title": "Git Hooks",
+    "event": "Event",
+    "branch": "Branch Filter",
+    "secret": "Webhook Secret",
+    "webhookUrl": "Webhook URL",
+    "params": "Build Parameters (JSON)"
   },
   "agents": {
     "title": "Agents",

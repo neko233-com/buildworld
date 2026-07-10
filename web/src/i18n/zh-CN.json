@@ -19,7 +19,34 @@
     "auditLog": "审计日志",
     "apiTokens": "API Token",
     "deployments": "部署",
-    "buildQueue": "构建队列"
+    "buildQueue": "构建队列",
+    "bigScreen": "数据大屏",
+    "gitHooks": "Git Hooks"
+  },
+  "bigScreen": {
+    "title": "CI/CD 数据大屏",
+    "totalBuilds": "总构建数",
+    "running": "运行中",
+    "queued": "等待中",
+    "successToday": "今日成功",
+    "failedToday": "今日失败",
+    "activeAgents": "活跃节点",
+    "recentBuilds": "最近构建",
+    "trend7d": "7天趋势",
+    "agentStatus": "节点状态",
+    "projectRanking": "项目排行",
+    "recentEvents": "最近事件",
+    "systemInfo": "系统信息",
+    "successRate": "成功率",
+    "lastUpdate": "最后更新"
+  },
+  "gitHooks": {
+    "title": "Git Hooks",
+    "event": "事件",
+    "branch": "分支过滤",
+    "secret": "Webhook 密钥",
+    "webhookUrl": "Webhook URL",
+    "params": "构建参数 (JSON)"
   },
   "agents": {
     "title": "节点管理",

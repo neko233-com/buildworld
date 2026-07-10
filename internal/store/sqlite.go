@@ -1959,3 +1959,100 @@ func (s *Store) UpdateBuildQueueItemPriority(id, priority int64) error {
 	_, err := s.db.Exec("UPDATE build_queue_items SET priority=? WHERE id=?", priority, id)
 	return err
 }
+
+// ---------------- Git Hooks ----------------
+
+func (s *Store) CreateGitHook(projectID int64, name string, event GitHookEvent, branch, secret string, enabled bool, buildParams, description string) (*GitHook, error) {
+	if buildParams == "" {
+		buildParams = "{}"
+	}
+	res, err := s.db.Exec(
+		"INSERT INTO git_hooks (project_id, name, event, branch, secret, enabled, build_params, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		projectID, name, string(event), branch, secret, enabled, buildParams, description,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.GetGitHook(id)
+}
+
+func (s *Store) GetGitHook(id int64) (*GitHook, error) {
+	h := &GitHook{}
+	var branch, secret, desc sql.NullString
+	err := s.db.QueryRow(
+		"SELECT id, project_id, name, event, branch, secret, enabled, build_params, description, created_at, updated_at FROM git_hooks WHERE id = ?",
+		id,
+	).Scan(&h.ID, &h.ProjectID, &h.Name, &h.Event, &branch, &secret, &h.Enabled, &h.BuildParams, &desc, &h.CreatedAt, &h.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	h.Branch = branch.String
+	h.Secret = secret.String
+	h.Description = desc.String
+	return h, nil
+}
+
+func (s *Store) ListGitHooks(projectID int64) ([]*GitHook, error) {
+	rows, err := s.db.Query(
+		"SELECT id, project_id, name, event, branch, secret, enabled, build_params, description, created_at, updated_at FROM git_hooks WHERE project_id = ? ORDER BY id",
+		projectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var hooks []*GitHook
+	for rows.Next() {
+		h := &GitHook{}
+		var branch, secret, desc sql.NullString
+		if err := rows.Scan(&h.ID, &h.ProjectID, &h.Name, &h.Event, &branch, &secret, &h.Enabled, &h.BuildParams, &desc, &h.CreatedAt, &h.UpdatedAt); err != nil {
+			return nil, err
+		}
+		h.Branch = branch.String
+		h.Secret = secret.String
+		h.Description = desc.String
+		hooks = append(hooks, h)
+	}
+	return hooks, nil
+}
+
+func (s *Store) UpdateGitHook(id int64, name string, event GitHookEvent, branch, secret string, enabled bool, buildParams, description string) error {
+	if buildParams == "" {
+		buildParams = "{}"
+	}
+	_, err := s.db.Exec(
+		"UPDATE git_hooks SET name=?, event=?, branch=?, secret=?, enabled=?, build_params=?, description=?, updated_at=? WHERE id=?",
+		name, string(event), branch, secret, enabled, buildParams, description, time.Now(), id,
+	)
+	return err
+}
+
+func (s *Store) DeleteGitHook(id int64) error {
+	_, err := s.db.Exec("DELETE FROM git_hooks WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) GetGitHookByProjectAndEvent(projectID int64, event string) ([]*GitHook, error) {
+	rows, err := s.db.Query(
+		"SELECT id, project_id, name, event, branch, secret, enabled, build_params, description, created_at, updated_at FROM git_hooks WHERE project_id = ? AND event = ? AND enabled = 1",
+		projectID, event,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var hooks []*GitHook
+	for rows.Next() {
+		h := &GitHook{}
+		var branch, secret, desc sql.NullString
+		if err := rows.Scan(&h.ID, &h.ProjectID, &h.Name, &h.Event, &branch, &secret, &h.Enabled, &h.BuildParams, &desc, &h.CreatedAt, &h.UpdatedAt); err != nil {
+			return nil, err
+		}
+		h.Branch = branch.String
+		h.Secret = secret.String
+		h.Description = desc.String
+		hooks = append(hooks, h)
+	}
+	return hooks, nil
+}

@@ -21,6 +21,8 @@ import Deployments from './pages/Deployments'
 import BuildQueue from './pages/BuildQueue'
 import TestReports from './pages/TestReports'
 import Login from './pages/Login'
+import BigScreen from './pages/BigScreen'
+import GitHooks from './pages/GitHooks'
 import { useI18n } from './i18n'
 import { clearToken } from './api'
 
@@ -68,10 +70,14 @@ function Layout({ children }: { children: React.ReactNode }) {
               <NavItem href="/credentials" label={t('nav.credentials')} />
               <NavItem href="/notifications" label={t('settings.notifications')} />
               <NavItem href="/statistics" label={t('nav.statistics')} />
+              <NavItem href="/git-hooks" label={t('nav.gitHooks')} />
               <NavItem href="/audit-log" label={t('nav.auditLog')} />
               <NavItem href="/api-tokens" label={t('nav.apiTokens')} />
               <NavItem href="/users" label={t('nav.users')} />
               <NavItem href="/settings" label={t('nav.settings')} />
+              <a href="/bigscreen" target="_blank" rel="noopener noreferrer" className="flex items-center px-3 py-2 text-cyan-600 hover:text-cyan-800 hover:bg-cyan-50 rounded transition font-medium">
+                📊 {t('nav.bigScreen')}
+              </a>
             </div>
             <div className="flex items-center gap-2">
               <select
@@ -105,6 +111,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/bigscreen" element={<BigScreen />} />
         <Route path="/" element={<Layout><Dashboard /></Layout>} />
         <Route path="/projects" element={<Layout><Projects /></Layout>} />
         <Route path="/projects/new" element={<Layout><CreateProject /></Layout>} />
@@ -122,6 +129,7 @@ function App() {
         <Route path="/credentials" element={<Layout><Credentials /></Layout>} />
         <Route path="/notifications" element={<Layout><Notifications /></Layout>} />
         <Route path="/statistics" element={<Layout><Statistics /></Layout>} />
+        <Route path="/git-hooks" element={<Layout><GitHooks /></Layout>} />
         <Route path="/audit-log" element={<Layout><AuditLog /></Layout>} />
         <Route path="/api-tokens" element={<Layout><APITokens /></Layout>} />
         <Route path="/users" element={<Layout><Users /></Layout>} />

@@ -37,6 +37,7 @@ type Deps struct {
 	StaticFS   fs.FS
 	Statistics *engine.StatisticsService
 	Approval   *engine.ApprovalService
+	BigScreen  *engine.BigScreenService
 }
 
 func NewServer(d Deps) *Server {

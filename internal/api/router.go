@@ -38,6 +38,7 @@ var publicPrefixes = []string{
 	"/api/webhooks/",
 	"/api/badge/",
 	"/api/trigger/",
+	"/api/bigscreen",
 }
 
 // NewRouter wires all REST routes + WebSocket + webhooks onto a chi router.
@@ -105,6 +106,10 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/builds", h.listProjectBuilds)
 				r.Post("/builds", h.triggerBuild)
 				r.Get("/stats", h.getProjectStats)
+				r.Route("/hooks", func(r chi.Router) {
+					r.Get("/", h.listGitHooks)
+					r.Post("/", h.createGitHook)
+				})
 			})
 		})
 
@@ -201,6 +206,16 @@ func NewRouter(d Deps) http.Handler {
 
 		// --- statistics ---
 		r.Get("/stats/dashboard", h.getDashboardStats)
+
+		// --- git hooks ---
+		r.Route("/hooks/{id}", func(r chi.Router) {
+			r.Get("/", h.getGitHook)
+			r.Put("/", h.updateGitHook)
+			r.Delete("/", h.deleteGitHook)
+		})
+
+		// --- big screen ---
+		r.Get("/bigscreen", h.getBigScreenData)
 
 		// --- audit logs ---
 		r.Get("/audit-logs", h.listAuditLogs)
