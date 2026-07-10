@@ -4,19 +4,23 @@ sidebar_position: 1
 
 # buildworld233
 
-A modern CI/CD server - Jenkins alternative with TypeScript DSL, plugin system, and distributed workers.
+A modern CI/CD server - Jenkins alternative with YAML/JSON pipelines, plugin system, and distributed workers.
 
 ## Features
 
-- **TypeScript DSL** - Write build pipelines in TypeScript/JavaScript
-- **Plugin System** - Hot-reloadable plugins with goja runtime
-- **Agent-First Architecture** - Distributed build execution
-- **Git/SVN Integration** - Support for GitHub, GitLab, Gitee, Gitea, and SVN
-- **SSH Authentication** - Key and password-based SSH auth
+- **YAML/JSON Pipelines** - Support GitHub Actions-style YAML and JSON pipeline definitions
+- **Plugin System** - Hot-reloadable plugins with goja JS runtime
+- **Agent-First Architecture** - Distributed build execution with agent pools and requirements
+- **VCS Integration** - Git, SVN, Mercurial support with VCS Roots
+- **SSH Authentication** - Key and password-based SSH auth with credential management
 - **Environment Variables** - Global and project-level variables
 - **Parameterized Builds** - Build parameters with validation
 - **Dev Environments** - Auto-setup JDK, Maven, Node.js, Gradle
-- **Templates** - 8+ built-in pipeline templates
+- **Build Templates** - Reusable build templates with project overrides
+- **Build Triggers** - Schedule (cron), VCS polling, and finish triggers
+- **Artifact Management** - Secure artifact storage with SHA256 verification
+- **Notifications** - Email, Feishu, and HTTP webhook notifications
+- **Internationalization** - English and Chinese with automatic language detection
 - **Modern UI** - React dashboard with real-time updates
 
 ## Quick Start

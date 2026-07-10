@@ -1,0 +1,6 @@
+{
+  "name": "slack",
+  "version": "1.0.0",
+  "description": "Slack notification: send build status messages to channels",
+  "author": "buildworld233"
+}

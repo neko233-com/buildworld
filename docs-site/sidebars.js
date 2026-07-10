@@ -8,6 +8,7 @@ const sidebars = {
     'plugins',
     'agents',
     'templates',
+    'notifications',
   ],
 };
 

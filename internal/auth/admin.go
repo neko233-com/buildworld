@@ -3,9 +3,12 @@ package auth
 import (
 	"log"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/neko233-com/buildworld233/internal/store"
 )
 
+// SetupDefaultAdmin creates the default root/root admin account if absent.
 func SetupDefaultAdmin(db *store.Store) error {
 	admin, err := db.GetUserByUsername("root")
 	if err == nil && admin != nil {
@@ -28,6 +31,16 @@ func SetupDefaultAdmin(db *store.Store) error {
 	return nil
 }
 
+// HashPassword returns a bcrypt hash of the password.
 func HashPassword(password string) (string, error) {
-	return password + "_hashed", nil
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+// CheckPassword verifies a password against a bcrypt hash.
+func CheckPassword(hash, password string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }

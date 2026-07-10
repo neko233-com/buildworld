@@ -6,10 +6,57 @@
   "nav": {
     "dashboard": "仪表盘",
     "projects": "项目",
+    "pipeline": "流水线",
     "builds": "构建",
+    "agents": "节点",
+    "vcsRoots": "VCS Roots",
+    "templates": "模板",
     "plugins": "插件",
+    "credentials": "凭据",
     "settings": "设置",
     "users": "用户"
+  },
+  "agents": {
+    "title": "节点管理",
+    "register": "注册节点",
+    "generateToken": "生成 Token",
+    "name": "名称",
+    "address": "地址",
+    "pool": "池",
+    "labels": "标签",
+    "maxBuilds": "最大并发",
+    "heartbeat": "心跳",
+    "status": "状态",
+    "actions": "操作"
+  },
+  "vcsRoots": {
+    "title": "VCS Roots",
+    "new": "新建 VCS Root",
+    "name": "名称",
+    "type": "类型",
+    "url": "URL",
+    "branch": "分支",
+    "credential": "凭据",
+    "pollInterval": "轮询间隔(秒)",
+    "autoCheckout": "自动检出",
+    "none": "无"
+  },
+  "templates": {
+    "title": "构建模板",
+    "new": "新建模板",
+    "name": "名称",
+    "description": "描述",
+    "config": "配置",
+    "use": "使用",
+    "created": "创建时间"
+  },
+  "credentials": {
+    "title": "凭据管理",
+    "new": "新建凭据",
+    "name": "名称",
+    "type": "类型",
+    "host": "主机",
+    "username": "用户名"
   },
   "dashboard": {
     "title": "仪表盘",
@@ -58,6 +105,19 @@
     "notifications": "通知",
     "backup": "备份与恢复",
     "about": "关于"
+  },
+  "notifications": {
+    "title": "通知渠道",
+    "new": "新建渠道",
+    "name": "名称",
+    "type": "类型",
+    "description": "描述",
+    "enabled": "启用",
+    "events": "事件",
+    "email": "邮件",
+    "feishu": "飞书",
+    "webhook": "Webhook",
+    "conditions": "条件"
   },
   "users": {
     "title": "用户管理",

@@ -1,0 +1,26 @@
+{
+  "id": "templates",
+  "title": "Templates",
+  "description": "Overview",
+  "source": "@site/docs/templates.md",
+  "sourceDirName": ".",
+  "slug": "/templates",
+  "permalink": "/zh-Hans/templates",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 7,
+  "frontMatter": {
+    "sidebar_position": 7
+  },
+  "sidebar": "docsSidebar",
+  "previous": {
+    "title": "Agent Configuration",
+    "permalink": "/zh-Hans/agents"
+  },
+  "next": {
+    "title": "通知系统",
+    "permalink": "/zh-Hans/notifications"
+  }
+}

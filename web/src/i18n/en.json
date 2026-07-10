@@ -6,10 +6,57 @@
   "nav": {
     "dashboard": "Dashboard",
     "projects": "Projects",
+    "pipeline": "Pipeline",
     "builds": "Builds",
+    "agents": "Agents",
+    "vcsRoots": "VCS Roots",
+    "templates": "Templates",
     "plugins": "Plugins",
+    "credentials": "Credentials",
     "settings": "Settings",
     "users": "Users"
+  },
+  "agents": {
+    "title": "Agents",
+    "register": "Register Agent",
+    "generateToken": "Generate Token",
+    "name": "Name",
+    "address": "Address",
+    "pool": "Pool",
+    "labels": "Labels",
+    "maxBuilds": "Max Builds",
+    "heartbeat": "Heartbeat",
+    "status": "Status",
+    "actions": "Actions"
+  },
+  "vcsRoots": {
+    "title": "VCS Roots",
+    "new": "New VCS Root",
+    "name": "Name",
+    "type": "Type",
+    "url": "URL",
+    "branch": "Branch",
+    "credential": "Credential",
+    "pollInterval": "Poll Interval",
+    "autoCheckout": "Auto Checkout",
+    "none": "None"
+  },
+  "templates": {
+    "title": "Build Templates",
+    "new": "New Template",
+    "name": "Name",
+    "description": "Description",
+    "config": "Config",
+    "use": "Use",
+    "created": "Created"
+  },
+  "credentials": {
+    "title": "Credentials",
+    "new": "New Credential",
+    "name": "Name",
+    "type": "Type",
+    "host": "Host",
+    "username": "Username"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -58,6 +105,19 @@
     "notifications": "Notifications",
     "backup": "Backup & Restore",
     "about": "About"
+  },
+  "notifications": {
+    "title": "Notification Channels",
+    "new": "New Channel",
+    "name": "Name",
+    "type": "Type",
+    "description": "Description",
+    "enabled": "Enabled",
+    "events": "Events",
+    "email": "Email",
+    "feishu": "Feishu",
+    "webhook": "Webhook",
+    "conditions": "Conditions"
   },
   "users": {
     "title": "User Management",

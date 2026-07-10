@@ -1,0 +1,22 @@
+{
+  "id": "index",
+  "title": "buildworld233",
+  "description": "现代化 CI/CD 服务器 - Jenkins 替代方案，支持 YAML/JSON 流水线、插件系统和分布式 Agent。",
+  "source": "@site/i18n/zh-Hans/docusaurus-plugin-content-docs/current/index.md",
+  "sourceDirName": ".",
+  "slug": "/",
+  "permalink": "/zh-Hans/",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 1,
+  "frontMatter": {
+    "sidebar_position": 1
+  },
+  "sidebar": "docsSidebar",
+  "next": {
+    "title": "Installation",
+    "permalink": "/zh-Hans/installation"
+  }
+}

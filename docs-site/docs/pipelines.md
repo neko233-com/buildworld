@@ -175,6 +175,6 @@ pipeline(nodeTypescript({
 
 ## Next Steps
 
-- [Environment Variables](/environment-variables) - Configure variables
-- [Parameterized Builds](/parameterized-builds) - Add build parameters
+- [Configuration](/configuration) - Configure variables and settings
 - [Plugin Development](/plugins) - Write custom plugins
+- [Agents](/agents) - Configure build agents
