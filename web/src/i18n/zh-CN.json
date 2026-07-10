@@ -147,7 +147,20 @@
     "reload": "重载",
     "loadError": "加载错误",
     "showDetails": "显示详情",
-    "hideDetails": "隐藏详情"
+    "hideDetails": "隐藏详情",
+    "scriptLang": "脚本语言",
+    "langJs": "JavaScript",
+    "langTs": "TypeScript",
+    "langTsx": "TypeScript (JSX)",
+    "langNone": "无",
+    "editSource": "编辑源码",
+    "compileOk": "编译成功",
+    "compileError": "编译错误",
+    "compiledSize": "编译后大小",
+    "insertTemplate": "插入模板",
+    "builtinNoEdit": "内置插件不可编辑",
+    "uiLang": "UI脚本语言",
+    "uiScriptNone": "无UI脚本"
   },
   "settings": {
     "title": "设置",

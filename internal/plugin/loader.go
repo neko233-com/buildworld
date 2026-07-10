@@ -237,13 +237,11 @@ func (l *Loader) exposeAPI(p *Plugin) {
 }
 
 func readScript(pluginPath string) ([]byte, error) {
-	for _, name := range []string{"index.js", "index.ts"} {
-		data, err := os.ReadFile(filepath.Join(pluginPath, name))
-		if err == nil {
-			return data, nil
-		}
+	data, err := os.ReadFile(filepath.Join(pluginPath, "index.js"))
+	if err != nil {
+		return nil, fmt.Errorf("read index.js in %s: %w", pluginPath, err)
 	}
-	return nil, fmt.Errorf("read index.js/index.ts in %s", pluginPath)
+	return data, nil
 }
 
 func readUIScript(pluginPath string) ([]byte, error) {
@@ -254,6 +252,85 @@ func readUIScript(pluginPath string) ([]byte, error) {
 		}
 	}
 	return nil, fmt.Errorf("no ui script found")
+}
+
+func (l *Loader) GetSourceScript(name string) (script string, lang string, ok bool) {
+	pluginPath := filepath.Join(l.path, name)
+	for _, candidate := range []struct {
+		file string
+		lang string
+	}{
+		{"index.ts", "ts"},
+		{"index.js", "js"},
+	} {
+		data, err := os.ReadFile(filepath.Join(pluginPath, candidate.file))
+		if err == nil {
+			return string(data), candidate.lang, true
+		}
+	}
+	return "", "", false
+}
+
+func (l *Loader) GetSourceUIScript(name string) (script string, lang string, ok bool) {
+	pluginPath := filepath.Join(l.path, name)
+	for _, candidate := range []struct {
+		file string
+		lang string
+	}{
+		{"ui.tsx", "tsx"},
+		{"ui.ts", "ts"},
+		{"ui.js", "js"},
+		{filepath.Join("ui", "index.js"), "js"},
+	} {
+		data, err := os.ReadFile(filepath.Join(pluginPath, candidate.file))
+		if err == nil {
+			return string(data), candidate.lang, true
+		}
+	}
+	return "", "", false
+}
+
+func (l *Loader) WritePluginFiles(name, script, uiScript, scriptLang, sourceScript, sourceUIScript, uiLang string) error {
+	if scriptLang == "" {
+		scriptLang = "js"
+	}
+	pluginPath := filepath.Join(l.path, name)
+	if err := os.MkdirAll(pluginPath, 0o755); err != nil {
+		return fmt.Errorf("create plugin dir: %w", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(pluginPath, "index.js"), []byte(script), 0o644); err != nil {
+		return err
+	}
+
+	os.Remove(filepath.Join(pluginPath, "index.ts"))
+	if scriptLang == "ts" && sourceScript != "" {
+		if err := os.WriteFile(filepath.Join(pluginPath, "index.ts"), []byte(sourceScript), 0o644); err != nil {
+			return err
+		}
+	}
+
+	os.Remove(filepath.Join(pluginPath, "ui.js"))
+	os.Remove(filepath.Join(pluginPath, "ui.ts"))
+	os.Remove(filepath.Join(pluginPath, "ui.tsx"))
+	os.RemoveAll(filepath.Join(pluginPath, "ui"))
+
+	if uiScript != "" {
+		if err := os.WriteFile(filepath.Join(pluginPath, "ui.js"), []byte(uiScript), 0o644); err != nil {
+			return err
+		}
+		if uiLang == "tsx" && sourceUIScript != "" {
+			if err := os.WriteFile(filepath.Join(pluginPath, "ui.tsx"), []byte(sourceUIScript), 0o644); err != nil {
+				return err
+			}
+		} else if uiLang == "ts" && sourceUIScript != "" {
+			if err := os.WriteFile(filepath.Join(pluginPath, "ui.ts"), []byte(sourceUIScript), 0o644); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (l *Loader) Get(name string) *Plugin {
@@ -358,7 +435,10 @@ func (l *Loader) IsEnabled(name string) bool {
 	return l.enabledPlugins[name]
 }
 
-func (l *Loader) InstallPlugin(name, version, description, author, scriptContent, uiScriptContent string) error {
+func (l *Loader) InstallPlugin(name, version, description, author, script, uiScript, scriptLang, sourceScript, sourceUIScript, uiLang string) error {
+	if scriptLang == "" {
+		scriptLang = "js"
+	}
 	pluginPath := filepath.Join(l.path, name)
 	if err := os.MkdirAll(pluginPath, 0o755); err != nil {
 		return fmt.Errorf("create plugin dir: %w", err)
@@ -378,17 +458,7 @@ func (l *Loader) InstallPlugin(name, version, description, author, scriptContent
 		return err
 	}
 
-	if err := os.WriteFile(filepath.Join(pluginPath, "index.js"), []byte(scriptContent), 0o644); err != nil {
-		return err
-	}
-
-	if uiScriptContent != "" {
-		if err := os.WriteFile(filepath.Join(pluginPath, "ui.js"), []byte(uiScriptContent), 0o644); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return l.WritePluginFiles(name, script, uiScript, scriptLang, sourceScript, sourceUIScript, uiLang)
 }
 
 func (l *Loader) DeletePlugin(name string) error {

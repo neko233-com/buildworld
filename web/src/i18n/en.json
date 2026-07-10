@@ -147,7 +147,20 @@
     "reload": "Reload",
     "loadError": "Load Error",
     "showDetails": "Show details",
-    "hideDetails": "Hide details"
+    "hideDetails": "Hide details",
+    "scriptLang": "Script Language",
+    "langJs": "JavaScript",
+    "langTs": "TypeScript",
+    "langTsx": "TypeScript (JSX)",
+    "langNone": "None",
+    "editSource": "Edit Source",
+    "compileOk": "Compile OK",
+    "compileError": "Compile Error",
+    "compiledSize": "Compiled size",
+    "insertTemplate": "Insert Template",
+    "builtinNoEdit": "Built-in plugins cannot be edited",
+    "uiLang": "UI Script Language",
+    "uiScriptNone": "No UI script"
   },
   "settings": {
     "title": "Settings",
