@@ -9,10 +9,20 @@ const translations: Record<Locale, typeof en> = {
   'zh-CN': zhCN,
 };
 
+function detectBrowserLocale(): Locale {
+  const langs = navigator.languages || [navigator.language];
+  for (const lang of langs) {
+    if (lang.startsWith('zh')) return 'zh-CN';
+    if (lang.startsWith('en')) return 'en';
+  }
+  return 'en';
+}
+
 export function useI18n() {
   const [locale, setLocale] = useState<Locale>(() => {
     const saved = localStorage.getItem('locale');
-    return (saved as Locale) || 'en';
+    if (saved) return saved as Locale;
+    return detectBrowserLocale();
   });
 
   const t = useCallback((key: string): string => {

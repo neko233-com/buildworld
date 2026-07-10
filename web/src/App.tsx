@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
@@ -10,75 +10,106 @@ import Agents from './pages/Agents'
 import Plugins from './pages/Plugins'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
+import Credentials from './pages/Credentials'
+import VCSRoots from './pages/VCSRoots'
+import Templates from './pages/Templates'
+import Notifications from './pages/Notifications'
+import Login from './pages/Login'
 import { useI18n } from './i18n'
+import { clearToken } from './api'
 
-function App() {
-  const { t, locale, changeLocale, locales } = useI18n();
+function NavItem({ href, label }: { href: string; label: string }) {
+  return (
+    <a href={href} className="flex items-center px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition">
+      {label}
+    </a>
+  )
+}
+
+function Layout({ children }: { children: React.ReactNode }) {
+  const { t, locale, changeLocale, locales } = useI18n()
+  const navigate = useNavigate()
+
+  const handleLogout = () => {
+    clearToken()
+    navigate('/login')
+  }
+
+  const token = localStorage.getItem('token')
+  if (!token) {
+    window.location.href = '/login'
+    return null
+  }
 
   return (
-    <BrowserRouter>
-      <div className="min-h-screen bg-gray-100">
-        <nav className="bg-white shadow">
-          <div className="max-w-7xl mx-auto px-4">
-            <div className="flex justify-between h-16">
-              <div className="flex">
-                <a href="/" className="flex items-center px-2 py-2 text-gray-900 font-bold">
-                  {t('app.title')}
-                </a>
-                <a href="/projects" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
-                  {t('nav.projects')}
-                </a>
-                <a href="/pipeline" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
-                  Pipeline
-                </a>
-                <a href="/builds" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
-                  {t('nav.builds')}
-                </a>
-                <a href="/agents" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
-                  Agents
-                </a>
-                <a href="/plugins" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
-                  {t('nav.plugins')}
-                </a>
-                <a href="/users" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
-                  {t('nav.users')}
-                </a>
-                <a href="/settings" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
-                  {t('nav.settings')}
-                </a>
-              </div>
-              <div className="flex items-center">
-                <select
-                  value={locale}
-                  onChange={(e) => changeLocale(e.target.value as any)}
-                  className="ml-4 border rounded px-2 py-1 text-sm"
-                >
-                  {locales.map((l) => (
-                    <option key={l} value={l}>
-                      {l === 'en' ? 'English' : '中文'}
-                    </option>
-                  ))}
-                </select>
-              </div>
+    <div className="min-h-screen bg-gray-100">
+      <nav className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex justify-between h-14">
+            <div className="flex items-center gap-1">
+              <a href="/" className="flex items-center px-3 py-2 text-gray-900 font-bold text-lg">
+                buildworld233
+              </a>
+              <NavItem href="/projects" label={t('nav.projects')} />
+              <NavItem href="/pipeline" label={t('nav.pipeline')} />
+              <NavItem href="/builds" label={t('nav.builds')} />
+              <NavItem href="/agents" label={t('nav.agents')} />
+              <NavItem href="/vcs-roots" label={t('nav.vcsRoots')} />
+              <NavItem href="/templates" label={t('nav.templates')} />
+              <NavItem href="/plugins" label={t('nav.plugins')} />
+              <NavItem href="/credentials" label={t('nav.credentials')} />
+			<NavItem href="/notifications" label={t('settings.notifications')} />
+			<NavItem href="/users" label={t('nav.users')} />
+			<NavItem href="/settings" label={t('nav.settings')} />
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={locale}
+                onChange={(e) => changeLocale(e.target.value as any)}
+                className="border rounded px-2 py-1 text-sm"
+              >
+                {locales.map((l) => (
+                  <option key={l} value={l}>{l === 'en' ? 'English' : '中文'}</option>
+                ))}
+              </select>
+              <button
+                onClick={handleLogout}
+                className="text-sm text-gray-500 hover:text-red-600 px-3 py-1 rounded transition"
+              >
+                Logout
+              </button>
             </div>
           </div>
-        </nav>
-        <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/projects" element={<Projects />} />
-            <Route path="/projects/new" element={<CreateProject />} />
-            <Route path="/projects/:id" element={<ProjectDetail />} />
-            <Route path="/pipeline" element={<Pipeline />} />
-            <Route path="/builds" element={<Builds />} />
-            <Route path="/builds/:id" element={<BuildDetail />} />
-            <Route path="/agents" element={<Agents />} />
-            <Route path="/plugins" element={<Plugins />} />
-            <Route path="/users" element={<Users />} />
-            <Route path="/settings" element={<Settings />} />
-          </Routes>
-        </main>
-      </div>
+        </div>
+      </nav>
+      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        {children}
+      </main>
+    </div>
+  )
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/" element={<Layout><Dashboard /></Layout>} />
+        <Route path="/projects" element={<Layout><Projects /></Layout>} />
+        <Route path="/projects/new" element={<Layout><CreateProject /></Layout>} />
+        <Route path="/projects/:id" element={<Layout><ProjectDetail /></Layout>} />
+        <Route path="/pipeline" element={<Layout><Pipeline /></Layout>} />
+        <Route path="/builds" element={<Layout><Builds /></Layout>} />
+        <Route path="/builds/:id" element={<Layout><BuildDetail /></Layout>} />
+        <Route path="/agents" element={<Layout><Agents /></Layout>} />
+        <Route path="/vcs-roots" element={<Layout><VCSRoots /></Layout>} />
+        <Route path="/templates" element={<Layout><Templates /></Layout>} />
+        <Route path="/plugins" element={<Layout><Plugins /></Layout>} />
+        <Route path="/credentials" element={<Layout><Credentials /></Layout>} />
+        <Route path="/notifications" element={<Layout><Notifications /></Layout>} />
+        <Route path="/users" element={<Layout><Users /></Layout>} />
+        <Route path="/settings" element={<Layout><Settings /></Layout>} />
+      </Routes>
     </BrowserRouter>
   )
 }

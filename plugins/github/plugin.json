@@ -1,0 +1,6 @@
+{
+  "name": "github",
+  "version": "1.0.0",
+  "description": "GitHub integration: commit status, release creation, and PR comments",
+  "author": "buildworld233"
+}

@@ -1,76 +1,160 @@
-import { useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
+import { useParams } from 'react-router-dom'
 import { useI18n } from '../i18n'
+import { api } from '../api'
+import { useApi } from '../hooks'
 
-interface BuildLog {
-  timestamp: string
-  level: 'info' | 'warn' | 'error'
-  stage: string
-  message: string
+function formatDuration(ms?: number): string {
+  if (!ms) return '-'
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+function formatTime(s?: string): string {
+  if (!s) return '-'
+  return new Date(s).toLocaleString()
+}
+
+function formatSize(bytes?: number): string {
+  if (!bytes || bytes === 0) return '0 B'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 export default function BuildDetail() {
   const { t } = useI18n()
-  const [activeTab, setActiveTab] = useState<'console' | 'artifacts' | 'parameters'>('console')
+  const { id } = useParams<{ id: string }>()
+  const buildId = Number(id)
+  const { data: build, loading, error, reload: reloadBuild } = useApi(
+    () => api.getBuild(buildId),
+    [buildId]
+  )
+  const { data: logsResp, reload: reloadLogs } = useApi(
+    () => api.getBuildLogs(buildId),
+    [buildId]
+  )
+  const { data: artifacts, reload: reloadArtifacts } = useApi(
+    () => api.listArtifacts(buildId),
+    [buildId]
+  )
+  const [retrying, setRetrying] = useState(false)
+  const [pinning, setPinning] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const build = {
-    id: 123,
-    project: 'my-app',
-    status: 'success',
-    duration: '2m 34s',
-    trigger: 'webhook',
-    branch: 'main',
-    commit: 'abc123def',
-    startedAt: '2026-06-18 10:30:00',
-    finishedAt: '2026-06-18 10:32:34',
+  const isRunning = build?.status === 'running' || build?.status === 'pending'
+  const isFinished = build?.status && !isRunning
+
+  useEffect(() => {
+    if (!isRunning) return
+    const timer = setInterval(() => {
+      reloadLogs()
+      reloadBuild()
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [isRunning, reloadLogs, reloadBuild])
+
+  const handleStop = async () => {
+    try {
+      await api.stopBuild(buildId)
+      reloadBuild()
+    } catch (e: any) {
+      alert(e.message || 'Failed to stop build')
+    }
   }
 
-  const logs: BuildLog[] = [
-    { timestamp: '10:30:01', level: 'info', stage: 'Checkout', message: 'Cloning repository...' },
-    { timestamp: '10:30:05', level: 'info', stage: 'Checkout', message: 'Repository cloned successfully' },
-    { timestamp: '10:30:10', level: 'info', stage: 'Install', message: 'Running npm ci...' },
-    { timestamp: '10:30:45', level: 'info', stage: 'Install', message: 'Dependencies installed' },
-    { timestamp: '10:30:50', level: 'info', stage: 'Build', message: 'Running npm run build...' },
-    { timestamp: '10:31:30', level: 'info', stage: 'Build', message: 'Build completed successfully' },
-    { timestamp: '10:31:35', level: 'info', stage: 'Test', message: 'Running npm test...' },
-    { timestamp: '10:32:00', level: 'info', stage: 'Test', message: 'All tests passed (42/42)' },
-    { timestamp: '10:32:05', level: 'info', stage: 'Deploy', message: 'Deploying to production...' },
-    { timestamp: '10:32:30', level: 'info', stage: 'Deploy', message: 'Deployment successful' },
-  ]
+  const handleRetry = async () => {
+    setRetrying(true)
+    try {
+      await api.retryBuild(buildId)
+      reloadBuild()
+    } catch (e: any) {
+      alert(e.message || 'Failed to retry build')
+    } finally {
+      setRetrying(false)
+    }
+  }
 
-  const artifacts = [
-    { name: 'dist.zip', size: '2.3 MB', type: 'archive' },
-    { name: 'build.log', size: '45 KB', type: 'log' },
-    { name: 'test-report.html', size: '128 KB', type: 'report' },
-  ]
+  const handlePin = async () => {
+    if (!build) return
+    setPinning(true)
+    try {
+      await api.pinBuild(buildId, !build.pinned)
+      reloadBuild()
+    } catch (e: any) {
+      alert(e.message || 'Failed to toggle pin')
+    } finally {
+      setPinning(false)
+    }
+  }
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      await api.uploadArtifact(buildId, file)
+      reloadArtifacts()
+    } catch (e: any) {
+      alert(e.message || 'Failed to upload artifact')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  if (loading) return <div className="text-gray-500">{t('common.loading')}</div>
+  if (error) return <div className="text-red-500">{t('common.error')}: {error}</div>
+  if (!build) return null
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <div>
-          <h1 className="text-2xl font-bold">{build.project} #{build.id}</h1>
-          <p className="text-gray-500">Build Details</p>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            {build.pinned && <span title="Pinned">📌</span>}
+            Build #{build.number}
+          </h1>
+          <p className="text-gray-500">Project ID: {build.project_id}</p>
         </div>
         <div className="flex gap-2">
-          <button className="bg-blue-500 text-white px-4 py-2 rounded">
-            Rebuild
-          </button>
-          <button className="bg-gray-300 text-gray-700 px-4 py-2 rounded">
-            {t('common.cancel')}
-          </button>
+          {isFinished && (
+            <>
+              <button
+                onClick={handleRetry}
+                disabled={retrying}
+                className="border border-blue-500 text-blue-600 px-4 py-2 rounded hover:bg-blue-50 disabled:opacity-50"
+              >
+                🔄 {retrying ? 'Retrying...' : 'Retry Build'}
+              </button>
+              <button
+                onClick={handlePin}
+                disabled={pinning}
+                className={`border px-4 py-2 rounded hover:bg-gray-50 disabled:opacity-50 ${build.pinned ? 'bg-yellow-50 border-yellow-400 text-yellow-700' : 'border-gray-300 text-gray-700'}`}
+              >
+                📌 {build.pinned ? 'Unpin' : 'Pin'}
+              </button>
+            </>
+          )}
+          {isRunning && (
+            <button
+              onClick={handleStop}
+              className="bg-red-500 text-white px-4 py-2 rounded"
+            >
+              Stop Build
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Build Info */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow">
           <p className="text-sm text-gray-500">{t('builds.status')}</p>
-          <p className={`font-semibold ${build.status === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-            {t(`status.${build.status}`)}
-          </p>
+          <p className="font-semibold">{build.status}</p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow">
           <p className="text-sm text-gray-500">{t('builds.duration')}</p>
-          <p className="font-semibold">{build.duration}</p>
+          <p className="font-semibold">{formatDuration(build.duration_ms)}</p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow">
           <p className="text-sm text-gray-500">{t('builds.branch')}</p>
@@ -78,92 +162,105 @@ export default function BuildDetail() {
         </div>
         <div className="bg-white p-4 rounded-lg shadow">
           <p className="text-sm text-gray-500">{t('builds.commit')}</p>
-          <p className="font-semibold font-mono">{build.commit}</p>
+          <p className="font-semibold font-mono text-sm">{build.commit_sha?.slice(0, 8) || '-'}</p>
         </div>
+        <div className="bg-white p-4 rounded-lg shadow">
+          <p className="text-sm text-gray-500">{t('builds.trigger')}</p>
+          <p className="font-semibold">{build.trigger}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow">
+          <p className="text-sm text-gray-500">Started</p>
+          <p className="font-semibold text-sm">{formatTime(build.started_at)}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow">
+          <p className="text-sm text-gray-500">Finished</p>
+          <p className="font-semibold text-sm">{formatTime(build.finished_at)}</p>
+        </div>
+        {(build.agent_id || build.agent_requirements) && (
+          <div className="bg-white p-4 rounded-lg shadow">
+            <p className="text-sm text-gray-500">Agent</p>
+            <p className="font-semibold text-sm">
+              {build.agent_id ? `#${build.agent_id}` : ''}
+              {build.agent_requirements && (
+                <span className="text-gray-500 text-xs block truncate">
+                  req: {typeof build.agent_requirements === 'string' ? build.agent_requirements : JSON.stringify(build.agent_requirements)}
+                </span>
+              )}
+            </p>
+          </div>
+        )}
+        {build.retried_from && (
+          <div className="bg-white p-4 rounded-lg shadow">
+            <p className="text-sm text-gray-500">Retried From</p>
+            <p className="font-semibold text-sm">
+              <a href={`/builds/${build.retried_from}`} className="text-blue-600 hover:underline">
+                #{build.retried_from}
+              </a>
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white shadow rounded-lg">
-        <div className="border-b">
-          <nav className="flex">
-            <button
-              className={`px-4 py-2 text-sm font-medium ${
-                activeTab === 'console' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500 hover:text-gray-700'
-              }`}
-              onClick={() => setActiveTab('console')}
+      <div className="bg-white shadow rounded-lg p-4 mb-6">
+        <h2 className="text-lg font-semibold mb-3">{t('builds.logs')}</h2>
+        <pre className="bg-gray-900 text-green-400 p-4 rounded font-mono text-sm overflow-auto max-h-96 whitespace-pre-wrap">
+          {logsResp?.log || 'No logs available'}
+        </pre>
+      </div>
+
+      <div className="bg-white shadow rounded-lg p-4">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-lg font-semibold">Artifacts</h2>
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={handleUpload}
+              className="hidden"
+              id="artifact-upload"
+            />
+            <label
+              htmlFor="artifact-upload"
+              className={`inline-block cursor-pointer px-3 py-1 text-sm border rounded hover:bg-gray-50 ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
             >
-              {t('builds.logs')}
-            </button>
-            <button
-              className={`px-4 py-2 text-sm font-medium ${
-                activeTab === 'artifacts' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500 hover:text-gray-700'
-              }`}
-              onClick={() => setActiveTab('artifacts')}
-            >
-              {t('builds.artifacts')}
-            </button>
-            <button
-              className={`px-4 py-2 text-sm font-medium ${
-                activeTab === 'parameters' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500 hover:text-gray-700'
-              }`}
-              onClick={() => setActiveTab('parameters')}
-            >
-              {t('builds.parameters')}
-            </button>
-          </nav>
+              {uploading ? 'Uploading...' : '+ Upload'}
+            </label>
+          </div>
         </div>
-
-        <div className="p-4">
-          {activeTab === 'console' && (
-            <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-sm overflow-auto max-h-96">
-              {logs.map((log, i) => (
-                <div key={i} className="flex">
-                  <span className="text-gray-500 mr-2">[{log.timestamp}]</span>
-                  <span className="text-yellow-400 mr-2">[{log.stage}]</span>
-                  <span>{log.message}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeTab === 'artifacts' && (
-            <table className="min-w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">Name</th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">Size</th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">Type</th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">Action</th>
+        {(artifacts || []).length === 0 ? (
+          <p className="text-gray-500 text-center py-6">No artifacts</p>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b text-left text-xs text-gray-500">
+                <th className="px-3 py-2 font-medium">Name</th>
+                <th className="px-3 py-2 font-medium">Size</th>
+                <th className="px-3 py-2 font-medium">Downloads</th>
+                <th className="px-3 py-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {(artifacts || []).map((a: any) => (
+                <tr key={a.id} className="hover:bg-gray-50">
+                  <td className="px-3 py-2 font-medium text-sm">{a.name}</td>
+                  <td className="px-3 py-2 text-gray-500 text-sm">{formatSize(a.size)}</td>
+                  <td className="px-3 py-2 text-gray-500 text-sm">{a.download_count || 0}</td>
+                  <td className="px-3 py-2 text-right">
+                    <a
+                      href={api.artifactDownloadUrl(a.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download={a.name}
+                      className="text-blue-600 hover:underline text-sm"
+                    >
+                      Download
+                    </a>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {artifacts.map((artifact, i) => (
-                  <tr key={i} className="border-b">
-                    <td className="px-4 py-2 font-medium">{artifact.name}</td>
-                    <td className="px-4 py-2 text-gray-500">{artifact.size}</td>
-                    <td className="px-4 py-2 text-gray-500">{artifact.type}</td>
-                    <td className="px-4 py-2">
-                      <button className="text-blue-500 hover:underline">Download</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          {activeTab === 'parameters' && (
-            <div className="space-y-2">
-              <div className="flex justify-between p-2 bg-gray-50 rounded">
-                <span className="font-medium">environment</span>
-                <span className="text-gray-600">production</span>
-              </div>
-              <div className="flex justify-between p-2 bg-gray-50 rounded">
-                <span className="font-medium">version</span>
-                <span className="text-gray-600">v1.2.3</span>
-              </div>
-            </div>
-          )}
-        </div>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   )

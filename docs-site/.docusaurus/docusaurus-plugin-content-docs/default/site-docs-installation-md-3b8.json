@@ -1,0 +1,26 @@
+{
+  "id": "installation",
+  "title": "Installation",
+  "description": "Quick Install",
+  "source": "@site/docs/installation.md",
+  "sourceDirName": ".",
+  "slug": "/installation",
+  "permalink": "/zh-Hans/installation",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 2,
+  "frontMatter": {
+    "sidebar_position": 2
+  },
+  "sidebar": "docsSidebar",
+  "previous": {
+    "title": "buildworld233",
+    "permalink": "/zh-Hans/"
+  },
+  "next": {
+    "title": "Configuration",
+    "permalink": "/zh-Hans/configuration"
+  }
+}

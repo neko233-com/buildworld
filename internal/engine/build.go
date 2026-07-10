@@ -3,12 +3,13 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
 type BuildParameter struct {
 	Name        string      `json:"name"`
-	Type        string      `json:"type"` // string, choice, boolean, password, text
+	Type        string      `json:"type"`
 	Description string      `json:"description"`
 	Default     interface{} `json:"default"`
 	Required    bool        `json:"required"`
@@ -17,12 +18,14 @@ type BuildParameter struct {
 }
 
 type BuildConfig struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	Parameters  []BuildParameter `json:"parameters"`
-	Stages      []Stage          `json:"stages"`
-	Triggers    []Trigger        `json:"triggers"`
-	Environment map[string]string `json:"environment"`
+	Name              string            `json:"name"`
+	Description       string            `json:"description"`
+	Parameters        []BuildParameter  `json:"parameters"`
+	Stages            []Stage           `json:"stages"`
+	Triggers          []Trigger         `json:"triggers"`
+	Environment       map[string]string `json:"environment"`
+	Artifacts         []string          `json:"artifacts"`
+	AgentRequirements []string          `json:"agent_requirements"`
 }
 
 type Stage struct {
@@ -33,13 +36,14 @@ type Stage struct {
 
 type Step struct {
 	Name    string            `json:"name"`
-	Type    string            `json:"type"` // shell, git, notify
+	Type    string            `json:"type"`
 	Command string            `json:"command,omitempty"`
+	Shell   string            `json:"shell,omitempty"`
 	Config  map[string]string `json:"config,omitempty"`
 }
 
 type Trigger struct {
-	Type   string            `json:"type"` // manual, webhook, schedule
+	Type   string            `json:"type"`
 	Config map[string]string `json:"config"`
 }
 
@@ -70,14 +74,12 @@ func NewBuildManager() *BuildManager {
 }
 
 func (m *BuildManager) CreateBuild(projectID int64, config *BuildConfig, params map[string]interface{}) *Build {
-	// Validate parameters
 	if err := m.ValidateParameters(config.Parameters, params); err != nil {
 		return nil
 	}
-	
-	// Get next build number
+
 	number := len(m.builds[projectID]) + 1
-	
+
 	build := &Build{
 		ProjectID:  projectID,
 		Number:     number,
@@ -86,7 +88,7 @@ func (m *BuildManager) CreateBuild(projectID int64, config *BuildConfig, params 
 		Parameters: params,
 		CreatedAt:  time.Now(),
 	}
-	
+
 	m.builds[projectID] = append(m.builds[projectID], build)
 	return build
 }
@@ -94,15 +96,15 @@ func (m *BuildManager) CreateBuild(projectID int64, config *BuildConfig, params 
 func (m *BuildManager) ValidateParameters(parameters []BuildParameter, params map[string]interface{}) error {
 	for _, param := range parameters {
 		val, exists := params[param.Name]
-		
+
 		if param.Required && !exists {
 			return fmt.Errorf("required parameter %s is missing", param.Name)
 		}
-		
+
 		if !exists {
 			continue
 		}
-		
+
 		switch param.Type {
 		case "choice":
 			if !contains(param.Choices, fmt.Sprintf("%v", val)) {
@@ -148,5 +150,61 @@ func ParseBuildConfig(jsonStr string) (*BuildConfig, error) {
 	if err := json.Unmarshal([]byte(jsonStr), config); err != nil {
 		return nil, err
 	}
+	if config.Environment == nil {
+		config.Environment = map[string]string{}
+	}
 	return config, nil
+}
+
+func ParsePipelineConfig(raw string) (*BuildConfig, error) {
+	trimmed := strings.TrimSpace(raw)
+	if strings.HasPrefix(trimmed, "{") {
+		return ParseBuildConfig(raw)
+	}
+	return ParseYAMLConfig(raw)
+}
+
+func MergeBuildConfig(template, project *BuildConfig) *BuildConfig {
+	if template == nil {
+		return project
+	}
+	if project == nil {
+		return template
+	}
+	merged := &BuildConfig{
+		Name:              project.Name,
+		Description:       project.Description,
+		Parameters:        append([]BuildParameter{}, template.Parameters...),
+		Stages:            append([]Stage{}, template.Stages...),
+		Triggers:          append([]Trigger{}, template.Triggers...),
+		Environment:       map[string]string{},
+		Artifacts:         append([]string{}, template.Artifacts...),
+		AgentRequirements: append([]string{}, template.AgentRequirements...),
+	}
+	if merged.Name == "" {
+		merged.Name = template.Name
+	}
+	if merged.Description == "" {
+		merged.Description = template.Description
+	}
+	for k, v := range template.Environment {
+		merged.Environment[k] = v
+	}
+	for k, v := range project.Environment {
+		merged.Environment[k] = v
+	}
+	for _, p := range project.Parameters {
+		merged.Parameters = append(merged.Parameters, p)
+	}
+	if len(project.Stages) > 0 {
+		merged.Stages = project.Stages
+	}
+	merged.Triggers = append(merged.Triggers, project.Triggers...)
+	if len(project.Artifacts) > 0 {
+		merged.Artifacts = project.Artifacts
+	}
+	if len(project.AgentRequirements) > 0 {
+		merged.AgentRequirements = project.AgentRequirements
+	}
+	return merged
 }

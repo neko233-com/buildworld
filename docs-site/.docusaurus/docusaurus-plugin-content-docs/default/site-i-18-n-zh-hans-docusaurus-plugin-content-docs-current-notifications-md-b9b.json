@@ -1,0 +1,22 @@
+{
+  "id": "notifications",
+  "title": "通知系统",
+  "description": "buildworld233 支持多种通知渠道，在构建状态变化时提醒您。",
+  "source": "@site/i18n/zh-Hans/docusaurus-plugin-content-docs/current/notifications.md",
+  "sourceDirName": ".",
+  "slug": "/notifications",
+  "permalink": "/zh-Hans/notifications",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 7,
+  "frontMatter": {
+    "sidebar_position": 7
+  },
+  "sidebar": "docsSidebar",
+  "previous": {
+    "title": "Templates",
+    "permalink": "/zh-Hans/templates"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "notifications",
+  "title": "Notifications",
+  "description": "buildworld233 supports multiple notification channels to alert you about build status changes.",
+  "source": "@site/docs/notifications.md",
+  "sourceDirName": ".",
+  "slug": "/notifications",
+  "permalink": "/notifications",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 7,
+  "frontMatter": {
+    "sidebar_position": 7
+  },
+  "sidebar": "docsSidebar",
+  "previous": {
+    "title": "Templates",
+    "permalink": "/templates"
+  }
+}

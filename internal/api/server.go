@@ -3,39 +3,66 @@ package api
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/neko233-com/buildworld233/internal/auth"
 	"github.com/neko233-com/buildworld233/internal/config"
+	"github.com/neko233-com/buildworld233/internal/engine"
+	"github.com/neko233-com/buildworld233/internal/plugin"
+	"github.com/neko233-com/buildworld233/internal/store"
+	"github.com/neko233-com/buildworld233/internal/ws"
 )
 
 type Server struct {
-	httpServer *http.Server
-	cfg        *config.Config
+	cfg     *config.Config
+	store   *store.Store
+	hub     *ws.Hub
+	runner  *engine.BuildRunner
+	jwt     *auth.JWT
+	loader  *plugin.Loader
+	httpSrv *http.Server
 }
 
-func NewServer(cfg *config.Config) *Server {
-	router := NewRouter(cfg)
+type Deps struct {
+	Cfg        *config.Config
+	Store      *store.Store
+	Hub        *ws.Hub
+	Runner     *engine.BuildRunner
+	Artifacts  *engine.ArtifactManager
+	JWT        *auth.JWT
+	Loader     *plugin.Loader
+	StaticFS   fs.FS
+}
 
+func NewServer(d Deps) *Server {
+	router := NewRouter(d)
+	addr := fmt.Sprintf("%s:%d", d.Cfg.Server.Host, d.Cfg.Server.Port)
 	return &Server{
-		httpServer: &http.Server{
-			Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
+		cfg:     d.Cfg,
+		store:   d.Store,
+		hub:     d.Hub,
+		runner:  d.Runner,
+		jwt:     d.JWT,
+		loader:  d.Loader,
+		httpSrv: &http.Server{
+			Addr:         addr,
 			Handler:      router,
-			ReadTimeout:  15 * time.Second,
-			WriteTimeout: 15 * time.Second,
-			IdleTimeout:  60 * time.Second,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+			IdleTimeout:  120 * time.Second,
 		},
-		cfg: cfg,
 	}
 }
 
 func (s *Server) Start() error {
-	log.Printf("Starting server on %s", s.httpServer.Addr)
-	return s.httpServer.ListenAndServe()
+	log.Printf("HTTP server listening on %s", s.httpSrv.Addr)
+	return s.httpSrv.ListenAndServe()
 }
 
 func (s *Server) Stop(ctx context.Context) error {
-	log.Println("Stopping server...")
-	return s.httpServer.Shutdown(ctx)
+	log.Println("HTTP server shutting down...")
+	return s.httpSrv.Shutdown(ctx)
 }

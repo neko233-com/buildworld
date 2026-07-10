@@ -11,8 +11,14 @@ func TestHashPassword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HashPassword failed: %v", err)
 	}
-	if hash != "test_hashed" {
-		t.Errorf("expected test_hashed, got %s", hash)
+	if hash == "test" {
+		t.Error("hash should not equal plaintext")
+	}
+	if !CheckPassword(hash, "test") {
+		t.Error("CheckPassword should verify correct password")
+	}
+	if CheckPassword(hash, "wrong") {
+		t.Error("CheckPassword should reject wrong password")
 	}
 }
 
@@ -34,6 +40,9 @@ func TestSetupDefaultAdmin(t *testing.T) {
 	}
 	if admin.Role != "admin" {
 		t.Errorf("expected admin role, got %s", admin.Role)
+	}
+	if !CheckPassword(admin.PasswordHash, "root") {
+		t.Error("default admin password should be 'root'")
 	}
 
 	err = SetupDefaultAdmin(db)

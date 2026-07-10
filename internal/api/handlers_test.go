@@ -14,7 +14,7 @@ func newTestRouter() http.Handler {
 	cfg := &config.Config{
 		Server: config.ServerConfig{Port: 6050},
 	}
-	return NewRouter(cfg)
+	return NewRouter(Deps{Cfg: cfg})
 }
 
 func TestHealthEndpoint(t *testing.T) {
