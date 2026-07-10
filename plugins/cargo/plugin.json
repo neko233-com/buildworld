@@ -1,0 +1,7 @@
+{
+  "name": "cargo",
+  "version": "1.0.0",
+  "description": "Rust Cargo build: build, test, doc, publish, clippy, fmt",
+  "author": "buildworld233",
+  "steps": ["cargo-build", "cargo-test", "cargo-doc", "cargo-publish", "cargo-clippy", "cargo-fmt"]
+}

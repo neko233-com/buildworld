@@ -1,0 +1,7 @@
+{
+  "name": "vault",
+  "version": "1.0.0",
+  "description": "HashiCorp Vault: read, write, delete, list secrets",
+  "author": "buildworld233",
+  "steps": ["vault-read", "vault-write", "vault-delete", "vault-list"]
+}

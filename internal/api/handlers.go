@@ -1,17 +1,24 @@
 package api
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/neko233-com/buildworld233/internal/auth"
+	"github.com/neko233-com/buildworld233/internal/engine"
 	"github.com/neko233-com/buildworld233/internal/store"
 	"github.com/neko233-com/buildworld233/internal/webhook"
 )
@@ -1318,4 +1325,695 @@ func (h *handlers) listNotificationEvents(w http.ResponseWriter, r *http.Request
 	}
 	writeJSON(w, http.StatusOK, events)
 }
+
+// ---------------------------------------------------------------------------
+// Statistics
+// ---------------------------------------------------------------------------
+
+func (h *handlers) getDashboardStats(w http.ResponseWriter, _ *http.Request) {
+	if h.d.Statistics == nil {
+		writeErr(w, http.StatusServiceUnavailable, "statistics service not available")
+		return
+	}
+	stats, err := h.d.Statistics.GetDashboardStats()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+func (h *handlers) getProjectStats(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	days := 30
+	if d := r.URL.Query().Get("days"); d != "" {
+		if v, err := strconv.Atoi(d); err == nil && v > 0 {
+			days = v
+		}
+	}
+	if h.d.Statistics == nil {
+		// 退化为直接查 store
+		stats, err := h.d.Store.GetProjectBuildStats(id, days)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, stats)
+		return
+	}
+	stats, err := h.d.Statistics.GetProjectStats(id, days)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+// ---------------------------------------------------------------------------
+// Audit Logs
+// ---------------------------------------------------------------------------
+
+func (h *handlers) listAuditLogs(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+	logs, err := h.d.Store.ListAuditLogs(limit, offset)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, logs)
+}
+
+// audit 是个轻量封装：记录审计日志，失败不影响主流程
+func (h *handlers) audit(r *http.Request, action, resourceType, resourceID, detail string) {
+	if h.d.Store == nil {
+		return
+	}
+	uid := userIDOf(r)
+	var username string
+	if uid > 0 {
+		if u, err := h.d.Store.GetUser(uid); err == nil {
+			username = u.Username
+		}
+	}
+	ip := clientIP(r)
+	_ = h.d.Store.CreateAuditLog(uid, username, action, resourceType, resourceID, detail, ip)
+}
+
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.Index(xff, ","); i > 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return xff
+	}
+	if r.RemoteAddr == "" {
+		return ""
+	}
+	if i := strings.LastIndex(r.RemoteAddr, ":"); i > 0 {
+		return r.RemoteAddr[:i]
+	}
+	return r.RemoteAddr
+}
+
+// ---------------------------------------------------------------------------
+// API Tokens
+// ---------------------------------------------------------------------------
+
+type createAPITokenReq struct {
+	Name      string     `json:"name"`
+	Scopes    []string   `json:"scopes"`
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
+func (h *handlers) listAPITokens(w http.ResponseWriter, r *http.Request) {
+	uid := userIDOf(r)
+	tokens, err := h.d.Store.ListAPITokens(uid)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, tokens)
+}
+
+func (h *handlers) createAPIToken(w http.ResponseWriter, r *http.Request) {
+	var req createAPITokenReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	// 生成 bw_<32hex> 明文 token，仅返回一次
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+	plain := "bw_" + hex.EncodeToString(raw)
+	hash := sha256.Sum256([]byte(plain))
+	tokenHash := hex.EncodeToString(hash[:])
+	prefix := plain[:11] // "bw_" + 前 8 hex
+	scopesJSON := "[]"
+	if len(req.Scopes) > 0 {
+		if b, err := json.Marshal(req.Scopes); err == nil {
+			scopesJSON = string(b)
+		}
+	}
+	t, err := h.d.Store.CreateAPIToken(userIDOf(r), req.Name, tokenHash, prefix, scopesJSON, req.ExpiresAt)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "create", "api_token", fmt.Sprintf("%d", t.ID), req.Name)
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"token":  plain,
+		"detail": t,
+	})
+}
+
+func (h *handlers) deleteAPIToken(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := h.d.Store.DeleteAPIToken(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "delete", "api_token", fmt.Sprintf("%d", id), "")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// ---------------------------------------------------------------------------
+// Build Approvals
+// ---------------------------------------------------------------------------
+
+func (h *handlers) listPendingApprovals(w http.ResponseWriter, _ *http.Request) {
+	if h.d.Approval == nil {
+		writeErr(w, http.StatusServiceUnavailable, "approval service not available")
+		return
+	}
+	items, err := h.d.Approval.ListPending()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *handlers) approveBuild(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if h.d.Approval == nil {
+		writeErr(w, http.StatusServiceUnavailable, "approval service not available")
+		return
+	}
+	var req struct {
+		Comment string `json:"comment"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := h.d.Approval.Approve(id, userIDOf(r), req.Comment); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.audit(r, "approve", "build", fmt.Sprintf("%d", id), req.Comment)
+	// 审批通过后启动构建
+	if h.d.Runner != nil {
+		h.d.Runner.Run(id)
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "approved"})
+}
+
+func (h *handlers) rejectBuild(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if h.d.Approval == nil {
+		writeErr(w, http.StatusServiceUnavailable, "approval service not available")
+		return
+	}
+	var req struct {
+		Comment string `json:"comment"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := h.d.Approval.Reject(id, userIDOf(r), req.Comment); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.audit(r, "reject", "build", fmt.Sprintf("%d", id), req.Comment)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "rejected"})
+}
+
+// ---------------------------------------------------------------------------
+// Build Logs: download & search
+// ---------------------------------------------------------------------------
+
+func (h *handlers) downloadBuildLogs(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "txt"
+	}
+	mgr := engine.NewBuildLogManager(h.d.Store)
+	data, filename := mgr.DownloadLogs(id, format)
+	if filename == "" {
+		writeErr(w, http.StatusNotFound, "build not found")
+		return
+	}
+	ct := "text/plain; charset=utf-8"
+	if format == "json" {
+		ct = "application/json"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Write(data)
+}
+
+func (h *handlers) searchBuildLogs(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	q := r.URL.Query().Get("q")
+	mgr := engine.NewBuildLogManager(h.d.Store)
+	entries, err := mgr.SearchLogs(id, q)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+// ---------------------------------------------------------------------------
+// Build Badge (公开 SVG)
+// ---------------------------------------------------------------------------
+
+func (h *handlers) buildBadge(w http.ResponseWriter, r *http.Request) {
+	projectName := chi.URLParam(r, "projectName")
+	if projectName == "" {
+		http.NotFound(w, r)
+		return
+	}
+	p, err := h.d.Store.GetProjectByName(projectName)
+	if err != nil {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Write(engine.GenerateBadge("unknown", "build"))
+		return
+	}
+	builds, err := h.d.Store.ListBuildsByProject(p.ID)
+	if err != nil || len(builds) == 0 {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Write(engine.GenerateBadge("pending", p.Name))
+		return
+	}
+	status := builds[0].Status
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(engine.GenerateBadge(status, p.Name))
+}
+
+// ---------------------------------------------------------------------------
+// Test Results
+// ---------------------------------------------------------------------------
+
+func (h *handlers) getBuildTestResults(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	results, err := h.d.Store.ListBuildTestResults(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
+func (h *handlers) uploadTestResults(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 50<<20))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+	if len(body) == 0 {
+		writeErr(w, http.StatusBadRequest, "empty body")
+		return
+	}
+	parser := engine.NewTestReportParser()
+	result, err := parser.ParseAndSave(id, body, h.d.Store)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("parse failed: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+// ---------------------------------------------------------------------------
+// Deployment Environments
+// ---------------------------------------------------------------------------
+
+type createDeploymentEnvReq struct {
+	ProjectID   int64  `json:"project_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Config      string `json:"config"`
+}
+
+func (h *handlers) listDeploymentEnvs(w http.ResponseWriter, r *http.Request) {
+	projectIDStr := r.URL.Query().Get("project_id")
+	if projectIDStr == "" {
+		writeErr(w, http.StatusBadRequest, "project_id is required")
+		return
+	}
+	pid, err := strconv.ParseInt(projectIDStr, 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid project_id")
+		return
+	}
+	envs, err := h.d.Store.ListDeploymentEnvs(pid)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, envs)
+}
+
+func (h *handlers) createDeploymentEnv(w http.ResponseWriter, r *http.Request) {
+	var req createDeploymentEnvReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" || req.ProjectID == 0 {
+		writeErr(w, http.StatusBadRequest, "name and project_id are required")
+		return
+	}
+	d, err := h.d.Store.CreateDeploymentEnv(req.ProjectID, req.Name, req.Description, req.Config)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "create", "deployment_env", fmt.Sprintf("%d", d.ID), req.Name)
+	writeJSON(w, http.StatusCreated, d)
+}
+
+func (h *handlers) deleteDeploymentEnv(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := h.d.Store.DeleteDeploymentEnv(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "delete", "deployment_env", fmt.Sprintf("%d", id), "")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *handlers) deployBuild(w http.ResponseWriter, r *http.Request) {
+	envID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid env id")
+		return
+	}
+	buildID, err := strconv.ParseInt(chi.URLParam(r, "buildId"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid build id")
+		return
+	}
+	env, err := h.d.Store.GetDeploymentEnv(envID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "env not found")
+		return
+	}
+	build, err := h.d.Store.GetBuild(buildID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "build not found")
+		return
+	}
+	if build.ProjectID != env.ProjectID {
+		writeErr(w, http.StatusBadRequest, "build does not belong to env's project")
+		return
+	}
+	if err := h.d.Store.UpdateDeploymentLastBuild(envID, buildID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "deploy", "deployment_env", fmt.Sprintf("%d", envID), fmt.Sprintf("build %d", buildID))
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":     "deployed",
+		"env_id":     envID,
+		"build_id":   buildID,
+		"env_name":   env.Name,
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Project Groups
+// ---------------------------------------------------------------------------
+
+type createProjectGroupReq struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	ParentID    *int64 `json:"parent_id"`
+}
+
+func (h *handlers) listProjectGroups(w http.ResponseWriter, _ *http.Request) {
+	groups, err := h.d.Store.ListProjectGroups()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, groups)
+}
+
+func (h *handlers) createProjectGroup(w http.ResponseWriter, r *http.Request) {
+	var req createProjectGroupReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	g, err := h.d.Store.CreateProjectGroup(req.Name, req.Description, req.ParentID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "create", "project_group", fmt.Sprintf("%d", g.ID), req.Name)
+	writeJSON(w, http.StatusCreated, g)
+}
+
+func (h *handlers) deleteProjectGroup(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := h.d.Store.DeleteProjectGroup(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "delete", "project_group", fmt.Sprintf("%d", id), "")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// ---------------------------------------------------------------------------
+// Build Queue
+// ---------------------------------------------------------------------------
+
+func (h *handlers) listBuildQueue(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+	items, err := h.d.Store.ListBuildQueue(status)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *handlers) reorderBuildQueue(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req struct {
+		Priority int `json:"priority"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := h.d.Store.UpdateBuildQueueItemPriority(id, int64(req.Priority)); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// ---------------------------------------------------------------------------
+// HTTP Trigger (公开，使用 API Token 认证)
+// ---------------------------------------------------------------------------
+
+func (h *handlers) httpTriggerBuild(w http.ResponseWriter, r *http.Request) {
+	projectName := chi.URLParam(r, "projectName")
+	if projectName == "" {
+		writeErr(w, http.StatusBadRequest, "projectName is required")
+		return
+	}
+	// API Token 校验
+	token := r.Header.Get("Authorization")
+	token = strings.TrimPrefix(token, "Bearer ")
+	if !strings.HasPrefix(token, "bw_") {
+		writeErr(w, http.StatusUnauthorized, "valid api token required")
+		return
+	}
+	hash := sha256.Sum256([]byte(token))
+	hashStr := hex.EncodeToString(hash[:])
+	apiToken, err := h.d.Store.GetAPITokenByHash(hashStr)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, "invalid api token")
+		return
+	}
+	if apiToken.ExpiresAt != nil && apiToken.ExpiresAt.Before(time.Now()) {
+		writeErr(w, http.StatusUnauthorized, "token expired")
+		return
+	}
+	_ = h.d.Store.UpdateAPITokenLastUsed(apiToken.ID)
+
+	project, err := h.d.Store.GetProjectByName(projectName)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	var req triggerBuildReq
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	branch := req.Branch
+	if branch == "" {
+		branch = project.DefaultBranch
+	}
+	paramsJSON := ""
+	if len(req.Parameters) > 0 {
+		if b, err := json.Marshal(req.Parameters); err == nil {
+			paramsJSON = string(b)
+		}
+	}
+	num, err := h.d.Store.NextBuildNumber(project.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	build, err := h.d.Store.CreateBuild(project.ID, num, "api", branch, "", paramsJSON, nil, nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// 记录触发者
+	_ = h.d.Store.CreateAuditLog(apiToken.UserID, "", "trigger", "project", projectName, fmt.Sprintf("build #%d via api token %q", build.Number, apiToken.Name), clientIP(r))
+	if h.d.Runner != nil {
+		h.d.Runner.Run(build.ID)
+	}
+	writeJSON(w, http.StatusCreated, build)
+}
+
+// ---------------------------------------------------------------------------
+// Global Settings (用 env_vars scope=system 存储)
+// ---------------------------------------------------------------------------
+
+func (h *handlers) getGlobalSettings(w http.ResponseWriter, _ *http.Request) {
+	vars, err := h.d.Store.ListEnvVars("system", nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	settings := map[string]string{}
+	for _, v := range vars {
+		settings[v.Name] = v.Value
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+func (h *handlers) updateGlobalSettings(w http.ResponseWriter, r *http.Request) {
+	var settings map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	for name, value := range settings {
+		if err := h.d.Store.SetEnvVar("system", nil, name, value, false, ""); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	h.audit(r, "update", "settings", "", fmt.Sprintf("%d keys", len(settings)))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// ---------------------------------------------------------------------------
+// Server Metrics
+// ---------------------------------------------------------------------------
+
+func (h *handlers) serverMetrics(w http.ResponseWriter, r *http.Request) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	builds, _ := h.d.Store.ListBuilds(500)
+	projects, _ := h.d.Store.ListProjects()
+	workers, _ := h.d.Store.ListWorkers()
+
+	var runningBuilds int
+	for _, b := range builds {
+		if b.Status == "running" {
+			runningBuilds++
+		}
+	}
+	var onlineWorkers int
+	for _, w_ := range workers {
+		if w_.Status == "online" {
+			onlineWorkers++
+		}
+	}
+
+	var diskFree int64 = -1
+	if stat, err := os.Stat("."); err == nil {
+		// 仅做 best-effort，跨平台时失败忽略
+		_ = stat
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"go_version":       runtime.Version(),
+		"goroutines":       runtime.NumGoroutine(),
+		"cpu_count":        runtime.NumCPU(),
+		"mem_alloc_bytes":  m.Alloc,
+		"mem_sys_bytes":    m.Sys,
+		"heap_objects":     m.HeapObjects,
+		"disk_free_bytes":  diskFree,
+		"projects":         len(projects),
+		"builds_total":     len(builds),
+		"running_builds":   runningBuilds,
+		"online_workers":   onlineWorkers,
+		"workers_total":    len(workers),
+		"uptime_seconds":   int64(time.Since(startTime).Seconds()),
+	})
+}
+
+// startTime 用于 metrics 的 uptime 计算
+var startTime = time.Now()
 

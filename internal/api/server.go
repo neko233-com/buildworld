@@ -35,6 +35,8 @@ type Deps struct {
 	JWT        *auth.JWT
 	Loader     *plugin.Loader
 	StaticFS   fs.FS
+	Statistics *engine.StatisticsService
+	Approval   *engine.ApprovalService
 }
 
 func NewServer(d Deps) *Server {

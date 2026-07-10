@@ -1,0 +1,7 @@
+{
+  "name": "telegram",
+  "version": "1.0.0",
+  "description": "Telegram notifications: send messages and files via Bot API",
+  "author": "buildworld233",
+  "steps": ["telegram-notify", "telegram-send-file"]
+}

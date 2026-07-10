@@ -1,0 +1,7 @@
+{
+  "name": "maven",
+  "version": "1.0.0",
+  "description": "Java Maven build: compile, test, package, deploy, clean",
+  "author": "buildworld233",
+  "steps": ["maven-compile", "maven-test", "maven-package", "maven-deploy", "maven-clean"]
+}

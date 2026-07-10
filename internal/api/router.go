@@ -36,6 +36,8 @@ var publicPrefixes = []string{
 	"/api/auth/login",
 	"/api/auth/register",
 	"/api/webhooks/",
+	"/api/badge/",
+	"/api/trigger/",
 }
 
 // NewRouter wires all REST routes + WebSocket + webhooks onto a chi router.
@@ -51,7 +53,7 @@ func NewRouter(d Deps) http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(contentTypeJSONMiddleware)
-		r.Use(auth.Middleware(d.JWT, publicPrefixes...))
+		r.Use(auth.Middleware(d.JWT, auth.NewAPITokenValidator(d.Store), publicPrefixes...))
 		// --- health & version ---
 		r.Get("/health", h.health)
 		r.Get("/version", h.version)
@@ -102,6 +104,7 @@ func NewRouter(d Deps) http.Handler {
 				r.Delete("/", h.deleteProject)
 				r.Get("/builds", h.listProjectBuilds)
 				r.Post("/builds", h.triggerBuild)
+				r.Get("/stats", h.getProjectStats)
 			})
 		})
 
@@ -111,11 +114,17 @@ func NewRouter(d Deps) http.Handler {
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", h.getBuild)
 				r.Get("/logs", h.getBuildLogs)
+				r.Get("/logs/download", h.downloadBuildLogs)
+				r.Get("/logs/search", h.searchBuildLogs)
 				r.Post("/stop", h.stopBuild)
 				r.Post("/retry", h.retryBuild)
 				r.Post("/pin", h.pinBuild)
+				r.Post("/approve", h.approveBuild)
+				r.Post("/reject", h.rejectBuild)
 				r.Get("/artifacts", h.listBuildArtifacts)
 				r.Post("/artifacts", h.uploadArtifact)
+				r.Get("/test-results", h.getBuildTestResults)
+				r.Post("/test-results", h.uploadTestResults)
 			})
 		})
 
@@ -189,6 +198,56 @@ func NewRouter(d Deps) http.Handler {
 			r.Post("/gitlab", h.gitlabWebhook)
 			r.Post("/gitea", h.giteaWebhook)
 		})
+
+		// --- statistics ---
+		r.Get("/stats/dashboard", h.getDashboardStats)
+
+		// --- audit logs ---
+		r.Get("/audit-logs", h.listAuditLogs)
+
+		// --- api tokens ---
+		r.Route("/api-tokens", func(r chi.Router) {
+			r.Get("/", h.listAPITokens)
+			r.Post("/", h.createAPIToken)
+			r.Delete("/{id}", h.deleteAPIToken)
+		})
+
+		// --- approvals ---
+		r.Get("/approvals/pending", h.listPendingApprovals)
+
+		// --- deployment environments ---
+		r.Route("/deployment-envs", func(r chi.Router) {
+			r.Get("/", h.listDeploymentEnvs)
+			r.Post("/", h.createDeploymentEnv)
+			r.Delete("/{id}", h.deleteDeploymentEnv)
+			r.Post("/{id}/deploy/{buildId}", h.deployBuild)
+		})
+
+		// --- project groups ---
+		r.Route("/project-groups", func(r chi.Router) {
+			r.Get("/", h.listProjectGroups)
+			r.Post("/", h.createProjectGroup)
+			r.Delete("/{id}", h.deleteProjectGroup)
+		})
+
+		// --- build queue ---
+		r.Route("/build-queue", func(r chi.Router) {
+			r.Get("/", h.listBuildQueue)
+			r.Put("/{id}", h.reorderBuildQueue)
+		})
+
+		// --- global settings ---
+		r.Get("/settings", h.getGlobalSettings)
+		r.Put("/settings", h.updateGlobalSettings)
+
+		// --- server metrics ---
+		r.Get("/metrics", h.serverMetrics)
+
+		// --- badge (public) ---
+		r.Get("/badge/{projectName}", h.buildBadge)
+
+		// --- http trigger (public, validates api token internally) ---
+		r.Post("/trigger/{projectName}", h.httpTriggerBuild)
 	})
 
 	// WebSocket endpoint.

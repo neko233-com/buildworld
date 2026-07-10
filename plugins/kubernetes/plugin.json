@@ -1,0 +1,7 @@
+{
+  "name": "kubernetes",
+  "version": "1.0.0",
+  "description": "Kubernetes deployment: apply, deploy, scale, rollback, status",
+  "author": "buildworld233",
+  "steps": ["k8s-apply", "k8s-deploy", "k8s-scale", "k8s-rollback", "k8s-status"]
+}

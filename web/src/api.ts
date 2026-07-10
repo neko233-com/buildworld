@@ -138,4 +138,51 @@ export const api = {
   updateNotificationChannel: (id: number, data: any) => request('PUT', `/notifications/channels/${id}`, data),
   deleteNotificationChannel: (id: number) => request('DELETE', `/notifications/channels/${id}`),
   listNotificationEvents: (id: number, limit = 100) => request<any[]>('GET', `/notifications/channels/${id}/events?limit=${limit}`),
+
+  // statistics
+  getDashboardStats: () => request<any>('GET', '/stats/dashboard'),
+  getProjectStats: (id: number, days: number) => request<any>('GET', `/stats/projects/${id}?days=${days}`),
+
+  // audit logs
+  listAuditLogs: (page?: number, limit?: number) => request<any[]>('GET', `/audit-logs?page=${page || 1}&limit=${limit || 50}`),
+
+  // api tokens
+  listAPITokens: () => request<any[]>('GET', '/tokens/'),
+  createAPIToken: (data: any) => request<any>('POST', '/tokens/', data),
+  deleteAPIToken: (id: number) => request('DELETE', `/tokens/${id}`),
+
+  // build approvals
+  listPendingApprovals: () => request<any[]>('GET', '/approvals'),
+  approveBuild: (id: number, comment?: string) => request('POST', `/builds/${id}/approve`, { comment }),
+  rejectBuild: (id: number, comment?: string) => request('POST', `/builds/${id}/reject`, { comment }),
+
+  // build logs
+  downloadBuildLogs: (id: number, format?: string) => `${API_BASE}/builds/${id}/logs/download?format=${format || 'txt'}&token=${localStorage.getItem('token')}`,
+  searchBuildLogs: (id: number, query: string) => request<any[]>('GET', `/builds/${id}/logs/search?q=${encodeURIComponent(query)}`),
+
+  // test reports
+  getBuildTestResults: (id: number) => request<any>('GET', `/builds/${id}/test-results`),
+  uploadTestResults: (id: number, data: string) => request('POST', `/builds/${id}/test-results`, { xml: data }),
+
+  // deployments
+  listDeploymentEnvs: () => request<any[]>('GET', '/deployments/'),
+  createDeploymentEnv: (data: any) => request('POST', '/deployments/', data),
+  deleteDeploymentEnv: (id: number) => request('DELETE', `/deployments/${id}`),
+  deployBuild: (envId: number, buildId: number) => request('POST', `/deployments/${envId}/deploy/${buildId}`),
+
+  // project groups
+  listProjectGroups: () => request<any[]>('GET', '/project-groups/'),
+  createProjectGroup: (data: any) => request('POST', '/project-groups/', data),
+  deleteProjectGroup: (id: number) => request('DELETE', `/project-groups/${id}`),
+
+  // build queue
+  listBuildQueue: () => request<any[]>('GET', '/build-queue'),
+  reorderBuildQueue: (id: number, priority: number) => request('PUT', `/build-queue/${id}/priority`, { priority }),
+
+  // global settings
+  getGlobalSettings: () => request<any>('GET', '/settings'),
+  updateGlobalSettings: (data: any) => request('PUT', '/settings', data),
+
+  // server metrics
+  getServerMetrics: () => request<any>('GET', '/metrics'),
 }

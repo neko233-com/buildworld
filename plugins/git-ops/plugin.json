@@ -1,0 +1,7 @@
+{
+  "name": "git-ops",
+  "version": "1.0.0",
+  "description": "Git operations: clone, pull, push, tag, merge, cherry-pick, release",
+  "author": "buildworld233",
+  "steps": ["git-clone", "git-pull", "git-push", "git-tag", "git-merge", "git-cherry-pick", "git-release"]
+}

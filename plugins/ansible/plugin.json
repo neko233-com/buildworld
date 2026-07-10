@@ -1,0 +1,7 @@
+{
+  "name": "ansible",
+  "version": "1.0.0",
+  "description": "Configuration management: playbook, galaxy install, vault encrypt/decrypt, inventory",
+  "author": "buildworld233",
+  "steps": ["ansible-playbook", "ansible-galaxy-install", "ansible-vault-encrypt", "ansible-vault-decrypt", "ansible-inventory"]
+}

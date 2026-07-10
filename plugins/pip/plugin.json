@@ -1,0 +1,7 @@
+{
+  "name": "pip",
+  "version": "1.0.0",
+  "description": "Python package management: install, test, build, publish, lint",
+  "author": "buildworld233",
+  "steps": ["pip-install", "pip-test", "pip-build", "pip-publish", "pip-lint"]
+}

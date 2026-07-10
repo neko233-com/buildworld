@@ -14,7 +14,12 @@
     "plugins": "Plugins",
     "credentials": "Credentials",
     "settings": "Settings",
-    "users": "Users"
+    "users": "Users",
+    "statistics": "Statistics",
+    "auditLog": "Audit Log",
+    "apiTokens": "API Tokens",
+    "deployments": "Deployments",
+    "buildQueue": "Build Queue"
   },
   "agents": {
     "title": "Agents",
@@ -88,7 +93,10 @@
     "commit": "Commit",
     "logs": "Logs",
     "artifacts": "Artifacts",
-    "parameters": "Parameters"
+    "parameters": "Parameters",
+    "testReports": "Test Reports",
+    "retry": "Retry",
+    "stop": "Stop"
   },
   "plugins": {
     "title": "Plugins",
@@ -104,7 +112,19 @@
     "security": "Security",
     "notifications": "Notifications",
     "backup": "Backup & Restore",
-    "about": "About"
+    "about": "About",
+    "serverConfig": "Server Configuration",
+    "port": "Port",
+    "host": "Host",
+    "tls": "TLS",
+    "buildDefaults": "Build Defaults",
+    "timeout": "Timeout (s)",
+    "concurrency": "Concurrency",
+    "retryPolicy": "Retry Policy",
+    "storagePaths": "Storage Paths",
+    "systemInfo": "System Information",
+    "version": "Version",
+    "uptime": "Uptime"
   },
   "notifications": {
     "title": "Notification Channels",
@@ -129,6 +149,78 @@
     "edit": "Edit",
     "delete": "Delete"
   },
+  "statistics": {
+    "title": "Build Statistics",
+    "successRate": "Success Rate",
+    "failureRate": "Failure Rate",
+    "avgDuration": "Avg Duration",
+    "totalBuilds": "Total Builds",
+    "trend": "Build Trend",
+    "last7Days": "Last 7 Days",
+    "last30Days": "Last 30 Days",
+    "heatmap": "Build Heatmap",
+    "less": "Less",
+    "more": "More"
+  },
+  "auditLog": {
+    "title": "Audit Log",
+    "time": "Time",
+    "user": "User",
+    "action": "Action",
+    "resourceType": "Resource Type",
+    "resourceId": "Resource ID",
+    "details": "Details",
+    "filterAction": "Filter Action",
+    "filterUser": "Filter User",
+    "all": "All"
+  },
+  "apiTokens": {
+    "title": "API Tokens",
+    "new": "New Token",
+    "name": "Name",
+    "scopes": "Scopes",
+    "expiresAt": "Expires At",
+    "prefix": "Prefix",
+    "createdAt": "Created At",
+    "tokenOnce": "Copy this token now. It will not be shown again.",
+    "create": "Create",
+    "noExpiry": "No Expiry"
+  },
+  "testReports": {
+    "title": "Test Reports",
+    "summary": "Summary",
+    "passed": "Passed",
+    "failed": "Failed",
+    "skipped": "Skipped",
+    "total": "Total",
+    "testCases": "Test Cases",
+    "upload": "Upload Report (JUnit XML)",
+    "name": "Name",
+    "duration": "Duration"
+  },
+  "deployments": {
+    "title": "Deployments",
+    "newEnv": "New Environment",
+    "name": "Name",
+    "type": "Type",
+    "description": "Description",
+    "createdAt": "Created At",
+    "deploy": "Deploy",
+    "buildId": "Build ID",
+    "history": "History",
+    "status": "Status",
+    "deployedAt": "Deployed At"
+  },
+  "buildQueue": {
+    "title": "Build Queue",
+    "position": "Position",
+    "project": "Project",
+    "branch": "Branch",
+    "priority": "Priority",
+    "moveUp": "Move Up",
+    "moveDown": "Move Down",
+    "cancel": "Cancel"
+  },
   "common": {
     "save": "Save",
     "cancel": "Cancel",
@@ -138,7 +230,12 @@
     "error": "Error",
     "success": "Success",
     "search": "Search...",
-    "noData": "No data"
+    "noData": "No data",
+    "enable": "Enable",
+    "disable": "Disable",
+    "create": "Create",
+    "all": "All",
+    "copy": "Copy"
   },
   "status": {
     "success": "Success",
