@@ -78,6 +78,9 @@ func main() {
 	runner.SetArtifactManager(artifactMgr)
 	notificationService := engine.NewNotificationService(db)
 	runner.SetNotificationService(notificationService)
+	statisticsService := engine.NewStatisticsService(db)
+	runner.SetStatisticsService(statisticsService)
+	approvalService := engine.NewApprovalService(db)
 	triggerChecker := engine.NewTriggerChecker(db, runner, hub)
 	triggerChecker.Start()
 	defer triggerChecker.Stop()
@@ -89,14 +92,16 @@ func main() {
 	}
 
 	server := api.NewServer(api.Deps{
-		Cfg:       cfg,
-		Store:     db,
-		Hub:       hub,
-		Runner:    runner,
-		JWT:       jwtInstance,
-		Loader:    loader,
-		Artifacts: artifactMgr,
-		StaticFS:  staticFS,
+		Cfg:        cfg,
+		Store:      db,
+		Hub:        hub,
+		Runner:     runner,
+		JWT:        jwtInstance,
+		Loader:     loader,
+		Artifacts:  artifactMgr,
+		StaticFS:   staticFS,
+		Statistics: statisticsService,
+		Approval:   approvalService,
 	})
 
 	// Config hot-reload.

@@ -2,8 +2,13 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/neko233-com/buildworld233/internal/store"
 )
 
 type contextKey string
@@ -15,9 +20,35 @@ const (
 	CtxRole contextKey = "role"
 )
 
-// Middleware returns an HTTP middleware that validates a Bearer JWT token.
+// APITokenValidator 验证 API Token 并返回 (userID, role, ok)。
+type APITokenValidator func(token string) (userID int64, role string, ok bool)
+
+// NewAPITokenValidator 基于 store 创建 API Token 验证器（bw_ 前缀 + SHA256 hash）。
+func NewAPITokenValidator(s *store.Store) APITokenValidator {
+	return func(token string) (int64, string, bool) {
+		if !strings.HasPrefix(token, "bw_") {
+			return 0, "", false
+		}
+		hash := sha256.Sum256([]byte(token))
+		apiToken, err := s.GetAPITokenByHash(hex.EncodeToString(hash[:]))
+		if err != nil || apiToken == nil {
+			return 0, "", false
+		}
+		if apiToken.ExpiresAt != nil && apiToken.ExpiresAt.Before(time.Now()) {
+			return 0, "", false
+		}
+		_ = s.UpdateAPITokenLastUsed(apiToken.ID)
+		user, err := s.GetUser(apiToken.UserID)
+		if err != nil {
+			return apiToken.UserID, "developer", true
+		}
+		return user.ID, user.Role, true
+	}
+}
+
+// Middleware returns an HTTP middleware that validates a Bearer JWT or API Token.
 // Public paths (e.g. login, health, webhooks) bypass auth.
-func Middleware(jwt *JWT, publicPrefixes ...string) func(http.Handler) http.Handler {
+func Middleware(jwt *JWT, apiTokenValidator APITokenValidator, publicPrefixes ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			for _, p := range publicPrefixes {
@@ -30,6 +61,18 @@ func Middleware(jwt *JWT, publicPrefixes ...string) func(http.Handler) http.Hand
 			token := extractToken(r)
 			if token == "" {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+
+			// API Token (bw_ 前缀) 优先走 API Token 验证
+			if apiTokenValidator != nil && strings.HasPrefix(token, "bw_") {
+				if uid, role, ok := apiTokenValidator(token); ok {
+					ctx := context.WithValue(r.Context(), CtxUserID, uid)
+					ctx = context.WithValue(ctx, CtxRole, role)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+				http.Error(w, `{"error":"invalid api token"}`, http.StatusUnauthorized)
 				return
 			}
 

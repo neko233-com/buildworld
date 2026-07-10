@@ -1,0 +1,7 @@
+{
+  "name": "dotnet",
+  "version": "1.0.0",
+  "description": ".NET build: restore, build, test, publish, pack",
+  "author": "buildworld233",
+  "steps": ["dotnet-restore", "dotnet-build", "dotnet-test", "dotnet-publish", "dotnet-pack"]
+}

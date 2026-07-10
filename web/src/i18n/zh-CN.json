@@ -14,7 +14,12 @@
     "plugins": "插件",
     "credentials": "凭据",
     "settings": "设置",
-    "users": "用户"
+    "users": "用户",
+    "statistics": "统计",
+    "auditLog": "审计日志",
+    "apiTokens": "API Token",
+    "deployments": "部署",
+    "buildQueue": "构建队列"
   },
   "agents": {
     "title": "节点管理",
@@ -88,7 +93,10 @@
     "commit": "提交",
     "logs": "日志",
     "artifacts": "产物",
-    "parameters": "参数"
+    "parameters": "参数",
+    "testReports": "测试报告",
+    "retry": "重试",
+    "stop": "停止"
   },
   "plugins": {
     "title": "插件",
@@ -104,7 +112,19 @@
     "security": "安全",
     "notifications": "通知",
     "backup": "备份与恢复",
-    "about": "关于"
+    "about": "关于",
+    "serverConfig": "服务器配置",
+    "port": "端口",
+    "host": "主机",
+    "tls": "TLS",
+    "buildDefaults": "构建默认配置",
+    "timeout": "超时时间(秒)",
+    "concurrency": "并发数",
+    "retryPolicy": "重试策略",
+    "storagePaths": "存储路径",
+    "systemInfo": "系统信息",
+    "version": "版本",
+    "uptime": "运行时间"
   },
   "notifications": {
     "title": "通知渠道",
@@ -129,6 +149,78 @@
     "edit": "编辑",
     "delete": "删除"
   },
+  "statistics": {
+    "title": "构建统计",
+    "successRate": "成功率",
+    "failureRate": "失败率",
+    "avgDuration": "平均耗时",
+    "totalBuilds": "总构建数",
+    "trend": "构建趋势",
+    "last7Days": "最近7天",
+    "last30Days": "最近30天",
+    "heatmap": "构建热力图",
+    "less": "少",
+    "more": "多"
+  },
+  "auditLog": {
+    "title": "审计日志",
+    "time": "时间",
+    "user": "用户",
+    "action": "操作",
+    "resourceType": "资源类型",
+    "resourceId": "资源ID",
+    "details": "详情",
+    "filterAction": "按操作筛选",
+    "filterUser": "按用户筛选",
+    "all": "全部"
+  },
+  "apiTokens": {
+    "title": "API Token",
+    "new": "新建 Token",
+    "name": "名称",
+    "scopes": "权限范围",
+    "expiresAt": "过期时间",
+    "prefix": "前缀",
+    "createdAt": "创建时间",
+    "tokenOnce": "请立即复制此 Token，它不会再次显示。",
+    "create": "创建",
+    "noExpiry": "永不过期"
+  },
+  "testReports": {
+    "title": "测试报告",
+    "summary": "摘要",
+    "passed": "通过",
+    "failed": "失败",
+    "skipped": "跳过",
+    "total": "总数",
+    "testCases": "测试用例",
+    "upload": "上传报告 (JUnit XML)",
+    "name": "名称",
+    "duration": "耗时"
+  },
+  "deployments": {
+    "title": "部署管理",
+    "newEnv": "新建环境",
+    "name": "名称",
+    "type": "类型",
+    "description": "描述",
+    "createdAt": "创建时间",
+    "deploy": "部署",
+    "buildId": "构建ID",
+    "history": "部署历史",
+    "status": "状态",
+    "deployedAt": "部署时间"
+  },
+  "buildQueue": {
+    "title": "构建队列",
+    "position": "位置",
+    "project": "项目",
+    "branch": "分支",
+    "priority": "优先级",
+    "moveUp": "上移",
+    "moveDown": "下移",
+    "cancel": "取消"
+  },
   "common": {
     "save": "保存",
     "cancel": "取消",
@@ -138,7 +230,12 @@
     "error": "错误",
     "success": "成功",
     "search": "搜索...",
-    "noData": "暂无数据"
+    "noData": "暂无数据",
+    "enable": "启用",
+    "disable": "禁用",
+    "create": "创建",
+    "all": "全部",
+    "copy": "复制"
   },
   "status": {
     "success": "成功",

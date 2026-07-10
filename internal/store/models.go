@@ -38,21 +38,26 @@ type Project struct {
 }
 
 type Build struct {
-	ID               int64      `json:"id"`
-	ProjectID        int64      `json:"project_id"`
-	Number           int        `json:"number"`
-	Status           string     `json:"status"`
-	Trigger          string     `json:"trigger"`
-	Branch           string     `json:"branch,omitempty"`
-	CommitSHA        string     `json:"commit_sha,omitempty"`
-	Parameters       string     `json:"parameters,omitempty"`
-	WaitDependencyOn *int64     `json:"wait_dependency_on,omitempty"`
-	RetriedFrom      *int64     `json:"retried_from,omitempty"`
-	Pinned           bool       `json:"pinned"`
-	StartedAt        *time.Time `json:"started_at,omitempty"`
-	FinishedAt       *time.Time `json:"finished_at,omitempty"`
-	DurationMs       *int64     `json:"duration_ms,omitempty"`
-	Log              string     `json:"log,omitempty"`
+	ID                int64      `json:"id"`
+	ProjectID         int64      `json:"project_id"`
+	Number            int        `json:"number"`
+	Status            string     `json:"status"`
+	Trigger           string     `json:"trigger"`
+	Branch            string     `json:"branch,omitempty"`
+	CommitSHA         string     `json:"commit_sha,omitempty"`
+	Parameters        string     `json:"parameters,omitempty"`
+	WaitDependencyOn  *int64     `json:"wait_dependency_on,omitempty"`
+	RetriedFrom       *int64     `json:"retried_from,omitempty"`
+	Pinned            bool       `json:"pinned"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	FinishedAt        *time.Time `json:"finished_at,omitempty"`
+	DurationMs        *int64     `json:"duration_ms,omitempty"`
+	Log               string     `json:"log,omitempty"`
+	ApprovalRequired  bool       `json:"approval_required,omitempty"`
+	ApprovedBy        *int64     `json:"approved_by,omitempty"`
+	ApprovedAt        *time.Time `json:"approved_at,omitempty"`
+	TimeoutSec        int        `json:"timeout_sec,omitempty"`
+	TestResultID      *int64     `json:"test_result_id,omitempty"`
 }
 
 type EnvVar struct {
@@ -177,4 +182,101 @@ type NotificationEvent struct {
 	ErrorMessage    string    `json:"error_message,omitempty"`
 	DeliveredAt     *time.Time `json:"delivered_at,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
+}
+
+// BuildStat 每日构建统计聚合
+type BuildStat struct {
+	ID           int64  `json:"id"`
+	ProjectID    int64  `json:"project_id"`
+	Date         string `json:"date"` // YYYY-MM-DD
+	TotalBuilds  int    `json:"total_builds"`
+	SuccessCount int    `json:"success_count"`
+	FailedCount  int    `json:"failed_count"`
+	AvgDuration  int64  `json:"avg_duration_ms"`
+}
+
+// AuditLog 操作审计日志
+type AuditLog struct {
+	ID           int64     `json:"id"`
+	UserID       int64     `json:"user_id"`
+	Username     string    `json:"username"`
+	Action       string    `json:"action"` // create/update/delete/trigger/login
+	ResourceType string    `json:"resource_type"`
+	ResourceID   string    `json:"resource_id"`
+	Detail       string    `json:"detail,omitempty"`
+	IP           string    `json:"ip"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// APIToken 用户级 API 令牌
+type APIToken struct {
+	ID          int64      `json:"id"`
+	UserID      int64      `json:"user_id"`
+	Name        string     `json:"name"`
+	TokenHash   string     `json:"-"`
+	TokenPrefix string     `json:"token_prefix"` // 前 8 位用于展示
+	Scopes      string     `json:"scopes"`       // JSON array
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+// BuildApproval 构建审批记录
+type BuildApproval struct {
+	ID         int64      `json:"id"`
+	BuildID    int64      `json:"build_id"`
+	UserID     int64      `json:"user_id"`
+	Username   string     `json:"username"`
+	Status     string     `json:"status"` // pending/approved/rejected
+	Comment    string     `json:"comment,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+}
+
+// TestResult 测试结果汇总
+type TestResult struct {
+	ID        int64     `json:"id"`
+	BuildID   int64     `json:"build_id"`
+	Total     int       `json:"total"`
+	Passed    int       `json:"passed"`
+	Failed    int       `json:"failed"`
+	Skipped   int       `json:"skipped"`
+	Duration  int64     `json:"duration_ms"`
+	ReportXML string    `json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// DeploymentEnv 部署环境
+type DeploymentEnv struct {
+	ID          int64     `json:"id"`
+	ProjectID   int64     `json:"project_id"`
+	Name        string    `json:"name"` // dev/staging/production
+	Description string    `json:"description,omitempty"`
+	Config      string    `json:"config"` // JSON 配置
+	LastBuildID *int64    `json:"last_build_id,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// ProjectGroup 项目分组（支持层级）
+type ProjectGroup struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	ParentID    *int64    `json:"parent_id,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// BuildQueueItem 构建队列项
+type BuildQueueItem struct {
+	ID          int64      `json:"id"`
+	BuildID     int64      `json:"build_id"`
+	ProjectID   int64      `json:"project_id"`
+	ProjectName string     `json:"project_name"`
+	Priority    int        `json:"priority"`
+	Status      string     `json:"status"` // queued/running/cancelled
+	Trigger     string     `json:"trigger"`
+	Branch      string     `json:"branch"`
+	QueuedAt    time.Time  `json:"queued_at"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
 }

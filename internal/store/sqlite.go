@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -288,14 +289,14 @@ func (s *Store) CreateBuild(projectID int64, number int, trigger, branch, commit
 func (s *Store) GetBuild(id int64) (*Build, error) {
 	b := &Build{}
 	var branch, commit, params, log sql.NullString
-	var started, finished sql.NullTime
+	var started, finished, approvedAt sql.NullTime
 	var dur sql.NullInt64
-	var waitDep, retriedFrom sql.NullInt64
-	var pinned sql.NullBool
+	var waitDep, retriedFrom, approvedBy, testResultID sql.NullInt64
+	var pinned, approvalRequired sql.NullBool
 	err := s.db.QueryRow(
-		"SELECT id, project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, pinned, log, started_at, finished_at, duration_ms FROM builds WHERE id = ?",
+		"SELECT id, project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, pinned, log, started_at, finished_at, duration_ms, approval_required, approved_by, approved_at, timeout_sec, test_result_id FROM builds WHERE id = ?",
 		id,
-	).Scan(&b.ID, &b.ProjectID, &b.Number, &b.Status, &b.Trigger, &branch, &commit, &params, &waitDep, &retriedFrom, &pinned, &log, &started, &finished, &dur)
+	).Scan(&b.ID, &b.ProjectID, &b.Number, &b.Status, &b.Trigger, &branch, &commit, &params, &waitDep, &retriedFrom, &pinned, &log, &started, &finished, &dur, &approvalRequired, &approvedBy, &approvedAt, &b.TimeoutSec, &testResultID)
 	if err != nil {
 		return nil, err
 	}
@@ -320,6 +321,20 @@ func (s *Store) GetBuild(id int64) (*Build, error) {
 	}
 	if pinned.Valid {
 		b.Pinned = pinned.Bool
+	}
+	if approvalRequired.Valid {
+		b.ApprovalRequired = approvalRequired.Bool
+	}
+	if approvedBy.Valid {
+		v := approvedBy.Int64
+		b.ApprovedBy = &v
+	}
+	if approvedAt.Valid {
+		b.ApprovedAt = &approvedAt.Time
+	}
+	if testResultID.Valid {
+		v := testResultID.Int64
+		b.TestResultID = &v
 	}
 	return b, nil
 }
@@ -327,39 +342,18 @@ func (s *Store) GetBuild(id int64) (*Build, error) {
 func (s *Store) GetBuildByNumber(projectID int64, number int) (*Build, error) {
 	b := &Build{}
 	var branch, commit, params, log sql.NullString
-	var started, finished sql.NullTime
+	var started, finished, approvedAt sql.NullTime
 	var dur sql.NullInt64
-	var waitDep, retriedFrom sql.NullInt64
-	var pinned sql.NullBool
+	var waitDep, retriedFrom, approvedBy, testResultID sql.NullInt64
+	var pinned, approvalRequired sql.NullBool
 	err := s.db.QueryRow(
-		"SELECT id, project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, pinned, log, started_at, finished_at, duration_ms FROM builds WHERE project_id = ? AND number = ?",
+		"SELECT id, project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, pinned, log, started_at, finished_at, duration_ms, approval_required, approved_by, approved_at, timeout_sec, test_result_id FROM builds WHERE project_id = ? AND number = ?",
 		projectID, number,
-	).Scan(&b.ID, &b.ProjectID, &b.Number, &b.Status, &b.Trigger, &branch, &commit, &params, &waitDep, &retriedFrom, &pinned, &log, &started, &finished, &dur)
+	).Scan(&b.ID, &b.ProjectID, &b.Number, &b.Status, &b.Trigger, &branch, &commit, &params, &waitDep, &retriedFrom, &pinned, &log, &started, &finished, &dur, &approvalRequired, &approvedBy, &approvedAt, &b.TimeoutSec, &testResultID)
 	if err != nil {
 		return nil, err
 	}
-	b.Branch, b.CommitSHA, b.Parameters, b.Log = branch.String, commit.String, params.String, log.String
-	if started.Valid {
-		b.StartedAt = &started.Time
-	}
-	if finished.Valid {
-		b.FinishedAt = &finished.Time
-	}
-	if dur.Valid {
-		v := dur.Int64
-		b.DurationMs = &v
-	}
-	if waitDep.Valid {
-		v := waitDep.Int64
-		b.WaitDependencyOn = &v
-	}
-	if retriedFrom.Valid {
-		v := retriedFrom.Int64
-		b.RetriedFrom = &v
-	}
-	if pinned.Valid {
-		b.Pinned = pinned.Bool
-	}
+	scanBuildExtras(b, branch, commit, params, log, started, finished, dur, waitDep, retriedFrom, pinned, approvalRequired, approvedBy, approvedAt, testResultID)
 	return b, nil
 }
 
@@ -368,7 +362,7 @@ func (s *Store) ListBuilds(limit int) ([]*Build, error) {
 		limit = 100
 	}
 	rows, err := s.db.Query(
-		"SELECT id, project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, pinned, log, started_at, finished_at, duration_ms FROM builds ORDER BY id DESC LIMIT ?", limit)
+		"SELECT id, project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, pinned, log, started_at, finished_at, duration_ms, approval_required, approved_by, approved_at, timeout_sec, test_result_id FROM builds ORDER BY id DESC LIMIT ?", limit)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +372,7 @@ func (s *Store) ListBuilds(limit int) ([]*Build, error) {
 
 func (s *Store) ListBuildsByProject(projectID int64) ([]*Build, error) {
 	rows, err := s.db.Query(
-		"SELECT id, project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, pinned, log, started_at, finished_at, duration_ms FROM builds WHERE project_id = ? ORDER BY number DESC", projectID)
+		"SELECT id, project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, pinned, log, started_at, finished_at, duration_ms, approval_required, approved_by, approved_at, timeout_sec, test_result_id FROM builds WHERE project_id = ? ORDER BY number DESC", projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +382,7 @@ func (s *Store) ListBuildsByProject(projectID int64) ([]*Build, error) {
 
 func (s *Store) ListPendingBuilds() ([]*Build, error) {
 	rows, err := s.db.Query(
-		"SELECT id, project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, pinned, log, started_at, finished_at, duration_ms FROM builds WHERE status = 'pending' ORDER BY id ASC")
+		"SELECT id, project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, pinned, log, started_at, finished_at, duration_ms, approval_required, approved_by, approved_at, timeout_sec, test_result_id FROM builds WHERE status = 'pending' ORDER BY id ASC")
 	if err != nil {
 		return nil, err
 	}
@@ -396,40 +390,62 @@ func (s *Store) ListPendingBuilds() ([]*Build, error) {
 	return scanBuilds(rows)
 }
 
+// scanBuildExtras 把可空列从 sql.Null* 拷贝到 Build。集中实现避免重复。
+func scanBuildExtras(b *Build, branch, commit, params, log sql.NullString,
+	started, finished sql.NullTime, dur sql.NullInt64,
+	waitDep, retriedFrom sql.NullInt64, pinned, approvalRequired sql.NullBool,
+	approvedBy sql.NullInt64, approvedAt sql.NullTime, testResultID sql.NullInt64) {
+	b.Branch, b.CommitSHA, b.Parameters, b.Log = branch.String, commit.String, params.String, log.String
+	if started.Valid {
+		b.StartedAt = &started.Time
+	}
+	if finished.Valid {
+		b.FinishedAt = &finished.Time
+	}
+	if dur.Valid {
+		v := dur.Int64
+		b.DurationMs = &v
+	}
+	if waitDep.Valid {
+		v := waitDep.Int64
+		b.WaitDependencyOn = &v
+	}
+	if retriedFrom.Valid {
+		v := retriedFrom.Int64
+		b.RetriedFrom = &v
+	}
+	if pinned.Valid {
+		b.Pinned = pinned.Bool
+	}
+	if approvalRequired.Valid {
+		b.ApprovalRequired = approvalRequired.Bool
+	}
+	if approvedBy.Valid {
+		v := approvedBy.Int64
+		b.ApprovedBy = &v
+	}
+	if approvedAt.Valid {
+		b.ApprovedAt = &approvedAt.Time
+	}
+	if testResultID.Valid {
+		v := testResultID.Int64
+		b.TestResultID = &v
+	}
+}
+
 func scanBuilds(rows *sql.Rows) ([]*Build, error) {
 	var builds []*Build
 	for rows.Next() {
 		b := &Build{}
 		var branch, commit, params, log sql.NullString
-		var started, finished sql.NullTime
+		var started, finished, approvedAt sql.NullTime
 		var dur sql.NullInt64
-		var waitDep, retriedFrom sql.NullInt64
-		var pinned sql.NullBool
-		if err := rows.Scan(&b.ID, &b.ProjectID, &b.Number, &b.Status, &b.Trigger, &branch, &commit, &params, &waitDep, &retriedFrom, &pinned, &log, &started, &finished, &dur); err != nil {
+		var waitDep, retriedFrom, approvedBy, testResultID sql.NullInt64
+		var pinned, approvalRequired sql.NullBool
+		if err := rows.Scan(&b.ID, &b.ProjectID, &b.Number, &b.Status, &b.Trigger, &branch, &commit, &params, &waitDep, &retriedFrom, &pinned, &log, &started, &finished, &dur, &approvalRequired, &approvedBy, &approvedAt, &b.TimeoutSec, &testResultID); err != nil {
 			return nil, err
 		}
-		b.Branch, b.CommitSHA, b.Parameters, b.Log = branch.String, commit.String, params.String, log.String
-		if started.Valid {
-			b.StartedAt = &started.Time
-		}
-		if finished.Valid {
-			b.FinishedAt = &finished.Time
-		}
-		if dur.Valid {
-			v := dur.Int64
-			b.DurationMs = &v
-		}
-		if waitDep.Valid {
-			v := waitDep.Int64
-			b.WaitDependencyOn = &v
-		}
-		if retriedFrom.Valid {
-			v := retriedFrom.Int64
-			b.RetriedFrom = &v
-		}
-		if pinned.Valid {
-			b.Pinned = pinned.Bool
-		}
+		scanBuildExtras(b, branch, commit, params, log, started, finished, dur, waitDep, retriedFrom, pinned, approvalRequired, approvedBy, approvedAt, testResultID)
 		builds = append(builds, b)
 	}
 	return builds, nil
@@ -1369,5 +1385,577 @@ func (s *Store) UpdateNotificationEventStatus(id int64, status string, errorMess
 	q += " WHERE id=?"
 	args = append(args, id)
 	_, err := s.db.Exec(q, args...)
+	return err
+}
+
+// ---------------- Build 扩展字段更新 ----------------
+
+func (s *Store) SetBuildApprovalRequired(buildID int64, required bool) error {
+	_, err := s.db.Exec("UPDATE builds SET approval_required=? WHERE id=?", required, buildID)
+	return err
+}
+
+func (s *Store) SetBuildApproved(buildID, userID int64) error {
+	_, err := s.db.Exec("UPDATE builds SET approved_by=?, approved_at=? WHERE id=?", userID, time.Now(), buildID)
+	return err
+}
+
+func (s *Store) SetBuildTestResult(buildID, testResultID int64) error {
+	_, err := s.db.Exec("UPDATE builds SET test_result_id=? WHERE id=?", testResultID, buildID)
+	return err
+}
+
+func (s *Store) SetBuildTimeout(buildID int64, timeoutSec int) error {
+	_, err := s.db.Exec("UPDATE builds SET timeout_sec=? WHERE id=?", timeoutSec, buildID)
+	return err
+}
+
+// ---------------- Build Stats ----------------
+
+func (s *Store) CreateBuildStat(projectID int64, date string, total, success, failed int, avgDuration int64) (*BuildStat, error) {
+	_, err := s.db.Exec(
+		`INSERT INTO build_stats (project_id, date, total_builds, success_count, failed_count, avg_duration_ms)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(project_id, date) DO UPDATE SET
+		   total_builds=excluded.total_builds,
+		   success_count=excluded.success_count,
+		   failed_count=excluded.failed_count,
+		   avg_duration_ms=excluded.avg_duration_ms`,
+		projectID, date, total, success, failed, avgDuration,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var bs BuildStat
+	err = s.db.QueryRow(
+		"SELECT id, project_id, date, total_builds, success_count, failed_count, avg_duration_ms FROM build_stats WHERE project_id=? AND date=?",
+		projectID, date,
+	).Scan(&bs.ID, &bs.ProjectID, &bs.Date, &bs.TotalBuilds, &bs.SuccessCount, &bs.FailedCount, &bs.AvgDuration)
+	if err != nil {
+		return nil, err
+	}
+	return &bs, nil
+}
+
+func (s *Store) GetProjectBuildStats(projectID int64, days int) ([]*BuildStat, error) {
+	if days <= 0 {
+		days = 30
+	}
+	rows, err := s.db.Query(
+		`SELECT id, project_id, date, total_builds, success_count, failed_count, avg_duration_ms
+		 FROM build_stats
+		 WHERE project_id=? AND date >= date('now', ?)
+		 ORDER BY date DESC`,
+		projectID, "-"+strconv.Itoa(days)+" days",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var stats []*BuildStat
+	for rows.Next() {
+		bs := &BuildStat{}
+		if err := rows.Scan(&bs.ID, &bs.ProjectID, &bs.Date, &bs.TotalBuilds, &bs.SuccessCount, &bs.FailedCount, &bs.AvgDuration); err != nil {
+			return nil, err
+		}
+		stats = append(stats, bs)
+	}
+	return stats, nil
+}
+
+func (s *Store) GetDashboardStats() ([]*BuildStat, error) {
+	rows, err := s.db.Query(
+		`SELECT date, SUM(total_builds) AS total, SUM(success_count) AS success, SUM(failed_count) AS failed, CAST(AVG(avg_duration_ms) AS INTEGER) AS avg
+		 FROM build_stats
+		 WHERE date >= date('now', '-30 days')
+		 GROUP BY date
+		 ORDER BY date DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var stats []*BuildStat
+	for rows.Next() {
+		bs := &BuildStat{}
+		if err := rows.Scan(&bs.ID, &bs.ProjectID, &bs.Date, &bs.TotalBuilds, &bs.SuccessCount, &bs.FailedCount, &bs.AvgDuration); err != nil {
+			return nil, err
+		}
+		stats = append(stats, bs)
+	}
+	return stats, nil
+}
+
+// ---------------- Audit Logs ----------------
+
+func (s *Store) CreateAuditLog(userID int64, username, action, resourceType, resourceID, detail, ip string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO audit_logs (user_id, username, action, resource_type, resource_id, detail, ip) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		userID, username, action, resourceType, resourceID, detail, ip,
+	)
+	return err
+}
+
+func (s *Store) ListAuditLogs(limit, offset int) ([]*AuditLog, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.db.Query(
+		"SELECT id, user_id, username, action, resource_type, resource_id, detail, ip, created_at FROM audit_logs ORDER BY id DESC LIMIT ? OFFSET ?",
+		limit, offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var logs []*AuditLog
+	for rows.Next() {
+		a := &AuditLog{}
+		var detail, ip sql.NullString
+		if err := rows.Scan(&a.ID, &a.UserID, &a.Username, &a.Action, &a.ResourceType, &a.ResourceID, &detail, &ip, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		a.Detail, a.IP = detail.String, ip.String
+		logs = append(logs, a)
+	}
+	return logs, nil
+}
+
+// ---------------- API Tokens ----------------
+
+func (s *Store) CreateAPIToken(userID int64, name, tokenHash, tokenPrefix, scopes string, expiresAt *time.Time) (*APIToken, error) {
+	res, err := s.db.Exec(
+		"INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+		userID, name, tokenHash, tokenPrefix, scopes, expiresAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.GetAPIToken(id)
+}
+
+func (s *Store) GetAPIToken(id int64) (*APIToken, error) {
+	t := &APIToken{}
+	var expires, lastUsed sql.NullTime
+	err := s.db.QueryRow(
+		"SELECT id, user_id, name, token_hash, token_prefix, scopes, expires_at, last_used_at, created_at FROM api_tokens WHERE id = ?",
+		id,
+	).Scan(&t.ID, &t.UserID, &t.Name, &t.TokenHash, &t.TokenPrefix, &t.Scopes, &expires, &lastUsed, &t.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if expires.Valid {
+		t.ExpiresAt = &expires.Time
+	}
+	if lastUsed.Valid {
+		t.LastUsedAt = &lastUsed.Time
+	}
+	return t, nil
+}
+
+func (s *Store) GetAPITokenByHash(hash string) (*APIToken, error) {
+	t := &APIToken{}
+	var expires, lastUsed sql.NullTime
+	err := s.db.QueryRow(
+		"SELECT id, user_id, name, token_hash, token_prefix, scopes, expires_at, last_used_at, created_at FROM api_tokens WHERE token_hash = ?",
+		hash,
+	).Scan(&t.ID, &t.UserID, &t.Name, &t.TokenHash, &t.TokenPrefix, &t.Scopes, &expires, &lastUsed, &t.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if expires.Valid {
+		t.ExpiresAt = &expires.Time
+	}
+	if lastUsed.Valid {
+		t.LastUsedAt = &lastUsed.Time
+	}
+	return t, nil
+}
+
+func (s *Store) ListAPITokens(userID int64) ([]*APIToken, error) {
+	rows, err := s.db.Query(
+		"SELECT id, user_id, name, token_hash, token_prefix, scopes, expires_at, last_used_at, created_at FROM api_tokens WHERE user_id = ? ORDER BY id DESC",
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tokens []*APIToken
+	for rows.Next() {
+		t := &APIToken{}
+		var expires, lastUsed sql.NullTime
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.TokenHash, &t.TokenPrefix, &t.Scopes, &expires, &lastUsed, &t.CreatedAt); err != nil {
+			return nil, err
+		}
+		if expires.Valid {
+			t.ExpiresAt = &expires.Time
+		}
+		if lastUsed.Valid {
+			t.LastUsedAt = &lastUsed.Time
+		}
+		tokens = append(tokens, t)
+	}
+	return tokens, nil
+}
+
+func (s *Store) DeleteAPIToken(id int64) error {
+	_, err := s.db.Exec("DELETE FROM api_tokens WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) UpdateAPITokenLastUsed(id int64) error {
+	_, err := s.db.Exec("UPDATE api_tokens SET last_used_at=? WHERE id=?", time.Now(), id)
+	return err
+}
+
+// ---------------- Build Approvals ----------------
+
+func (s *Store) CreateBuildApproval(buildID, userID int64, username string) (*BuildApproval, error) {
+	res, err := s.db.Exec(
+		"INSERT INTO build_approvals (build_id, user_id, username, status) VALUES (?, ?, ?, 'pending')",
+		buildID, userID, username,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.GetBuildApproval(id)
+}
+
+func (s *Store) GetBuildApproval(id int64) (*BuildApproval, error) {
+	a := &BuildApproval{}
+	var comment sql.NullString
+	var resolved sql.NullTime
+	err := s.db.QueryRow(
+		"SELECT id, build_id, user_id, username, status, comment, created_at, resolved_at FROM build_approvals WHERE id = ?",
+		id,
+	).Scan(&a.ID, &a.BuildID, &a.UserID, &a.Username, &a.Status, &comment, &a.CreatedAt, &resolved)
+	if err != nil {
+		return nil, err
+	}
+	a.Comment = comment.String
+	if resolved.Valid {
+		a.ResolvedAt = &resolved.Time
+	}
+	return a, nil
+}
+
+func (s *Store) GetBuildApprovalByBuild(buildID int64) (*BuildApproval, error) {
+	a := &BuildApproval{}
+	var comment sql.NullString
+	var resolved sql.NullTime
+	err := s.db.QueryRow(
+		"SELECT id, build_id, user_id, username, status, comment, created_at, resolved_at FROM build_approvals WHERE build_id = ? ORDER BY id DESC LIMIT 1",
+		buildID,
+	).Scan(&a.ID, &a.BuildID, &a.UserID, &a.Username, &a.Status, &comment, &a.CreatedAt, &resolved)
+	if err != nil {
+		return nil, err
+	}
+	a.Comment = comment.String
+	if resolved.Valid {
+		a.ResolvedAt = &resolved.Time
+	}
+	return a, nil
+}
+
+func (s *Store) ListPendingApprovals() ([]*BuildApproval, error) {
+	rows, err := s.db.Query(
+		"SELECT id, build_id, user_id, username, status, comment, created_at, resolved_at FROM build_approvals WHERE status = 'pending' ORDER BY id DESC",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanBuildApprovals(rows)
+}
+
+func (s *Store) UpdateBuildApproval(id int64, status, comment string) error {
+	_, err := s.db.Exec(
+		"UPDATE build_approvals SET status=?, comment=?, resolved_at=? WHERE id=?",
+		status, comment, time.Now(), id,
+	)
+	return err
+}
+
+func scanBuildApprovals(rows *sql.Rows) ([]*BuildApproval, error) {
+	var approvals []*BuildApproval
+	for rows.Next() {
+		a := &BuildApproval{}
+		var comment sql.NullString
+		var resolved sql.NullTime
+		if err := rows.Scan(&a.ID, &a.BuildID, &a.UserID, &a.Username, &a.Status, &comment, &a.CreatedAt, &resolved); err != nil {
+			return nil, err
+		}
+		a.Comment = comment.String
+		if resolved.Valid {
+			a.ResolvedAt = &resolved.Time
+		}
+		approvals = append(approvals, a)
+	}
+	return approvals, nil
+}
+
+// ---------------- Test Results ----------------
+
+func (s *Store) CreateTestResult(buildID int64, total, passed, failed, skipped int, duration int64, reportXML string) (*TestResult, error) {
+	res, err := s.db.Exec(
+		"INSERT INTO test_results (build_id, total, passed, failed, skipped, duration_ms, report_xml) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		buildID, total, passed, failed, skipped, duration, reportXML,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.GetTestResult(id)
+}
+
+func (s *Store) GetTestResult(id int64) (*TestResult, error) {
+	t := &TestResult{}
+	err := s.db.QueryRow(
+		"SELECT id, build_id, total, passed, failed, skipped, duration_ms, report_xml, created_at FROM test_results WHERE id = ?",
+		id,
+	).Scan(&t.ID, &t.BuildID, &t.Total, &t.Passed, &t.Failed, &t.Skipped, &t.Duration, &t.ReportXML, &t.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+func (s *Store) ListBuildTestResults(buildID int64) ([]*TestResult, error) {
+	rows, err := s.db.Query(
+		"SELECT id, build_id, total, passed, failed, skipped, duration_ms, report_xml, created_at FROM test_results WHERE build_id = ? ORDER BY id DESC",
+		buildID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []*TestResult
+	for rows.Next() {
+		t := &TestResult{}
+		if err := rows.Scan(&t.ID, &t.BuildID, &t.Total, &t.Passed, &t.Failed, &t.Skipped, &t.Duration, &t.ReportXML, &t.CreatedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, t)
+	}
+	return results, nil
+}
+
+// ---------------- Deployment Envs ----------------
+
+func (s *Store) CreateDeploymentEnv(projectID int64, name, description, config string) (*DeploymentEnv, error) {
+	if config == "" {
+		config = "{}"
+	}
+	res, err := s.db.Exec(
+		"INSERT INTO deployment_envs (project_id, name, description, config) VALUES (?, ?, ?, ?)",
+		projectID, name, description, config,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.GetDeploymentEnv(id)
+}
+
+func (s *Store) GetDeploymentEnv(id int64) (*DeploymentEnv, error) {
+	d := &DeploymentEnv{}
+	var desc sql.NullString
+	var lastBuild sql.NullInt64
+	err := s.db.QueryRow(
+		"SELECT id, project_id, name, description, config, last_build_id, created_at, updated_at FROM deployment_envs WHERE id = ?",
+		id,
+	).Scan(&d.ID, &d.ProjectID, &d.Name, &desc, &d.Config, &lastBuild, &d.CreatedAt, &d.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	d.Description = desc.String
+	if lastBuild.Valid {
+		v := lastBuild.Int64
+		d.LastBuildID = &v
+	}
+	return d, nil
+}
+
+func (s *Store) ListDeploymentEnvs(projectID int64) ([]*DeploymentEnv, error) {
+	rows, err := s.db.Query(
+		"SELECT id, project_id, name, description, config, last_build_id, created_at, updated_at FROM deployment_envs WHERE project_id = ? ORDER BY id",
+		projectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var envs []*DeploymentEnv
+	for rows.Next() {
+		d := &DeploymentEnv{}
+		var desc sql.NullString
+		var lastBuild sql.NullInt64
+		if err := rows.Scan(&d.ID, &d.ProjectID, &d.Name, &desc, &d.Config, &lastBuild, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, err
+		}
+		d.Description = desc.String
+		if lastBuild.Valid {
+			v := lastBuild.Int64
+			d.LastBuildID = &v
+		}
+		envs = append(envs, d)
+	}
+	return envs, nil
+}
+
+func (s *Store) UpdateDeploymentEnv(id int64, name, description, config string) error {
+	_, err := s.db.Exec(
+		"UPDATE deployment_envs SET name=?, description=?, config=?, updated_at=? WHERE id=?",
+		name, description, config, time.Now(), id,
+	)
+	return err
+}
+
+func (s *Store) UpdateDeploymentLastBuild(envID, buildID int64) error {
+	_, err := s.db.Exec("UPDATE deployment_envs SET last_build_id=?, updated_at=? WHERE id=?", buildID, time.Now(), envID)
+	return err
+}
+
+func (s *Store) DeleteDeploymentEnv(id int64) error {
+	_, err := s.db.Exec("DELETE FROM deployment_envs WHERE id = ?", id)
+	return err
+}
+
+// ---------------- Project Groups ----------------
+
+func (s *Store) CreateProjectGroup(name, description string, parentID *int64) (*ProjectGroup, error) {
+	res, err := s.db.Exec(
+		"INSERT INTO project_groups (name, description, parent_id) VALUES (?, ?, ?)",
+		name, description, parentID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.GetProjectGroup(id)
+}
+
+func (s *Store) GetProjectGroup(id int64) (*ProjectGroup, error) {
+	g := &ProjectGroup{}
+	var desc sql.NullString
+	var parentID sql.NullInt64
+	err := s.db.QueryRow(
+		"SELECT id, name, description, parent_id, created_at FROM project_groups WHERE id = ?",
+		id,
+	).Scan(&g.ID, &g.Name, &desc, &parentID, &g.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	g.Description = desc.String
+	if parentID.Valid {
+		v := parentID.Int64
+		g.ParentID = &v
+	}
+	return g, nil
+}
+
+func (s *Store) ListProjectGroups() ([]*ProjectGroup, error) {
+	rows, err := s.db.Query("SELECT id, name, description, parent_id, created_at FROM project_groups ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var groups []*ProjectGroup
+	for rows.Next() {
+		g := &ProjectGroup{}
+		var desc sql.NullString
+		var parentID sql.NullInt64
+		if err := rows.Scan(&g.ID, &g.Name, &desc, &parentID, &g.CreatedAt); err != nil {
+			return nil, err
+		}
+		g.Description = desc.String
+		if parentID.Valid {
+			v := parentID.Int64
+			g.ParentID = &v
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+func (s *Store) DeleteProjectGroup(id int64) error {
+	_, err := s.db.Exec("DELETE FROM project_groups WHERE id = ?", id)
+	return err
+}
+
+// ---------------- Build Queue Items ----------------
+
+func (s *Store) CreateBuildQueueItem(buildID, projectID int64, projectName string, priority int, trigger, branch string) (*BuildQueueItem, error) {
+	res, err := s.db.Exec(
+		"INSERT INTO build_queue_items (build_id, project_id, project_name, priority, status, trigger, branch) VALUES (?, ?, ?, ?, 'queued', ?, ?)",
+		buildID, projectID, projectName, priority, trigger, branch,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	row := s.db.QueryRow(
+		"SELECT id, build_id, project_id, project_name, priority, status, trigger, branch, queued_at, started_at FROM build_queue_items WHERE id = ?",
+		id,
+	)
+	item := &BuildQueueItem{}
+	var started sql.NullTime
+	if err := row.Scan(&item.ID, &item.BuildID, &item.ProjectID, &item.ProjectName, &item.Priority, &item.Status, &item.Trigger, &item.Branch, &item.QueuedAt, &started); err != nil {
+		return nil, err
+	}
+	if started.Valid {
+		item.StartedAt = &started.Time
+	}
+	return item, nil
+}
+
+func (s *Store) ListBuildQueue(status string) ([]*BuildQueueItem, error) {
+	q := "SELECT id, build_id, project_id, project_name, priority, status, trigger, branch, queued_at, started_at FROM build_queue_items"
+	var args []interface{}
+	if status != "" {
+		q += " WHERE status = ?"
+		args = append(args, status)
+	}
+	q += " ORDER BY priority DESC, queued_at ASC"
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*BuildQueueItem
+	for rows.Next() {
+		item := &BuildQueueItem{}
+		var started sql.NullTime
+		if err := rows.Scan(&item.ID, &item.BuildID, &item.ProjectID, &item.ProjectName, &item.Priority, &item.Status, &item.Trigger, &item.Branch, &item.QueuedAt, &started); err != nil {
+			return nil, err
+		}
+		if started.Valid {
+			item.StartedAt = &started.Time
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (s *Store) UpdateBuildQueueItemStatus(id int64, status string) error {
+	var startedAt interface{}
+	if status == "running" {
+		startedAt = time.Now()
+	}
+	_, err := s.db.Exec(
+		"UPDATE build_queue_items SET status=?, started_at=COALESCE(?, started_at) WHERE id=?",
+		status, startedAt, id,
+	)
+	return err
+}
+
+func (s *Store) UpdateBuildQueueItemPriority(id, priority int64) error {
+	_, err := s.db.Exec("UPDATE build_queue_items SET priority=? WHERE id=?", priority, id)
 	return err
 }

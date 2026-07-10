@@ -26,6 +26,7 @@ type BuildRunner struct {
 	artifacts           *ArtifactManager
 	triggerChecker      *TriggerChecker
 	notificationService *NotificationService
+	statisticsService   *StatisticsService
 }
 
 func NewBuildRunner(s *store.Store, hub *ws.Hub, wsRoot string, plugins *plugin.Loader) *BuildRunner {
@@ -51,6 +52,10 @@ func (r *BuildRunner) SetNotificationService(ns *NotificationService) {
 	r.notificationService = ns
 }
 
+func (r *BuildRunner) SetStatisticsService(ss *StatisticsService) {
+	r.statisticsService = ss
+}
+
 func (r *BuildRunner) Run(buildID int64) {
 	go r.run(context.Background(), buildID)
 }
@@ -62,6 +67,17 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	if err != nil {
 		return
 	}
+	// 超时控制
+	if build.TimeoutSec > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(build.TimeoutSec)*time.Second)
+		defer cancel()
+	}
+	// 需要审批的构建在审批通过前不执行
+	if build.ApprovalRequired && build.ApprovedBy == nil {
+		return
+	}
+
 	project, err := r.store.GetProject(build.ProjectID)
 	if err != nil {
 		r.fail(buildID, start, fmt.Sprintf("project not found: %v", err), nil)
@@ -107,7 +123,11 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			r.log(buildID, stage.Name, fmt.Sprintf("--- Step: %s ---", step.Name))
 			if err := r.execStep(ctx, step, workspace, project, build, env, params, stage.Name); err != nil {
 				r.log(buildID, stage.Name, fmt.Sprintf("ERROR: %v", err))
-				r.fail(buildID, start, fmt.Sprintf("step %q failed: %v", step.Name, err), project)
+				if ctx.Err() == context.DeadlineExceeded {
+					r.fail(buildID, start, fmt.Sprintf("step %q timed out after %ds", step.Name, build.TimeoutSec), project)
+				} else {
+					r.fail(buildID, start, fmt.Sprintf("step %q failed: %v", step.Name, err), project)
+				}
 				r.finishCleanup(buildID)
 				return
 			}
@@ -142,6 +162,8 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			go r.notificationService.SendBuildNotifications(finishedBuild, project)
 		}
 	}
+
+	r.recordStatistics(buildID)
 }
 
 func (r *BuildRunner) loadBuildConfig(project *store.Project) (*BuildConfig, error) {
@@ -318,7 +340,7 @@ func (r *BuildRunner) buildEnv(build *store.Build, cfg *BuildConfig, project *st
 	return env
 }
 
-var varPattern = regexp.MustCompile(`\$\{(global|project|parameter)\.([A-Za-z_][A-Za-z0-9_]*)\}`)
+var varPattern = regexp.MustCompile(`\$\{(global|project|parameter|env)\.([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 func resolveVars(s string, env []string, params map[string]interface{}) string {
 	envMap := map[string]string{}
@@ -337,6 +359,11 @@ func resolveVars(s string, env []string, params map[string]interface{}) string {
 		case "parameter":
 			if v, ok := params[name]; ok {
 				return fmt.Sprintf("%v", v)
+			}
+		case "env":
+			// 从系统环境变量获取（os.Getenv）
+			if v, ok := lookupOSEnv(name); ok {
+				return v
 			}
 		default:
 			if v, ok := envMap[name]; ok {
@@ -389,4 +416,23 @@ func (r *BuildRunner) fail(buildID int64, start time.Time, msg string, project *
 			go r.notificationService.SendBuildNotifications(finishedBuild, project)
 		}
 	}
+
+	r.recordStatistics(buildID)
+}
+
+// recordStatistics 在构建结束后异步记录统计。失败不影响构建结果。
+func (r *BuildRunner) recordStatistics(buildID int64) {
+	if r.statisticsService == nil {
+		return
+	}
+	build, err := r.store.GetBuild(buildID)
+	if err != nil || build == nil {
+		return
+	}
+	_ = r.statisticsService.RecordBuildCompletion(build)
+}
+
+// lookupOSEnv 包装 os.LookupEnv 便于测试。
+var lookupOSEnv = func(key string) (string, bool) {
+	return os.LookupEnv(key)
 }
