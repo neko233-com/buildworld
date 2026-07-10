@@ -277,4 +277,7 @@ var migrations = []string{
 	`ALTER TABLE plugins ADD COLUMN triggers TEXT DEFAULT '[]'`,
 	`ALTER TABLE plugins ADD COLUMN ui_extensions TEXT DEFAULT '[]'`,
 	`ALTER TABLE plugins ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`,
+	`ALTER TABLE plugins ADD COLUMN script_lang TEXT DEFAULT 'js'`,
+	`ALTER TABLE plugins ADD COLUMN source_script TEXT DEFAULT ''`,
+	`ALTER TABLE plugins ADD COLUMN source_ui_script TEXT DEFAULT ''`,
 }

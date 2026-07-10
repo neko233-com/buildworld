@@ -77,6 +77,8 @@ export const api = {
   deletePlugin: (idOrName: number | string) => request('DELETE', `/plugins/${idOrName}`),
   togglePlugin: (idOrName: number | string, enabled: boolean) => request('PUT', `/plugins/${idOrName}/enable`, { enabled }),
   reloadPlugin: (name: string) => request('POST', `/plugins/${name}/reload`),
+  getPluginSource: (name: string) => request<any>('GET', `/plugins/${name}/source`),
+  updatePluginSource: (name: string, data: any) => request('PUT', `/plugins/${name}/source`, data),
   getPluginUI: (name: string) =>
     fetch(`${API_BASE}/plugins/${name}/ui.js`, { headers: authHeader() }).then(r => {
       if (!r.ok) return ''

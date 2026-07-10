@@ -153,6 +153,8 @@ func NewRouter(d Deps) http.Handler {
 				r.Put("/enable", h.togglePlugin)
 				r.Post("/reload", h.reloadPlugin)
 				r.Get("/ui.js", h.getPluginUI)
+				r.Get("/source", h.getPluginSource)
+				r.Put("/source", h.updatePluginSource)
 			})
 		})
 

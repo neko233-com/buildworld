@@ -96,20 +96,23 @@ type Worker struct {
 }
 
 type Plugin struct {
-	ID           int64     `json:"id"`
-	Name         string    `json:"name"`
-	Version      string    `json:"version"`
-	Description  string    `json:"description,omitempty"`
-	Author       string    `json:"author,omitempty"`
-	Enabled      bool      `json:"enabled"`
-	Config       string    `json:"config,omitempty"`
-	Path         string    `json:"path,omitempty"`
-	Source       string    `json:"source"`
-	Steps        string    `json:"steps,omitempty"`
-	Triggers     string    `json:"triggers,omitempty"`
-	UIExtensions string    `json:"ui_extensions,omitempty"`
-	InstalledAt  time.Time `json:"installed_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID             int64     `json:"id"`
+	Name           string    `json:"name"`
+	Version        string    `json:"version"`
+	Description    string    `json:"description,omitempty"`
+	Author         string    `json:"author,omitempty"`
+	Enabled        bool      `json:"enabled"`
+	Config         string    `json:"config,omitempty"`
+	ScriptLang     string    `json:"script_lang"`
+	SourceScript   string    `json:"source_script,omitempty"`
+	SourceUIScript string    `json:"source_ui_script,omitempty"`
+	Path           string    `json:"path,omitempty"`
+	Source         string    `json:"source"`
+	Steps          string    `json:"steps,omitempty"`
+	Triggers       string    `json:"triggers,omitempty"`
+	UIExtensions   string    `json:"ui_extensions,omitempty"`
+	InstalledAt    time.Time `json:"installed_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type CredentialType string

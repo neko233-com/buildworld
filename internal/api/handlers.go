@@ -437,14 +437,18 @@ type pluginWithStatus struct {
 }
 
 type installPluginReq struct {
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Description string `json:"description"`
-	Author      string `json:"author"`
-	Config      string `json:"config"`
-	Script      string `json:"script"`
-	UIScript    string `json:"ui_script"`
-	Source      string `json:"source"`
+	Name           string `json:"name"`
+	Version        string `json:"version"`
+	Description    string `json:"description"`
+	Author         string `json:"author"`
+	Config         string `json:"config"`
+	Script         string `json:"script"`
+	UIScript       string `json:"ui_script"`
+	ScriptLang     string `json:"script_lang"`
+	SourceScript   string `json:"source_script"`
+	SourceUIScript string `json:"source_ui_script"`
+	UILang         string `json:"ui_lang"`
+	Source         string `json:"source"`
 }
 
 func (h *handlers) listPlugins(w http.ResponseWriter, _ *http.Request) {
@@ -477,7 +481,7 @@ func (h *handlers) listPlugins(w http.ResponseWriter, _ *http.Request) {
 						UIExtensions: string(uiExtJSON),
 					}
 					pluginMap[name] = dbP
-					_, _ = h.d.Store.CreatePlugin(p.Name, p.Version, p.Description, p.Author, "", "builtin")
+					_, _ = h.d.Store.CreatePlugin(p.Name, p.Version, p.Description, p.Author, "", "js", "", "", "builtin")
 				}
 			}
 		}
@@ -527,15 +531,18 @@ func (h *handlers) installPlugin(w http.ResponseWriter, r *http.Request) {
 	if req.Source == "" {
 		req.Source = "upload"
 	}
+	if req.ScriptLang == "" {
+		req.ScriptLang = "js"
+	}
 
 	if h.d.Loader != nil && req.Script != "" {
-		if err := h.d.Loader.InstallPlugin(req.Name, req.Version, req.Description, req.Author, req.Script, req.UIScript); err != nil {
+		if err := h.d.Loader.InstallPlugin(req.Name, req.Version, req.Description, req.Author, req.Script, req.UIScript, req.ScriptLang, req.SourceScript, req.SourceUIScript, req.UILang); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
 
-	p, err := h.d.Store.CreatePlugin(req.Name, req.Version, req.Description, req.Author, req.Config, req.Source)
+	p, err := h.d.Store.CreatePlugin(req.Name, req.Version, req.Description, req.Author, req.Config, req.ScriptLang, req.SourceScript, req.SourceUIScript, req.Source)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -689,6 +696,109 @@ func (h *handlers) listUIExtensions(w http.ResponseWriter, _ *http.Request) {
 	}
 	exts := h.d.Loader.GetAllUIExtensions()
 	writeJSON(w, http.StatusOK, exts)
+}
+
+func (h *handlers) getPluginSource(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	p, err := h.d.Store.GetPluginByName(name)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "plugin not found")
+		return
+	}
+
+	if p.Source == "builtin" {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"source_script":    "",
+			"source_ui_script": "",
+			"script_lang":      "js",
+			"ui_lang":          "js",
+			"builtin":          true,
+		})
+		return
+	}
+
+	scriptLang := p.ScriptLang
+	sourceScript := p.SourceScript
+	sourceUIScript := p.SourceUIScript
+	uiLang := ""
+
+	if h.d.Loader != nil {
+		if s, l, ok := h.d.Loader.GetSourceScript(name); ok && sourceScript == "" {
+			sourceScript = s
+			scriptLang = l
+		}
+		if s, l, ok := h.d.Loader.GetSourceUIScript(name); ok && sourceUIScript == "" {
+			sourceUIScript = s
+			uiLang = l
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"source_script":    sourceScript,
+		"source_ui_script": sourceUIScript,
+		"script_lang":      scriptLang,
+		"ui_lang":          uiLang,
+		"builtin":          false,
+	})
+}
+
+func (h *handlers) updatePluginSource(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	p, err := h.d.Store.GetPluginByName(name)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "plugin not found")
+		return
+	}
+
+	if p.Source == "builtin" {
+		writeErr(w, http.StatusBadRequest, "cannot edit builtin plugin")
+		return
+	}
+
+	var req installPluginReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.ScriptLang == "" {
+		req.ScriptLang = "js"
+	}
+
+	if h.d.Loader != nil {
+		if err := h.d.Loader.WritePluginFiles(name, req.Script, req.UIScript, req.ScriptLang, req.SourceScript, req.SourceUIScript, req.UILang); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	if err := h.d.Store.UpdatePluginSource(p.ID, req.ScriptLang, req.SourceScript, req.SourceUIScript, req.Script, req.UIScript); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if h.d.Loader != nil {
+		if err := h.d.Loader.Reload(name); err != nil {
+			log.Printf("Warning: failed to reload plugin %s: %v", name, err)
+		} else if rp := h.d.Loader.Get(name); rp != nil {
+			stepsJSON, _ := json.Marshal(rp.StepTypes())
+			triggersJSON, _ := json.Marshal(nil)
+			uiExtJSON, _ := json.Marshal(rp.UIExtensions())
+			_ = h.d.Store.UpdatePluginStatus(name, true, string(stepsJSON), string(triggersJSON), string(uiExtJSON))
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // ---------------------------------------------------------------------------

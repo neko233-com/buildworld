@@ -644,13 +644,16 @@ func (s *Store) MarkOfflineWorkers() error {
 
 // ---------------- Plugins ----------------
 
-func (s *Store) CreatePlugin(name, version, description, author, config, source string) (*Plugin, error) {
+func (s *Store) CreatePlugin(name, version, description, author, config, scriptLang, sourceScript, sourceUIScript, source string) (*Plugin, error) {
 	if source == "" {
 		source = "builtin"
 	}
+	if scriptLang == "" {
+		scriptLang = "js"
+	}
 	res, err := s.db.Exec(
-		"INSERT INTO plugins (name, version, description, author, enabled, config, source, steps, triggers, ui_extensions) VALUES (?, ?, ?, ?, 1, ?, ?, '[]', '[]', '[]')",
-		name, version, description, author, config, source,
+		"INSERT INTO plugins (name, version, description, author, enabled, config, script_lang, source_script, source_ui_script, source, steps, triggers, ui_extensions) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, '[]', '[]', '[]')",
+		name, version, description, author, config, scriptLang, sourceScript, sourceUIScript, source,
 	)
 	if err != nil {
 		return nil, err
@@ -664,9 +667,9 @@ type scannable interface {
 }
 
 func scanPlugin(p *Plugin, row scannable) error {
-	var desc, author, cfg, path, steps, triggers, uiExt sql.NullString
+	var desc, author, cfg, scriptLang, sourceScript, sourceUIScript, path, steps, triggers, uiExt sql.NullString
 	var updatedAt sql.NullTime
-	err := row.Scan(&p.ID, &p.Name, &p.Version, &desc, &author, &p.Enabled, &cfg, &path, &p.Source, &steps, &triggers, &uiExt, &p.InstalledAt, &updatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Version, &desc, &author, &p.Enabled, &cfg, &scriptLang, &sourceScript, &sourceUIScript, &path, &p.Source, &steps, &triggers, &uiExt, &p.InstalledAt, &updatedAt)
 	if err != nil {
 		return err
 	}
@@ -678,6 +681,15 @@ func scanPlugin(p *Plugin, row scannable) error {
 	}
 	if cfg.Valid {
 		p.Config = cfg.String
+	}
+	if scriptLang.Valid {
+		p.ScriptLang = scriptLang.String
+	}
+	if sourceScript.Valid {
+		p.SourceScript = sourceScript.String
+	}
+	if sourceUIScript.Valid {
+		p.SourceUIScript = sourceUIScript.String
 	}
 	if path.Valid {
 		p.Path = path.String
@@ -697,6 +709,9 @@ func scanPlugin(p *Plugin, row scannable) error {
 	if p.Source == "" {
 		p.Source = "builtin"
 	}
+	if p.ScriptLang == "" {
+		p.ScriptLang = "js"
+	}
 	if p.Steps == "" {
 		p.Steps = "[]"
 	}
@@ -712,19 +727,19 @@ func scanPlugin(p *Plugin, row scannable) error {
 func (s *Store) GetPlugin(id int64) (*Plugin, error) {
 	p := &Plugin{}
 	err := scanPlugin(p, s.db.QueryRow(
-		"SELECT id, name, version, description, author, enabled, config, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins WHERE id = ?", id))
+		"SELECT id, name, version, description, author, enabled, config, script_lang, source_script, source_ui_script, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins WHERE id = ?", id))
 	return p, err
 }
 
 func (s *Store) GetPluginByName(name string) (*Plugin, error) {
 	p := &Plugin{}
 	err := scanPlugin(p, s.db.QueryRow(
-		"SELECT id, name, version, description, author, enabled, config, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins WHERE name = ?", name))
+		"SELECT id, name, version, description, author, enabled, config, script_lang, source_script, source_ui_script, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins WHERE name = ?", name))
 	return p, err
 }
 
 func (s *Store) ListPlugins() ([]*Plugin, error) {
-	rows, err := s.db.Query("SELECT id, name, version, description, author, enabled, config, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins ORDER BY id")
+	rows, err := s.db.Query("SELECT id, name, version, description, author, enabled, config, script_lang, source_script, source_ui_script, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -774,6 +789,17 @@ func (s *Store) DeletePluginByName(name string) error {
 
 func (s *Store) DeletePlugin(id int64) error {
 	_, err := s.db.Exec("DELETE FROM plugins WHERE id=?", id)
+	return err
+}
+
+func (s *Store) UpdatePluginSource(id int64, scriptLang, sourceScript, sourceUIScript, script, uiScript string) error {
+	if scriptLang == "" {
+		scriptLang = "js"
+	}
+	_, err := s.db.Exec(
+		"UPDATE plugins SET script_lang=?, source_script=?, source_ui_script=?, updated_at=? WHERE id=?",
+		scriptLang, sourceScript, sourceUIScript, time.Now(), id,
+	)
 	return err
 }
 
