@@ -644,10 +644,13 @@ func (s *Store) MarkOfflineWorkers() error {
 
 // ---------------- Plugins ----------------
 
-func (s *Store) CreatePlugin(name, version, description, config string) (*Plugin, error) {
+func (s *Store) CreatePlugin(name, version, description, author, config, source string) (*Plugin, error) {
+	if source == "" {
+		source = "builtin"
+	}
 	res, err := s.db.Exec(
-		"INSERT INTO plugins (name, version, description, enabled, config) VALUES (?, ?, ?, 1, ?)",
-		name, version, description, config,
+		"INSERT INTO plugins (name, version, description, author, enabled, config, source, steps, triggers, ui_extensions) VALUES (?, ?, ?, ?, 1, ?, ?, '[]', '[]', '[]')",
+		name, version, description, author, config, source,
 	)
 	if err != nil {
 		return nil, err
@@ -656,42 +659,72 @@ func (s *Store) CreatePlugin(name, version, description, config string) (*Plugin
 	return s.GetPlugin(id)
 }
 
-func (s *Store) GetPlugin(id int64) (*Plugin, error) {
-	p := &Plugin{}
-	var desc, cfg sql.NullString
-	err := s.db.QueryRow("SELECT id, name, version, description, enabled, config, installed_at FROM plugins WHERE id = ?", id).
-		Scan(&p.ID, &p.Name, &p.Version, &desc, &p.Enabled, &cfg, &p.InstalledAt)
+type scannable interface {
+	Scan(dest ...interface{}) error
+}
+
+func scanPlugin(p *Plugin, row scannable) error {
+	var desc, author, cfg, path, steps, triggers, uiExt sql.NullString
+	var updatedAt sql.NullTime
+	err := row.Scan(&p.ID, &p.Name, &p.Version, &desc, &author, &p.Enabled, &cfg, &path, &p.Source, &steps, &triggers, &uiExt, &p.InstalledAt, &updatedAt)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if desc.Valid {
 		p.Description = desc.String
 	}
+	if author.Valid {
+		p.Author = author.String
+	}
 	if cfg.Valid {
 		p.Config = cfg.String
 	}
-	return p, nil
+	if path.Valid {
+		p.Path = path.String
+	}
+	if steps.Valid {
+		p.Steps = steps.String
+	}
+	if triggers.Valid {
+		p.Triggers = triggers.String
+	}
+	if uiExt.Valid {
+		p.UIExtensions = uiExt.String
+	}
+	if updatedAt.Valid {
+		p.UpdatedAt = updatedAt.Time
+	}
+	if p.Source == "" {
+		p.Source = "builtin"
+	}
+	if p.Steps == "" {
+		p.Steps = "[]"
+	}
+	if p.Triggers == "" {
+		p.Triggers = "[]"
+	}
+	if p.UIExtensions == "" {
+		p.UIExtensions = "[]"
+	}
+	return nil
+}
+
+func (s *Store) GetPlugin(id int64) (*Plugin, error) {
+	p := &Plugin{}
+	err := scanPlugin(p, s.db.QueryRow(
+		"SELECT id, name, version, description, author, enabled, config, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins WHERE id = ?", id))
+	return p, err
 }
 
 func (s *Store) GetPluginByName(name string) (*Plugin, error) {
 	p := &Plugin{}
-	var desc, cfg sql.NullString
-	err := s.db.QueryRow("SELECT id, name, version, description, enabled, config, installed_at FROM plugins WHERE name = ?", name).
-		Scan(&p.ID, &p.Name, &p.Version, &desc, &p.Enabled, &cfg, &p.InstalledAt)
-	if err != nil {
-		return nil, err
-	}
-	if desc.Valid {
-		p.Description = desc.String
-	}
-	if cfg.Valid {
-		p.Config = cfg.String
-	}
-	return p, nil
+	err := scanPlugin(p, s.db.QueryRow(
+		"SELECT id, name, version, description, author, enabled, config, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins WHERE name = ?", name))
+	return p, err
 }
 
 func (s *Store) ListPlugins() ([]*Plugin, error) {
-	rows, err := s.db.Query("SELECT id, name, version, description, enabled, config, installed_at FROM plugins ORDER BY id")
+	rows, err := s.db.Query("SELECT id, name, version, description, author, enabled, config, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -699,15 +732,8 @@ func (s *Store) ListPlugins() ([]*Plugin, error) {
 	var plugins []*Plugin
 	for rows.Next() {
 		p := &Plugin{}
-		var desc, cfg sql.NullString
-		if err := rows.Scan(&p.ID, &p.Name, &p.Version, &desc, &p.Enabled, &cfg, &p.InstalledAt); err != nil {
+		if err := scanPlugin(p, rows); err != nil {
 			return nil, err
-		}
-		if desc.Valid {
-			p.Description = desc.String
-		}
-		if cfg.Valid {
-			p.Config = cfg.String
 		}
 		plugins = append(plugins, p)
 	}
@@ -719,7 +745,30 @@ func (s *Store) UpdatePluginEnabled(id int64, enabled bool) error {
 	if enabled {
 		v = 1
 	}
-	_, err := s.db.Exec("UPDATE plugins SET enabled=? WHERE id=?", v, id)
+	_, err := s.db.Exec("UPDATE plugins SET enabled=?, updated_at=? WHERE id=?", v, time.Now(), id)
+	return err
+}
+
+func (s *Store) UpdatePluginStatus(name string, enabled bool, steps, triggers, uiExtensions string) error {
+	v := 0
+	if enabled {
+		v = 1
+	}
+	if steps == "" {
+		steps = "[]"
+	}
+	if triggers == "" {
+		triggers = "[]"
+	}
+	if uiExtensions == "" {
+		uiExtensions = "[]"
+	}
+	_, err := s.db.Exec("UPDATE plugins SET enabled=?, steps=?, triggers=?, ui_extensions=?, updated_at=? WHERE name=?", v, steps, triggers, uiExtensions, time.Now(), name)
+	return err
+}
+
+func (s *Store) DeletePluginByName(name string) error {
+	_, err := s.db.Exec("DELETE FROM plugins WHERE name=?", name)
 	return err
 }
 

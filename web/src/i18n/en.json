@@ -131,7 +131,23 @@
     "enable": "Enable",
     "disable": "Disable",
     "uninstall": "Uninstall",
-    "settings": "Settings"
+    "settings": "Settings",
+    "name": "Plugin Name",
+    "version": "Version",
+    "description": "Description",
+    "author": "Author",
+    "script": "Plugin Script (index.js)",
+    "uiScript": "UI Script (ui.js, optional)",
+    "steps": "Steps",
+    "triggers": "Triggers",
+    "uiExtensions": "UI Extensions",
+    "source": "Source",
+    "builtin": "Built-in",
+    "upload": "Uploaded",
+    "reload": "Reload",
+    "loadError": "Load Error",
+    "showDetails": "Show details",
+    "hideDetails": "Hide details"
   },
   "settings": {
     "title": "Settings",
@@ -262,7 +278,8 @@
     "disable": "Disable",
     "create": "Create",
     "all": "All",
-    "copy": "Copy"
+    "copy": "Copy",
+    "optional": "optional"
   },
   "status": {
     "success": "Success",

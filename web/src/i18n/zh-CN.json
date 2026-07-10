@@ -131,7 +131,23 @@
     "enable": "启用",
     "disable": "禁用",
     "uninstall": "卸载",
-    "settings": "设置"
+    "settings": "设置",
+    "name": "插件名称",
+    "version": "版本",
+    "description": "描述",
+    "author": "作者",
+    "script": "插件脚本 (index.js)",
+    "uiScript": "UI脚本 (ui.js，可选)",
+    "steps": "构建步骤",
+    "triggers": "触发器",
+    "uiExtensions": "UI扩展",
+    "source": "来源",
+    "builtin": "内置",
+    "upload": "上传",
+    "reload": "重载",
+    "loadError": "加载错误",
+    "showDetails": "显示详情",
+    "hideDetails": "隐藏详情"
   },
   "settings": {
     "title": "设置",
@@ -262,7 +278,8 @@
     "disable": "禁用",
     "create": "创建",
     "all": "全部",
-    "copy": "复制"
+    "copy": "复制",
+    "optional": "可选"
   },
   "status": {
     "success": "成功",

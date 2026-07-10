@@ -4,9 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
-	"log"
 	"io/fs"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -66,6 +67,29 @@ func main() {
 	loader := plugin.NewLoader(cfg.Plugins.Path)
 	if err := loader.LoadAll(); err != nil {
 		log.Printf("Warning: plugin load error: %v", err)
+	}
+
+	// Sync plugin state with DB.
+	dbPlugins, err := db.ListPlugins()
+	if err == nil {
+		for _, p := range dbPlugins {
+			if !p.Enabled {
+				loader.SetEnabled(p.Name, false)
+				loader.Unload(p.Name)
+			} else {
+				if p.Source == "upload" {
+					if err := loader.Load(p.Name); err != nil {
+						log.Printf("Warning: failed to load upload plugin %s: %v", p.Name, err)
+					}
+				}
+				if rp := loader.Get(p.Name); rp != nil {
+					stepsJSON, _ := json.Marshal(rp.StepTypes())
+					triggersJSON, _ := json.Marshal(nil)
+					uiExtJSON, _ := json.Marshal(rp.UIExtensions())
+					_ = db.UpdatePluginStatus(p.Name, p.Enabled, string(stepsJSON), string(triggersJSON), string(uiExtJSON))
+				}
+			}
+		}
 	}
 
 	// Build runner (executes pipelines in-process — the "local agent").

@@ -147,9 +147,12 @@ func NewRouter(d Deps) http.Handler {
 		r.Route("/plugins", func(r chi.Router) {
 			r.Get("/", h.listPlugins)
 			r.Post("/", h.installPlugin)
-			r.Route("/{id}", func(r chi.Router) {
+			r.Get("/ui-extensions", h.listUIExtensions)
+			r.Route("/{name}", func(r chi.Router) {
 				r.Delete("/", h.deletePlugin)
 				r.Put("/enable", h.togglePlugin)
+				r.Post("/reload", h.reloadPlugin)
+				r.Get("/ui.js", h.getPluginUI)
 			})
 		})
 
