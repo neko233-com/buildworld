@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"database/sql"
 	"runtime"
 	"time"
 
@@ -87,20 +88,38 @@ type BigScreenNotif struct {
 	Time    string `json:"time"`
 }
 
+func safeCount(db *sql.DB, q string, args ...interface{}) int {
+	var n int
+	_ = db.QueryRow(q, args...).Scan(&n)
+	return n
+}
+
+func safeQuery(db *sql.DB, q string, args ...interface{}) *sql.Rows {
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil
+	}
+	return rows
+}
+
 func (s *BigScreenService) GetBigScreenData() (*BigScreenData, error) {
 	data := &BigScreenData{
-		CurrentTime: time.Now().Format("2006-01-02 15:04:05"),
+		CurrentTime:   time.Now().Format("2006-01-02 15:04:05"),
+		RecentBuilds:  []BigScreenBuild{},
+		AgentStatus:   []BigScreenAgent{},
+		ProjectStats:  []BigScreenProjectStat{},
+		TrendData:     []BigScreenTrendPoint{},
+		Notifications: []BigScreenNotif{},
 	}
 
 	db := s.store.DB()
 	today := time.Now().Format("2006-01-02")
 
-	var totalBuilds, runningBuilds, queuedBuilds, successToday, failedToday int
-	db.QueryRow("SELECT COUNT(*) FROM builds").Scan(&totalBuilds)
-	db.QueryRow("SELECT COUNT(*) FROM builds WHERE status = 'running'").Scan(&runningBuilds)
-	db.QueryRow("SELECT COUNT(*) FROM build_queue_items WHERE status = 'queued'").Scan(&queuedBuilds)
-	db.QueryRow("SELECT COUNT(*) FROM builds WHERE status = 'success' AND date(started_at) = ?", today).Scan(&successToday)
-	db.QueryRow("SELECT COUNT(*) FROM builds WHERE status = 'failed' AND date(started_at) = ?", today).Scan(&failedToday)
+	totalBuilds := safeCount(db, "SELECT COUNT(*) FROM builds")
+	runningBuilds := safeCount(db, "SELECT COUNT(*) FROM builds WHERE status = 'running'")
+	queuedBuilds := safeCount(db, "SELECT COUNT(*) FROM build_queue_items WHERE status = 'queued'")
+	successToday := safeCount(db, "SELECT COUNT(*) FROM builds WHERE status = 'success' AND date(started_at) = ?", today)
+	failedToday := safeCount(db, "SELECT COUNT(*) FROM builds WHERE status = 'failed' AND date(started_at) = ?", today)
 
 	totalFinished := successToday + failedToday
 	successRate := 0.0
@@ -108,10 +127,9 @@ func (s *BigScreenService) GetBigScreenData() (*BigScreenData, error) {
 		successRate = float64(successToday) / float64(totalFinished) * 100
 	}
 
-	var totalProjects, activeAgents, totalAgents int
-	db.QueryRow("SELECT COUNT(*) FROM projects").Scan(&totalProjects)
-	db.QueryRow("SELECT COUNT(*) FROM workers").Scan(&totalAgents)
-	db.QueryRow("SELECT COUNT(*) FROM workers WHERE status = 'online'").Scan(&activeAgents)
+	totalProjects := safeCount(db, "SELECT COUNT(*) FROM projects")
+	totalAgents := safeCount(db, "SELECT COUNT(*) FROM workers")
+	activeAgents := safeCount(db, "SELECT COUNT(*) FROM workers WHERE status = 'online'")
 
 	data.Summary = BigScreenSummary{
 		TotalBuilds:   totalBuilds,
@@ -125,100 +143,94 @@ func (s *BigScreenService) GetBigScreenData() (*BigScreenData, error) {
 		TotalProjects: totalProjects,
 	}
 
-	rows, _ := db.Query(`
-		SELECT b.id, b.number, p.name, b.status, COALESCE(b.branch, ''), COALESCE(b.duration_ms, 0), COALESCE(b.started_at, b.created_at)
+	if rows := safeQuery(db, `SELECT b.id, b.number, p.name, b.status,
+		COALESCE(b.branch, ''), COALESCE(b.duration_ms, 0),
+		COALESCE(b.started_at, b.created_at)
 		FROM builds b JOIN projects p ON b.project_id = p.id
-		ORDER BY b.id DESC LIMIT 20
-	`)
-	data.RecentBuilds = []BigScreenBuild{}
-	for rows.Next() {
-		var b BigScreenBuild
-		var started time.Time
-		rows.Scan(&b.ID, &b.Number, &b.Project, &b.Status, &b.Branch, &b.Duration, &started)
-		b.StartedAt = started.Format("2006-01-02 15:04:05")
-		data.RecentBuilds = append(data.RecentBuilds, b)
+		ORDER BY b.id DESC LIMIT 20`); rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var b BigScreenBuild
+			var started time.Time
+			if err := rows.Scan(&b.ID, &b.Number, &b.Project, &b.Status, &b.Branch, &b.Duration, &started); err == nil {
+				b.StartedAt = started.Format("2006-01-02 15:04:05")
+				data.RecentBuilds = append(data.RecentBuilds, b)
+			}
+		}
 	}
-	rows.Close()
 
 	_ = s.store.MarkOfflineWorkers()
-	workers, _ := s.store.ListWorkers()
-	data.AgentStatus = []BigScreenAgent{}
-	for _, w := range workers {
-		data.AgentStatus = append(data.AgentStatus, BigScreenAgent{
-			Name:      w.Name,
-			Status:    w.Status,
-			Pool:      w.Pool,
-			Builds:    0,
-			MaxBuilds: w.MaxConcurrentBuilds,
-		})
+	if workers, err := s.store.ListWorkers(); err == nil {
+		for _, w := range workers {
+			data.AgentStatus = append(data.AgentStatus, BigScreenAgent{
+				Name:      w.Name,
+				Status:    w.Status,
+				Pool:      w.Pool,
+				MaxBuilds: w.MaxConcurrentBuilds,
+			})
+		}
 	}
 
-	rows, _ = db.Query(`
-		SELECT p.name,
-			COUNT(b.id) as total,
-			COALESCE(SUM(CASE WHEN b.status = 'success' THEN 1 ELSE 0 END), 0) as success,
-			(SELECT status FROM builds WHERE project_id = p.id ORDER BY id DESC LIMIT 1) as last_status
+	if rows := safeQuery(db, `SELECT p.name,
+		COUNT(b.id) as total,
+		COALESCE(SUM(CASE WHEN b.status = 'success' THEN 1 ELSE 0 END), 0) as success_cnt,
+		COALESCE((SELECT status FROM builds WHERE project_id = p.id ORDER BY id DESC LIMIT 1), '')
 		FROM projects p
 		LEFT JOIN builds b ON b.project_id = p.id
 		GROUP BY p.id
-		ORDER BY p.id DESC LIMIT 10
-	`)
-	data.ProjectStats = []BigScreenProjectStat{}
-	for rows.Next() {
-		var ps BigScreenProjectStat
-		var total, success int
-		var lastStatus string
-		rows.Scan(&ps.Name, &total, &success, &lastStatus)
-		ps.TotalBuilds = total
-		if total > 0 {
-			ps.SuccessRate = float64(success) / float64(total) * 100
+		ORDER BY p.id DESC LIMIT 10`); rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var ps BigScreenProjectStat
+			var total, success int
+			if err := rows.Scan(&ps.Name, &total, &success, &ps.LastStatus); err == nil {
+				ps.TotalBuilds = total
+				if total > 0 {
+					ps.SuccessRate = float64(success) / float64(total) * 100
+				}
+				data.ProjectStats = append(data.ProjectStats, ps)
+			}
 		}
-		ps.LastStatus = lastStatus
-		data.ProjectStats = append(data.ProjectStats, ps)
 	}
-	rows.Close()
 
-	rows, _ = db.Query(`
-		SELECT date, COALESCE(SUM(success_count), 0), COALESCE(SUM(failed_count), 0), 0
+	if rows := safeQuery(db, `SELECT date, COALESCE(SUM(success_count), 0), COALESCE(SUM(failed_count), 0), 0
 		FROM build_stats
 		WHERE date >= date('now', '-7 days')
 		GROUP BY date
-		ORDER BY date ASC
-	`)
-	data.TrendData = []BigScreenTrendPoint{}
-	for rows.Next() {
-		var tp BigScreenTrendPoint
-		rows.Scan(&tp.Date, &tp.Success, &tp.Failed, &tp.Running)
-		data.TrendData = append(data.TrendData, tp)
+		ORDER BY date ASC`); rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var tp BigScreenTrendPoint
+			if err := rows.Scan(&tp.Date, &tp.Success, &tp.Failed, &tp.Running); err == nil {
+				data.TrendData = append(data.TrendData, tp)
+			}
+		}
 	}
-	rows.Close()
 
 	uptime := time.Since(s.startTime)
-	uptimeStr := uptime.Round(time.Second).String()
 	data.SystemMetrics = BigScreenSystem{
 		Goroutines: runtime.NumGoroutine(),
-		Uptime:     uptimeStr,
+		Uptime:     uptime.Round(time.Second).String(),
 		GoVersion:  runtime.Version(),
 		OS:         runtime.GOOS,
 		Arch:       runtime.GOARCH,
 		CPUs:       runtime.NumCPU(),
 	}
 
-	rows, _ = db.Query(`
-		SELECT nc.name, ne.event_type, ne.status, ne.created_at
+	if rows := safeQuery(db, `SELECT COALESCE(nc.name, 'unknown'), COALESCE(ne.event_type, ''), COALESCE(ne.status, ''), ne.created_at
 		FROM notification_events ne
-		JOIN notification_channels nc ON ne.channel_id = nc.id
-		ORDER BY ne.id DESC LIMIT 10
-	`)
-	data.Notifications = []BigScreenNotif{}
-	for rows.Next() {
-		var n BigScreenNotif
-		var t time.Time
-		rows.Scan(&n.Channel, &n.Event, &n.Status, &t)
-		n.Time = t.Format("2006-01-02 15:04:05")
-		data.Notifications = append(data.Notifications, n)
+		LEFT JOIN notification_channels nc ON ne.channel_id = nc.id
+		ORDER BY ne.id DESC LIMIT 10`); rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var n BigScreenNotif
+			var t time.Time
+			if err := rows.Scan(&n.Channel, &n.Event, &n.Status, &t); err == nil {
+				n.Time = t.Format("2006-01-02 15:04:05")
+				data.Notifications = append(data.Notifications, n)
+			}
+		}
 	}
-	rows.Close()
 
 	return data, nil
 }
