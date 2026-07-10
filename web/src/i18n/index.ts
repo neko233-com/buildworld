@@ -15,7 +15,8 @@ function detectBrowserLocale(): Locale {
     if (lang.startsWith('zh')) return 'zh-CN';
     if (lang.startsWith('en')) return 'en';
   }
-  return 'en';
+  // 无法识别时默认中文，匹配中文用户环境
+  return 'zh-CN';
 }
 
 export function useI18n() {
