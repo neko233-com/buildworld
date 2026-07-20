@@ -1,42 +1,60 @@
-param([string]$Version = "latest")
+param(
+    [string]$Version = "latest",
+    [switch]$NoAutostart
+)
+
 $ErrorActionPreference = "Stop"
-$BinaryName = "buildworld233"
 $Repo = "neko233-com/buildworld233"
+$InstallDir = Join-Path $env:LOCALAPPDATA "BuildWorld"
 
-function Get-LatestVersion {
-    try {
-        $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
-        return ($r.tag_name -replace '^[vV]', '')
-    } catch {
-        return "0.1.0"
+function Get-ReleaseVersion {
+    if ($Version -ne "latest") { return $Version.TrimStart('v') }
+    return ((Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest").tag_name).TrimStart('v')
+}
+
+function Get-Architecture {
+    if ([Environment]::Is64BitOperatingSystem -and $env:PROCESSOR_ARCHITECTURE -eq "ARM64") { return "arm64" }
+    return "amd64"
+}
+
+function Assert-Checksum([string]$Archive, [string]$Checksums) {
+    $name = Split-Path $Archive -Leaf
+    $expected = (($Checksums -split "`n") | Where-Object { $_ -match "\s$name$" } | Select-Object -First 1).Split()[0]
+    if (-not $expected) { throw "No SHA-256 checksum published for $name" }
+    $actual = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $expected.ToLowerInvariant()) { throw "Checksum mismatch for $name" }
+}
+
+function Add-UserPath([string]$Directory) {
+    $current = [Environment]::GetEnvironmentVariable("Path", "User")
+    $entries = @($current -split ';' | Where-Object { $_ })
+    if ($entries -notcontains $Directory) {
+        [Environment]::SetEnvironmentVariable("Path", (($entries + $Directory) -join ';'), "User")
     }
+    if (($env:Path -split ';') -notcontains $Directory) { $env:Path = "$Directory;$env:Path" }
 }
 
-function Install-BuildWorld233 {
-    param([string]$Ver)
-    $arch = "amd64"
-    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "arm64" }
-    $asset = "$BinaryName-windows-$arch.exe"
-    $url = "https://github.com/$Repo/releases/download/v$Ver/$asset"
-    $installDir = Join-Path $env:LOCALAPPDATA "buildworld233"
-    New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-    $dest = Join-Path $installDir "$BinaryName.exe"
-    Write-Host "Downloading $url ..."
-    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
-    Write-Host "Installed to $dest"
-    Write-Host "Run: buildworld233 start"
-    Write-Host "Status: buildworld233 status"
-    Write-Host "Enable boot autostart: buildworld233 enable-autostart"
-    Write-Host "Change port: buildworld233 set-port 6050"
-    Write-Host "Self update: buildworld233 update"
-    Write-Host "Hot reload config: buildworld233 reload-config"
-    Write-Host "Export backup: buildworld233 backup export --output ./backup.zip"
-    Write-Host "Import backup: buildworld233 backup import --input ./backup.zip"
-    Write-Host "Generate worker token: buildworld233 worker generate-token"
-    Write-Host "List workers: buildworld233 worker list"
-}
+$release = Get-ReleaseVersion
+$arch = Get-Architecture
+$asset = "buildworld-windows-$arch.zip"
+$base = "https://github.com/$Repo/releases/download/v$release"
+$temporary = Join-Path ([IO.Path]::GetTempPath()) ("buildworld-" + [guid]::NewGuid())
+$archive = Join-Path $temporary $asset
+$staging = Join-Path $temporary "staging"
 
-if ($Version -eq "latest") { $Version = Get-LatestVersion }
-$Version = $Version -replace '^[vV]', ''
-Write-Host "Installing buildworld233 v$Version ..."
-Install-BuildWorld233 -Ver $Version
+New-Item -ItemType Directory -Force -Path $temporary, $InstallDir | Out-Null
+try {
+    Write-Host "Downloading BuildWorld v$release for Windows $arch ..."
+    Invoke-WebRequest -Uri "$base/$asset" -OutFile $archive -UseBasicParsing
+    $checksums = (Invoke-WebRequest -Uri "$base/checksums.txt" -UseBasicParsing).Content
+    Assert-Checksum -Archive $archive -Checksums $checksums
+    Expand-Archive -LiteralPath $archive -DestinationPath $staging -Force
+    Copy-Item -Path (Join-Path $staging '*') -Destination $InstallDir -Recurse -Force
+    Add-UserPath $InstallDir
+    if (-not $NoAutostart) { & (Join-Path $InstallDir 'buildworld.exe') enable-autostart }
+    Write-Host "Installed BuildWorld v$release to $InstallDir"
+    Write-Host "Open a new terminal, then run: buildworld start | status | pause | resume | restart"
+    Write-Host "Reset root safely: `$env:BUILDWORLD_ROOT_PASSWORD='...'; `$env:BUILDWORLD_ROOT_PASSWORD | buildworld reset-root-password --password-stdin"
+} finally {
+    Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+}

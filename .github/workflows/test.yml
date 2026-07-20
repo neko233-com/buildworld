@@ -30,8 +30,8 @@ jobs:
       
       - name: Build all binaries
         run: |
-          go build -o buildworld233 ./cmd/server
-          go build -o buildworld233-agent ./cmd/worker
+          go build -o buildworld ./cmd/server
+          go build -o buildworld-agent ./cmd/worker
           go build -o bwctl ./cmd/cli
       
       - name: Build frontend
@@ -43,5 +43,5 @@ jobs:
       
       - name: Verify binary sizes
         run: |
-          ls -lh buildworld233 buildworld233-agent bwctl
+          ls -lh buildworld buildworld-agent bwctl
           echo "All binaries built successfully"

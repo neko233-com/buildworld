@@ -1,0 +1,38 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.buildworld'
+version = '0.1.0'
+
+repositories {
+    mavenCentral()
+}
+
+application {
+    mainClass = 'com.buildworld.demo.App'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+tasks.register('smokeTest', JavaExec) {
+    group = 'verification'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = application.mainClass
+    args = ['--self-test']
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('smokeTest')
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': application.mainClass.get()
+    }
+}

@@ -8,13 +8,20 @@ import (
 )
 
 type YAMLBuildConfig struct {
-	Name        string                    `yaml:"name"`
-	Description string                    `yaml:"description"`
-	On          interface{}               `yaml:"on"`
-	Env         map[string]string         `yaml:"env"`
-	Jobs        map[string]YAMLJob        `yaml:"jobs"`
-	Steps       []YAMLStep                `yaml:"steps"`
-	RunsOn      string                    `yaml:"runs-on"`
+	Name               string              `yaml:"name"`
+	Description        string              `yaml:"description"`
+	Parameters         []BuildParameter    `yaml:"parameters"`
+	Approval           *ApprovalPolicy     `yaml:"approval"`
+	On                 interface{}         `yaml:"on"`
+	Env                map[string]string   `yaml:"env"`
+	Jobs               map[string]YAMLJob  `yaml:"jobs"`
+	Stages             []Stage             `yaml:"stages"`
+	Steps              []YAMLStep          `yaml:"steps"`
+	RunsOn             string              `yaml:"runs-on"`
+	Artifacts          []string            `yaml:"artifacts"`
+	AgentRequirements  []string            `yaml:"agent_requirements"`
+	RetentionCompleted int                 `yaml:"retention_completed"`
+	Toolchains         map[string][]string `yaml:"toolchains"`
 }
 
 type YAMLJob struct {
@@ -49,10 +56,16 @@ func ParseYAMLConfig(yamlStr string) (*BuildConfig, error) {
 	}
 
 	cfg := &BuildConfig{
-		Name:        yc.Name,
-		Description: yc.Description,
-		Environment: make(map[string]string),
-		Triggers:    []Trigger{},
+		Name:               yc.Name,
+		Description:        yc.Description,
+		Parameters:         yc.Parameters,
+		Approval:           yc.Approval,
+		Environment:        make(map[string]string),
+		Triggers:           []Trigger{},
+		Artifacts:          yc.Artifacts,
+		AgentRequirements:  yc.AgentRequirements,
+		RetentionCompleted: yc.RetentionCompleted,
+		Toolchains:         yc.Toolchains,
 	}
 
 	for k, v := range yc.Env {
@@ -61,7 +74,9 @@ func ParseYAMLConfig(yamlStr string) (*BuildConfig, error) {
 
 	cfg.Triggers = parseTriggers(yc.On)
 
-	if len(yc.Jobs) > 0 {
+	if len(yc.Stages) > 0 {
+		cfg.Stages = yc.Stages
+	} else if len(yc.Jobs) > 0 {
 		for jobKey, job := range yc.Jobs {
 			stageName := jobKey
 			if job.Name != "" {

@@ -71,3 +71,8 @@ export default defineConfig([
   },
 ])
 ```
+# Development endpoint
+
+`npm run dev` listens on `http://127.0.0.1:8701` and proxies API and WebSocket
+requests to the BuildWorld server at `http://127.0.0.1:8700` by default. Set
+`BUILDWORLD_API_TARGET` to override the backend target.

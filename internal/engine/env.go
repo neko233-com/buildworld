@@ -61,55 +61,55 @@ func (m *EnvManager) SetProject(projectID int64, name, value string, isSecret bo
 func (m *EnvManager) Get(name string, projectID int64) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	// Project variables override global
 	if projectVars, ok := m.project[projectID]; ok {
 		if v, ok := projectVars[name]; ok {
 			return v.Value, true
 		}
 	}
-	
+
 	// Fall back to global
 	if v, ok := m.global[name]; ok {
 		return v.Value, true
 	}
-	
+
 	return "", false
 }
 
 func (m *EnvManager) GetAll(projectID int64) map[string]*EnvVar {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	result := make(map[string]*EnvVar)
-	
+
 	// Add global vars
 	for k, v := range m.global {
 		result[k] = v
 	}
-	
+
 	// Override with project vars
 	if projectVars, ok := m.project[projectID]; ok {
 		for k, v := range projectVars {
 			result[k] = v
 		}
 	}
-	
+
 	return result
 }
 
 func (m *EnvManager) Resolve(template string, projectID int64) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	result := template
-	
+
 	// Replace ${global.X} patterns
 	for name, v := range m.global {
 		placeholder := fmt.Sprintf("${global.%s}", name)
 		result = strings.ReplaceAll(result, placeholder, v.Value)
 	}
-	
+
 	// Replace ${project.X} patterns (override global)
 	if projectVars, ok := m.project[projectID]; ok {
 		for name, v := range projectVars {
@@ -117,14 +117,14 @@ func (m *EnvManager) Resolve(template string, projectID int64) string {
 			result = strings.ReplaceAll(result, placeholder, v.Value)
 		}
 	}
-	
+
 	return result
 }
 
 func (m *EnvManager) MaskSecrets(projectID int64) map[string]*EnvVar {
 	vars := m.GetAll(projectID)
 	masked := make(map[string]*EnvVar)
-	
+
 	for k, v := range vars {
 		maskedVar := *v
 		if v.IsSecret {
@@ -132,14 +132,14 @@ func (m *EnvManager) MaskSecrets(projectID int64) map[string]*EnvVar {
 		}
 		masked[k] = &maskedVar
 	}
-	
+
 	return masked
 }
 
 func (m *EnvManager) Delete(name string, projectID int64) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if projectID > 0 {
 		if projectVars, ok := m.project[projectID]; ok {
 			if _, ok := projectVars[name]; ok {
@@ -149,7 +149,7 @@ func (m *EnvManager) Delete(name string, projectID int64) bool {
 		}
 		return false
 	}
-	
+
 	if _, ok := m.global[name]; ok {
 		delete(m.global, name)
 		return true

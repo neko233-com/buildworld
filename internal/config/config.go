@@ -8,13 +8,20 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	Auth     AuthConfig     `yaml:"auth"`
-	Plugins  PluginsConfig  `yaml:"plugins"`
-	Storage  StorageConfig  `yaml:"storage"`
-	Git      GitConfig      `yaml:"git"`
-	Workers  WorkersConfig  `yaml:"workers"`
+	Server     ServerConfig     `yaml:"server"`
+	Database   DatabaseConfig   `yaml:"database"`
+	Auth       AuthConfig       `yaml:"auth"`
+	Plugins    PluginsConfig    `yaml:"plugins"`
+	Storage    StorageConfig    `yaml:"storage"`
+	Git        GitConfig        `yaml:"git"`
+	Workers    WorkersConfig    `yaml:"workers"`
+	Automation AutomationConfig `yaml:"automation"`
+}
+
+type AutomationConfig struct {
+	GitHubWebhookSecret string `yaml:"github_webhook_secret"`
+	DevRestartCommand   string `yaml:"dev_restart_command"`
+	CommitRestartMarker string `yaml:"commit_restart_marker"`
 }
 
 type ServerConfig struct {
@@ -48,6 +55,7 @@ type PluginsConfig struct {
 
 type StorageConfig struct {
 	Workspace string `yaml:"workspace"`
+	BuildTemp string `yaml:"build_temp"`
 	Artifacts string `yaml:"artifacts"`
 	Logs      string `yaml:"logs"`
 }
@@ -58,22 +66,24 @@ type GitConfig struct {
 }
 
 type WorkersConfig struct {
-	Local  LocalWorkerConfig    `yaml:"local"`
-	Remote []RemoteWorkerConfig `yaml:"remote"`
+	Local           LocalWorkerConfig    `yaml:"local"`
+	Remote          []RemoteWorkerConfig `yaml:"remote"`
+	EnrollmentToken string               `yaml:"enrollment_token"`
 }
 
 type LocalWorkerConfig struct {
 	Enabled             bool     `yaml:"enabled"`
 	MaxConcurrentBuilds int      `yaml:"max_concurrent_builds"`
 	Workspace           string   `yaml:"workspace"`
+	Pool                string   `yaml:"pool"`
 	Labels              []string `yaml:"labels"`
 }
 
 type RemoteWorkerConfig struct {
-	Name               string   `yaml:"name"`
-	Address            string   `yaml:"address"`
-	Token              string   `yaml:"token"`
-	Labels             []string `yaml:"labels"`
+	Name                string   `yaml:"name"`
+	Address             string   `yaml:"address"`
+	Token               string   `yaml:"token"`
+	Labels              []string `yaml:"labels"`
 	MaxConcurrentBuilds int      `yaml:"max_concurrent_builds"`
 }
 

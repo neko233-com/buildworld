@@ -2,15 +2,19 @@
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'buildworld233',
+  title: 'buildworld',
   tagline: 'A modern CI/CD server - Jenkins alternative',
   favicon: 'img/favicon.ico',
-  url: 'https://buildworld233.dev',
-  baseUrl: '/',
+  url: 'https://neko233-com.github.io',
+  baseUrl: '/buildworld233/',
   organizationName: 'neko233-com',
   projectName: 'buildworld233',
   onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'warn',
+  markdown: {
+    hooks: {
+      onBrokenMarkdownLinks: 'warn',
+    },
+  },
 
   i18n: {
     defaultLocale: 'en',
@@ -46,9 +50,9 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       navbar: {
-        title: 'buildworld233',
+        title: 'buildworld',
         logo: {
-          alt: 'buildworld233 Logo',
+          alt: 'buildworld Logo',
           src: 'img/logo.svg',
         },
         items: [
@@ -116,7 +120,7 @@ const config = {
             ],
           },
         ],
-        copyright: `Copyright ${new Date().getFullYear()} buildworld233. Built with Docusaurus.`,
+        copyright: `Copyright ${new Date().getFullYear()} buildworld. Built with Docusaurus.`,
       },
       prism: {
         additionalLanguages: ['go', 'typescript', 'bash', 'yaml', 'json'],

@@ -1,14 +1,29 @@
 package api
 
 import (
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/neko233-com/buildworld233/internal/config"
+	"github.com/neko233-com/buildworld/internal/config"
+	"github.com/neko233-com/buildworld/internal/store"
 )
+
+func TestMaskCredentialSecretsPreservesEmptyFields(t *testing.T) {
+	credential := &store.Credential{Password: "password", PrivateKey: "", Token: "token"}
+	maskCredentialSecrets(credential)
+
+	if credential.Password != "********" || credential.Token != "********" {
+		t.Fatalf("non-empty secrets were not masked: %+v", credential)
+	}
+	if credential.PrivateKey != "" {
+		t.Fatalf("empty private key = %q, want empty", credential.PrivateKey)
+	}
+}
 
 func newTestRouter() http.Handler {
 	cfg := &config.Config{
@@ -33,6 +48,35 @@ func TestHealthEndpoint(t *testing.T) {
 
 	if resp["status"] != "ok" {
 		t.Errorf("status = %s, want ok", resp["status"])
+	}
+}
+
+func TestJSONResponsesSupportGzipCompression(t *testing.T) {
+	router := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/health", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if encoding := w.Header().Get("Content-Encoding"); encoding != "gzip" {
+		t.Fatalf("Content-Encoding = %q, want gzip", encoding)
+	}
+	reader, err := gzip.NewReader(w.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response map[string]string
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatalf("compressed response is not valid JSON: %v", err)
+	}
+	if response["status"] != "ok" {
+		t.Fatalf("status = %q, want ok", response["status"])
 	}
 }
 
@@ -169,6 +213,9 @@ func TestContentTypeJSON(t *testing.T) {
 	ct := w.Header().Get("Content-Type")
 	if !strings.Contains(ct, "application/json") {
 		t.Errorf("Content-Type = %s, want application/json", ct)
+	}
+	if !strings.Contains(strings.ToLower(ct), "charset=utf-8") {
+		t.Errorf("Content-Type = %s, want UTF-8 charset", ct)
 	}
 }
 

@@ -7,10 +7,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	configFile string
+	version    = "dev"
+)
+
 var rootCmd = &cobra.Command{
-	Use:   "buildworld233",
-	Short: "buildworld233 - A modern CI/CD server",
-	Long:  `buildworld233 is a Jenkins alternative with TypeScript DSL, plugin system, and distributed workers.`,
+	Use:   "buildworld",
+	Short: "buildworld - A modern CI/CD server",
+	Long:  `buildworld is a Jenkins alternative with TypeScript DSL, plugin system, and distributed workers.`,
 }
 
 func Execute() {
@@ -21,8 +26,15 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "Configuration file path (default: per-user BuildWorld config)")
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(stopCmd)
+	rootCmd.AddCommand(restartCmd)
+	rootCmd.AddCommand(pauseCmd)
+	rootCmd.AddCommand(resumeCmd)
+	rootCmd.AddCommand(resetRootPasswordCmd)
+	rootCmd.AddCommand(enableAutostartCmd)
+	rootCmd.AddCommand(disableAutostartCmd)
 	rootCmd.AddCommand(versionCmd)
 }

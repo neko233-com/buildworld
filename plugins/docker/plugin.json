@@ -2,5 +2,5 @@
   "name": "docker",
   "version": "1.0.0",
   "description": "Docker integration: build, tag, and push images",
-  "author": "buildworld233"
+  "author": "buildworld"
 }

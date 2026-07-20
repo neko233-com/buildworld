@@ -8,12 +8,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/neko233-com/buildworld233/internal/auth"
-	"github.com/neko233-com/buildworld233/internal/config"
-	"github.com/neko233-com/buildworld233/internal/engine"
-	"github.com/neko233-com/buildworld233/internal/plugin"
-	"github.com/neko233-com/buildworld233/internal/store"
-	"github.com/neko233-com/buildworld233/internal/ws"
+	"github.com/neko233-com/buildworld/internal/auth"
+	"github.com/neko233-com/buildworld/internal/config"
+	"github.com/neko233-com/buildworld/internal/engine"
+	"github.com/neko233-com/buildworld/internal/plugin"
+	"github.com/neko233-com/buildworld/internal/store"
+	"github.com/neko233-com/buildworld/internal/ws"
 )
 
 type Server struct {
@@ -44,12 +44,12 @@ func NewServer(d Deps) *Server {
 	router := NewRouter(d)
 	addr := fmt.Sprintf("%s:%d", d.Cfg.Server.Host, d.Cfg.Server.Port)
 	return &Server{
-		cfg:     d.Cfg,
-		store:   d.Store,
-		hub:     d.Hub,
-		runner:  d.Runner,
-		jwt:     d.JWT,
-		loader:  d.Loader,
+		cfg:    d.Cfg,
+		store:  d.Store,
+		hub:    d.Hub,
+		runner: d.Runner,
+		jwt:    d.JWT,
+		loader: d.Loader,
 		httpSrv: &http.Server{
 			Addr:         addr,
 			Handler:      router,

@@ -10,11 +10,11 @@ import (
 )
 
 type HotReload struct {
-	watcher  *fsnotify.Watcher
-	loader   *Loader
-	stop     chan struct{}
-	mu       sync.Mutex
-	timers   map[string]*time.Timer
+	watcher *fsnotify.Watcher
+	loader  *Loader
+	stop    chan struct{}
+	mu      sync.Mutex
+	timers  map[string]*time.Timer
 }
 
 func NewHotReload(loader *Loader) (*HotReload, error) {

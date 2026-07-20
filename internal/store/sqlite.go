@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -15,15 +16,31 @@ type Store struct {
 	db *sql.DB
 }
 
+var ErrBuildNotCancellable = errors.New("build is not active")
+var ErrRequiredNotificationChannel = errors.New("required notification channel must remain enabled")
+var ErrProjectGroupNameExists = errors.New("project group name already exists")
+
 func New(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 	db.SetMaxOpenConns(1)
+	// The store intentionally uses one SQLite connection, so WAL cannot add
+	// read/write concurrency here. Rollback journaling avoids the persistent
+	// WAL/SHM files and shared-memory locks that can strand background servers
+	// after a forced exit, especially on Windows ReFS development volumes.
+	if _, err := db.Exec("PRAGMA journal_mode=DELETE"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("configure database journal: %w", err)
+	}
 
 	store := &Store{db: db}
 	if err := store.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := store.EnsureDefaultWebNotificationChannel(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -148,13 +165,21 @@ func (s *Store) DeleteUser(id int64) error {
 
 // ---------------- Projects ----------------
 
-func (s *Store) CreateProject(name, description, repoURL, repoType, defaultBranch, config string, createdBy int64, vcsRootID, templateID *int64) (*Project, error) {
+func (s *Store) CreateProject(name, description, repoURL, repoType, defaultBranch, config string, createdBy int64, vcsRootID, templateID *int64, tagSets ...[]string) (*Project, error) {
 	if defaultBranch == "" {
 		defaultBranch = "main"
 	}
+	tags := []string{}
+	if len(tagSets) > 0 {
+		tags = normalizeProjectTags(tagSets[0])
+	}
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return nil, err
+	}
 	res, err := s.db.Exec(
-		"INSERT INTO projects (name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, config, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		name, description, repoURL, repoType, defaultBranch, vcsRootID, templateID, config, createdBy,
+		"INSERT INTO projects (name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, tags, config, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		name, description, repoURL, repoType, defaultBranch, vcsRootID, templateID, string(tagsJSON), config, createdBy,
 	)
 	if err != nil {
 		return nil, err
@@ -165,11 +190,12 @@ func (s *Store) CreateProject(name, description, repoURL, repoType, defaultBranc
 
 func (s *Store) GetProject(id int64) (*Project, error) {
 	p := &Project{}
-	var vcsRootID, templateID sql.NullInt64
+	var vcsRootID, templateID, groupID sql.NullInt64
+	var tagsJSON string
 	err := s.db.QueryRow(
-		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, config, created_by, created_at, updated_at FROM projects WHERE id = ?",
+		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, created_by, created_at, updated_at FROM projects WHERE id = ?",
 		id,
-	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
+	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -181,16 +207,22 @@ func (s *Store) GetProject(id int64) (*Project, error) {
 		v := templateID.Int64
 		p.TemplateID = &v
 	}
+	if groupID.Valid {
+		v := groupID.Int64
+		p.GroupID = &v
+	}
+	p.Tags = parseProjectTags(tagsJSON)
 	return p, nil
 }
 
 func (s *Store) GetProjectByName(name string) (*Project, error) {
 	p := &Project{}
-	var vcsRootID, templateID sql.NullInt64
+	var vcsRootID, templateID, groupID sql.NullInt64
+	var tagsJSON string
 	err := s.db.QueryRow(
-		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, config, created_by, created_at, updated_at FROM projects WHERE name = ?",
+		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, created_by, created_at, updated_at FROM projects WHERE name = ?",
 		name,
-	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
+	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -202,11 +234,16 @@ func (s *Store) GetProjectByName(name string) (*Project, error) {
 		v := templateID.Int64
 		p.TemplateID = &v
 	}
+	if groupID.Valid {
+		v := groupID.Int64
+		p.GroupID = &v
+	}
+	p.Tags = parseProjectTags(tagsJSON)
 	return p, nil
 }
 
 func (s *Store) ListProjects() ([]*Project, error) {
-	rows, err := s.db.Query("SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, config, created_by, created_at, updated_at FROM projects ORDER BY id DESC")
+	rows, err := s.db.Query("SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, created_by, created_at, updated_at FROM projects ORDER BY id DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -214,8 +251,9 @@ func (s *Store) ListProjects() ([]*Project, error) {
 	var projects []*Project
 	for rows.Next() {
 		p := &Project{}
-		var vcsRootID, templateID sql.NullInt64
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		var vcsRootID, templateID, groupID sql.NullInt64
+		var tagsJSON string
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if vcsRootID.Valid {
@@ -226,13 +264,61 @@ func (s *Store) ListProjects() ([]*Project, error) {
 			v := templateID.Int64
 			p.TemplateID = &v
 		}
+		if groupID.Valid {
+			v := groupID.Int64
+			p.GroupID = &v
+		}
+		p.Tags = parseProjectTags(tagsJSON)
 		projects = append(projects, p)
 	}
 	return projects, nil
 }
 
+func (s *Store) ListProjectSummaries() ([]*ProjectSummary, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, description, repo_url, repo_type, default_branch,
+			vcs_root_id, template_id, group_id, tags, created_by, created_at, updated_at
+		FROM projects
+		ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var projects []*ProjectSummary
+	for rows.Next() {
+		project := &ProjectSummary{}
+		var vcsRootID, templateID, groupID sql.NullInt64
+		var tagsJSON string
+		if err := rows.Scan(
+			&project.ID, &project.Name, &project.Description, &project.RepoURL,
+			&project.RepoType, &project.DefaultBranch, &vcsRootID, &templateID,
+			&groupID, &tagsJSON, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if vcsRootID.Valid {
+			value := vcsRootID.Int64
+			project.VCSRootID = &value
+		}
+		if templateID.Valid {
+			value := templateID.Int64
+			project.TemplateID = &value
+		}
+		if groupID.Valid {
+			value := groupID.Int64
+			project.GroupID = &value
+		}
+		project.Tags = parseProjectTags(tagsJSON)
+		projects = append(projects, project)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return projects, nil
+}
+
 func (s *Store) ListProjectsByVCSRoot(vcsRootID int64) ([]*Project, error) {
-	rows, err := s.db.Query("SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, config, created_by, created_at, updated_at FROM projects WHERE vcs_root_id = ?", vcsRootID)
+	rows, err := s.db.Query("SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, created_by, created_at, updated_at FROM projects WHERE vcs_root_id = ?", vcsRootID)
 	if err != nil {
 		return nil, err
 	}
@@ -240,8 +326,9 @@ func (s *Store) ListProjectsByVCSRoot(vcsRootID int64) ([]*Project, error) {
 	var projects []*Project
 	for rows.Next() {
 		p := &Project{}
-		var vrid, tid sql.NullInt64
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vrid, &tid, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		var vrid, tid, gid sql.NullInt64
+		var tagsJSON string
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vrid, &tid, &gid, &tagsJSON, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if vrid.Valid {
@@ -252,17 +339,79 @@ func (s *Store) ListProjectsByVCSRoot(vcsRootID int64) ([]*Project, error) {
 			v := tid.Int64
 			p.TemplateID = &v
 		}
+		if gid.Valid {
+			v := gid.Int64
+			p.GroupID = &v
+		}
+		p.Tags = parseProjectTags(tagsJSON)
 		projects = append(projects, p)
 	}
 	return projects, nil
 }
 
-func (s *Store) UpdateProject(id int64, name, description, repoURL, repoType, defaultBranch, config string, vcsRootID, templateID *int64) error {
-	_, err := s.db.Exec(
-		"UPDATE projects SET name=?, description=?, repo_url=?, repo_type=?, default_branch=?, vcs_root_id=?, template_id=?, config=?, updated_at=? WHERE id=?",
-		name, description, repoURL, repoType, defaultBranch, vcsRootID, templateID, config, time.Now(), id,
+func (s *Store) UpdateProject(id int64, name, description, repoURL, repoType, defaultBranch, config string, vcsRootID, templateID *int64, tagSets ...[]string) error {
+	tags := []string{}
+	if len(tagSets) > 0 {
+		tags = normalizeProjectTags(tagSets[0])
+	}
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(
+		"UPDATE projects SET name=?, description=?, repo_url=?, repo_type=?, default_branch=?, vcs_root_id=?, template_id=?, tags=?, config=?, updated_at=? WHERE id=?",
+		name, description, repoURL, repoType, defaultBranch, vcsRootID, templateID, string(tagsJSON), config, time.Now(), id,
 	)
 	return err
+}
+
+func (s *Store) SetProjectGroup(projectID int64, groupID *int64) error {
+	if groupID != nil {
+		if *groupID <= 0 {
+			return fmt.Errorf("invalid project group id")
+		}
+		if _, err := s.GetProjectGroup(*groupID); err != nil {
+			return fmt.Errorf("project group not found: %w", err)
+		}
+	}
+	result, err := s.db.Exec("UPDATE projects SET group_id=?, updated_at=? WHERE id=?", groupID, time.Now(), projectID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func normalizeProjectTags(tags []string) []string {
+	seen := make(map[string]struct{}, len(tags))
+	result := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		key := strings.ToLower(tag)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, tag)
+	}
+	return result
+}
+
+func parseProjectTags(source string) []string {
+	var tags []string
+	if err := json.Unmarshal([]byte(source), &tags); err != nil {
+		return []string{}
+	}
+	return normalizeProjectTags(tags)
 }
 
 func (s *Store) DeleteProject(id int64) error {
@@ -382,9 +531,61 @@ func (s *Store) ListBuildsByProject(projectID int64) ([]*Build, error) {
 	return scanBuilds(rows)
 }
 
+// PruneCompletedBuilds keeps the newest completed builds for a project. Pinned,
+// pending, and running builds are always retained so the LRU policy cannot remove
+// work that operators still need.
+func (s *Store) PruneCompletedBuilds(projectID int64, retain int) error {
+	if retain < 0 {
+		return nil
+	}
+	rows, err := s.db.Query(`SELECT id FROM builds
+		WHERE project_id = ? AND status IN ('success', 'failed', 'cancelled') AND pinned = 0
+		ORDER BY COALESCE(finished_at, started_at) DESC, id DESC`, projectID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) <= retain {
+		return rows.Err()
+	}
+	for _, id := range ids[retain:] {
+		if _, err := s.db.Exec("DELETE FROM notification_events WHERE build_id = ?", id); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec("DELETE FROM artifacts WHERE build_id = ?", id); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec("DELETE FROM build_queue_items WHERE build_id = ?", id); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec("DELETE FROM test_results WHERE build_id = ?", id); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec("DELETE FROM build_approvals WHERE build_id = ?", id); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec("DELETE FROM builds WHERE id = ?", id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) ListPendingBuilds() ([]*Build, error) {
 	rows, err := s.db.Query(
-		"SELECT id, project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, pinned, log, started_at, finished_at, duration_ms, approval_required, approved_by, approved_at, timeout_sec, test_result_id FROM builds WHERE status = 'pending' ORDER BY id ASC")
+		`SELECT b.id, b.project_id, b.number, b.status, b.trigger, b.branch, b.commit_sha, b.parameters, b.wait_dependency_on, b.retried_from, b.pinned, b.log, b.started_at, b.finished_at, b.duration_ms, b.approval_required, b.approved_by, b.approved_at, b.timeout_sec, b.test_result_id
+		 FROM builds b
+		 LEFT JOIN build_queue_items q ON q.build_id = b.id
+		 WHERE b.status = 'pending'
+		 ORDER BY COALESCE(q.priority, 0) DESC, b.id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -509,8 +710,32 @@ func (s *Store) PinBuild(buildID int64, pinned bool) error {
 }
 
 func (s *Store) CancelBuild(buildID int64) error {
-	_, err := s.db.Exec("UPDATE builds SET status='cancelled', finished_at=? WHERE id = ?", time.Now(), buildID)
-	return err
+	finishedAt := time.Now()
+	result, err := s.db.Exec(`
+		UPDATE builds
+		SET status='cancelled',
+		    finished_at=?,
+		    duration_ms=CASE
+		        WHEN started_at IS NULL THEN 0
+		        ELSE MAX(0, CAST((julianday(?) - julianday(started_at)) * 86400000 AS INTEGER))
+		    END
+		WHERE id = ? AND status IN ('pending', 'running', 'pending_approval')`,
+		finishedAt, finishedAt, buildID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		return nil
+	}
+	var status string
+	if err := s.db.QueryRow("SELECT status FROM builds WHERE id = ?", buildID).Scan(&status); err != nil {
+		return err
+	}
+	return ErrBuildNotCancellable
 }
 
 func (s *Store) UpdateBuildBranch(buildID int64, branch string) error {
@@ -548,9 +773,9 @@ func (s *Store) GetWorker(id string) (*Worker, error) {
 	var labels, pool sql.NullString
 	var hb sql.NullTime
 	err := s.db.QueryRow(
-		"SELECT id, name, address, token_hash, labels, pool, max_concurrent_builds, status, last_heartbeat, created_at FROM workers WHERE id = ?",
+		"SELECT id, name, address, token_hash, labels, pool, max_concurrent_builds, active_builds, status, last_heartbeat, created_at FROM workers WHERE id = ?",
 		id,
-	).Scan(&w.ID, &w.Name, &w.Address, &w.TokenHash, &labels, &pool, &w.MaxConcurrentBuilds, &w.Status, &hb, &w.CreatedAt)
+	).Scan(&w.ID, &w.Name, &w.Address, &w.TokenHash, &labels, &pool, &w.MaxConcurrentBuilds, &w.ActiveBuilds, &w.Status, &hb, &w.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -567,7 +792,7 @@ func (s *Store) GetWorker(id string) (*Worker, error) {
 }
 
 func (s *Store) ListWorkers() ([]*Worker, error) {
-	rows, err := s.db.Query("SELECT id, name, address, token_hash, labels, pool, max_concurrent_builds, status, last_heartbeat, created_at FROM workers ORDER BY created_at")
+	rows, err := s.db.Query("SELECT id, name, address, token_hash, labels, pool, max_concurrent_builds, active_builds, status, last_heartbeat, created_at FROM workers ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -577,7 +802,7 @@ func (s *Store) ListWorkers() ([]*Worker, error) {
 		w := &Worker{}
 		var labels, pool sql.NullString
 		var hb sql.NullTime
-		if err := rows.Scan(&w.ID, &w.Name, &w.Address, &w.TokenHash, &labels, &pool, &w.MaxConcurrentBuilds, &w.Status, &hb, &w.CreatedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.Name, &w.Address, &w.TokenHash, &labels, &pool, &w.MaxConcurrentBuilds, &w.ActiveBuilds, &w.Status, &hb, &w.CreatedAt); err != nil {
 			return nil, err
 		}
 		if labels.Valid {
@@ -595,7 +820,7 @@ func (s *Store) ListWorkers() ([]*Worker, error) {
 }
 
 func (s *Store) ListOnlineWorkers() ([]*Worker, error) {
-	rows, err := s.db.Query("SELECT id, name, address, token_hash, labels, pool, max_concurrent_builds, status, last_heartbeat, created_at FROM workers WHERE status = 'online' ORDER BY created_at")
+	rows, err := s.db.Query("SELECT id, name, address, token_hash, labels, pool, max_concurrent_builds, active_builds, status, last_heartbeat, created_at FROM workers WHERE status = 'online' ORDER BY active_builds ASC, created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -605,7 +830,7 @@ func (s *Store) ListOnlineWorkers() ([]*Worker, error) {
 		w := &Worker{}
 		var labels, pool sql.NullString
 		var hb sql.NullTime
-		if err := rows.Scan(&w.ID, &w.Name, &w.Address, &w.TokenHash, &labels, &pool, &w.MaxConcurrentBuilds, &w.Status, &hb, &w.CreatedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.Name, &w.Address, &w.TokenHash, &labels, &pool, &w.MaxConcurrentBuilds, &w.ActiveBuilds, &w.Status, &hb, &w.CreatedAt); err != nil {
 			return nil, err
 		}
 		if labels.Valid {
@@ -632,13 +857,31 @@ func (s *Store) UpdateWorkerHeartbeat(id string, activeBuilds int) error {
 	return err
 }
 
+// TryAcquireWorker reserves one execution slot using a single conditional SQL
+// update. Concurrent scheduler goroutines cannot overbook a worker this way.
+func (s *Store) TryAcquireWorker(id string) (bool, error) {
+	result, err := s.db.Exec("UPDATE workers SET active_builds = active_builds + 1 WHERE id = ? AND status = 'online' AND active_builds < max_concurrent_builds", id)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
+}
+
+// ReleaseWorker frees a server-side scheduling lease. The guarded expression
+// makes cleanup idempotent for failed or cancelled remote dispatches.
+func (s *Store) ReleaseWorker(id string) error {
+	_, err := s.db.Exec("UPDATE workers SET active_builds = CASE WHEN active_builds > 0 THEN active_builds - 1 ELSE 0 END WHERE id = ?", id)
+	return err
+}
+
 func (s *Store) DeleteWorker(id string) error {
 	_, err := s.db.Exec("DELETE FROM workers WHERE id=?", id)
 	return err
 }
 
 func (s *Store) MarkOfflineWorkers() error {
-	_, err := s.db.Exec("UPDATE workers SET status='offline' WHERE last_heartbeat IS NOT NULL AND last_heartbeat < ?", time.Now().Add(-30*time.Second))
+	_, err := s.db.Exec("UPDATE workers SET status='offline', active_builds=0 WHERE last_heartbeat IS NOT NULL AND last_heartbeat < ?", time.Now().Add(-30*time.Second))
 	return err
 }
 
@@ -761,6 +1004,17 @@ func (s *Store) UpdatePluginEnabled(id int64, enabled bool) error {
 		v = 1
 	}
 	_, err := s.db.Exec("UPDATE plugins SET enabled=?, updated_at=? WHERE id=?", v, time.Now(), id)
+	return err
+}
+
+func (s *Store) UpdatePluginMetadata(id int64, version, description, author, source string) error {
+	if source == "" {
+		source = "builtin"
+	}
+	_, err := s.db.Exec(
+		"UPDATE plugins SET version=?, description=?, author=?, source=?, updated_at=? WHERE id=?",
+		version, description, author, source, time.Now(), id,
+	)
 	return err
 }
 
@@ -1097,9 +1351,6 @@ func (s *Store) CreateVCSRoot(name, vcsType, url, branch string, credentialID *i
 	if branch == "" {
 		branch = "main"
 	}
-	if pollInterval == 0 {
-		pollInterval = 60
-	}
 	if config == "" {
 		config = "{}"
 	}
@@ -1282,6 +1533,22 @@ func (s *Store) DeleteBuildTemplate(id int64) error {
 
 // ---------------- Notification Channels ----------------
 
+func (s *Store) EnsureDefaultWebNotificationChannel() error {
+	_, err := s.db.Exec(
+		`INSERT INTO notification_channels (name, type, config, conditions, description, enabled)
+		 VALUES (?, ?, '{}', '{}', ?, 1)
+		 ON CONFLICT(name) DO UPDATE SET
+		   type = excluded.type,
+		   config = '{}',
+		   enabled = 1,
+		   updated_at = CURRENT_TIMESTAMP`,
+		DefaultWebNotificationChannelName,
+		string(NotificationChannelWeb),
+		"系统标配的页面内实时构建通知；与其他启用渠道并行投递。",
+	)
+	return err
+}
+
 func (s *Store) CreateNotificationChannel(name string, channelType NotificationChannelType, config, conditions, description string, enabled bool) (*NotificationChannel, error) {
 	if config == "" {
 		config = "{}"
@@ -1306,6 +1573,22 @@ func (s *Store) GetNotificationChannel(id int64) (*NotificationChannel, error) {
 	err := s.db.QueryRow(
 		"SELECT id, name, type, config, conditions, description, enabled, created_at, updated_at FROM notification_channels WHERE id = ?",
 		id,
+	).Scan(&c.ID, &c.Name, &c.Type, &cfg, &cond, &desc, &c.Enabled, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	c.Config = cfg.String
+	c.Conditions = cond.String
+	c.Description = desc.String
+	return c, nil
+}
+
+func (s *Store) GetNotificationChannelByName(name string) (*NotificationChannel, error) {
+	c := &NotificationChannel{}
+	var desc, cfg, cond sql.NullString
+	err := s.db.QueryRow(
+		"SELECT id, name, type, config, conditions, description, enabled, created_at, updated_at FROM notification_channels WHERE name = ?",
+		name,
 	).Scan(&c.ID, &c.Name, &c.Type, &cfg, &cond, &desc, &c.Enabled, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -1359,7 +1642,20 @@ func (s *Store) ListEnabledNotificationChannels() ([]*NotificationChannel, error
 }
 
 func (s *Store) UpdateNotificationChannel(id int64, name string, channelType NotificationChannelType, config, conditions, description string, enabled bool) error {
-	_, err := s.db.Exec(
+	existing, err := s.GetNotificationChannel(id)
+	if err != nil {
+		return err
+	}
+	if existing.Name == DefaultWebNotificationChannelName && existing.Type == NotificationChannelWeb {
+		if !enabled || name != DefaultWebNotificationChannelName || channelType != NotificationChannelWeb {
+			return ErrRequiredNotificationChannel
+		}
+		name = DefaultWebNotificationChannelName
+		channelType = NotificationChannelWeb
+		config = "{}"
+		enabled = true
+	}
+	_, err = s.db.Exec(
 		"UPDATE notification_channels SET name=?, type=?, config=?, conditions=?, description=?, enabled=?, updated_at=? WHERE id=?",
 		name, string(channelType), config, conditions, description, enabled, time.Now(), id,
 	)
@@ -1367,7 +1663,14 @@ func (s *Store) UpdateNotificationChannel(id int64, name string, channelType Not
 }
 
 func (s *Store) DeleteNotificationChannel(id int64) error {
-	_, err := s.db.Exec("DELETE FROM notification_channels WHERE id = ?", id)
+	existing, err := s.GetNotificationChannel(id)
+	if err != nil {
+		return err
+	}
+	if existing.Name == DefaultWebNotificationChannelName && existing.Type == NotificationChannelWeb {
+		return ErrRequiredNotificationChannel
+	}
+	_, err = s.db.Exec("DELETE FROM notification_channels WHERE id = ?", id)
 	return err
 }
 
@@ -1422,6 +1725,81 @@ func (s *Store) ListNotificationEvents(channelID int64, limit int) ([]*Notificat
 	}
 	defer rows.Close()
 	return scanNotificationEvents(rows)
+}
+
+func (s *Store) GetInAppNotificationFeed(userID int64, limit int) (*InAppNotificationFeed, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	lastReadID := int64(0)
+	err := s.db.QueryRow("SELECT last_event_id FROM web_notification_reads WHERE user_id = ?", userID).Scan(&lastReadID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	rows, err := s.db.Query(
+		`SELECT ne.id, ne.channel_id, ne.build_id, ne.event_type, ne.payload, ne.status,
+		        ne.error_message, ne.delivered_at, ne.created_at
+		   FROM notification_events ne
+		   JOIN notification_channels nc ON nc.id = ne.channel_id
+		  WHERE nc.type = ? AND ne.status = 'delivered'
+		  ORDER BY ne.id DESC
+		  LIMIT ?`,
+		string(NotificationChannelWeb), limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items, err := scanNotificationEvents(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	unread := 0
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*)
+		   FROM notification_events ne
+		   JOIN notification_channels nc ON nc.id = ne.channel_id
+		  WHERE nc.type = ? AND ne.status = 'delivered' AND ne.id > ?`,
+		string(NotificationChannelWeb), lastReadID,
+	).Scan(&unread); err != nil {
+		return nil, err
+	}
+	return &InAppNotificationFeed{Items: items, Unread: unread, LastReadID: lastReadID}, nil
+}
+
+func (s *Store) MarkInAppNotificationsRead(userID, lastEventID int64) error {
+	if userID <= 0 || lastEventID < 0 {
+		return errors.New("invalid notification read cursor")
+	}
+	var exists int
+	if lastEventID > 0 {
+		if err := s.db.QueryRow(
+			`SELECT COUNT(*)
+			   FROM notification_events ne
+			   JOIN notification_channels nc ON nc.id = ne.channel_id
+			  WHERE ne.id = ? AND nc.type = ?`,
+			lastEventID, string(NotificationChannelWeb),
+		).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			return sql.ErrNoRows
+		}
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO web_notification_reads (user_id, last_event_id, updated_at)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   last_event_id = CASE
+		     WHEN excluded.last_event_id > web_notification_reads.last_event_id THEN excluded.last_event_id
+		     ELSE web_notification_reads.last_event_id
+		   END,
+		   updated_at = excluded.updated_at`,
+		userID, lastEventID, time.Now(),
+	)
+	return err
 }
 
 func scanNotificationEvents(rows *sql.Rows) ([]*NotificationEvent, error) {
@@ -1519,10 +1897,19 @@ func (s *Store) GetProjectBuildStats(projectID int64, days int) ([]*BuildStat, e
 		days = 30
 	}
 	rows, err := s.db.Query(
-		`SELECT id, project_id, date, total_builds, success_count, failed_count, avg_duration_ms
-		 FROM build_stats
-		 WHERE project_id=? AND date >= date('now', ?)
-		 ORDER BY date DESC`,
+		`SELECT
+		   date(COALESCE(finished_at, started_at), 'localtime') AS build_date,
+		   COUNT(*) AS total,
+		   COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END), 0) AS success,
+		   COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) AS failed,
+		   CAST(COALESCE(AVG(COALESCE(duration_ms, 0)), 0) AS INTEGER) AS avg_duration
+		 FROM builds
+		 WHERE project_id=?
+		   AND status IN ('success', 'failed')
+		   AND COALESCE(finished_at, started_at) IS NOT NULL
+		   AND date(COALESCE(finished_at, started_at), 'localtime') >= date('now', 'localtime', ?)
+		 GROUP BY build_date
+		 ORDER BY build_date DESC`,
 		projectID, "-"+strconv.Itoa(days)+" days",
 	)
 	if err != nil {
@@ -1531,22 +1918,29 @@ func (s *Store) GetProjectBuildStats(projectID int64, days int) ([]*BuildStat, e
 	defer rows.Close()
 	var stats []*BuildStat
 	for rows.Next() {
-		bs := &BuildStat{}
-		if err := rows.Scan(&bs.ID, &bs.ProjectID, &bs.Date, &bs.TotalBuilds, &bs.SuccessCount, &bs.FailedCount, &bs.AvgDuration); err != nil {
+		bs := &BuildStat{ProjectID: projectID}
+		if err := rows.Scan(&bs.Date, &bs.TotalBuilds, &bs.SuccessCount, &bs.FailedCount, &bs.AvgDuration); err != nil {
 			return nil, err
 		}
 		stats = append(stats, bs)
 	}
-	return stats, nil
+	return stats, rows.Err()
 }
 
 func (s *Store) GetDashboardStats() ([]*BuildStat, error) {
 	rows, err := s.db.Query(
-		`SELECT date, SUM(total_builds) AS total, SUM(success_count) AS success, SUM(failed_count) AS failed, CAST(AVG(avg_duration_ms) AS INTEGER) AS avg
-		 FROM build_stats
-		 WHERE date >= date('now', '-30 days')
-		 GROUP BY date
-		 ORDER BY date DESC`,
+		`SELECT
+		   date(COALESCE(finished_at, started_at), 'localtime') AS build_date,
+		   COUNT(*) AS total,
+		   COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END), 0) AS success,
+		   COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) AS failed,
+		   CAST(COALESCE(AVG(COALESCE(duration_ms, 0)), 0) AS INTEGER) AS avg_duration
+		 FROM builds
+		 WHERE status IN ('success', 'failed')
+		   AND COALESCE(finished_at, started_at) IS NOT NULL
+		   AND date(COALESCE(finished_at, started_at), 'localtime') >= date('now', 'localtime', '-30 days')
+		 GROUP BY build_date
+		 ORDER BY build_date DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -1555,12 +1949,12 @@ func (s *Store) GetDashboardStats() ([]*BuildStat, error) {
 	var stats []*BuildStat
 	for rows.Next() {
 		bs := &BuildStat{}
-		if err := rows.Scan(&bs.ID, &bs.ProjectID, &bs.Date, &bs.TotalBuilds, &bs.SuccessCount, &bs.FailedCount, &bs.AvgDuration); err != nil {
+		if err := rows.Scan(&bs.Date, &bs.TotalBuilds, &bs.SuccessCount, &bs.FailedCount, &bs.AvgDuration); err != nil {
 			return nil, err
 		}
 		stats = append(stats, bs)
 	}
-	return stats, nil
+	return stats, rows.Err()
 }
 
 // ---------------- Audit Logs ----------------
@@ -1685,6 +2079,18 @@ func (s *Store) DeleteAPIToken(id int64) error {
 	return err
 }
 
+// DeleteAPITokenForUser deletes only tokens owned by the authenticated user.
+// The boolean result distinguishes an absent/foreign token from a successful
+// delete without exposing which of those cases occurred.
+func (s *Store) DeleteAPITokenForUser(id, userID int64) (bool, error) {
+	result, err := s.db.Exec("DELETE FROM api_tokens WHERE id = ? AND user_id = ?", id, userID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	return affected == 1, err
+}
+
 func (s *Store) UpdateAPITokenLastUsed(id int64) error {
 	_, err := s.db.Exec("UPDATE api_tokens SET last_used_at=? WHERE id=?", time.Now(), id)
 	return err
@@ -1708,10 +2114,12 @@ func (s *Store) GetBuildApproval(id int64) (*BuildApproval, error) {
 	a := &BuildApproval{}
 	var comment sql.NullString
 	var resolved sql.NullTime
+	var resolvedBy sql.NullInt64
+	var resolvedByUsername sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, build_id, user_id, username, status, comment, created_at, resolved_at FROM build_approvals WHERE id = ?",
+		"SELECT id, build_id, user_id, username, status, comment, created_at, resolved_at, resolved_by, resolved_by_username FROM build_approvals WHERE id = ?",
 		id,
-	).Scan(&a.ID, &a.BuildID, &a.UserID, &a.Username, &a.Status, &comment, &a.CreatedAt, &resolved)
+	).Scan(&a.ID, &a.BuildID, &a.UserID, &a.Username, &a.Status, &comment, &a.CreatedAt, &resolved, &resolvedBy, &resolvedByUsername)
 	if err != nil {
 		return nil, err
 	}
@@ -1719,6 +2127,11 @@ func (s *Store) GetBuildApproval(id int64) (*BuildApproval, error) {
 	if resolved.Valid {
 		a.ResolvedAt = &resolved.Time
 	}
+	if resolvedBy.Valid {
+		value := resolvedBy.Int64
+		a.ResolvedBy = &value
+	}
+	a.ResolvedByUsername = resolvedByUsername.String
 	return a, nil
 }
 
@@ -1726,10 +2139,12 @@ func (s *Store) GetBuildApprovalByBuild(buildID int64) (*BuildApproval, error) {
 	a := &BuildApproval{}
 	var comment sql.NullString
 	var resolved sql.NullTime
+	var resolvedBy sql.NullInt64
+	var resolvedByUsername sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, build_id, user_id, username, status, comment, created_at, resolved_at FROM build_approvals WHERE build_id = ? ORDER BY id DESC LIMIT 1",
+		"SELECT id, build_id, user_id, username, status, comment, created_at, resolved_at, resolved_by, resolved_by_username FROM build_approvals WHERE build_id = ? ORDER BY id DESC LIMIT 1",
 		buildID,
-	).Scan(&a.ID, &a.BuildID, &a.UserID, &a.Username, &a.Status, &comment, &a.CreatedAt, &resolved)
+	).Scan(&a.ID, &a.BuildID, &a.UserID, &a.Username, &a.Status, &comment, &a.CreatedAt, &resolved, &resolvedBy, &resolvedByUsername)
 	if err != nil {
 		return nil, err
 	}
@@ -1737,12 +2152,17 @@ func (s *Store) GetBuildApprovalByBuild(buildID int64) (*BuildApproval, error) {
 	if resolved.Valid {
 		a.ResolvedAt = &resolved.Time
 	}
+	if resolvedBy.Valid {
+		value := resolvedBy.Int64
+		a.ResolvedBy = &value
+	}
+	a.ResolvedByUsername = resolvedByUsername.String
 	return a, nil
 }
 
 func (s *Store) ListPendingApprovals() ([]*BuildApproval, error) {
 	rows, err := s.db.Query(
-		"SELECT id, build_id, user_id, username, status, comment, created_at, resolved_at FROM build_approvals WHERE status = 'pending' ORDER BY id DESC",
+		"SELECT id, build_id, user_id, username, status, comment, created_at, resolved_at, resolved_by, resolved_by_username FROM build_approvals WHERE status = 'pending' ORDER BY id DESC",
 	)
 	if err != nil {
 		return nil, err
@@ -1751,10 +2171,20 @@ func (s *Store) ListPendingApprovals() ([]*BuildApproval, error) {
 	return scanBuildApprovals(rows)
 }
 
-func (s *Store) UpdateBuildApproval(id int64, status, comment string) error {
+func (s *Store) UpdateBuildApproval(id int64, status, comment string, resolvedBy int64, resolvedByUsername string) error {
 	_, err := s.db.Exec(
-		"UPDATE build_approvals SET status=?, comment=?, resolved_at=? WHERE id=?",
-		status, comment, time.Now(), id,
+		"UPDATE build_approvals SET status=?, comment=?, resolved_at=?, resolved_by=?, resolved_by_username=? WHERE id=?",
+		status, strings.TrimSpace(comment), time.Now(), resolvedBy, resolvedByUsername, id,
+	)
+	return err
+}
+
+func (s *Store) CancelPendingBuildApproval(buildID, resolvedBy int64, resolvedByUsername string) error {
+	_, err := s.db.Exec(
+		`UPDATE build_approvals
+		 SET status='cancelled', comment='build cancelled', resolved_at=?, resolved_by=?, resolved_by_username=?
+		 WHERE build_id=? AND status='pending'`,
+		time.Now(), resolvedBy, resolvedByUsername, buildID,
 	)
 	return err
 }
@@ -1765,13 +2195,20 @@ func scanBuildApprovals(rows *sql.Rows) ([]*BuildApproval, error) {
 		a := &BuildApproval{}
 		var comment sql.NullString
 		var resolved sql.NullTime
-		if err := rows.Scan(&a.ID, &a.BuildID, &a.UserID, &a.Username, &a.Status, &comment, &a.CreatedAt, &resolved); err != nil {
+		var resolvedBy sql.NullInt64
+		var resolvedByUsername sql.NullString
+		if err := rows.Scan(&a.ID, &a.BuildID, &a.UserID, &a.Username, &a.Status, &comment, &a.CreatedAt, &resolved, &resolvedBy, &resolvedByUsername); err != nil {
 			return nil, err
 		}
 		a.Comment = comment.String
 		if resolved.Valid {
 			a.ResolvedAt = &resolved.Time
 		}
+		if resolvedBy.Valid {
+			value := resolvedBy.Int64
+			a.ResolvedBy = &value
+		}
+		a.ResolvedByUsername = resolvedByUsername.String
 		approvals = append(approvals, a)
 	}
 	return approvals, nil
@@ -1859,6 +2296,25 @@ func (s *Store) GetDeploymentEnv(id int64) (*DeploymentEnv, error) {
 	return d, nil
 }
 
+func (s *Store) GetDeploymentEnvByProjectAndName(projectID int64, name string) (*DeploymentEnv, error) {
+	d := &DeploymentEnv{}
+	var desc sql.NullString
+	var lastBuild sql.NullInt64
+	err := s.db.QueryRow(
+		"SELECT id, project_id, name, description, config, last_build_id, created_at, updated_at FROM deployment_envs WHERE project_id = ? AND name = ?",
+		projectID, name,
+	).Scan(&d.ID, &d.ProjectID, &d.Name, &desc, &d.Config, &lastBuild, &d.CreatedAt, &d.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	d.Description = desc.String
+	if lastBuild.Valid {
+		value := lastBuild.Int64
+		d.LastBuildID = &value
+	}
+	return d, nil
+}
+
 func (s *Store) ListDeploymentEnvs(projectID int64) ([]*DeploymentEnv, error) {
 	rows, err := s.db.Query(
 		"SELECT id, project_id, name, description, config, last_build_id, created_at, updated_at FROM deployment_envs WHERE project_id = ? ORDER BY id",
@@ -1907,11 +2363,29 @@ func (s *Store) DeleteDeploymentEnv(id int64) error {
 // ---------------- Project Groups ----------------
 
 func (s *Store) CreateProjectGroup(name, description string, parentID *int64) (*ProjectGroup, error) {
+	name = strings.TrimSpace(name)
+	description = strings.TrimSpace(description)
+	if name == "" {
+		return nil, fmt.Errorf("project group name is required")
+	}
+	if _, err := s.GetProjectGroupByName(name); err == nil {
+		return nil, ErrProjectGroupNameExists
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	if parentID != nil {
+		if _, err := s.GetProjectGroup(*parentID); err != nil {
+			return nil, fmt.Errorf("parent project group not found: %w", err)
+		}
+	}
 	res, err := s.db.Exec(
-		"INSERT INTO project_groups (name, description, parent_id) VALUES (?, ?, ?)",
-		name, description, parentID,
+		"INSERT INTO project_groups (name, description, parent_id, updated_at) VALUES (?, ?, ?, ?)",
+		name, description, parentID, time.Now(),
 	)
 	if err != nil {
+		if isProjectGroupNameConstraint(err) {
+			return nil, ErrProjectGroupNameExists
+		}
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
@@ -1922,12 +2396,17 @@ func (s *Store) GetProjectGroup(id int64) (*ProjectGroup, error) {
 	g := &ProjectGroup{}
 	var desc sql.NullString
 	var parentID sql.NullInt64
+	var updatedAt sql.NullTime
 	err := s.db.QueryRow(
-		"SELECT id, name, description, parent_id, created_at FROM project_groups WHERE id = ?",
+		"SELECT id, name, description, parent_id, created_at, updated_at FROM project_groups WHERE id = ?",
 		id,
-	).Scan(&g.ID, &g.Name, &desc, &parentID, &g.CreatedAt)
+	).Scan(&g.ID, &g.Name, &desc, &parentID, &g.CreatedAt, &updatedAt)
 	if err != nil {
 		return nil, err
+	}
+	g.UpdatedAt = g.CreatedAt
+	if updatedAt.Valid {
+		g.UpdatedAt = updatedAt.Time
 	}
 	g.Description = desc.String
 	if parentID.Valid {
@@ -1937,8 +2416,16 @@ func (s *Store) GetProjectGroup(id int64) (*ProjectGroup, error) {
 	return g, nil
 }
 
+func (s *Store) GetProjectGroupByName(name string) (*ProjectGroup, error) {
+	var id int64
+	if err := s.db.QueryRow("SELECT id FROM project_groups WHERE name = ?", strings.TrimSpace(name)).Scan(&id); err != nil {
+		return nil, err
+	}
+	return s.GetProjectGroup(id)
+}
+
 func (s *Store) ListProjectGroups() ([]*ProjectGroup, error) {
-	rows, err := s.db.Query("SELECT id, name, description, parent_id, created_at FROM project_groups ORDER BY id")
+	rows, err := s.db.Query("SELECT id, name, description, parent_id, created_at, updated_at FROM project_groups ORDER BY name COLLATE NOCASE, id")
 	if err != nil {
 		return nil, err
 	}
@@ -1948,8 +2435,13 @@ func (s *Store) ListProjectGroups() ([]*ProjectGroup, error) {
 		g := &ProjectGroup{}
 		var desc sql.NullString
 		var parentID sql.NullInt64
-		if err := rows.Scan(&g.ID, &g.Name, &desc, &parentID, &g.CreatedAt); err != nil {
+		var updatedAt sql.NullTime
+		if err := rows.Scan(&g.ID, &g.Name, &desc, &parentID, &g.CreatedAt, &updatedAt); err != nil {
 			return nil, err
+		}
+		g.UpdatedAt = g.CreatedAt
+		if updatedAt.Valid {
+			g.UpdatedAt = updatedAt.Time
 		}
 		g.Description = desc.String
 		if parentID.Valid {
@@ -1961,25 +2453,99 @@ func (s *Store) ListProjectGroups() ([]*ProjectGroup, error) {
 	return groups, nil
 }
 
+func (s *Store) UpdateProjectGroup(id int64, name, description string, parentID *int64) error {
+	name = strings.TrimSpace(name)
+	description = strings.TrimSpace(description)
+	if name == "" {
+		return fmt.Errorf("project group name is required")
+	}
+	if existing, err := s.GetProjectGroupByName(name); err == nil && existing.ID != id {
+		return ErrProjectGroupNameExists
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if parentID != nil {
+		if *parentID == id {
+			return fmt.Errorf("project group cannot be its own parent")
+		}
+		parent, err := s.GetProjectGroup(*parentID)
+		if err != nil {
+			return fmt.Errorf("parent project group not found: %w", err)
+		}
+		for parent != nil && parent.ParentID != nil {
+			if *parent.ParentID == id {
+				return fmt.Errorf("project group hierarchy cannot contain a cycle")
+			}
+			parent, err = s.GetProjectGroup(*parent.ParentID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	result, err := s.db.Exec(
+		"UPDATE project_groups SET name=?, description=?, parent_id=?, updated_at=? WHERE id=?",
+		name, description, parentID, time.Now(), id,
+	)
+	if err != nil {
+		if isProjectGroupNameConstraint(err) {
+			return ErrProjectGroupNameExists
+		}
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func isProjectGroupNameConstraint(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "unique constraint failed") && strings.Contains(message, "project_groups.name")
+}
+
 func (s *Store) DeleteProjectGroup(id int64) error {
-	_, err := s.db.Exec("DELETE FROM project_groups WHERE id = ?", id)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var parentID sql.NullInt64
+	if err := tx.QueryRow("SELECT parent_id FROM project_groups WHERE id = ?", id).Scan(&parentID); err != nil {
+		return err
+	}
+	var replacement interface{}
+	if parentID.Valid {
+		replacement = parentID.Int64
+	}
+	if _, err := tx.Exec("UPDATE project_groups SET parent_id=?, updated_at=? WHERE parent_id=?", replacement, time.Now(), id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("UPDATE projects SET group_id=?, updated_at=? WHERE group_id=?", replacement, time.Now(), id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM project_groups WHERE id = ?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ---------------- Build Queue Items ----------------
 
 func (s *Store) CreateBuildQueueItem(buildID, projectID int64, projectName string, priority int, trigger, branch string) (*BuildQueueItem, error) {
-	res, err := s.db.Exec(
-		"INSERT INTO build_queue_items (build_id, project_id, project_name, priority, status, trigger, branch) VALUES (?, ?, ?, ?, 'queued', ?, ?)",
+	_, err := s.db.Exec(
+		"INSERT OR IGNORE INTO build_queue_items (build_id, project_id, project_name, priority, status, trigger, branch) VALUES (?, ?, ?, ?, 'queued', ?, ?)",
 		buildID, projectID, projectName, priority, trigger, branch,
 	)
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
 	row := s.db.QueryRow(
-		"SELECT id, build_id, project_id, project_name, priority, status, trigger, branch, queued_at, started_at FROM build_queue_items WHERE id = ?",
-		id,
+		"SELECT id, build_id, project_id, project_name, priority, status, trigger, branch, queued_at, started_at FROM build_queue_items WHERE build_id = ?",
+		buildID,
 	)
 	item := &BuildQueueItem{}
 	var started sql.NullTime
@@ -1993,27 +2559,64 @@ func (s *Store) CreateBuildQueueItem(buildID, projectID int64, projectName strin
 }
 
 func (s *Store) ListBuildQueue(status string) ([]*BuildQueueItem, error) {
-	q := "SELECT id, build_id, project_id, project_name, priority, status, trigger, branch, queued_at, started_at FROM build_queue_items"
+	q := `SELECT q.id, q.build_id, q.project_id, q.project_name, q.priority,
+		q.status, q.trigger, q.branch, q.queued_at, q.started_at,
+		b.number, b.status, b.wait_dependency_on, dependency.number
+		FROM build_queue_items q
+		JOIN builds b ON b.id = q.build_id
+		LEFT JOIN builds dependency ON dependency.id = b.wait_dependency_on`
 	var args []interface{}
 	if status != "" {
-		q += " WHERE status = ?"
+		q += " WHERE q.status = ?"
 		args = append(args, status)
+	} else {
+		q += " WHERE q.status IN ('queued', 'running', 'pending_approval')"
 	}
-	q += " ORDER BY priority DESC, queued_at ASC"
+	q += " ORDER BY q.priority DESC, q.queued_at ASC"
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var items []*BuildQueueItem
+	queuePosition := 0
 	for rows.Next() {
 		item := &BuildQueueItem{}
 		var started sql.NullTime
-		if err := rows.Scan(&item.ID, &item.BuildID, &item.ProjectID, &item.ProjectName, &item.Priority, &item.Status, &item.Trigger, &item.Branch, &item.QueuedAt, &started); err != nil {
+		var buildStatus string
+		var dependency sql.NullInt64
+		var dependencyNumber sql.NullInt64
+		if err := rows.Scan(
+			&item.ID, &item.BuildID, &item.ProjectID, &item.ProjectName,
+			&item.Priority, &item.Status, &item.Trigger, &item.Branch,
+			&item.QueuedAt, &started, &item.BuildNumber, &buildStatus, &dependency, &dependencyNumber,
+		); err != nil {
 			return nil, err
 		}
 		if started.Valid {
 			item.StartedAt = &started.Time
+		}
+		switch {
+		case item.Status == "running" || buildStatus == "running":
+			item.Status = "running"
+			item.WaitReason = "running"
+		case item.Status == "pending_approval" || buildStatus == "pending_approval":
+			item.Status = "pending_approval"
+			item.WaitReason = "approval"
+		case dependency.Valid:
+			value := dependency.Int64
+			item.WaitingForBuildID = &value
+			if dependencyNumber.Valid {
+				number := int(dependencyNumber.Int64)
+				item.WaitingForBuildNumber = &number
+			}
+			item.WaitReason = "dependency"
+		default:
+			item.WaitReason = "dispatch"
+		}
+		if item.Status != "running" {
+			queuePosition++
+			item.QueuePosition = queuePosition
 		}
 		items = append(items, item)
 	}
@@ -2028,6 +2631,18 @@ func (s *Store) UpdateBuildQueueItemStatus(id int64, status string) error {
 	_, err := s.db.Exec(
 		"UPDATE build_queue_items SET status=?, started_at=COALESCE(?, started_at) WHERE id=?",
 		status, startedAt, id,
+	)
+	return err
+}
+
+func (s *Store) UpdateBuildQueueItemStatusByBuildID(buildID int64, status string) error {
+	var startedAt interface{}
+	if status == "running" {
+		startedAt = time.Now()
+	}
+	_, err := s.db.Exec(
+		"UPDATE build_queue_items SET status=?, started_at=COALESCE(?, started_at) WHERE build_id=?",
+		status, startedAt, buildID,
 	)
 	return err
 }
@@ -2060,6 +2675,22 @@ func (s *Store) GetGitHook(id int64) (*GitHook, error) {
 	err := s.db.QueryRow(
 		"SELECT id, project_id, name, event, branch, secret, enabled, build_params, description, created_at, updated_at FROM git_hooks WHERE id = ?",
 		id,
+	).Scan(&h.ID, &h.ProjectID, &h.Name, &h.Event, &branch, &secret, &h.Enabled, &h.BuildParams, &desc, &h.CreatedAt, &h.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	h.Branch = branch.String
+	h.Secret = secret.String
+	h.Description = desc.String
+	return h, nil
+}
+
+func (s *Store) GetGitHookByProjectAndName(projectID int64, name string) (*GitHook, error) {
+	h := &GitHook{}
+	var branch, secret, desc sql.NullString
+	err := s.db.QueryRow(
+		"SELECT id, project_id, name, event, branch, secret, enabled, build_params, description, created_at, updated_at FROM git_hooks WHERE project_id = ? AND name = ?",
+		projectID, name,
 	).Scan(&h.ID, &h.ProjectID, &h.Name, &h.Event, &branch, &secret, &h.Enabled, &h.BuildParams, &desc, &h.CreatedAt, &h.UpdatedAt)
 	if err != nil {
 		return nil, err

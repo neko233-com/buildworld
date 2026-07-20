@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/neko233-com/buildworld233/internal/store"
+	"github.com/neko233-com/buildworld/internal/store"
 )
 
 type contextKey string
@@ -46,13 +46,14 @@ func NewAPITokenValidator(s *store.Store) APITokenValidator {
 	}
 }
 
-// Middleware returns an HTTP middleware that validates a Bearer JWT or API Token.
+// Middleware returns an HTTP middleware that validates a Bearer JWT, the native
+// bw_session cookie (for browser/AI agent flows), or an API Token.
 // Public paths (e.g. login, health, webhooks) bypass auth.
 func Middleware(jwt *JWT, apiTokenValidator APITokenValidator, publicPrefixes ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			for _, p := range publicPrefixes {
-				if strings.HasPrefix(r.URL.Path, p) {
+				if publicPathMatches(r.URL.Path, p) {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -89,6 +90,13 @@ func Middleware(jwt *JWT, apiTokenValidator APITokenValidator, publicPrefixes ..
 	}
 }
 
+func publicPathMatches(path, pattern string) bool {
+	if strings.HasSuffix(pattern, "/") {
+		return strings.HasPrefix(path, pattern)
+	}
+	return path == pattern
+}
+
 func extractToken(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
@@ -96,6 +104,9 @@ func extractToken(r *http.Request) string {
 	}
 	if qt := r.URL.Query().Get("token"); qt != "" {
 		return qt
+	}
+	if session, err := r.Cookie("bw_session"); err == nil {
+		return session.Value
 	}
 	return ""
 }
@@ -114,4 +125,25 @@ func RoleFromContext(ctx context.Context) string {
 		return v
 	}
 	return ""
+}
+
+// RequireRoles authorizes requests whose authenticated role is in roles.
+// It is intended to run after Middleware has populated the request context.
+func RequireRoles(roles ...string) func(http.Handler) http.Handler {
+	allowed := make(map[string]struct{}, len(roles))
+	for _, role := range roles {
+		allowed[role] = struct{}{}
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := allowed[RoleFromContext(r.Context())]; !ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error":"forbidden"}`))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

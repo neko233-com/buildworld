@@ -1,50 +1,106 @@
-import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
-import Dashboard from './pages/Dashboard'
-import Projects from './pages/Projects'
-import ProjectDetail from './pages/ProjectDetail'
-import CreateProject from './pages/CreateProject'
-import Builds from './pages/Builds'
-import BuildDetail from './pages/BuildDetail'
-import Pipeline from './pages/Pipeline'
-import Agents from './pages/Agents'
-import Plugins from './pages/Plugins'
-import Settings from './pages/Settings'
-import Users from './pages/Users'
-import Credentials from './pages/Credentials'
-import VCSRoots from './pages/VCSRoots'
-import Templates from './pages/Templates'
-import Notifications from './pages/Notifications'
-import Statistics from './pages/Statistics'
-import AuditLog from './pages/AuditLog'
-import APITokens from './pages/APITokens'
-import Deployments from './pages/Deployments'
-import BuildQueue from './pages/BuildQueue'
-import TestReports from './pages/TestReports'
-import Login from './pages/Login'
-import BigScreen from './pages/BigScreen'
-import GitHooks from './pages/GitHooks'
-import { useI18n } from './i18n'
-import { clearToken } from './api'
-import { loadAllPluginUI, getExtensions } from './plugin-runtime'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
+import { BrowserRouter, Navigate, NavLink, Outlet, Routes, Route, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { localeLabels, type Locale, useI18n } from './i18n'
+import { API_STATUS_EVENT, api, clearToken } from './api'
+import { currentRole, isAdmin, type UserRole } from './authz'
+import { AppDialogs } from './components/AppDialogs'
+import { CommandPalette, type CommandPaletteGroup } from './components/CommandPalette'
+import { RouteErrorBoundary } from './components/RouteErrorBoundary'
+import InAppNotifications from './components/InAppNotifications'
+import { PageState } from './components/PageState'
+import { Activity, Bell, BookTemplate, Boxes, Braces, CircleUserRound, ClipboardList, CloudOff, FileClock, GitBranch, KeyRound, LayoutDashboard, Network, PackageOpen, Search, Settings2, ShieldCheck, SlidersHorizontal, TerminalSquare, UsersRound } from 'lucide-react'
+import { buildStatusLabel } from './lib/buildPresentation'
 
-function NavItem({ href, label }: { href: string; label: string }) {
-  return (
-    <a href={href} className="flex items-center px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition">
-      {label}
-    </a>
-  )
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Projects = lazy(() => import('./pages/Projects'))
+const ProjectDetail = lazy(() => import('./pages/ProjectDetail'))
+const CreateProject = lazy(() => import('./pages/CreateProject'))
+const Builds = lazy(() => import('./pages/Builds'))
+const BuildDetail = lazy(() => import('./pages/BuildDetail'))
+const BuildLogViewer = lazy(() => import('./pages/BuildLogViewer'))
+const Agents = lazy(() => import('./pages/Agents'))
+const Plugins = lazy(() => import('./pages/Plugins'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Users = lazy(() => import('./pages/Users'))
+const Credentials = lazy(() => import('./pages/Credentials'))
+const VCSRoots = lazy(() => import('./pages/VCSRoots'))
+const Templates = lazy(() => import('./pages/Templates'))
+const Notifications = lazy(() => import('./pages/Notifications'))
+const Statistics = lazy(() => import('./pages/Statistics'))
+const AuditLog = lazy(() => import('./pages/AuditLog'))
+const APITokens = lazy(() => import('./pages/APITokens'))
+const Deployments = lazy(() => import('./pages/Deployments'))
+const BuildQueue = lazy(() => import('./pages/BuildQueue'))
+const TestReports = lazy(() => import('./pages/TestReports'))
+const Login = lazy(() => import('./pages/Login'))
+const BigScreen = lazy(() => import('./pages/BigScreen'))
+
+function NavItem({ href, label, icon: Icon }: { href: string; label: string; icon: typeof LayoutDashboard }) {
+  return <NavLink to={href} end={href === '/'} className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} aria-label={label} title={label}><Icon size={16} /> <span>{label}</span></NavLink>
 }
 
-function Layout({ children }: { children: React.ReactNode }) {
+function Layout() {
   const { t, locale, changeLocale, locales } = useI18n()
   const navigate = useNavigate()
-  const [pluginsLoaded, setPluginsLoaded] = useState(false)
+  const location = useLocation()
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [projects, setProjects] = useState<any[]>([])
+  const [builds, setBuilds] = useState<any[]>([])
+  const [searchError, setSearchError] = useState('')
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [apiUnavailable, setApiUnavailable] = useState(false)
+  const paletteOriginRef = useRef<HTMLElement | null>(null)
 
-  useEffect(() => {
-    loadAllPluginUI().then(() => setPluginsLoaded(true))
+  const openPalette = useCallback(() => {
+    if (paletteOpen) return
+    paletteOriginRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setPaletteOpen(true)
+  }, [paletteOpen])
+  const closePalette = useCallback(() => {
+    const origin = paletteOriginRef.current
+    setPaletteOpen(false)
+    setQuery('')
+    window.requestAnimationFrame(() => {
+      if (origin?.isConnected) origin.focus()
+    })
   }, [])
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        openPalette()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [openPalette])
+
+  useEffect(() => {
+    const onAPIStatus = (event: Event) => {
+      setApiUnavailable((event as CustomEvent<{ status: 'available' | 'unavailable' }>).detail.status === 'unavailable')
+    }
+    window.addEventListener(API_STATUS_EVENT, onAPIStatus)
+    return () => window.removeEventListener(API_STATUS_EVENT, onAPIStatus)
+  }, [])
+
+  useEffect(() => {
+    if (!paletteOpen) return
+    let active = true
+    setSearchError('')
+    setSearchLoading(true)
+    Promise.all([api.listProjects(), api.listBuilds(30)])
+      .then(([nextProjects, nextBuilds]) => {
+        if (!active) return
+        setProjects(nextProjects)
+        setBuilds(nextBuilds)
+      })
+      .catch((error: Error) => { if (active) setSearchError(error.message || 'Unable to load search results') })
+      .finally(() => { if (active) setSearchLoading(false) })
+    return () => { active = false }
+  }, [paletteOpen])
   const handleLogout = () => {
     clearToken()
     navigate('/login')
@@ -52,69 +108,103 @@ function Layout({ children }: { children: React.ReactNode }) {
 
   const token = localStorage.getItem('token')
   if (!token) {
-    window.location.href = '/login'
-    return null
+    return <Navigate to="/login" replace />
+  }
+  const role = currentRole()
+  const admin = isAdmin(role)
+
+  const normalizedQuery = query.trim().toLowerCase()
+  const matches = (value: string) => !normalizedQuery || value.toLowerCase().includes(normalizedQuery)
+  const projectResults = projects.filter((project) => matches(project.name)).slice(0, 6)
+  const projectNames = new Map(projects.map(project => [project.id, project.name]))
+  const buildResults = builds.filter((build) => matches(`${projectNames.get(build.project_id) || ''} #${build.number} ${build.status} ${build.branch || ''}`)).slice(0, 6)
+  const pageCommands = [
+    { label: t('nav.dashboard'), detail: t('shell.navigationDetail'), href: '/', icon: LayoutDashboard },
+    { label: t('shell.projects'), detail: t('shell.projectsDetail'), href: '/projects', icon: Boxes },
+    { label: t('nav.builds'), detail: t('shell.navigationDetail'), href: '/builds', icon: Activity },
+    { label: t('nav.buildQueue'), detail: t('shell.buildQueueDetail'), href: '/build-queue', icon: FileClock },
+    { label: t('dashboard.workers'), detail: t('shell.workersDetail'), href: '/agents', icon: Network },
+    { label: t('nav.vcsRoots'), detail: t('shell.navigationDetail'), href: '/vcs-roots', icon: GitBranch },
+    { label: t('nav.templates'), detail: t('shell.navigationDetail'), href: '/templates', icon: BookTemplate },
+    { label: t('nav.deployments'), detail: t('shell.navigationDetail'), href: '/deployments', icon: PackageOpen },
+    { label: t('nav.plugins'), detail: t('shell.pluginsDetail'), href: '/plugins', icon: TerminalSquare },
+    { label: t('nav.apiTokens'), detail: t('shell.navigationDetail'), href: '/api-tokens', icon: KeyRound },
+    { label: t('nav.statistics'), detail: t('shell.navigationDetail'), href: '/statistics', icon: SlidersHorizontal },
+    { label: t('nav.bigScreen'), detail: t('shell.navigationDetail'), href: '/bigscreen', icon: ShieldCheck },
+    ...(admin ? [
+      { label: t('settings.notifications'), detail: t('shell.notificationsDetail'), href: '/notifications', icon: Bell },
+      { label: t('nav.credentials'), detail: t('shell.navigationDetail'), href: '/credentials', icon: KeyRound },
+      { label: t('nav.users'), detail: t('shell.navigationDetail'), href: '/users', icon: UsersRound },
+      { label: t('nav.auditLog'), detail: t('shell.navigationDetail'), href: '/audit-log', icon: ClipboardList },
+      { label: t('nav.settings'), detail: t('shell.navigationDetail'), href: '/settings', icon: Settings2 },
+    ] : []),
+  ].filter((command) => matches(`${command.label} ${command.detail}`))
+  const commandGroups: CommandPaletteGroup[] = [
+    {
+      id: 'commands',
+      label: t('shell.commands'),
+      items: pageCommands.map(command => ({ ...command, id: `command-${command.href}` })),
+    },
+    {
+      id: 'projects',
+      label: t('shell.projects'),
+      items: projectResults.map(project => ({
+        id: `project-${project.id}`,
+        label: project.name,
+        detail: project.default_branch || 'main',
+        href: `/projects/${project.id}`,
+        icon: Boxes,
+      })),
+    },
+    {
+      id: 'builds',
+      label: t('shell.builds'),
+      items: buildResults.map(build => ({
+        id: `build-${build.id}`,
+        label: `${projectNames.get(build.project_id) || `#${build.project_id}`} · #${build.number}`,
+        detail: `${buildStatusLabel(t, build.status)}${build.branch ? ` · ${build.branch}` : ''}`,
+        href: `/builds/${build.id}`,
+        icon: Activity,
+      })),
+    },
+  ]
+  const navigateFromPalette = (href: string) => {
+    closePalette()
+    navigate(href)
   }
 
-  const menuExtensions = pluginsLoaded ? getExtensions('global_menu') : []
-
   return (
-    <div className="min-h-screen bg-gray-100">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex justify-between h-14">
-            <div className="flex items-center gap-1 flex-wrap">
-              <a href="/" className="flex items-center px-3 py-2 text-gray-900 font-bold text-lg">
-                buildworld233
-              </a>
-              <NavItem href="/projects" label={t('nav.projects')} />
-              <NavItem href="/pipeline" label={t('nav.pipeline')} />
-              <NavItem href="/builds" label={t('nav.builds')} />
-              <NavItem href="/build-queue" label={t('nav.buildQueue')} />
-              <NavItem href="/agents" label={t('nav.agents')} />
-              <NavItem href="/vcs-roots" label={t('nav.vcsRoots')} />
-              <NavItem href="/templates" label={t('nav.templates')} />
-              <NavItem href="/deployments" label={t('nav.deployments')} />
-              <NavItem href="/plugins" label={t('nav.plugins')} />
-              <NavItem href="/credentials" label={t('nav.credentials')} />
-              <NavItem href="/notifications" label={t('settings.notifications')} />
-              <NavItem href="/statistics" label={t('nav.statistics')} />
-              <NavItem href="/git-hooks" label={t('nav.gitHooks')} />
-              <NavItem href="/audit-log" label={t('nav.auditLog')} />
-              <NavItem href="/api-tokens" label={t('nav.apiTokens')} />
-              <NavItem href="/users" label={t('nav.users')} />
-              <NavItem href="/settings" label={t('nav.settings')} />
-              {menuExtensions.map(ext => {
-                const Comp = ext.Component
-                return <Comp key={ext.key} />
-              })}
-              <a href="/bigscreen" target="_blank" rel="noopener noreferrer" className="flex items-center px-3 py-2 text-cyan-600 hover:text-cyan-800 hover:bg-cyan-50 rounded transition font-medium">
-                📊 {t('nav.bigScreen')}
-              </a>
-            </div>
-            <div className="flex items-center gap-2">
+    <div className="app-shell">
+      <aside className="app-sidebar">
+        <NavLink to="/" end className="app-brand"><span className="brand-mark"><Braces size={17} /></span><span>buildworld</span></NavLink>
+        <div className="sidebar-section"><p>{t('shell.workspace')}</p><NavItem href="/" label={t('nav.dashboard')} icon={LayoutDashboard} /><NavItem href="/projects" label={t('nav.projects')} icon={Boxes} /><NavItem href="/builds" label={t('nav.builds')} icon={Activity} /><NavItem href="/build-queue" label={t('nav.buildQueue')} icon={FileClock} /></div>
+        <div className="sidebar-section"><p>{t('shell.execution')}</p><NavItem href="/agents" label={t('nav.agents')} icon={Network} /><NavItem href="/vcs-roots" label={t('nav.vcsRoots')} icon={GitBranch} /><NavItem href="/templates" label={t('nav.templates')} icon={BookTemplate} /><NavItem href="/deployments" label={t('nav.deployments')} icon={PackageOpen} />{admin && <NavItem href="/notifications" label={t('settings.notifications')} icon={Bell} />}</div>
+        <div className="sidebar-section"><p>{t('shell.administration')}</p>{admin && <NavItem href="/credentials" label={t('nav.credentials')} icon={KeyRound} />}<NavItem href="/api-tokens" label={t('nav.apiTokens')} icon={KeyRound} /><NavItem href="/plugins" label={t('nav.plugins')} icon={TerminalSquare} />{admin && <><NavItem href="/users" label={t('nav.users')} icon={UsersRound} /><NavItem href="/audit-log" label={t('nav.auditLog')} icon={ClipboardList} /><NavItem href="/settings" label={t('nav.settings')} icon={Settings2} /></>}</div>
+        <div className="sidebar-bottom"><NavLink to="/statistics" className="sidebar-link" aria-label={t('nav.statistics')} title={t('nav.statistics')}><SlidersHorizontal size={16} /><span>{t('nav.statistics')}</span></NavLink><NavLink to="/bigscreen" className="sidebar-link" aria-label={t('nav.bigScreen')} title={t('nav.bigScreen')}><ShieldCheck size={16} /><span>{t('nav.bigScreen')}</span></NavLink></div>
+      </aside>
+      <section className="app-frame">
+        {apiUnavailable && <div className="service-status-banner" role="alert"><CloudOff size={15} /><span><strong>{t('shell.serviceUnavailable')}</strong>{t('shell.serviceUnavailableHint')}</span></div>}
+        <header className="app-topbar">
+          <button className="command-trigger" onClick={openPalette} aria-label={t('shell.searchPlaceholder')} title={t('shell.searchPlaceholder')}><Search size={15} /><span>{t('shell.searchPlaceholder')}</span><kbd>Ctrl K</kbd></button>
+          <div className="topbar-actions">
+              <span className={`session-role ${role}`}>{t(`users.role_${role}`)}</span>
+              <InAppNotifications />
               <select
                 value={locale}
-                onChange={(e) => changeLocale(e.target.value as any)}
-                className="border rounded px-2 py-1 text-sm"
+                onChange={(e) => changeLocale(e.target.value as Locale)}
+                className="language-select"
+                aria-label={t('shell.language')}
               >
                 {locales.map((l) => (
-                  <option key={l} value={l}>{l === 'en' ? 'English' : '中文'}</option>
+                  <option key={l} value={l}>{localeLabels[l]}</option>
                 ))}
               </select>
-              <button
-                onClick={handleLogout}
-                className="text-sm text-gray-500 hover:text-red-600 px-3 py-1 rounded transition"
-              >
-                Logout
-              </button>
-            </div>
+              <button onClick={handleLogout} className="logout-button" aria-label={t('shell.logout')} title={t('shell.logout')}><CircleUserRound size={16} /><span>{t('shell.logout')}</span></button>
           </div>
-        </div>
-      </nav>
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        {children}
-      </main>
+        </header>
+        <main className="app-main"><RouteErrorBoundary resetKey={location.pathname}><Suspense fallback={<RouteLoading />}><Outlet /></Suspense></RouteErrorBoundary></main>
+      </section>
+      {paletteOpen && <CommandPalette ariaLabel={t('shell.globalSearch')} placeholder={t('shell.searchPlaceholder')} query={query} groups={commandGroups} loading={searchLoading} loadingLabel={t('shell.searchLoading')} emptyLabel={t('shell.noResults')} keyboardHint={t('shell.searchKeyboardHint')} error={searchError} onQueryChange={setQuery} onNavigate={navigateFromPalette} onClose={closePalette} />}
     </div>
   )
 }
@@ -122,34 +212,65 @@ function Layout({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <BrowserRouter>
+      <AppDialogs />
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/bigscreen" element={<BigScreen />} />
-        <Route path="/" element={<Layout><Dashboard /></Layout>} />
-        <Route path="/projects" element={<Layout><Projects /></Layout>} />
-        <Route path="/projects/new" element={<Layout><CreateProject /></Layout>} />
-        <Route path="/projects/:id" element={<Layout><ProjectDetail /></Layout>} />
-        <Route path="/pipeline" element={<Layout><Pipeline /></Layout>} />
-        <Route path="/builds" element={<Layout><Builds /></Layout>} />
-        <Route path="/builds/:id" element={<Layout><BuildDetail /></Layout>} />
-        <Route path="/builds/:id/tests" element={<Layout><TestReports /></Layout>} />
-        <Route path="/build-queue" element={<Layout><BuildQueue /></Layout>} />
-        <Route path="/agents" element={<Layout><Agents /></Layout>} />
-        <Route path="/vcs-roots" element={<Layout><VCSRoots /></Layout>} />
-        <Route path="/templates" element={<Layout><Templates /></Layout>} />
-        <Route path="/deployments" element={<Layout><Deployments /></Layout>} />
-        <Route path="/plugins" element={<Layout><Plugins /></Layout>} />
-        <Route path="/credentials" element={<Layout><Credentials /></Layout>} />
-        <Route path="/notifications" element={<Layout><Notifications /></Layout>} />
-        <Route path="/statistics" element={<Layout><Statistics /></Layout>} />
-        <Route path="/git-hooks" element={<Layout><GitHooks /></Layout>} />
-        <Route path="/audit-log" element={<Layout><AuditLog /></Layout>} />
-        <Route path="/api-tokens" element={<Layout><APITokens /></Layout>} />
-        <Route path="/users" element={<Layout><Users /></Layout>} />
-        <Route path="/settings" element={<Layout><Settings /></Layout>} />
+        <Route path="/builds/:id/logs" element={<Suspense fallback={<RouteLoading />}><BuildLogViewer /></Suspense>} />
+        <Route element={<Layout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/projects" element={<Projects />} />
+          <Route path="/projects/new" element={<RoleGate roles={['admin', 'developer']}><CreateProject /></RoleGate>} />
+          <Route path="/projects/:id" element={<ProjectDetail />} />
+          <Route path="/pipeline" element={<LegacyPipelineRedirect />} />
+          <Route path="/builds" element={<Builds />} />
+          <Route path="/builds/:id" element={<BuildDetail />} />
+          <Route path="/builds/:id/tests" element={<TestReports />} />
+          <Route path="/build-queue" element={<BuildQueue />} />
+          <Route path="/agents" element={<Agents />} />
+          <Route path="/vcs-roots" element={<VCSRoots />} />
+          <Route path="/templates" element={<Templates />} />
+          <Route path="/deployments" element={<Deployments />} />
+          <Route path="/plugins" element={<Plugins />} />
+          <Route path="/credentials" element={<RoleGate roles={['admin']}><Credentials /></RoleGate>} />
+          <Route path="/notifications" element={<RoleGate roles={['admin']}><Notifications /></RoleGate>} />
+          <Route path="/statistics" element={<Statistics />} />
+          <Route path="/bigscreen" element={<BigScreen />} />
+          <Route path="/git-hooks" element={<Navigate to="/projects" replace />} />
+          <Route path="/audit-log" element={<RoleGate roles={['admin']}><AuditLog /></RoleGate>} />
+          <Route path="/api-tokens" element={<APITokens />} />
+          <Route path="/users" element={<RoleGate roles={['admin']}><Users /></RoleGate>} />
+          <Route path="/settings" element={<RoleGate roles={['admin']}><Settings /></RoleGate>} />
+          <Route path="*" element={<NotFound />} />
+        </Route>
       </Routes>
     </BrowserRouter>
   )
+}
+
+function RoleGate({ roles, children }: { roles: UserRole[]; children: ReactNode }) {
+  return roles.includes(currentRole()) ? children : <Navigate to="/" replace />
+}
+
+function LegacyPipelineRedirect() {
+  const [searchParams] = useSearchParams()
+  const projectID = Number(searchParams.get('project'))
+  return <Navigate to={Number.isFinite(projectID) && projectID > 0 ? `/projects/${projectID}?view=settings` : '/projects'} replace />
+}
+
+function NotFound() {
+  const { t } = useI18n()
+  return <section className="route-error">
+    <strong>404</strong>
+    <div>
+      <h1>{t('common.pageNotFound')}</h1>
+      <p>{t('common.pageNotFoundHelp')}</p>
+      <NavLink to="/"><LayoutDashboard size={15} />{t('common.backToDashboard')}</NavLink>
+    </div>
+  </section>
+}
+
+function RouteLoading() {
+  return <div className="route-loading"><PageState /></div>
 }
 
 export default App

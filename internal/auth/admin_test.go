@@ -3,7 +3,7 @@ package auth
 import (
 	"testing"
 
-	"github.com/neko233-com/buildworld233/internal/store"
+	"github.com/neko233-com/buildworld/internal/store"
 )
 
 func TestHashPassword(t *testing.T) {

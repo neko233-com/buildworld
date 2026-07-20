@@ -54,7 +54,7 @@ registerStep("svn-update", function(ctx) {
 // svn-commit: commit changes
 registerStep("svn-commit", function(ctx) {
     var path = ctx.config.path || ".";
-    var message = ctx.config.message || "buildworld233 auto-commit";
+    var message = ctx.config.message || "buildworld auto-commit";
     var username = ctx.config.username || "";
     var password = ctx.config.password || "";
 

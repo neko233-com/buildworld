@@ -1,9 +1,10 @@
 package engine
 
 import (
+	"slices"
 	"time"
 
-	"github.com/neko233-com/buildworld233/internal/store"
+	"github.com/neko233-com/buildworld/internal/store"
 )
 
 // StatisticsService 聚合构建统计
@@ -22,40 +23,33 @@ func (ss *StatisticsService) RecordBuildCompletion(build *store.Build) error {
 		date = build.FinishedAt.Format("2006-01-02")
 	}
 
-	var total, success, failed int
 	switch build.Status {
-	case "success":
-		total, success = 1, 1
-	case "failed":
-		total, failed = 1, 1
+	case "success", "failed":
 	default:
 		return nil
 	}
 
-	var duration int64
-	if build.DurationMs != nil {
-		duration = *build.DurationMs
+	// Rebuild the materialized compatibility row from the builds table instead
+	// of incrementing it. Completion callbacks can be delivered more than once
+	// after retries or restarts, so an additive update is not idempotent.
+	current, err := ss.store.GetProjectBuildStats(build.ProjectID, 2)
+	if err != nil {
+		return err
 	}
-
-	// 读已有行，做增量更新（按 project+date 唯一）。
-	existing, _ := ss.store.GetProjectBuildStats(build.ProjectID, 1)
-	var prev *store.BuildStat
-	for _, s := range existing {
-		if s.Date == date {
-			prev = s
-			break
+	for _, daily := range current {
+		if daily.Date == date {
+			_, err = ss.store.CreateBuildStat(
+				build.ProjectID,
+				date,
+				daily.TotalBuilds,
+				daily.SuccessCount,
+				daily.FailedCount,
+				daily.AvgDuration,
+			)
+			return err
 		}
 	}
-	if prev != nil {
-		total += prev.TotalBuilds
-		success += prev.SuccessCount
-		failed += prev.FailedCount
-		// 简单平均：把已有 avg 加上本次并除以 2，避免维护 sum 字段。
-		duration = (prev.AvgDuration + duration) / 2
-	}
-
-	_, err := ss.store.CreateBuildStat(build.ProjectID, date, total, success, failed, duration)
-	return err
+	return nil
 }
 
 // GetProjectStats 返回最近 days 天的项目统计。
@@ -81,6 +75,8 @@ func (ss *StatisticsService) GetDashboardStats() (map[string]interface{}, error)
 	builds, _ := ss.store.ListBuilds(1000)
 
 	var running, success, failed int
+	var durationTotal int64
+	var durationCount int64
 	for _, b := range builds {
 		switch b.Status {
 		case "running":
@@ -90,18 +86,40 @@ func (ss *StatisticsService) GetDashboardStats() (map[string]interface{}, error)
 		case "failed":
 			failed++
 		}
+		if b.DurationMs != nil {
+			durationTotal += *b.DurationMs
+			durationCount++
+		}
 	}
 
 	var recentStats []store.BuildStat
 	for _, s := range stats {
 		recentStats = append(recentStats, *s)
 	}
+	trend := slices.Clone(recentStats)
+	slices.Reverse(trend)
+
+	finished := success + failed
+	successRate, failureRate := 0.0, 0.0
+	if finished > 0 {
+		successRate = float64(success) * 100 / float64(finished)
+		failureRate = float64(failed) * 100 / float64(finished)
+	}
+	var avgDuration int64
+	if durationCount > 0 {
+		avgDuration = durationTotal / durationCount
+	}
+
 	return map[string]interface{}{
-		"projects":      len(projects),
-		"total_builds":  len(builds),
-		"running":       running,
-		"success_total": success,
-		"failed_total":  failed,
-		"recent_stats":  recentStats,
+		"projects":        len(projects),
+		"total_builds":    len(builds),
+		"running":         running,
+		"success_total":   success,
+		"failed_total":    failed,
+		"success_rate":    successRate,
+		"failure_rate":    failureRate,
+		"avg_duration_ms": avgDuration,
+		"trend":           trend,
+		"recent_stats":    recentStats,
 	}, nil
 }

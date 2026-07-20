@@ -2,6 +2,6 @@
   "name": "go-build",
   "version": "1.0.0",
   "description": "Go build: build, test, vet, fmt, mod download, lint",
-  "author": "buildworld233",
+  "author": "buildworld",
   "steps": ["go-build", "go-test", "go-vet", "go-fmt", "go-mod-download", "go-lint"]
 }

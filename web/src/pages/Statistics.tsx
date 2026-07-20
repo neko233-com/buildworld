@@ -1,109 +1,117 @@
 import { useState } from 'react'
+import { motion } from 'motion/react'
+import { Activity, CheckCircle2, Clock3, Hash, XCircle } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
+import { PageState } from '../components/PageState'
 import { useApi } from '../hooks'
+import { formatDuration } from '../lib/durationPresentation'
 
-function fmtDuration(ms?: number): string {
-  if (!ms) return '-'
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-  return `${(ms / 60000).toFixed(1)}m`
+interface TrendPoint {
+  date: string
+  total_builds: number
+  success_count: number
+  failed_count: number
+  avg_duration_ms: number
 }
 
-function heatColor(count: number, max: number): string {
-  if (count === 0 || max === 0) return 'bg-gray-100'
-  const ratio = count / max
-  if (ratio > 0.75) return 'bg-green-600'
-  if (ratio > 0.5) return 'bg-green-500'
-  if (ratio > 0.25) return 'bg-green-300'
-  return 'bg-green-200'
+interface DashboardStats {
+  total_builds: number
+  success_total: number
+  failed_total: number
+  success_rate: number
+  failure_rate: number
+  avg_duration_ms: number
+  trend: TrendPoint[]
+}
+
+function formatRate(value: number): string {
+  return `${value.toFixed(value % 1 === 0 ? 0 : 1)}%`
 }
 
 export default function Statistics() {
   const { t } = useI18n()
   const [days, setDays] = useState(7)
-  const { data: stats, loading, error } = useApi(() => api.getDashboardStats(), [])
+  const { data: stats, loading, error, reload } = useApi<DashboardStats>(() => api.getDashboardStats(), [])
 
-  if (loading) return <div className="text-gray-500">{t('common.loading')}</div>
-  if (error) return <div className="text-red-500">{t('common.error')}: {error}</div>
+  if (loading) return <PageState />
+  if (error) return <PageState error={error} onRetry={reload} />
 
-  const sr = stats?.success_rate ?? 0
-  const fr = stats?.failure_rate ?? 0
-  const avg = stats?.avg_duration_ms ?? 0
-  const total = stats?.total_builds ?? 0
-  const trend: any[] = stats?.trend ?? []
-  const view = trend.slice(-days)
-  const maxCount = Math.max(1, ...view.map((d: any) => d.total || d.count || 0))
+  const view = (stats?.trend || []).slice(-days)
+  const maxCount = Math.max(1, ...view.map(point => point.total_builds))
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">{t('statistics.title')}</h1>
-        <div className="flex gap-2">
-          <button onClick={() => setDays(7)} className={`px-3 py-1 rounded text-sm ${days === 7 ? 'bg-blue-500 text-white' : 'border'}`}>{t('statistics.last7Days')}</button>
-          <button onClick={() => setDays(30)} className={`px-3 py-1 rounded text-sm ${days === 30 ? 'bg-blue-500 text-white' : 'border'}`}>{t('statistics.last30Days')}</button>
+    <motion.section className="operations-page statistics-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+      <header className="operations-heading">
+        <div>
+          <p>{view.length} {t('statistics.daysWithData')}</p>
+          <h1>{t('statistics.title')}</h1>
         </div>
+        <div className="statistics-range" role="group" aria-label={t('statistics.range')}>
+          <button type="button" className={days === 7 ? 'active' : ''} aria-pressed={days === 7} onClick={() => setDays(7)}>{t('statistics.last7Days')}</button>
+          <button type="button" className={days === 30 ? 'active' : ''} aria-pressed={days === 30} onClick={() => setDays(30)}>{t('statistics.last30Days')}</button>
+        </div>
+      </header>
+
+      <div className="statistics-metrics">
+        <article>
+          <span className="statistics-metric-icon success"><CheckCircle2 size={17} /></span>
+          <div><p>{t('statistics.successRate')}</p><strong>{formatRate(stats?.success_rate || 0)}</strong><small>{stats?.success_total || 0} {t('statistics.successful')}</small></div>
+        </article>
+        <article>
+          <span className="statistics-metric-icon failed"><XCircle size={17} /></span>
+          <div><p>{t('statistics.failureRate')}</p><strong>{formatRate(stats?.failure_rate || 0)}</strong><small>{stats?.failed_total || 0} {t('statistics.failed')}</small></div>
+        </article>
+        <article>
+          <span className="statistics-metric-icon"><Clock3 size={17} /></span>
+          <div><p>{t('statistics.avgDuration')}</p><strong>{formatDuration(stats?.avg_duration_ms)}</strong><small>{t('statistics.completedBuilds')}</small></div>
+        </article>
+        <article>
+          <span className="statistics-metric-icon total"><Hash size={17} /></span>
+          <div><p>{t('statistics.totalBuilds')}</p><strong>{stats?.total_builds || 0}</strong><small>{t('statistics.allRecordedBuilds')}</small></div>
+        </article>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-lg shadow border">
-          <p className="text-sm text-gray-500">{t('statistics.successRate')}</p>
-          <p className="text-2xl font-bold text-green-600">{sr}%</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow border">
-          <p className="text-sm text-gray-500">{t('statistics.failureRate')}</p>
-          <p className="text-2xl font-bold text-red-600">{fr}%</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow border">
-          <p className="text-sm text-gray-500">{t('statistics.avgDuration')}</p>
-          <p className="text-2xl font-bold">{fmtDuration(avg)}</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow border">
-          <p className="text-sm text-gray-500">{t('statistics.totalBuilds')}</p>
-          <p className="text-2xl font-bold">{total}</p>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg shadow border p-4 mb-6">
-        <h2 className="text-lg font-semibold mb-3">{t('statistics.trend')}</h2>
-        {view.length === 0 ? (
-          <p className="text-gray-500 text-center py-6">{t('common.noData')}</p>
-        ) : (
-          <div className="flex items-end gap-1 h-40">
-            {view.map((d: any, i: number) => {
-              const count = d.total || d.count || 0
-              const succ = d.success || 0
-              const fail = d.failed || d.fail || 0
-              const heightPct = maxCount ? (count / maxCount) * 100 : 0
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center min-w-0">
-                  <div className="w-full flex flex-col justify-end h-32">
-                    <div className="w-full bg-red-400 rounded-t" style={{ height: `${count ? (fail / count) * heightPct : 0}%` }} />
-                    <div className="w-full bg-green-500" style={{ height: `${count ? (succ / count) * heightPct : 0}%` }} />
+      <div className="statistics-grid">
+        <section className="statistics-panel statistics-trend-panel">
+          <header><div><Activity size={15} /><h2>{t('statistics.trend')}</h2></div><span>{days}d</span></header>
+          {view.length === 0 ? <p className="dashboard-empty">{t('common.noData')}</p> : (
+            <div className="statistics-chart-scroll">
+              <div className="statistics-chart" style={{ minWidth: `${Math.max(420, view.length * 38)}px` }}>
+                {view.map(point => {
+                  const height = point.total_builds ? Math.max(4, point.total_builds / maxCount * 100) : 0
+                  return <div className="statistics-column" key={point.date} title={`${point.date}: ${point.total_builds}`}>
+                    <strong>{point.total_builds}</strong>
+                    <div className="statistics-bar-track">
+                      <div className="statistics-bar" style={{ height: `${height}%` }}>
+                        <i className="failed" style={{ flex: point.failed_count }} />
+                        <i className="success" style={{ flex: point.success_count }} />
+                      </div>
+                    </div>
+                    <time dateTime={point.date}>{point.date.slice(5)}</time>
                   </div>
-                  <span className="text-xs text-gray-400 mt-1 truncate w-full text-center">{(d.date || '').slice(5)}</span>
-                  <span className="text-xs text-gray-600">{count}</span>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+                })}
+              </div>
+            </div>
+          )}
+          <footer className="statistics-legend"><span><i className="success" />{t('statistics.successful')}</span><span><i className="failed" />{t('statistics.failed')}</span></footer>
+        </section>
 
-      <div className="bg-white rounded-lg shadow border p-4">
-        <h2 className="text-lg font-semibold mb-3">{t('statistics.heatmap')}</h2>
-        {view.length === 0 ? (
-          <p className="text-gray-500 text-center py-6">{t('common.noData')}</p>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {view.map((d: any, i: number) => {
-              const count = d.total || d.count || 0
-              return (
-                <div key={i} className={`w-7 h-7 rounded-sm ${heatColor(count, maxCount)}`} title={`${d.date || ''}: ${count}`} />
-              )
-            })}
-          </div>
-        )}
+        <section className="statistics-panel">
+          <header><div><Activity size={15} /><h2>{t('statistics.heatmap')}</h2></div><span>{t('statistics.intensity')}</span></header>
+          {view.length === 0 ? <p className="dashboard-empty">{t('common.noData')}</p> : (
+            <div className="statistics-heatmap">
+              {view.map(point => {
+                const intensity = point.total_builds / maxCount
+                return <div key={point.date} title={`${point.date}: ${point.total_builds}`} style={{ '--heat': intensity } as React.CSSProperties}>
+                  <span>{point.date.slice(5)}</span><strong>{point.total_builds}</strong>
+                </div>
+              })}
+            </div>
+          )}
+          <footer className="statistics-scale"><span>{t('statistics.less')}</span><i /><i /><i /><i /><span>{t('statistics.more')}</span></footer>
+        </section>
       </div>
-    </div>
+    </motion.section>
   )
 }

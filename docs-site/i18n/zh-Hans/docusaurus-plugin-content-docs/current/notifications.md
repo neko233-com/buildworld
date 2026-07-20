@@ -4,7 +4,7 @@ sidebar_position: 7
 
 # 通知系统
 
-buildworld233 支持多种通知渠道，在构建状态变化时提醒您。
+buildworld 支持多种通知渠道，在构建状态变化时提醒您。
 
 ## 支持的渠道
 
@@ -24,7 +24,7 @@ buildworld233 支持多种通知渠道，在构建状态变化时提醒您。
   "smtp_port": 587,
   "smtp_user": "user@example.com",
   "smtp_password": "secret",
-  "from": "buildworld233@example.com",
+  "from": "buildworld@example.com",
   "to": ["dev@example.com", "ops@example.com"]
 }
 ```

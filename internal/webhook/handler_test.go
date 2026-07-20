@@ -9,7 +9,7 @@ import (
 
 func TestWebhookHandlerGitHub(t *testing.T) {
 	handler := NewWebhookHandler("")
-	
+
 	received := false
 	handler.OnPush(func(payload WebhookPayload) error {
 		received = true
@@ -18,7 +18,7 @@ func TestWebhookHandlerGitHub(t *testing.T) {
 		}
 		return nil
 	})
-	
+
 	body := `{
 		"ref": "refs/heads/main",
 		"repository": {
@@ -33,17 +33,17 @@ func TestWebhookHandlerGitHub(t *testing.T) {
 			"login": "testuser"
 		}
 	}`
-	
+
 	req := httptest.NewRequest("POST", "/webhook/github", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	
+
 	handler.HandleGitHubWebhook(w, req)
-	
+
 	if w.Code != http.StatusOK {
 		t.Errorf("Status = %d, want 200", w.Code)
 	}
-	
+
 	if !received {
 		t.Error("Push handler was not called")
 	}
@@ -51,12 +51,12 @@ func TestWebhookHandlerGitHub(t *testing.T) {
 
 func TestWebhookHandlerMethodNotAllowed(t *testing.T) {
 	handler := NewWebhookHandler("")
-	
+
 	req := httptest.NewRequest("GET", "/webhook/github", nil)
 	w := httptest.NewRecorder()
-	
+
 	handler.HandleGitHubWebhook(w, req)
-	
+
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Status = %d, want 405", w.Code)
 	}
@@ -64,13 +64,13 @@ func TestWebhookHandlerMethodNotAllowed(t *testing.T) {
 
 func TestWebhookHandlerInvalidPayload(t *testing.T) {
 	handler := NewWebhookHandler("")
-	
+
 	req := httptest.NewRequest("POST", "/webhook/github", bytes.NewBufferString("invalid"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	
+
 	handler.HandleGitHubWebhook(w, req)
-	
+
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Status = %d, want 400", w.Code)
 	}
@@ -94,17 +94,17 @@ func TestParsePushEvent(t *testing.T) {
 			Message: "Initial commit",
 		},
 	}
-	
+
 	branch, commit, repo := ParsePushEvent(payload)
-	
+
 	if branch != "main" {
 		t.Errorf("branch = %s, want main", branch)
 	}
-	
+
 	if commit != "abc123d" {
 		t.Errorf("commit = %s, want abc123d", commit)
 	}
-	
+
 	if repo != "user/repo" {
 		t.Errorf("repo = %s, want user/repo", repo)
 	}

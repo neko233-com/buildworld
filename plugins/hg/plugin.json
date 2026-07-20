@@ -2,5 +2,5 @@
   "name": "hg",
   "version": "1.0.0",
   "description": "Mercurial (hg) integration: clone, pull, update, commit, push",
-  "author": "buildworld233"
+  "author": "buildworld"
 }

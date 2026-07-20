@@ -9,15 +9,15 @@ import (
 )
 
 type Template struct {
-	ID          string           `json:"id"`
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	Category    string           `json:"category"`
-	Difficulty  string           `json:"difficulty"` // beginner, intermediate, advanced
-	Tags        []string         `json:"tags"`
-	Config      *BuildConfig     `json:"config"`
-	Icon        string           `json:"icon,omitempty"`
-	IsBuiltin   bool             `json:"is_builtin"`
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	Category    string       `json:"category"`
+	Difficulty  string       `json:"difficulty"` // beginner, intermediate, advanced
+	Tags        []string     `json:"tags"`
+	Config      *BuildConfig `json:"config"`
+	Icon        string       `json:"icon,omitempty"`
+	IsBuiltin   bool         `json:"is_builtin"`
 }
 
 type TemplateManager struct {
@@ -46,20 +46,26 @@ func (m *TemplateManager) loadBuiltinTemplates() {
 		Tags:        []string{"node", "typescript", "npm", "javascript"},
 		IsBuiltin:   true,
 		Config: &BuildConfig{
-			Name: "node-typescript-build",
+			Name:        "node-typescript-validation",
+			Description: "Reproducible TypeScript validation with an isolated npm cache",
 			Parameters: []BuildParameter{
-				{Name: "node_version", Type: "choice", Choices: []string{"20", "22", "24"}, Default: "20", Required: false},
+				{Name: "node_version", Type: "choice", Choices: []string{"20", "22", "24"}, Default: "24", Required: false},
 			},
+			Environment:        map[string]string{"CI": "true", "NODE_ENV": "test"},
+			Toolchains:         map[string][]string{"node": {"24"}},
+			Artifacts:          []string{"coverage/*", "dist/*"},
+			RetentionCompleted: 30,
 			Stages: []Stage{
 				{Name: "Checkout", Steps: []Step{{Name: "git", Type: "git", Config: map[string]string{"action": "clone"}}}},
-				{Name: "Install", Steps: []Step{{Name: "npm ci", Type: "shell", Command: "npm ci"}}},
-				{Name: "Lint", Steps: []Step{{Name: "npm lint", Type: "shell", Command: "npm run lint"}}},
-				{Name: "Test", Steps: []Step{{Name: "npm test", Type: "shell", Command: "npm test"}}},
-				{Name: "Build", Steps: []Step{{Name: "npm build", Type: "shell", Command: "npm run build"}}},
+				{Name: "Install", Steps: []Step{{Name: "npm ci", Type: "shell", Runtime: "node", Command: "npm ci --no-audit --fund=false"}}},
+				{Name: "Lint", Steps: []Step{{Name: "npm lint", Type: "shell", Runtime: "node", Command: "npm run lint --if-present"}}},
+				{Name: "Typecheck", Steps: []Step{{Name: "tsc", Type: "shell", Runtime: "node", Command: "npm exec tsc -- --noEmit"}}},
+				{Name: "Test", Steps: []Step{{Name: "npm test", Type: "shell", Runtime: "node", Command: "npm test --if-present"}}},
+				{Name: "Build", Steps: []Step{{Name: "npm build", Type: "shell", Runtime: "node", Command: "npm run build"}}},
 			},
 		},
 	}
-	
+
 	// Go CLI
 	m.templates["go-cli"] = &Template{
 		ID:          "go-cli",
@@ -70,18 +76,25 @@ func (m *TemplateManager) loadBuiltinTemplates() {
 		Tags:        []string{"go", "cli", "golang"},
 		IsBuiltin:   true,
 		Config: &BuildConfig{
-			Name: "go-cli-build",
+			Name:        "go-production-validation",
+			Description: "Module integrity, static analysis, coverage tests, and package build",
 			Parameters: []BuildParameter{
 				{Name: "go_version", Type: "choice", Choices: []string{"1.21", "1.22", "1.26"}, Default: "1.26", Required: false},
 			},
+			Environment:        map[string]string{"CGO_ENABLED": "0"},
+			Toolchains:         map[string][]string{"go": {"1.26"}},
+			Artifacts:          []string{"coverage.out"},
+			RetentionCompleted: 30,
 			Stages: []Stage{
 				{Name: "Checkout", Steps: []Step{{Name: "git", Type: "git", Config: map[string]string{"action": "clone"}}}},
-				{Name: "Test", Steps: []Step{{Name: "go test", Type: "shell", Command: "go test ./..."}}},
-				{Name: "Build", Steps: []Step{{Name: "go build", Type: "shell", Command: "go build -o app ./cmd/app"}}},
+				{Name: "Dependencies", Steps: []Step{{Name: "go mod verify", Type: "shell", Runtime: "go", Command: "go mod download && go mod verify"}}},
+				{Name: "Static analysis", Steps: []Step{{Name: "go vet", Type: "shell", Runtime: "go", Command: "go vet ./..."}}},
+				{Name: "Test", Steps: []Step{{Name: "go test", Type: "shell", Runtime: "go", Command: "go test -count=1 -coverprofile=coverage.out ./..."}}},
+				{Name: "Build", Steps: []Step{{Name: "go build", Type: "shell", Runtime: "go", Command: "go build ./..."}}},
 			},
 		},
 	}
-	
+
 	// Python Django
 	m.templates["python-django"] = &Template{
 		ID:          "python-django",
@@ -101,7 +114,7 @@ func (m *TemplateManager) loadBuiltinTemplates() {
 			},
 		},
 	}
-	
+
 	// Docker Build
 	m.templates["docker-build"] = &Template{
 		ID:          "docker-build",
@@ -125,7 +138,7 @@ func (m *TemplateManager) loadBuiltinTemplates() {
 			},
 		},
 	}
-	
+
 	// K8s Deploy
 	m.templates["k8s-deploy"] = &Template{
 		ID:          "k8s-deploy",
@@ -147,7 +160,7 @@ func (m *TemplateManager) loadBuiltinTemplates() {
 			},
 		},
 	}
-	
+
 	// Unity Android
 	m.templates["unity-android"] = &Template{
 		ID:          "unity-android",
@@ -169,7 +182,7 @@ func (m *TemplateManager) loadBuiltinTemplates() {
 			},
 		},
 	}
-	
+
 	// React Vercel
 	m.templates["react-vercel"] = &Template{
 		ID:          "react-vercel",
@@ -200,7 +213,7 @@ func (m *TemplateManager) Get(id string) *Template {
 func (m *TemplateManager) GetAll() []*Template {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	var list []*Template
 	for _, t := range m.templates {
 		list = append(list, t)
@@ -211,7 +224,7 @@ func (m *TemplateManager) GetAll() []*Template {
 func (m *TemplateManager) GetByCategory(category string) []*Template {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	var list []*Template
 	for _, t := range m.templates {
 		if t.Category == category {
@@ -224,12 +237,12 @@ func (m *TemplateManager) GetByCategory(category string) []*Template {
 func (m *TemplateManager) Search(query string) []*Template {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	var list []*Template
 	for _, t := range m.templates {
-		if contains(t.Tags, query) || 
-		   containsString(t.Name, query) || 
-		   containsString(t.Description, query) {
+		if contains(t.Tags, query) ||
+			containsString(t.Name, query) ||
+			containsString(t.Description, query) {
 			list = append(list, t)
 		}
 	}
@@ -248,11 +261,11 @@ func containsString(s, substr string) bool {
 func (m *TemplateManager) Create(t *Template) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if _, exists := m.templates[t.ID]; exists {
 		return fmt.Errorf("template %s already exists", t.ID)
 	}
-	
+
 	t.IsBuiltin = false
 	m.templates[t.ID] = t
 	return nil
@@ -261,11 +274,11 @@ func (m *TemplateManager) Create(t *Template) error {
 func (m *TemplateManager) Update(id string, t *Template) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if _, exists := m.templates[id]; !exists {
 		return fmt.Errorf("template %s not found", id)
 	}
-	
+
 	t.ID = id
 	m.templates[id] = t
 	return nil
@@ -274,16 +287,16 @@ func (m *TemplateManager) Update(id string, t *Template) error {
 func (m *TemplateManager) Delete(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	t, exists := m.templates[id]
 	if !exists {
 		return fmt.Errorf("template %s not found", id)
 	}
-	
+
 	if t.IsBuiltin {
 		return fmt.Errorf("cannot delete builtin template %s", id)
 	}
-	
+
 	delete(m.templates, id)
 	return nil
 }
@@ -291,12 +304,12 @@ func (m *TemplateManager) Delete(id string) error {
 func (m *TemplateManager) Export(id string) ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	t, exists := m.templates[id]
 	if !exists {
 		return nil, fmt.Errorf("template %s not found", id)
 	}
-	
+
 	return json.MarshalIndent(t, "", "  ")
 }
 
@@ -305,29 +318,29 @@ func (m *TemplateManager) Import(data []byte) error {
 	if err := json.Unmarshal(data, &t); err != nil {
 		return err
 	}
-	
+
 	return m.Create(&t)
 }
 
 func (m *TemplateManager) SaveToFile(id string) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	t, exists := m.templates[id]
 	if !exists {
 		return fmt.Errorf("template %s not found", id)
 	}
-	
+
 	dir := filepath.Join(m.workspace, "templates")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	
+
 	data, err := json.MarshalIndent(t, "", "  ")
 	if err != nil {
 		return err
 	}
-	
+
 	return os.WriteFile(filepath.Join(dir, id+".json"), data, 0644)
 }
 
@@ -336,6 +349,6 @@ func (m *TemplateManager) LoadFromFile(path string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	return m.Import(data)
 }

@@ -1,7 +1,20 @@
 bin/
 data/
 *.db
-config.yaml
+config.local.yaml
 .env
 docs-site/node_modules/
 web/node_modules/
+
+# Generated documentation, local test traces, and runtime artifacts.
+docs-site/.docusaurus/
+docs-site/build/
+.playwright-cli/
+.trae-html-share-packages/
+.uploads/
+artifacts/
+
+# Local release staging and one-off binaries.
+release/
+/*.exe
+token.txt

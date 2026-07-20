@@ -43,6 +43,9 @@ func NewLoader(path string) *Loader {
 
 func (l *Loader) Load(name string) error {
 	pluginPath := filepath.Join(l.path, name)
+	if _, err := os.Stat(filepath.Join(pluginPath, "plugin-buildworld.json")); err == nil {
+		return l.loadBinary(name, pluginPath)
+	}
 
 	metaPath := filepath.Join(pluginPath, "plugin.json")
 	metaData, err := os.ReadFile(metaPath)

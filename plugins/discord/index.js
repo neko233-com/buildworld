@@ -5,7 +5,7 @@
 registerStep("discord-notify", function(ctx) {
     var webhookUrl = ctx.config.webhook_url || "";
     var message = ctx.config.message || "构建完成";
-    var username = ctx.config.username || "buildworld233";
+    var username = ctx.config.username || "buildworld";
     var avatarUrl = ctx.config.avatar_url || "";
 
     if (!webhookUrl) {
@@ -77,7 +77,7 @@ registerStep("discord-send-embed", function(ctx) {
     if (ctx.config.footer) embed.footer = { text: ctx.config.footer };
 
     var payload = {
-        username: ctx.config.username || "buildworld233",
+        username: ctx.config.username || "buildworld",
         embeds: [embed]
     };
 

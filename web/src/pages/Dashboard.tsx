@@ -1,77 +1,82 @@
+import { motion } from 'motion/react'
+import { Activity, ArrowUpRight, CircleDotDashed, Clock3, Cpu, FolderKanban, XCircle } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
+import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
+import { PageState } from '../components/PageState'
 
-const statusColors: Record<string, string> = {
-  success: 'bg-green-100 text-green-800',
-  failed: 'bg-red-100 text-red-800',
-  running: 'bg-blue-100 text-blue-800',
-  pending: 'bg-gray-100 text-gray-800',
-  cancelled: 'bg-yellow-100 text-yellow-800',
-}
-
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, label }: { status: string; label: string }) {
   return (
-    <span className={`px-2 py-1 rounded text-sm ${statusColors[status] || 'bg-gray-100 text-gray-800'}`}>
-      {status}
+    <span className={`build-status ${buildStatusTone(status)}`}>
+      {label}
     </span>
   )
 }
 
 export default function Dashboard() {
   const { t } = useI18n()
-  const { data: projects, loading: lp, error: ep } = useApi(() => api.listProjects())
-  const { data: builds, loading: lb, error: eb } = useApi(() => api.listBuilds(10))
-  const { data: agents, loading: la, error: ea } = useApi(() => api.listAgents())
+  const { data: projects, loading: lp, error: ep, reload: reloadProjects } = useApi(() => api.listProjects())
+  const { data: builds, loading: lb, error: eb, reload: reloadBuilds } = useApi(() => api.listBuilds(10))
+  const { data: agents, loading: la, error: ea, reload: reloadAgents } = useApi(() => api.listAgents())
 
   const loading = lp || lb || la
   const error = ep || eb || ea
 
-  if (loading) return <div className="text-gray-500">{t('common.loading')}</div>
-  if (error) return <div className="text-red-500">{t('common.error')}: {error}</div>
+  if (loading) return <PageState />
+  if (error) return <PageState error={error} onRetry={() => { reloadProjects(); reloadBuilds(); reloadAgents() }} />
 
   const projectMap = new Map((projects || []).map(p => [p.id, p]))
-  const runningBuilds = (builds || []).filter(b => b.status === 'running' || b.status === 'pending').length
+  const activeBuilds = (builds || []).filter(b => b.status === 'running' || b.status === 'pending').length
   const onlineAgents = (agents || []).filter(a => a.status === 'online').length
+  const failedBuilds = (builds || []).filter(b => b.status === 'failed').length
+  const recentBuilds = (builds || []).slice(0, 6)
+  const latestBuild = recentBuilds[0]
+  const capacity = (agents || []).reduce((total, agent) => total + (agent.max_concurrent_builds || 0), 0)
+  const usedCapacity = (agents || []).reduce((total, agent) => total + (agent.active_builds || 0), 0)
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-4">{t('dashboard.title')}</h1>
+    <motion.section className="workbench-dashboard" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.32, ease: 'easeOut' }}>
+      <header className="dashboard-heading">
+        <div>
+          <p>{t('dashboard.execution')}</p>
+          <h1>{t('dashboard.title')}</h1>
+        </div>
+        <Link className="dashboard-link" to="/builds">{t('dashboard.viewAllBuilds')}<ArrowUpRight size={15} /></Link>
+      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h2 className="text-lg font-semibold">{t('dashboard.projects')}</h2>
-          <p className="text-3xl font-bold text-blue-600">{projects?.length || 0}</p>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h2 className="text-lg font-semibold">{t('dashboard.activeBuilds')}</h2>
-          <p className="text-3xl font-bold text-green-600">{runningBuilds}</p>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h2 className="text-lg font-semibold">{t('dashboard.workers')}</h2>
-          <p className="text-3xl font-bold text-purple-600">{onlineAgents}</p>
-        </div>
-      </div>
+      <section className="dashboard-metrics" aria-label={t('dashboard.title')}>
+        <article><span className="metric-icon projects"><FolderKanban size={18} /></span><div><p>{t('dashboard.projects')}</p><strong>{projects?.length || 0}</strong></div></article>
+        <article><span className="metric-icon active"><CircleDotDashed size={18} /></span><div><p>{t('dashboard.activeBuilds')}</p><strong>{activeBuilds}</strong></div></article>
+        <article><span className="metric-icon agents"><Cpu size={18} /></span><div><p>{t('dashboard.workers')}</p><strong>{onlineAgents}</strong><small>{usedCapacity} / {capacity || '-'}</small></div></article>
+        <article><span className="metric-icon failed"><XCircle size={18} /></span><div><p>{t('dashboard.failedBuilds')}</p><strong>{failedBuilds}</strong></div></article>
+      </section>
 
-      <div className="bg-white shadow rounded-lg p-6">
-        <h2 className="text-lg font-semibold mb-4">{t('dashboard.recentBuilds')}</h2>
-        <div className="space-y-3">
-          {(builds || []).length === 0 && <p className="text-gray-500">{t('common.noData')}</p>}
-          {(builds || []).map((build) => {
-            const project = projectMap.get(build.project_id)
-            return (
-              <div key={build.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                <div>
-                  <span className="font-medium">{project?.name || `#${build.project_id}`} #{build.number}</span>
-                  <span className="text-gray-500 ml-2">{build.branch}</span>
-                  <span className="text-gray-500 ml-2">{build.started_at ? new Date(build.started_at).toLocaleString() : ''}</span>
-                </div>
-                <StatusBadge status={build.status} />
-              </div>
-            )
-          })}
-        </div>
+      <div className="dashboard-grid">
+        <section className="dashboard-panel recent-builds-panel">
+          <header><div><Activity size={17} /><h2>{t('dashboard.recentBuilds')}</h2></div><span>{recentBuilds.length}</span></header>
+          {recentBuilds.length === 0 ? <p className="dashboard-empty">{t('dashboard.noBuilds')}</p> : <div className="build-stream">
+            {recentBuilds.map((build) => {
+              const project = projectMap.get(build.project_id)
+              return <Link key={build.id} to={`/builds/${build.id}`} className="build-stream-row">
+                <span className={`stream-marker ${buildStatusTone(build.status)}`} />
+                <div className="stream-name"><strong>{project?.name || `#${build.project_id}`}</strong><small>#{build.number}{build.branch ? ` · ${build.branch}` : ''}</small></div>
+                <time>{build.started_at ? new Date(build.started_at).toLocaleString() : '-'}</time>
+                <StatusBadge status={build.status} label={buildStatusLabel(t, build.status)} />
+              </Link>
+            })}
+          </div>}
+        </section>
+
+        <aside className="dashboard-panel execution-panel">
+          <header><div><Cpu size={17} /><h2>{t('dashboard.execution')}</h2></div></header>
+          <div className="capacity-summary"><span className={onlineAgents ? 'online-dot' : 'offline-dot'} /> <strong>{onlineAgents}</strong><small>{t('dashboard.online')}</small></div>
+          <div className="capacity-bar" aria-label={`${usedCapacity} / ${capacity || 0}`}><i style={{ width: `${capacity ? Math.min(100, Math.round(usedCapacity / capacity * 100)) : 0}%` }} /></div>
+          <dl><div><dt>{t('dashboard.activeBuilds')}</dt><dd>{activeBuilds}</dd></div><div><dt>{t('dashboard.pending')}</dt><dd>{(builds || []).filter(build => build.status === 'pending').length}</dd></div><div><dt>{t('dashboard.latestBuild')}</dt><dd>{latestBuild ? `#${latestBuild.number}` : '-'}</dd></div></dl>
+          <Link className="dashboard-panel-link" to="/agents"><Clock3 size={14} />{t('dashboard.viewAgents')}</Link>
+        </aside>
       </div>
-    </div>
+    </motion.section>
   )
 }

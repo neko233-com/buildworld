@@ -46,7 +46,7 @@ func (h *WebhookHandler) HandleGitHubWebhook(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	// Verify signature
 	if h.secret != "" {
 		sig := r.Header.Get("X-Hub-Signature-256")
@@ -54,28 +54,28 @@ func (h *WebhookHandler) HandleGitHubWebhook(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "Missing signature", http.StatusUnauthorized)
 			return
 		}
-		
+
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "Failed to read body", http.StatusInternalServerError)
 			return
 		}
-		
+
 		if !h.verifySignature(body, sig) {
 			http.Error(w, "Invalid signature", http.StatusUnauthorized)
 			return
 		}
-		
+
 		r.Body = io.NopCloser(strings.NewReader(string(body)))
 	}
-	
+
 	// Parse payload
 	var payload WebhookPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Failed to parse payload", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Handle push event
 	if h.onPush != nil {
 		if err := h.onPush(payload); err != nil {
@@ -84,7 +84,7 @@ func (h *WebhookHandler) HandleGitHubWebhook(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
@@ -94,7 +94,7 @@ func (h *WebhookHandler) HandleGitLabWebhook(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	// Verify token
 	if h.secret != "" {
 		token := r.Header.Get("X-Gitlab-Token")
@@ -103,14 +103,14 @@ func (h *WebhookHandler) HandleGitLabWebhook(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	
+
 	// Parse payload
 	var payload WebhookPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Failed to parse payload", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Handle push event
 	if h.onPush != nil {
 		if err := h.onPush(payload); err != nil {
@@ -119,7 +119,7 @@ func (h *WebhookHandler) HandleGitLabWebhook(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
@@ -141,11 +141,11 @@ func ParsePushEvent(payload WebhookPayload) (branch, commit, repo string) {
 	branch = strings.TrimPrefix(payload.Ref, "refs/heads/")
 	commit = payload.HeadCommit.ID
 	repo = payload.Repository.FullName
-	
+
 	// Shorten commit hash
 	if len(commit) > 7 {
 		commit = commit[:7]
 	}
-	
+
 	return branch, commit, repo
 }

@@ -1,226 +1,68 @@
 import { useState } from 'react'
+import { motion } from 'motion/react'
+import { Activity, Copy, Gauge, Network, Plus, Radio, ServerCog, Tag, Trash2, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
+import { dialogs } from '../components/AppDialogs'
+import { ModalDialog } from '../components/ModalDialog'
+import { PageState } from '../components/PageState'
+import { isAdmin } from '../authz'
 
 function parseLabels(labels: string): string[] {
   if (!labels) return []
-  try {
-    const parsed = JSON.parse(labels)
-    if (Array.isArray(parsed)) return parsed
-    if (typeof parsed === 'object') return Object.keys(parsed)
-    return []
-  } catch {
-    return labels.split(',').map((s: string) => s.trim()).filter(Boolean)
-  }
+  try { const parsed = JSON.parse(labels); return Array.isArray(parsed) ? parsed : typeof parsed === 'object' ? Object.keys(parsed) : [] } catch { return labels.split(',').map(item => item.trim()).filter(Boolean) }
 }
-
-function formatHeartbeat(s?: string): string {
-  if (!s) return '-'
-  const diff = Date.now() - new Date(s).getTime()
-  if (diff < 0) return s
-  const secs = Math.floor(diff / 1000)
-  if (secs < 60) return `${secs}s ago`
-  const mins = Math.floor(secs / 60)
-  if (mins < 60) return `${mins}m ago`
-  return new Date(s).toLocaleString()
-}
-
-const statusColors: Record<string, string> = {
-  online: 'bg-green-100 text-green-800',
-  offline: 'bg-red-100 text-red-800',
-  busy: 'bg-yellow-100 text-yellow-800',
+function formatHeartbeat(value: string | undefined, t: (key: string) => string): string {
+  if (!value) return '-'
+  const seconds = Math.floor((Date.now() - new Date(value).getTime()) / 1000)
+  if (seconds < 0) return value
+  if (seconds < 60) return t('agents.secondsAgo').replace('{value}', String(seconds))
+  if (seconds < 3600) return t('agents.minutesAgo').replace('{value}', String(Math.floor(seconds / 60)))
+  return new Date(value).toLocaleString()
 }
 
 export default function Agents() {
   const { t } = useI18n()
+  const admin = isAdmin()
   const { data: agents, loading, error, reload } = useApi(() => api.listAgents())
-
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', address: '', labels: '', max_builds: 4, pool: '' })
   const [token, setToken] = useState('')
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
-
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm({ ...form, [key]: e.target.value })
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-    setFormError('')
+  const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [key]: event.target.value })
+  const handleRegister = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setFormError('')
     try {
       const data: any = { name: form.name, max_builds: Number(form.max_builds) }
       if (form.address) data.address = form.address
-      if (form.labels) data.labels = form.labels
+		if (form.labels) data.labels = form.labels.split(',').map(label => label.trim()).filter(Boolean)
       if (form.pool) data.pool = form.pool
-      const res: any = await api.registerAgent(data)
-      if (res?.token) setToken(res.token)
-      setForm({ name: '', address: '', labels: '', max_builds: 4, pool: '' })
-      setShowForm(false)
-      reload()
-    } catch (err: any) {
-      setFormError(err.message || 'Failed to register agent')
-    } finally {
-      setSaving(false)
-    }
+      const response: any = await api.registerAgent(data)
+      if (response?.token) setToken(response.token)
+      setForm({ name: '', address: '', labels: '', max_builds: 4, pool: '' }); setShowForm(false); reload()
+    } catch (reason: any) { setFormError(reason.message || t('agents.registerFailed')) } finally { setSaving(false) }
   }
-
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this agent?')) return
-    try {
-      await api.deleteAgent(id)
-      reload()
-    } catch (e: any) {
-      alert(e.message || 'Failed to delete agent')
-    }
+    if (!await dialogs.confirm(t('agents.removeConfirm'), { title: t('agents.removeTitle'), action: t('agents.remove') })) return
+    try { await api.deleteAgent(id); reload() } catch (reason: any) { dialogs.notify(reason.message || t('agents.removeFailed')) }
   }
+  const copyToken = async () => { await navigator.clipboard?.writeText(token); dialogs.notify(t('agents.copy'), 'success') }
 
-  const copyToken = () => {
-    navigator.clipboard?.writeText(token)
-  }
-
-  if (loading) return <div className="text-gray-500">{t('common.loading')}</div>
-  if (error) return <div className="text-red-500">{t('common.error')}: {error}</div>
-
+  if (loading) return <PageState />
+  if (error) return <PageState error={error} onRetry={reload} />
   const list = agents || []
-  const online = list.filter(a => a.status === 'online').length
-  const offline = list.filter(a => a.status !== 'online').length
+  const online = list.filter(agent => agent.status === 'online').length
+  const busy = list.filter(agent => (agent.active_builds || 0) > 0).length
+  const totalCapacity = list.reduce((total, agent) => total + (agent.max_concurrent_builds || 0), 0)
+  const activeCapacity = list.reduce((total, agent) => total + (agent.active_builds || 0), 0)
 
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">{t('agents.title')}</h1>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="bg-blue-500 text-white px-4 py-2 rounded"
-        >
-          + Register Agent
-        </button>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-lg shadow">
-          <p className="text-sm text-gray-500">Total Agents</p>
-          <p className="text-2xl font-bold">{list.length}</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <p className="text-sm text-gray-500">Online</p>
-          <p className="text-2xl font-bold text-green-600">{online}</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <p className="text-sm text-gray-500">Offline</p>
-          <p className="text-2xl font-bold text-red-600">{offline}</p>
-        </div>
-      </div>
-
-      {/* Token display */}
-      {token && (
-        <div className="bg-yellow-50 border border-yellow-300 p-4 rounded-lg mb-6">
-          <p className="font-semibold mb-2">Agent Token (copy now, shown once):</p>
-          <div className="flex gap-2">
-            <code className="bg-white px-2 py-1 rounded flex-1 font-mono text-sm break-all">{token}</code>
-            <button onClick={copyToken} className="bg-blue-500 text-white px-3 py-1 rounded text-sm">Copy</button>
-            <button onClick={() => setToken('')} className="bg-gray-300 px-3 py-1 rounded text-sm">Dismiss</button>
-          </div>
-        </div>
-      )}
-
-      {/* Register form */}
-      {showForm && (
-        <form onSubmit={handleRegister} className="bg-white shadow rounded-lg p-6 mb-6 space-y-4 max-w-2xl">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-            <input type="text" required value={form.name} onChange={set('name')} className="w-full border rounded px-3 py-2" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Address (optional)</label>
-            <input type="text" value={form.address} onChange={set('address')} placeholder="192.168.1.100:7050" className="w-full border rounded px-3 py-2" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Labels (comma-separated)</label>
-            <input type="text" value={form.labels} onChange={set('labels')} placeholder="linux,amd64" className="w-full border rounded px-3 py-2" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Max Concurrent Builds</label>
-            <input type="number" value={form.max_builds} onChange={set('max_builds')} className="w-full border rounded px-3 py-2" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Pool</label>
-            <input type="text" value={form.pool} onChange={set('pool')} placeholder="default" className="w-full border rounded px-3 py-2" />
-          </div>
-          {formError && <p className="text-red-500 text-sm">{formError}</p>}
-          <div className="flex gap-2">
-            <button type="submit" disabled={saving} className="bg-blue-500 text-white px-4 py-2 rounded disabled:opacity-50">
-              {saving ? t('common.loading') : 'Register'}
-            </button>
-            <button type="button" onClick={() => setShowForm(false)} className="bg-gray-300 text-gray-700 px-4 py-2 rounded">
-              {t('common.cancel')}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* Agent list */}
-      <div className="bg-white shadow rounded-lg">
-        <table className="min-w-full">
-          <thead>
-            <tr className="border-b">
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Name</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Address</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Status</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Pool</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Labels</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Max Builds</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Heartbeat</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-4 text-gray-500">{t('common.noData')}</td></tr>
-            )}
-            {list.map((agent) => {
-              const labels = parseLabels(agent.labels)
-              return (
-                <tr key={agent.id} className="border-b">
-                  <td className="px-4 py-3 font-medium">{agent.name}</td>
-                  <td className="px-4 py-3 text-gray-500 font-mono text-xs">{agent.address || '-'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded text-sm ${statusColors[agent.status] || 'bg-gray-100 text-gray-800'}`}>
-                      {agent.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-1 rounded text-xs bg-gray-100 text-gray-700">
-                      {agent.pool || 'default'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-1 flex-wrap">
-                      {labels.length === 0 && <span className="text-gray-400 text-xs">-</span>}
-                      {labels.map((label, i) => (
-                        <span key={i} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">{label}</span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">{agent.max_concurrent_builds ?? '-'}</td>
-                  <td className="px-4 py-3 text-gray-500">{formatHeartbeat(agent.last_heartbeat)}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleDelete(agent.id)}
-                      className="text-red-500 hover:underline text-sm"
-                    >
-                      {t('projects.delete')}
-                    </button>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
+  return <motion.section className="agent-workbench" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <header className="operations-heading"><div><p>{online} / {list.length}</p><h1>{t('agents.title')}</h1></div>{admin && <button className="primary-command" onClick={() => { setFormError(''); setShowForm(true) }}><Plus size={16} />{t('agents.register')}</button>}</header>
+    <section className="agent-metrics" aria-label="Worker capacity summary"><article><span><Network size={15} />{t('agents.total')}</span><strong>{list.length}</strong></article><article><span><Radio size={15} />{t('agents.online')}</span><strong className="positive">{online}</strong></article><article><span><Activity size={15} />{t('agents.activeWorkers')}</span><strong className={busy ? 'warning' : ''}>{busy}</strong></article><article><span><Gauge size={15} />{t('agents.capacity')}</span><strong>{activeCapacity} <small>/ {totalCapacity || '-'}</small></strong></article></section>
+    {token && <section className="enrollment-token"><header><div><ServerCog size={17} /><div><h2>{t('agents.tokenOneTime')}</h2><p>{t('agents.tokenDescription')}</p></div></div><button title={t('agents.dismiss')} aria-label={t('agents.dismiss')} onClick={() => setToken('')}><X size={16} /></button></header><div><code>{token}</code><button className="secondary-command" onClick={copyToken}><Copy size={15} />{t('agents.copy')}</button></div></section>}
+    <section className="operations-table-wrap agent-table-wrap"><table className="operations-table agent-table"><thead><tr><th>{t('agents.name')}</th><th>{t('agents.status')}</th><th>{t('agents.pool')}</th><th>{t('agents.labels')}</th><th>{t('agents.activeBuilds')}</th><th>{t('agents.address')}</th><th>{t('agents.heartbeat')}</th><th aria-label={t('agents.actions')} /></tr></thead><tbody>{!list.length && <tr><td colSpan={8} className="operations-empty"><ServerCog size={18} />{t('common.noData')}</td></tr>}{list.map(agent => { const labels = parseLabels(agent.labels); const capacity = agent.max_concurrent_builds || 0; const active = agent.active_builds || 0; const percent = capacity ? Math.min(100, (active / capacity) * 100) : 0; return <tr key={agent.id}><td><div className="agent-name"><ServerCog size={16} /><span><strong>{agent.name}</strong><small>{agent.id}</small></span></div></td><td><span className={`agent-status ${agent.status || 'offline'}`}><i />{agent.status === 'online' ? t('agents.online') : agent.status === 'offline' ? t('agents.offline') : agent.status}</span></td><td><span className="agent-pool">{agent.pool || t('agents.defaultPool')}</span></td><td><div className="agent-labels">{labels.length ? labels.map(label => <span key={label}><Tag size={11} />{label}</span>) : <span className="muted-cell">-</span>}</div></td><td><div className="agent-capacity"><span>{active} / {capacity || '-'}</span><i><b style={{ width: `${percent}%` }} /></i></div></td><td><code className="agent-address">{agent.address || '-'}</code></td><td className="muted-cell">{formatHeartbeat(agent.last_heartbeat, t)}</td><td><div className="row-actions">{admin && <button className="row-icon danger" title={t('projects.delete')} aria-label={t('projects.delete')} onClick={() => handleDelete(agent.id)}><Trash2 size={15} /></button>}</div></td></tr> })}</tbody></table></section>
+    {showForm && <ModalDialog className="agent-register-modal" ariaLabel={t('agents.register')} busy={saving} onClose={() => setShowForm(false)}><header><div><ServerCog size={18} /><div><h2>{t('agents.register')}</h2><p>{t('agents.registerDescription')}</p></div></div><button onClick={() => setShowForm(false)} title={t('common.cancel')}><X size={18} /></button></header><form onSubmit={handleRegister} className="agent-register-form"><label>{t('agents.name')}<input required data-dialog-initial-focus value={form.name} onChange={set('name')} autoFocus /></label><label>{t('agents.addressOptional')}<input value={form.address} onChange={set('address')} placeholder="192.168.1.100:7050" /></label><label>{t('agents.labelsHint')}<input value={form.labels} onChange={set('labels')} placeholder="linux, amd64" /></label><div className="agent-register-grid"><label>{t('agents.maxConcurrent')}<input type="number" min="1" value={form.max_builds} onChange={set('max_builds')} /></label><label>{t('agents.pool')}<input value={form.pool} onChange={set('pool')} placeholder={t('agents.defaultPool')} /></label></div>{formError && <p className="form-error">{formError}</p>}<footer><button type="button" onClick={() => setShowForm(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}>{saving ? t('common.loading') : t('agents.register')}</button></footer></form></ModalDialog>}
+  </motion.section>
 }

@@ -2,7 +2,7 @@
 sidebar_position: 1
 ---
 
-# buildworld233
+# buildworld
 
 A modern CI/CD server - Jenkins alternative with YAML/JSON pipelines, plugin system, and distributed workers.
 
@@ -27,13 +27,13 @@ A modern CI/CD server - Jenkins alternative with YAML/JSON pipelines, plugin sys
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | bash
 
 # Start server
-buildworld233 start
+buildworld start
 
 # Open browser
-open http://localhost:6050
+open http://localhost:8700
 ```
 
 Default login: `root` / `root`
@@ -42,7 +42,7 @@ Default login: `root` / `root`
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    buildworld233 (Server)                    │
+│                    buildworld (Server)                    │
 ├──────────────┬──────────────┬──────────────┬───────────────┤
 │   Web UI     │  REST API    │  WebSocket   │  CLI (bwctl)  │
 │  (React/Vite)│  (chi)       │  (build log  │  (cobra)      │
@@ -70,7 +70,7 @@ Default login: `root` / `root`
 
 ## Next Steps
 
-- [Installation](/installation) - Install buildworld233
+- [Installation](/installation) - Install buildworld
 - [Configuration](/configuration) - Configure your instance
 - [Pipeline Guide](/pipelines) - Create build pipelines
 - [Plugin Development](/plugins) - Write custom plugins

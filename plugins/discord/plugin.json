@@ -2,6 +2,6 @@
   "name": "discord",
   "version": "1.0.0",
   "description": "Discord notifications: send messages and embeds via webhook",
-  "author": "buildworld233",
+  "author": "buildworld",
   "steps": ["discord-notify", "discord-send-embed"]
 }

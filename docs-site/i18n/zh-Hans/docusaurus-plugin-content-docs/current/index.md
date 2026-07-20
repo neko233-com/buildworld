@@ -2,7 +2,7 @@
 sidebar_position: 1
 ---
 
-# buildworld233
+# buildworld
 
 现代化 CI/CD 服务器 - Jenkins 替代方案，支持 YAML/JSON 流水线、插件系统和分布式 Agent。
 
@@ -27,13 +27,13 @@ sidebar_position: 1
 
 ```bash
 # 安装
-curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | bash
 
 # 启动服务器
-buildworld233 start
+buildworld start
 
 # 打开浏览器
-open http://localhost:6050
+open http://localhost:8700
 ```
 
 默认登录: `root` / `root`
@@ -42,7 +42,7 @@ open http://localhost:6050
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    buildworld233 (服务器)                    │
+│                    buildworld (服务器)                    │
 ├──────────────┬──────────────┬──────────────┬───────────────┤
 │   Web UI     │  REST API    │  WebSocket   │  CLI (bwctl)  │
 │  (React/Vite)│  (chi)       │  (构建日志   │  (cobra)      │
@@ -69,7 +69,7 @@ open http://localhost:6050
 
 ## 下一步
 
-- [安装指南](/installation) - 安装 buildworld233
+- [安装指南](/installation) - 安装 buildworld
 - [配置指南](/configuration) - 配置你的实例
 - [流水线指南](/pipelines) - 创建构建流水线
 - [插件开发](/plugins) - 编写自定义插件

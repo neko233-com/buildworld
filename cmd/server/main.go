@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"io/fs"
@@ -14,13 +12,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/neko233-com/buildworld233/internal/api"
-	"github.com/neko233-com/buildworld233/internal/auth"
-	"github.com/neko233-com/buildworld233/internal/config"
-	"github.com/neko233-com/buildworld233/internal/engine"
-	"github.com/neko233-com/buildworld233/internal/plugin"
-	"github.com/neko233-com/buildworld233/internal/store"
-	"github.com/neko233-com/buildworld233/internal/ws"
+	"github.com/neko233-com/buildworld/internal/api"
+	"github.com/neko233-com/buildworld/internal/auth"
+	"github.com/neko233-com/buildworld/internal/config"
+	"github.com/neko233-com/buildworld/internal/engine"
+	"github.com/neko233-com/buildworld/internal/plugin"
+	"github.com/neko233-com/buildworld/internal/store"
+	"github.com/neko233-com/buildworld/internal/ws"
 )
 
 func main() {
@@ -45,17 +43,21 @@ func main() {
 		log.Fatalf("Failed to open database: %v", err)
 	}
 	defer db.Close()
+	if err := api.ApplyStoredSettings(cfg, db); err != nil {
+		log.Printf("Warning: failed to restore runtime settings: %v", err)
+	}
 
 	if err := auth.SetupDefaultAdmin(db); err != nil {
 		log.Printf("Warning: Failed to setup default admin: %v", err)
 	}
 
-	// JWT secret: use config or generate a random one for this process.
-	jwtSecret := cfg.Auth.JWTSecret
-	if jwtSecret == "" {
-		jwtSecret = randomSecret()
-		log.Println("WARNING: auth.jwt_secret is empty — generated a random secret for this session.")
-		log.Println("Set a permanent secret in config.yaml to keep tokens valid across restarts.")
+	jwtSecret, jwtSecretPath, generated, err := auth.LoadOrCreateJWTSecret(cfg.Auth.JWTSecret, cfg.Database.Path)
+	if err != nil {
+		log.Fatalf("Failed to initialize JWT secret: %v", err)
+	}
+	cfg.Auth.JWTSecret = jwtSecret
+	if generated {
+		log.Printf("Generated a persistent JWT signing secret at %s", jwtSecretPath)
 	}
 	jwtInstance := auth.NewJWT(jwtSecret)
 
@@ -93,27 +95,33 @@ func main() {
 	}
 
 	// Build runner (executes pipelines in-process — the "local agent").
-	wsRoot := cfg.Storage.Workspace
-	if wsRoot == "" {
-		wsRoot = "./workspace"
+	buildEnvironment := engine.NewBuildEnvironment(cfg.Storage.BuildTemp)
+	if err := buildEnvironment.Ensure(); err != nil {
+		log.Fatalf("Failed to prepare build environment: %v", err)
 	}
-	runner := engine.NewBuildRunner(db, hub, wsRoot, loader)
+	runner := engine.NewBuildRunner(db, hub, buildEnvironment.WorkspacesRoot(), loader)
+	runner.SetBuildEnvironment(buildEnvironment)
+	runner.SetWorkerDispatchToken(cfg.Workers.EnrollmentToken)
 	artifactMgr := engine.NewArtifactManager(db, artifactsRoot)
 	runner.SetArtifactManager(artifactMgr)
 	notificationService := engine.NewNotificationService(db)
 	runner.SetNotificationService(notificationService)
 	statisticsService := engine.NewStatisticsService(db)
 	runner.SetStatisticsService(statisticsService)
+	runner.StartQueue(context.Background())
+	defer runner.StopQueue()
 	approvalService := engine.NewApprovalService(db)
 	bigScreenService := engine.NewBigScreenService(db)
 	triggerChecker := engine.NewTriggerChecker(db, runner, hub)
 	triggerChecker.Start()
 	defer triggerChecker.Stop()
 
-	distDir := filepath.Join("web", "dist")
 	var staticFS fs.FS
-	if stat, err := os.Stat(distDir); err == nil && stat.IsDir() {
-		staticFS = os.DirFS(distDir)
+	for _, distDir := range staticDirectories() {
+		if stat, err := os.Stat(distDir); err == nil && stat.IsDir() {
+			staticFS = os.DirFS(distDir)
+			break
+		}
 	}
 
 	server := api.NewServer(api.Deps{
@@ -144,31 +152,37 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	serverErrCh := make(chan error, 1)
 	go func() {
-		if err := server.Start(); err != nil {
-			log.Printf("Server error: %v", err)
-		}
+		serverErrCh <- server.Start()
 	}()
 
-	log.Println("buildworld233 server started")
+	log.Println("buildworld server started")
 	log.Printf("Web UI: http://localhost:%d", cfg.Server.Port)
 	log.Printf("API:    http://localhost:%d/api", cfg.Server.Port)
 	log.Println("Default login: root / root")
 
-	<-sigCh
-	log.Println("Shutting down...")
+	select {
+	case <-sigCh:
+		log.Println("Shutting down...")
+	case err := <-serverErrCh:
+		if err != nil {
+			log.Printf("Server startup failed: %v", err)
+		}
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	server.Stop(ctx)
 }
 
-// randomSecret returns a 32-byte hex-encoded random string for JWT signing.
-func randomSecret() string {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		// Fallback — should never happen.
-		return "buildworld233-fallback-secret-change-me"
+// staticDirectories supports repository development and release bundles that
+// ship web/dist beside the server binary.
+func staticDirectories() []string {
+	directories := []string{filepath.Join("web", "dist")}
+	if executable, err := os.Executable(); err == nil {
+		directories = append(directories, filepath.Join(filepath.Dir(executable), "web", "dist"))
 	}
-	return hex.EncodeToString(b)
+	return directories
 }

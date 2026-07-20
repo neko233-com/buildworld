@@ -1,184 +1,133 @@
 import { useState } from 'react'
+import { motion } from 'motion/react'
+import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserRound, UsersRound, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
+import { dialogs } from '../components/AppDialogs'
+import { ModalDialog } from '../components/ModalDialog'
+import { PageState } from '../components/PageState'
 
-const roleColors: Record<string, string> = {
-  admin: 'bg-red-100 text-red-800',
-  developer: 'bg-blue-100 text-blue-800',
-  viewer: 'bg-gray-100 text-gray-800',
+interface User {
+  id: number
+  username: string
+  email: string
+  role: 'admin' | 'developer' | 'viewer'
+  created_at?: string
+  last_login?: string
 }
 
-const ROLES = ['admin', 'developer', 'viewer']
+const roles: User['role'][] = ['admin', 'developer', 'viewer']
+const emptyForm = { username: '', email: '', password: '', role: 'viewer' as User['role'] }
+function hasLoggedIn(value?: string) {
+  if (!value) return false
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) && date.getFullYear() > 1970
+}
 
 export default function Users() {
   const { t } = useI18n()
-  const { data: users, loading, error, reload } = useApi(() => api.listUsers())
-  const { data: me } = useApi(() => api.me())
-
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ username: '', email: '', password: '', role: 'viewer' })
+  const { data: users, loading, error, reload } = useApi<User[]>(() => api.listUsers())
+  const { data: me } = useApi<User>(() => api.me())
+  const [showEditor, setShowEditor] = useState(false)
+  const [editing, setEditing] = useState<User | null>(null)
+  const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const openCreate = () => {
+    setEditing(null)
+    setForm(emptyForm)
+    setFormError('')
+    setShowEditor(true)
+  }
+  const openEdit = (user: User) => {
+    setEditing(user)
+    setForm({ username: user.username, email: user.email, password: '', role: user.role })
+    setFormError('')
+    setShowEditor(true)
+  }
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
     setSaving(true)
     setFormError('')
     try {
-      await api.createUser(form)
-      setForm({ username: '', email: '', password: '', role: 'viewer' })
-      setShowForm(false)
+      if (editing) {
+        if (editing.id !== me?.id && form.role !== editing.role) await api.updateUserRole(editing.id, form.role)
+        if (form.password) await api.updateUserPassword(editing.id, form.password)
+      } else {
+        await api.createUser(form)
+      }
+      setShowEditor(false)
       reload()
-    } catch (err: any) {
-      setFormError(err.message || 'Failed to create user')
+    } catch (reason: any) {
+      setFormError(reason.message || t('users.saveFailed'))
     } finally {
       setSaving(false)
     }
   }
-
-  const handleDelete = async (id: number) => {
-    if (me && me.id === id) {
-      alert('Cannot delete yourself')
+  const handleDelete = async (user: User) => {
+    if (me?.id === user.id) {
+      dialogs.notify(t('users.cannotDeleteSelf'), 'info')
       return
     }
-    if (!confirm('Delete this user?')) return
+    if (!await dialogs.confirm(t('users.deleteConfirm'), { title: t('users.deleteTitle'), action: t('common.delete') })) return
     try {
-      await api.deleteUser(id)
+      await api.deleteUser(user.id)
       reload()
-    } catch (e: any) {
-      alert(e.message || 'Failed to delete user')
+    } catch (reason: any) {
+      dialogs.notify(reason.message || t('common.error'))
     }
   }
 
-  const handleRoleChange = async (id: number, role: string) => {
-    try {
-      await api.updateUserRole(id, role)
-      reload()
-    } catch (e: any) {
-      alert(e.message || 'Failed to update role')
-    }
-  }
+  if (loading) return <PageState />
+  if (error) return <PageState error={error} onRetry={reload} />
 
-  if (loading) return <div className="text-gray-500">{t('common.loading')}</div>
-  if (error) return <div className="text-red-500">{t('common.error')}: {error}</div>
+  const list = users || []
+  const admins = list.filter(user => user.role === 'admin').length
+  const active = list.filter(user => hasLoggedIn(user.last_login)).length
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">{t('users.title')}</h1>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="bg-blue-500 text-white px-4 py-2 rounded"
-        >
-          {t('users.addUser')}
-        </button>
-      </div>
+    <motion.section className="operations-page users-workbench" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+      <header className="operations-heading">
+        <div><p>{list.length} {t('users.accounts')}</p><h1>{t('users.title')}</h1></div>
+        <button className="primary-command" type="button" onClick={openCreate}><Plus size={16} />{t('users.addUser')}</button>
+      </header>
 
-      {/* Add user form */}
-      {showForm && (
-        <form onSubmit={handleCreate} className="bg-white shadow rounded-lg p-6 mb-6 space-y-4 max-w-2xl">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('users.username')}</label>
-              <input
-                type="text"
-                required
-                value={form.username}
-                onChange={e => setForm({ ...form, username: e.target.value })}
-                className="w-full border rounded px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('users.email')}</label>
-              <input
-                type="email"
-                required
-                value={form.email}
-                onChange={e => setForm({ ...form, email: e.target.value })}
-                className="w-full border rounded px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-              <input
-                type="password"
-                required
-                value={form.password}
-                onChange={e => setForm({ ...form, password: e.target.value })}
-                className="w-full border rounded px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('users.role')}</label>
-              <select
-                value={form.role}
-                onChange={e => setForm({ ...form, role: e.target.value })}
-                className="w-full border rounded px-3 py-2"
-              >
-                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-          </div>
-          {formError && <p className="text-red-500 text-sm">{formError}</p>}
-          <div className="flex gap-2">
-            <button type="submit" disabled={saving} className="bg-blue-500 text-white px-4 py-2 rounded disabled:opacity-50">
-              {saving ? t('common.loading') : t('common.save')}
-            </button>
-            <button type="button" onClick={() => setShowForm(false)} className="bg-gray-300 text-gray-700 px-4 py-2 rounded">
-              {t('common.cancel')}
-            </button>
-          </div>
-        </form>
-      )}
+      <section className="notification-summary users-summary">
+        <article><span><UsersRound size={15} />{t('users.total')}</span><strong>{list.length}</strong><small>{t('users.totalHelp')}</small></article>
+        <article><span><ShieldCheck size={15} />{t('users.admins')}</span><strong>{admins}</strong><small>{t('users.adminsHelp')}</small></article>
+        <article><span><UserRound size={15} />{t('users.signedIn')}</span><strong>{active}</strong><small>{t('users.signedInHelp')}</small></article>
+      </section>
 
-      <div className="bg-white shadow rounded-lg">
-        <table className="min-w-full">
-          <thead>
-            <tr className="border-b">
-              <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('users.username')}</th>
-              <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('users.email')}</th>
-              <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('users.role')}</th>
-              <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">Created</th>
-              <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('users.actions')}</th>
-            </tr>
-          </thead>
+      <section className="operations-table-wrap users-table-wrap">
+        <table className="operations-table users-table">
+          <thead><tr><th>{t('users.username')}</th><th>{t('users.email')}</th><th>{t('users.role')}</th><th>{t('users.lastLogin')}</th><th>{t('users.created')}</th><th aria-label={t('users.actions')} /></tr></thead>
           <tbody>
-            {(users || []).length === 0 && (
-              <tr><td colSpan={5} className="px-6 py-4 text-gray-500">{t('common.noData')}</td></tr>
-            )}
-            {(users || []).map((user) => (
-              <tr key={user.id} className="border-b">
-                <td className="px-6 py-4 font-medium">
-                  {user.username}
-                  {me && me.id === user.id && <span className="text-gray-400 text-xs ml-2">(you)</span>}
-                </td>
-                <td className="px-6 py-4">{user.email}</td>
-                <td className="px-6 py-4">
-                  <select
-                    value={user.role}
-                    onChange={e => handleRoleChange(user.id, e.target.value)}
-                    className={`px-2 py-1 rounded text-sm border-0 ${roleColors[user.role] || 'bg-gray-100 text-gray-800'}`}
-                  >
-                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </td>
-                <td className="px-6 py-4 text-gray-500">
-                  {user.created_at ? new Date(user.created_at).toLocaleString() : '-'}
-                </td>
-                <td className="px-6 py-4">
-                  <button
-                    onClick={() => handleDelete(user.id)}
-                    className="text-red-500 hover:underline text-sm"
-                  >
-                    {t('users.delete')}
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {!list.length && <tr><td colSpan={6} className="operations-empty"><UsersRound size={18} />{t('users.empty')}</td></tr>}
+            {list.map(user => <tr key={user.id}>
+              <td><button className="entity-link" type="button" onClick={() => openEdit(user)}><UserRound size={16} /><span><strong>{user.username}{me?.id === user.id && <em>{t('users.you')}</em>}</strong><small>#{user.id}</small></span></button></td>
+              <td className="muted-cell">{user.email || '-'}</td>
+              <td><span className={`user-role ${user.role}`}>{t(`users.role_${user.role}`)}</span></td>
+              <td className="muted-cell">{hasLoggedIn(user.last_login) ? new Date(user.last_login!).toLocaleString() : t('users.never')}</td>
+              <td className="muted-cell">{user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</td>
+              <td><div className="row-actions"><button className="row-icon" type="button" title={t('users.edit')} aria-label={t('users.edit')} onClick={() => openEdit(user)}><Pencil size={15} /></button><button className="row-icon danger" type="button" disabled={me?.id === user.id} title={me?.id === user.id ? t('users.cannotDeleteSelf') : t('common.delete')} aria-label={t('common.delete')} onClick={() => handleDelete(user)}><Trash2 size={15} /></button></div></td>
+            </tr>)}
           </tbody>
         </table>
-      </div>
-    </div>
+      </section>
+
+      {showEditor && <ModalDialog className="notification-editor user-editor" ariaLabel={editing ? t('users.edit') : t('users.addUser')} busy={saving} onClose={() => setShowEditor(false)}>
+          <header><div><UserRound size={18} /><div><h2>{editing ? t('users.edit') : t('users.addUser')}</h2><p>{editing ? t('users.editHelp') : t('users.createHelp')}</p></div></div><button type="button" onClick={() => setShowEditor(false)} title={t('common.close')}><X size={18} /></button></header>
+          <form className="notification-editor-form" onSubmit={handleSubmit}>
+            <label>{t('users.username')}<input required data-dialog-initial-focus readOnly={Boolean(editing)} value={form.username} onChange={event => setForm({ ...form, username: event.target.value })} /></label>
+            <label>{t('users.email')}<input required={!editing} readOnly={Boolean(editing)} type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} /></label>
+            <label>{t('users.role')}<select disabled={editing?.id === me?.id} value={form.role} onChange={event => setForm({ ...form, role: event.target.value as User['role'] })}>{roles.map(role => <option key={role} value={role}>{t(`users.role_${role}`)}</option>)}</select>{editing?.id === me?.id && <small>{t('users.selfRoleHelp')}</small>}</label>
+            <label>{editing ? t('users.newPassword') : t('users.password')}<input required={!editing} minLength={6} type="password" autoComplete="new-password" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} />{editing && <small>{t('users.passwordHelp')}</small>}</label>
+            {formError && <p className="form-error">{formError}</p>}
+            <footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}><KeyRound size={14} />{saving ? t('common.loading') : t('common.save')}</button></footer>
+          </form>
+      </ModalDialog>}
+    </motion.section>
   )
 }

@@ -4,7 +4,7 @@ sidebar_position: 7
 
 # Notifications
 
-buildworld233 supports multiple notification channels to alert you about build status changes.
+buildworld supports multiple notification channels to alert you about build status changes.
 
 ## Supported Channels
 
@@ -24,7 +24,7 @@ buildworld233 supports multiple notification channels to alert you about build s
   "smtp_port": 587,
   "smtp_user": "user@example.com",
   "smtp_password": "secret",
-  "from": "buildworld233@example.com",
+  "from": "buildworld@example.com",
   "to": ["dev@example.com", "ops@example.com"]
 }
 ```

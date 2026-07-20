@@ -2,6 +2,6 @@
   "name": "webhook",
   "version": "1.0.0",
   "description": "Generic webhook: send and receive webhooks with signature verification",
-  "author": "buildworld233",
+  "author": "buildworld",
   "steps": ["webhook-send", "webhook-receive"]
 }

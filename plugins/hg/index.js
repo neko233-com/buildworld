@@ -56,8 +56,8 @@ registerStep("hg-update", function(ctx) {
 // hg-commit: commit changes
 registerStep("hg-commit", function(ctx) {
     var path = ctx.config.path || ".";
-    var message = ctx.config.message || "buildworld233 auto-commit";
-    var user = ctx.config.username || "buildworld233 <ci@buildworld233.local>";
+    var message = ctx.config.message || "buildworld auto-commit";
+    var user = ctx.config.username || "buildworld <ci@buildworld.local>";
     var cmd = "hg commit -R " + path + " -m \"" + message.replace(/"/g, '\\"') + "\" -u \"" + user + "\"";
 
     ctx.log("hg commit: " + path);

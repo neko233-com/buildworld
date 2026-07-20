@@ -2,6 +2,6 @@
   "name": "npm",
   "version": "1.0.0",
   "description": "Node.js package manager: install, build, test, publish, run scripts",
-  "author": "buildworld233",
+  "author": "buildworld",
   "steps": ["npm-install", "npm-build", "npm-test", "npm-publish", "npm-run"]
 }
