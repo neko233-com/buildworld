@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { prettyConfigSource, prettyConfigSourceSync } from './configFormat'
+import { isTypeScriptPipelineSource, prettyConfigSource, prettyConfigSourceSync } from './configFormat'
 
 describe('configuration formatting', () => {
   it('pretty prints compact JSON without changing its value', () => {
@@ -20,5 +20,11 @@ describe('configuration formatting', () => {
   it('rejects scalar values and invalid source', async () => {
     await expect(prettyConfigSource('just-a-string')).rejects.toThrow('Configuration root')
     await expect(prettyConfigSource('{broken')).rejects.toThrow()
+  })
+
+  it('keeps typed declarative pipelines as source code', async () => {
+    const source = 'import { definePipeline } from "@buildworld/pipeline"\nexport default definePipeline({ stages: [] })'
+    expect(isTypeScriptPipelineSource(source)).toBe(true)
+    await expect(prettyConfigSource(source)).resolves.toBe(`${source}\n`)
   })
 })

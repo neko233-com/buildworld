@@ -6,7 +6,7 @@ import { useI18n } from '../i18n'
 import { api, type PipelineMigrationResult } from '../api'
 import { useApi } from '../hooks'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
-import { prettyConfigSource, prettyConfigSourceSync } from '../lib/configFormat'
+import { isTypeScriptPipelineSource, prettyConfigSource, prettyConfigSourceSync } from '../lib/configFormat'
 import ProjectGitHooks from '../components/ProjectGitHooks'
 import { dialogs } from '../components/AppDialogs'
 import { ModalDialog } from '../components/ModalDialog'
@@ -46,6 +46,7 @@ export default function ProjectDetail() {
   const [showJenkinsImport, setShowJenkinsImport] = useState(false)
   const [showCustomBuild, setShowCustomBuild] = useState(false)
   const editable = canEdit()
+  const typeScriptPipeline = isTypeScriptPipelineSource(form?.config || project?.config || '')
 
   useEffect(() => {
     if (!project) return
@@ -172,7 +173,7 @@ export default function ProjectDetail() {
       <div className="detail-panel-body">
         {activeTab === 'overview' && <div className="pipeline-preview"><header><div><FileCode2 size={16} /><h2>{t('projectDetail.pipelineConfig')}</h2></div><button className="table-link" onClick={() => showView('build')}><Workflow size={14} />{t('projectDetail.openBuildSteps')}</button></header><pre>{(() => { try { return prettyConfigSourceSync(project.config || '{}') } catch { return project.config || '{}' } })()}</pre></div>}
         {activeTab === 'builds' && <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>#</th><th>{t('builds.status')}</th><th>{t('builds.duration')}</th><th>{t('builds.branch')}</th><th>{t('projectDetail.started')}</th></tr></thead><tbody>{!buildList.length && <tr><td colSpan={5} className="operations-empty">{t('common.noData')}</td></tr>}{buildList.map(build => <tr key={build.id}><td><Link className="build-number-link" to={`/builds/${build.id}`}>#{build.number}</Link></td><td><span className={`build-status ${buildStatusTone(build.status)}`}>{buildStatusLabel(t, build.status)}</span></td><td className="muted-cell">{formatDuration(build.duration_ms)}</td><td className="branch-cell"><GitBranch size={13} />{build.branch || '-'}</td><td className="muted-cell">{build.started_at ? new Date(build.started_at).toLocaleString() : '-'}</td></tr>)}</tbody></table></div>}
-        {activeTab === 'build' && form && <Suspense fallback={<PageState />}><PipelineEditor embedded project={{ id: project.id, name: project.name, config: form.config }} projects={[project]} globalVariables={globalVariables || []} onSave={savePipeline} onRun={runPipeline} /></Suspense>}
+        {activeTab === 'build' && form && (typeScriptPipeline ? <div className="detail-empty">TypeScript pipeline uses its typed source editor; visual editing is unavailable to preserve source semantics.</div> : <Suspense fallback={<PageState />}><PipelineEditor embedded project={{ id: project.id, name: project.name, config: form.config }} projects={[project]} globalVariables={globalVariables || []} onSave={savePipeline} onRun={runPipeline} /></Suspense>)}
         {activeTab === 'settings' && form && <div className="project-settings-stack">
           <section className="project-config-section">
             <header><div><Settings2 size={17} /><div><h2>{t('projectDetail.projectSettings')}</h2><p>{t('projectDetail.projectSettingsHelp')}</p></div></div></header>
@@ -183,8 +184,8 @@ export default function ProjectDetail() {
               <div><label htmlFor="project-settings-branch">{t('projects.defaultBranch')}</label><input id="project-settings-branch" type="text" readOnly={!editable} value={form.default_branch} onChange={set('default_branch')} /></div>
               <div><label htmlFor="project-settings-group">{t('projectGroups.title')}</label><select id="project-settings-group" disabled={!editable} value={form.group_id ?? ''} onChange={set('group_id')}><option value="">{t('projectGroups.ungrouped')}</option>{groups.map(group => <option key={group.id} value={group.id}>{'\u00a0\u00a0'.repeat(group.depth)}{group.path}</option>)}</select><small>{t('projectGroups.assignmentHelp')}</small></div>
               <div><label htmlFor="project-settings-tags">{t('projects.tags')}</label><input id="project-settings-tags" type="text" readOnly={!editable} value={form.tags} onChange={set('tags')} placeholder={t('projectDetail.tagsPlaceholder')} /></div>
-              <div className="settings-wide"><ApprovalSettingsEditor source={form.config} disabled={!editable} onChange={config => setForm((current: any) => ({ ...current, config }))} onError={setFormError} /></div>
-              <div className="settings-wide config-editor-label"><span><label htmlFor="project-settings-pipeline">{t('projectDetail.pipelineConfig')}</label>{editable && <div className="config-editor-actions"><button type="button" className="format-command" onClick={() => showView('build')}><Workflow size={13} />{t('projectDetail.visualEditor')}</button><button type="button" className="format-command" onClick={() => setShowJenkinsImport(true)}><FileInput size={13} />{t('jenkinsImport.title')}</button><button type="button" className="format-command" onClick={handleFormatConfig} disabled={formatting}><Braces size={13} />{formatting ? t('config.formatting') : t('config.format')}</button></div>}</span><textarea id="project-settings-pipeline" readOnly={!editable} value={form.config} onChange={set('config')} className="code-input" rows={15} spellCheck="false" /><small>{t('config.saveHelp')}</small></div>
+              {!typeScriptPipeline && <div className="settings-wide"><ApprovalSettingsEditor source={form.config} disabled={!editable} onChange={config => setForm((current: any) => ({ ...current, config }))} onError={setFormError} /></div>}
+              <div className="settings-wide config-editor-label"><span><label htmlFor="project-settings-pipeline">{t('projectDetail.pipelineConfig')}</label>{editable && <div className="config-editor-actions">{!typeScriptPipeline && <button type="button" className="format-command" onClick={() => showView('build')}><Workflow size={13} />{t('projectDetail.visualEditor')}</button>}<button type="button" className="format-command" onClick={() => setShowJenkinsImport(true)}><FileInput size={13} />{t('jenkinsImport.title')}</button><button type="button" className="format-command" onClick={handleFormatConfig} disabled={formatting}><Braces size={13} />{formatting ? t('config.formatting') : t('config.format')}</button></div>}</span><textarea id="project-settings-pipeline" readOnly={!editable} value={form.config} onChange={set('config')} className="code-input" rows={15} spellCheck="false" /><small>{typeScriptPipeline ? 'TypeScript DSL: @buildworld/pipeline provides autocomplete and validates when a build starts.' : t('config.saveHelp')}</small></div>
               {formError && <p className="form-error">{formError}</p>}
               {editable && <footer><button type="submit" className="primary-command" disabled={saving}>{saving ? t('common.loading') : t('common.save')}</button><button type="button" className="danger-command" disabled={deleting} onClick={handleDelete}><Trash2 size={14} />{deleting ? t('common.loading') : t('projects.delete')}</button></footer>}
             </form>

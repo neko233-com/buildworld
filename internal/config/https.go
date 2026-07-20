@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -51,14 +52,17 @@ func NewHTTPSManager(workspace string) *HTTPSManager {
 func (m *HTTPSManager) Setup(domain, email string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	domain = strings.TrimSpace(domain)
+	email = strings.TrimSpace(email)
 
 	// Create cert directory
 	if err := os.MkdirAll(m.certDir, 0755); err != nil {
 		return fmt.Errorf("create cert directory: %w", err)
 	}
 
-	// Try to use proxysss if available
-	if m.isProxysssAvailable() {
+	// Local hosts and incomplete ACME requests must use a self-signed
+	// certificate even when an unrelated proxysss binary is on PATH.
+	if email != "" && domain != "" && !strings.EqualFold(domain, "localhost") && m.isProxysssAvailable() {
 		return m.setupProxysss(domain, email)
 	}
 
@@ -123,6 +127,7 @@ func (m *HTTPSManager) setupSelfSigned(domain string) error {
 	}
 
 	m.tlsConfig.Enabled = true
+	m.tlsConfig.Domain = domain
 	m.tlsConfig.CertFile = certFile
 	m.tlsConfig.KeyFile = keyFile
 

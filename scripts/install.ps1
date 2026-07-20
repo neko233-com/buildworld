@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 $Repo = "neko233-com/buildworld233"
 $InstallDir = Join-Path $env:LOCALAPPDATA "BuildWorld"
+$PreviousDir = "$InstallDir.previous"
 
 function Get-ReleaseVersion {
     if ($Version -ne "latest") { return $Version.TrimStart('v') }
@@ -42,18 +43,32 @@ $temporary = Join-Path ([IO.Path]::GetTempPath()) ("buildworld-" + [guid]::NewGu
 $archive = Join-Path $temporary $asset
 $staging = Join-Path $temporary "staging"
 
-New-Item -ItemType Directory -Force -Path $temporary, $InstallDir | Out-Null
+New-Item -ItemType Directory -Force -Path $temporary | Out-Null
 try {
     Write-Host "Downloading BuildWorld v$release for Windows $arch ..."
     Invoke-WebRequest -Uri "$base/$asset" -OutFile $archive -UseBasicParsing
     $checksums = (Invoke-WebRequest -Uri "$base/checksums.txt" -UseBasicParsing).Content
     Assert-Checksum -Archive $archive -Checksums $checksums
     Expand-Archive -LiteralPath $archive -DestinationPath $staging -Force
-    Copy-Item -Path (Join-Path $staging '*') -Destination $InstallDir -Recurse -Force
+
+    $cli = Join-Path $InstallDir 'buildworld.exe'
+    $wasRunning = $false
+    if (Test-Path -LiteralPath $cli) {
+        $wasRunning = (& $cli status 2>$null) -match 'is running'
+        if ($wasRunning) {
+            Write-Host 'Pausing running BuildWorld service ...'
+            & $cli pause
+        }
+        Remove-Item -LiteralPath $PreviousDir -Recurse -Force -ErrorAction SilentlyContinue
+        Move-Item -LiteralPath $InstallDir -Destination $PreviousDir
+    }
+    Move-Item -LiteralPath $staging -Destination $InstallDir
     Add-UserPath $InstallDir
     if (-not $NoAutostart) { & (Join-Path $InstallDir 'buildworld.exe') enable-autostart }
-    Write-Host "Installed BuildWorld v$release to $InstallDir"
-    Write-Host "Open a new terminal, then run: buildworld start | status | pause | resume | restart"
+    & (Join-Path $InstallDir 'buildworld.exe') start
+    if ($wasRunning) { Write-Host "Updated and restarted BuildWorld v$release. Previous bundle: $PreviousDir" }
+    else { Write-Host "Installed BuildWorld v$release and started it. Previous bundle: $PreviousDir" }
+    Write-Host "Commands: buildworld status | pause | resume | restart"
     Write-Host "Reset root safely: `$env:BUILDWORLD_ROOT_PASSWORD='...'; `$env:BUILDWORLD_ROOT_PASSWORD | buildworld reset-root-password --password-stdin"
 } finally {
     Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue

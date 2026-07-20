@@ -79,6 +79,9 @@ func (e *BuildEnvironment) Environment(workspace string) ([]string, error) {
 	return []string{
 		"BUILDWORLD_BUILD_TEMP=" + e.root,
 		"BUILDWORLD_WORKSPACE=" + workspace,
+		// Jenkinsfile imports retain $WORKSPACE. Keep it as an alias while
+		// exposing the BuildWorld-native name to new pipelines.
+		"WORKSPACE=" + workspace,
 		"TMP=" + temporary,
 		"TEMP=" + temporary,
 		"TMPDIR=" + temporary,

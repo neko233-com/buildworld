@@ -1,8 +1,7 @@
 package migration
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -15,9 +14,30 @@ import (
 const maxJenkinsfileBytes = 2 << 20
 
 var (
-	environmentAssignment = regexp.MustCompile(`(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')\s*$`)
+	environmentAssignment = regexp.MustCompile(`(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([0-9]+)|\b(true|false)\b)\s*(?://.*)?$`)
+	scriptedAssignment    = regexp.MustCompile(`(?m)^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')\s*$`)
 	envReference          = regexp.MustCompile(`\$\{env\.([A-Za-z_][A-Za-z0-9_]*)\}`)
-	fileExistsCondition   = regexp.MustCompile(`^(!?)\s*fileExists\s*\(\s*(?:env\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\)$`)
+	paramsReference       = regexp.MustCompile(`\$\{params\.([A-Za-z_][A-Za-z0-9_]*)\}`)
+	groovyAssignment      = regexp.MustCompile(`(?m)\bdef\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*`)
+	groovyVariableRef     = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+	bareShellVariable     = regexp.MustCompile(`(?m)(\bsh\s+)([A-Za-z_][A-Za-z0-9_]*)\s*$`)
+	artifactDeclaration   = regexp.MustCompile(`(?s)\barchiveArtifacts\s*(?:\(\s*)?artifacts\s*:\s*`)
+	persistentTailMonitor = regexp.MustCompile(`(?s)\n\s*tail\s+-f[^\n]*&\s*\n\s*TAIL_PID=\$!\s*\n\s*while\s+true;\s+do.*\n\s*done\s*$`)
+	jenkinsMonitorTail    = regexp.MustCompile(`(?m)\btail\s+-f\s+([^\s;&|]+)`)
+	jenkinsMonitorPID     = regexp.MustCompile(`(?m)\bSERVER_PID\s*=\s*\\?\$?\(\s*cat\s+([^\s)]+)`)
+	jenkinsMonitorTarget  = regexp.MustCompile(`(?m)^\s*cd\s+([^\s;&|]+)`)
+	foregroundService     = regexp.MustCompile(`(?m)^(\s*)(go\s+run\s+\./cmd/server/main\.go|\./\$?\{?(?:BINARY_NAME|BINARY_NAME)\}?)[ \t]+2>&1[ \t]*\|[ \t]*tee[ \t]+([^\r\n]+)$`)
+	teamResourcesFallback = regexp.MustCompile(`(?s)if\s+\[\s+-f\s+\./update-team-resources\.sh\s+\];\s+then(.*?)\n\s*else(.*?)\n\s*fi`)
+	teamResourcesDirect   = regexp.MustCompile(`(?m)^(\s*)chmod\s+\+x\s+\./update-team-resources\.sh\s*\n\s*\./update-team-resources\.sh\s*$`)
+	jenkinsGitFetch       = regexp.MustCompile(`(?m)^(\s*git\s+fetch[^\r\n|]*)\s*$`)
+	jenkinsGitPull        = regexp.MustCompile(`(?m)^(\s*git\s+pull[^\r\n|]*)\s*$`)
+	jenkinsGitResetRemote = regexp.MustCompile(`(?m)^(\s*git\s+reset\s+--hard\s+origin/[^\s|]+)\s*$`)
+	retentionDeclaration  = regexp.MustCompile(`(?s)numToKeepStr\s*:\s*['\"](\d+)['\"]`)
+	timeoutDeclaration    = regexp.MustCompile(`(?is)\btimeout\s*\(.*?time\s*:\s*(\d+).*?unit\s*:\s*['\"]([A-Z]+)['\"].*?\)`)
+	fileExistsCondition   = regexp.MustCompile(`^(!?)\s*fileExists\s*\((.*)\)\s*$`)
+	fileExistsAssignment  = regexp.MustCompile(`(?m)\bdef\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*fileExists\s*\(([^\r\n]+)\)`)
+	statusAssignment      = regexp.MustCompile(`^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*$`)
+	statusCondition       = regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(==|!=)\s*(\d+)\s*$`)
 	originBranch          = regexp.MustCompile(`\borigin/([A-Za-z0-9._/-]+)`)
 )
 
@@ -35,10 +55,21 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 	if len(source) > maxJenkinsfileBytes {
 		return nil, fmt.Errorf("Jenkinsfile exceeds the 2 MiB migration limit")
 	}
+	if strings.HasPrefix(strings.TrimSpace(source), "<") || strings.HasPrefix(strings.TrimSpace(source), "<?xml") {
+		var description string
+		var err error
+		source, description, err = extractJenkinsPipelineXML(source)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(request.Name) == "" {
+			request.Name = description
+		}
+	}
 	mask := groovyCodeMask(source)
 	pipeline, ok := namedBlock(source, mask, "pipeline", 0, len(source))
 	if !ok {
-		return nil, fmt.Errorf("declarative Jenkinsfile must contain pipeline { ... }")
+		return convertScriptedJenkinsfile(request, source, mask)
 	}
 
 	name := strings.TrimSpace(request.Name)
@@ -58,7 +89,17 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 	if environment, found := namedBlock(pipelineSource, pipelineMask, "environment", 0, len(pipelineSource)); found {
 		parseJenkinsEnvironment(pipelineSource[environment.start:environment.end], config.Environment, &warnings)
 	}
+	if parameters, found := namedBlock(pipelineSource, pipelineMask, "parameters", 0, len(pipelineSource)); found {
+		parseJenkinsParameters(pipelineSource[parameters.start:parameters.end], config, &warnings)
+	}
+	if triggers, found := namedBlock(pipelineSource, pipelineMask, "triggers", 0, len(pipelineSource)); found {
+		parseJenkinsTriggers(pipelineSource[triggers.start:triggers.end], config, &warnings)
+	}
+	parseJenkinsArtifacts(pipelineSource, config)
 	parseJenkinsAgent(pipelineSource, pipelineMask, config, &warnings)
+	if options, found := namedBlock(pipelineSource, pipelineMask, "options", 0, len(pipelineSource)); found {
+		parseJenkinsOptions(pipelineSource[options.start:options.end], config, &warnings)
+	}
 
 	stagesBlock, found := namedBlock(pipelineSource, pipelineMask, "stages", 0, len(pipelineSource))
 	if !found {
@@ -70,22 +111,19 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 		return nil, err
 	}
 	config.Stages = stages
-
-	if _, found := namedBlock(pipelineSource, pipelineMask, "post", 0, len(pipelineSource)); found {
-		warnings = appendWarning(warnings, "post_review_required", "Jenkins post conditions were detected. Configure equivalent Buildworld notifications or cleanup steps after import.")
-	}
-	if _, found := namedBlock(pipelineSource, pipelineMask, "options", 0, len(pipelineSource)); found {
-		warnings = appendWarning(warnings, "options_review_required", "Jenkins options were detected. Review concurrency and timeout policies in Buildworld settings.")
+	if hasServiceWatch(stages) {
+		config.AllowLongRunning = true
 	}
 
-	var encoded bytes.Buffer
-	encoder := json.NewEncoder(&encoded)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(config); err != nil {
-		return nil, fmt.Errorf("encode migrated pipeline: %w", err)
+	if post, found := namedBlock(pipelineSource, pipelineMask, "post", 0, len(pipelineSource)); found {
+		parseJenkinsPost(pipelineSource[post.start:post.end], config, &warnings)
 	}
-	if _, err := engine.ParsePipelineConfig(encoded.String()); err != nil {
+
+	encoded, err := engine.FormatTypeScriptPipeline(config)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := engine.ParsePipelineConfig(encoded); err != nil {
 		return nil, fmt.Errorf("validate migrated pipeline: %w", err)
 	}
 
@@ -96,8 +134,57 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 	return &Result{
 		Version:      ResultVersion,
 		SourceFormat: "jenkinsfile",
-		TargetFormat: "buildworld-json",
-		Config:       encoded.String(),
+		TargetFormat: "buildworld-typescript",
+		Config:       encoded,
+		Warnings:     warnings,
+		Summary:      Summary{StageCount: len(config.Stages), EnvironmentCount: len(config.Environment)},
+		Hints:        hints,
+	}, nil
+}
+
+func convertScriptedJenkinsfile(request Request, source, mask string) (*Result, error) {
+	node, ok := namedBlock(source, mask, "node", 0, len(source))
+	if !ok {
+		return nil, fmt.Errorf("Jenkinsfile must contain declarative pipeline { ... } or scripted node { ... }")
+	}
+	name := strings.TrimSpace(request.Name)
+	if name == "" {
+		name = "Migrated Jenkins pipeline"
+	}
+	config := &engine.BuildConfig{
+		Name:        name,
+		Description: "Migrated from Jenkins scripted pipeline",
+		Environment: map[string]string{},
+		Triggers:    []engine.Trigger{{Type: "manual", Config: map[string]string{}}},
+	}
+	warnings := make([]Warning, 0)
+	nodeSource := source[node.start:node.end]
+	parseScriptedEnvironment(nodeSource, config.Environment, &warnings)
+	stages, err := parseScriptedJenkinsStages(nodeSource, &warnings)
+	if err != nil {
+		return nil, err
+	}
+	config.Stages = stages
+	if hasServiceWatch(stages) {
+		config.AllowLongRunning = true
+	}
+
+	encoded, err := engine.FormatTypeScriptPipeline(config)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := engine.ParsePipelineConfig(encoded); err != nil {
+		return nil, fmt.Errorf("validate migrated pipeline: %w", err)
+	}
+	hints := Hints{RepositoryURL: config.Environment["GIT_REPO_URL"], DefaultBranch: "main"}
+	if match := originBranch.FindStringSubmatch(source); len(match) == 2 {
+		hints.DefaultBranch = match[1]
+	}
+	return &Result{
+		Version:      ResultVersion,
+		SourceFormat: "jenkinsfile",
+		TargetFormat: "buildworld-typescript",
+		Config:       encoded,
 		Warnings:     warnings,
 		Summary:      Summary{StageCount: len(config.Stages), EnvironmentCount: len(config.Environment)},
 		Hints:        hints,
@@ -107,6 +194,254 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 type sourceRange struct {
 	start int
 	end   int
+}
+
+// extractJenkinsPipelineXML accepts a Pipeline job's config.xml directly. This
+// lets an operator move the exact job definition out of JENKINS_HOME without
+// copying its Groovy script by hand. Jenkins writes XML 1.1; encoding/xml only
+// accepts 1.0 declarations, while the document structure used here is shared.
+func extractJenkinsPipelineXML(source string) (script, description string, err error) {
+	source = strings.Replace(source, `version="1.1"`, `version="1.0"`, 1)
+	source = strings.Replace(source, `version='1.1'`, `version='1.0'`, 1)
+	var job struct {
+		Description string `xml:"description"`
+		Definition  struct {
+			Class  string `xml:"class,attr"`
+			Script string `xml:"script"`
+		} `xml:"definition"`
+	}
+	if err := xml.Unmarshal([]byte(source), &job); err != nil {
+		return "", "", fmt.Errorf("parse Jenkins job config.xml: %w", err)
+	}
+	if !strings.Contains(job.Definition.Class, "CpsFlowDefinition") || strings.TrimSpace(job.Definition.Script) == "" {
+		return "", "", fmt.Errorf("Jenkins config.xml must contain an inline Pipeline script; SCM-backed and folder jobs must be exported with their Jenkinsfile")
+	}
+	return job.Definition.Script, strings.TrimSpace(job.Description), nil
+}
+
+func parseJenkinsParameters(source string, config *engine.BuildConfig, warnings *[]Warning) {
+	mask := groovyCodeMask(source)
+	for position := 0; position < len(mask); {
+		index, kind := nextIdentifier(mask, position)
+		if index < 0 {
+			return
+		}
+		if kind != "string" && kind != "booleanParam" && kind != "choice" && kind != "password" {
+			position = index + len(kind)
+			continue
+		}
+		open := skipSpace(mask, index+len(kind), len(mask))
+		if open >= len(mask) || mask[open] != '(' {
+			position = index + len(kind)
+			continue
+		}
+		close, ok := matchingDelimiter(mask, open, '(', ')', len(mask))
+		if !ok {
+			*warnings = appendWarning(*warnings, "parameter_review_required", "A Jenkins parameter has an unclosed declaration and needs review.")
+			return
+		}
+		arguments := source[open+1 : close]
+		name, found := groovyNamedString(arguments, "name")
+		if !found || name == "" {
+			*warnings = appendWarning(*warnings, "parameter_review_required", "A Jenkins parameter without a literal name needs review.")
+			position = close + 1
+			continue
+		}
+		description, _ := groovyNamedString(arguments, "description")
+		parameter := engine.BuildParameter{Name: name, Description: description}
+		switch kind {
+		case "booleanParam":
+			parameter.Type = "boolean"
+			if value, ok := groovyNamedBool(arguments, "defaultValue"); ok {
+				parameter.Default = value
+			}
+		case "choice":
+			parameter.Type = "choice"
+			parameter.Choices = groovyChoices(arguments)
+			if len(parameter.Choices) == 0 {
+				*warnings = appendWarning(*warnings, "parameter_review_required", fmt.Sprintf("Parameter %q has no literal choices.", name))
+			} else {
+				parameter.Default = parameter.Choices[0]
+			}
+		case "password":
+			parameter.Type = "string"
+			parameter.IsSecret = true
+			parameter.Required = true
+		default:
+			parameter.Type = "string"
+			parameter.Default, _ = groovyNamedString(arguments, "defaultValue")
+		}
+		config.Parameters = append(config.Parameters, parameter)
+		position = close + 1
+	}
+}
+
+func parseJenkinsTriggers(source string, config *engine.BuildConfig, warnings *[]Warning) {
+	mask := groovyCodeMask(source)
+	for position := 0; position < len(mask); {
+		index := findToken(mask, "cron", position, len(mask))
+		if index < 0 {
+			return
+		}
+		value, end, ok := parseStepArgument(source, mask, index+len("cron"))
+		if !ok || strings.TrimSpace(value) == "" {
+			*warnings = appendWarning(*warnings, "trigger_review_required", "A Jenkins cron trigger is not a literal string and needs review.")
+			position = index + len("cron")
+			continue
+		}
+		config.Triggers = append(config.Triggers, engine.Trigger{Type: "schedule", Config: map[string]string{"cron": strings.TrimSpace(value)}})
+		position = end
+	}
+}
+
+func parseJenkinsArtifacts(source string, config *engine.BuildConfig) {
+	for _, match := range artifactDeclaration.FindAllStringIndex(source, -1) {
+		value, _, ok := parseGroovyString(source, skipSourceSpace(source, match[1], len(source)))
+		if !ok {
+			continue
+		}
+		for _, pattern := range strings.Split(value, ",") {
+			pattern = strings.TrimSpace(pattern)
+			if pattern == "" || containsString(config.Artifacts, pattern) {
+				continue
+			}
+			config.Artifacts = append(config.Artifacts, pattern)
+		}
+	}
+}
+
+func parseJenkinsOptions(source string, config *engine.BuildConfig, warnings *[]Warning) {
+	if match := retentionDeclaration.FindStringSubmatch(source); len(match) == 2 {
+		if retain, err := strconv.Atoi(match[1]); err == nil {
+			config.RetentionCompleted = retain
+		}
+	}
+	if strings.Contains(source, "disableConcurrentBuilds") {
+		config.DisableConcurrent = true
+		config.AbortPrevious = strings.Contains(source, "abortPrevious: true")
+	}
+	if match := timeoutDeclaration.FindStringSubmatch(source); len(match) == 3 {
+		if value, err := strconv.Atoi(match[1]); err == nil {
+			multiplier := map[string]int{"SECONDS": 1, "MINUTES": 60, "HOURS": 3600}[strings.ToUpper(match[2])]
+			if multiplier > 0 {
+				config.TimeoutSec = value * multiplier
+			}
+		}
+	}
+	if hasUnsupportedJenkinsOption(source) {
+		*warnings = appendWarning(*warnings, "options_review_required", "Some Jenkins options could not be represented in BuildWorld.")
+	}
+}
+
+func hasUnsupportedJenkinsOption(source string) bool {
+	allowed := map[string]bool{
+		"skipDefaultCheckout": true, "timestamps": true, "buildDiscarder": true,
+		"logRotator": true, "numToKeepStr": true, "disableConcurrentBuilds": true,
+		"abortPrevious": true, "timeout": true, "time": true, "unit": true,
+		"true": true, "false": true,
+	}
+	mask := groovyCodeMask(source)
+	for position := 0; position < len(mask); {
+		index, word := nextIdentifier(mask, position)
+		if index < 0 {
+			return false
+		}
+		if !allowed[word] {
+			return true
+		}
+		position = index + len(word)
+	}
+	return false
+}
+
+func parseJenkinsPost(source string, config *engine.BuildConfig, warnings *[]Warning) {
+	mask := groovyCodeMask(source)
+	for position := 0; position < len(mask); {
+		index, condition := nextIdentifier(mask, position)
+		if index < 0 {
+			break
+		}
+		open := skipSpace(mask, index+len(condition), len(mask))
+		if open >= len(mask) || mask[open] != '{' {
+			position = index + len(condition)
+			continue
+		}
+		close, ok := matchingDelimiter(mask, open, '{', '}', len(mask))
+		if !ok {
+			*warnings = appendWarning(*warnings, "post_review_required", "A Jenkins post condition has an unclosed body.")
+			return
+		}
+		if condition != "always" && condition != "success" && condition != "failure" && condition != "cleanup" {
+			*warnings = appendWarning(*warnings, "post_review_required", fmt.Sprintf("Jenkins post condition %q is not supported.", condition))
+			position = close + 1
+			continue
+		}
+		command, postWarnings := translateJenkinsShell(source[open+1 : close])
+		for _, warning := range postWarnings {
+			*warnings = appendWarning(*warnings, warning.Code, "Post "+condition+": "+warning.Message)
+		}
+		if strings.TrimSpace(command) == "" {
+			*warnings = appendWarning(*warnings, "post_review_required", fmt.Sprintf("Jenkins post condition %q has no supported commands.", condition))
+		} else {
+			if config.Post == nil {
+				config.Post = map[string][]engine.Step{}
+			}
+			config.Post[condition] = append(config.Post[condition], engine.Step{Name: "post " + condition, Type: "shell", Command: "set -e\n\n" + strings.TrimSpace(command)})
+		}
+		position = close + 1
+	}
+}
+
+func groovyNamedString(arguments, name string) (string, bool) {
+	pattern := regexp.MustCompile(`(?s)\b` + regexp.QuoteMeta(name) + `\s*:\s*`)
+	match := pattern.FindStringIndex(arguments)
+	if match == nil {
+		return "", false
+	}
+	value, _, ok := parseGroovyString(arguments, skipSourceSpace(arguments, match[1], len(arguments)))
+	return value, ok
+}
+
+func groovyNamedBool(arguments, name string) (bool, bool) {
+	pattern := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(name) + `\s*:\s*(true|false)\b`)
+	match := pattern.FindStringSubmatch(arguments)
+	return len(match) == 2 && strings.EqualFold(match[1], "true"), len(match) == 2
+}
+
+func groovyChoices(arguments string) []string {
+	index := strings.Index(arguments, "choices")
+	if index < 0 {
+		return nil
+	}
+	open := strings.Index(arguments[index:], "[")
+	close := strings.Index(arguments[index:], "]")
+	if open < 0 || close < open {
+		return nil
+	}
+	list := arguments[index+open+1 : index+close]
+	values := make([]string, 0)
+	for position := 0; position < len(list); {
+		position = skipSourceSpace(list, position, len(list))
+		value, end, ok := parseGroovyString(list, position)
+		if !ok {
+			position++
+			continue
+		}
+		if value != "" {
+			values = append(values, value)
+		}
+		position = end
+	}
+	return values
+}
+
+func containsString(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func namedBlock(source, mask, name string, from, limit int) (sourceRange, bool) {
@@ -136,6 +471,12 @@ func parseJenkinsEnvironment(source string, environment map[string]string, warni
 		if value == "" && match[3] != "" {
 			value = match[3]
 		}
+		if value == "" && match[4] != "" {
+			value = match[4]
+		}
+		if value == "" && match[5] != "" {
+			value = match[5]
+		}
 		value = strings.ReplaceAll(value, `\$`, `$`)
 		value = envReference.ReplaceAllString(value, `${$1}`)
 		environment[match[1]] = value
@@ -144,6 +485,22 @@ func parseJenkinsEnvironment(source string, environment map[string]string, warni
 	assignmentCount := strings.Count(mask, "=")
 	if assignmentCount > len(matches) {
 		*warnings = appendWarning(*warnings, "environment_review_required", "Some Jenkins environment expressions are not plain strings and require manual review.")
+	}
+}
+
+func parseScriptedEnvironment(source string, environment map[string]string, warnings *[]Warning) {
+	matches := scriptedAssignment.FindAllStringSubmatch(source, -1)
+	for _, match := range matches {
+		value := match[2]
+		if value == "" && match[3] != "" {
+			value = match[3]
+		}
+		value = strings.ReplaceAll(value, `\$`, `$`)
+		value = envReference.ReplaceAllString(value, `${$1}`)
+		environment[match[1]] = value
+	}
+	if strings.Contains(groovyCodeMask(source), "def ") && len(matches) == 0 {
+		*warnings = appendWarning(*warnings, "scripted_environment_review_required", "Some scripted-pipeline variables are not plain strings and require manual review.")
 	}
 }
 
@@ -206,6 +563,10 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 		}
 		body := source[cursor+1 : closeBody]
 		bodyMask := mask[cursor+1 : closeBody]
+		branches, whenWarnings := parseJenkinsWhen(body, bodyMask)
+		for _, warning := range whenWarnings {
+			*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
+		}
 		stepsBlock, found := namedBlock(body, bodyMask, "steps", 0, len(body))
 		if !found {
 			*warnings = appendWarning(*warnings, "stage_without_steps", fmt.Sprintf("Stage %q has no declarative steps block and was skipped.", stageName))
@@ -213,6 +574,11 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			continue
 		}
 		stepSource := body[stepsBlock.start:stepsBlock.end]
+		if watch, ok := extractJenkinsServiceWatch(stepSource, strings.TrimSpace(stageName)); ok {
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, Steps: []engine.Step{watch}})
+			position = closeBody + 1
+			continue
+		}
 		command, commandWarnings := translateJenkinsShell(stepSource)
 		for _, warning := range commandWarnings {
 			*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
@@ -223,7 +589,8 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			continue
 		}
 		stages = append(stages, engine.Stage{
-			Name: strings.TrimSpace(stageName),
+			Name:     strings.TrimSpace(stageName),
+			Branches: branches,
 			Steps: []engine.Step{{
 				Name:    strings.TrimSpace(stageName),
 				Type:    "shell",
@@ -238,7 +605,89 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 	return stages, nil
 }
 
+func parseScriptedJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, error) {
+	mask := groovyCodeMask(source)
+	stages := make([]engine.Stage, 0)
+	for position := 0; position < len(source); {
+		index := findToken(mask, "stage", position, len(mask))
+		if index < 0 {
+			break
+		}
+		cursor := skipSpace(mask, index+len("stage"), len(mask))
+		if cursor >= len(mask) || mask[cursor] != '(' {
+			position = index + len("stage")
+			continue
+		}
+		closeParen, ok := matchingDelimiter(mask, cursor, '(', ')', len(mask))
+		if !ok {
+			return nil, fmt.Errorf("Jenkins stage near byte %d has an unclosed name", index)
+		}
+		stageName, _, ok := parseGroovyString(source, skipSourceSpace(source, cursor+1, closeParen))
+		if !ok || strings.TrimSpace(stageName) == "" {
+			return nil, fmt.Errorf("Jenkins stage near byte %d must use a quoted name", index)
+		}
+		cursor = skipSpace(mask, closeParen+1, len(mask))
+		if cursor >= len(mask) || mask[cursor] != '{' {
+			return nil, fmt.Errorf("Jenkins stage %q has no body", stageName)
+		}
+		closeBody, ok := matchingDelimiter(mask, cursor, '{', '}', len(mask))
+		if !ok {
+			return nil, fmt.Errorf("Jenkins stage %q has an unclosed body", stageName)
+		}
+		stageSource := source[cursor+1 : closeBody]
+		if watch, ok := extractJenkinsServiceWatch(stageSource, strings.TrimSpace(stageName)); ok {
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Steps: []engine.Step{watch}})
+			position = closeBody + 1
+			continue
+		}
+		command, commandWarnings := translateJenkinsShell(stageSource)
+		for _, warning := range commandWarnings {
+			*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
+		}
+		if strings.TrimSpace(command) == "" {
+			*warnings = appendWarning(*warnings, "stage_without_supported_commands", fmt.Sprintf("Stage %q contains no supported sh/echo/script/dir commands and was skipped.", stageName))
+			position = closeBody + 1
+			continue
+		}
+		stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Steps: []engine.Step{{Name: strings.TrimSpace(stageName), Type: "shell", Command: "set -e\n\n" + strings.TrimSpace(command)}}})
+		position = closeBody + 1
+	}
+	if len(stages) == 0 {
+		return nil, fmt.Errorf("scripted Jenkinsfile has no stages with supported executable commands")
+	}
+	return stages, nil
+}
+
+func parseJenkinsWhen(source, mask string) ([]string, []Warning) {
+	block, found := namedBlock(source, mask, "when", 0, len(source))
+	if !found {
+		return nil, nil
+	}
+	body := source[block.start:block.end]
+	bodyMask := mask[block.start:block.end]
+	branches := make([]string, 0)
+	for position := 0; position < len(bodyMask); {
+		index := findToken(bodyMask, "branch", position, len(bodyMask))
+		if index < 0 {
+			break
+		}
+		value, end, ok := parseGroovyString(body, skipSourceSpace(body, index+len("branch"), len(body)))
+		if ok && strings.TrimSpace(value) != "" {
+			branches = append(branches, strings.TrimSpace(value))
+			position = end
+			continue
+		}
+		position = index + len("branch")
+	}
+	if len(branches) > 0 {
+		return branches, nil
+	}
+	return nil, []Warning{{Code: "when_review_required", Message: "Jenkins when condition could not be converted. Configure an equivalent BuildWorld branch or approval policy before enabling this stage."}}
+}
+
 func translateJenkinsShell(source string) (string, []Warning) {
+	source = expandGroovyShellVariables(source)
+	source = expandFileExistsVariables(source)
 	mask := groovyCodeMask(source)
 	lines := make([]string, 0)
 	warnings := make([]Warning, 0)
@@ -264,7 +713,18 @@ func translateJenkinsShell(source string) (string, []Warning) {
 		case "sh":
 			value, end, ok := parseStepArgument(source, mask, after)
 			if ok {
-				appendCommand(&lines, normalizeJenkinsShell(value))
+				command := normalizeJenkinsShell(value)
+				if name, found := returnStatusAssignment(source, index, end); found {
+					command = "set +e\n" + command + "\n" + name + "=$?\nset -e"
+				}
+				appendCommand(&lines, command)
+				cursor = end
+				continue
+			}
+		case "error":
+			value, end, ok := parseStepArgument(source, mask, after)
+			if ok {
+				appendCommand(&lines, `printf '%s\n' "`+shellDoubleQuote(normalizeJenkinsShell(value))+`" >&2`+"\nexit 1")
 				cursor = end
 				continue
 			}
@@ -340,6 +800,31 @@ func translateJenkinsShell(source string) (string, []Warning) {
 	return strings.Join(lines, "\n\n"), warnings
 }
 
+func expandFileExistsVariables(source string) string {
+	for _, match := range fileExistsAssignment.FindAllStringSubmatch(source, -1) {
+		if len(match) != 3 {
+			continue
+		}
+		condition := regexp.MustCompile(`\(\s*(!?)\s*` + regexp.QuoteMeta(match[1]) + `\s*\)`)
+		source = condition.ReplaceAllString(source, "(${1}fileExists("+strings.TrimSpace(match[2])+"))")
+	}
+	return source
+}
+
+func returnStatusAssignment(source string, index, end int) (string, bool) {
+	if !strings.Contains(source[index:end], "returnStatus: true") {
+		return "", false
+	}
+	lineStart := strings.LastIndex(source[:index], "\n") + 1
+	match := statusAssignment.FindStringSubmatch(source[lineStart:index])
+	return func() string {
+		if len(match) == 2 {
+			return match[1]
+		}
+		return ""
+	}(), len(match) == 2
+}
+
 func parseStepArgument(source, mask string, position int) (string, int, bool) {
 	cursor := skipSourceSpace(source, position, len(source))
 	if cursor < len(mask) && mask[cursor] == '(' {
@@ -397,6 +882,7 @@ func parseGroovyString(source string, position int) (string, int, bool) {
 func normalizeJenkinsShell(command string) string {
 	command = strings.ReplaceAll(command, `\$`, "$")
 	command = envReference.ReplaceAllString(command, `${$1}`)
+	command = paramsReference.ReplaceAllString(command, `${$1}`)
 	lines := strings.Split(strings.Trim(command, "\n"), "\n")
 	minimum := -1
 	for _, line := range lines {
@@ -415,25 +901,124 @@ func normalizeJenkinsShell(command string) string {
 			}
 		}
 	}
-	return strings.TrimSpace(strings.Join(lines, "\n"))
+	command = normalizeLongRunningJenkinsProcess(strings.TrimSpace(strings.Join(lines, "\n")))
+	return normalizeJenkinsGitSync(command)
+}
+
+// Jenkins credentials are encrypted with that controller's master key and
+// cannot be copied into a BuildWorld pipeline. On the same host, retain the
+// checked-out revision when an authenticated fetch/pull is unavailable; a
+// fresh clone still fails loudly rather than claiming a deployment succeeded.
+func normalizeJenkinsGitSync(command string) string {
+	command = jenkinsGitFetch.ReplaceAllString(command, `${1} || echo "BuildWorld: git fetch unavailable; using existing checkout"`)
+	command = jenkinsGitPull.ReplaceAllString(command, `${1} || echo "BuildWorld: git pull unavailable; using existing checkout"`)
+	command = jenkinsGitResetRemote.ReplaceAllString(command, `${1} || git reset --hard HEAD`)
+	return command
+}
+
+// Jenkins deployment jobs commonly reserve their executor forever by tailing a
+// service log, or by running the service in the foreground through tee. In
+// BuildWorld the build must finish so its result, artifacts, and lifecycle
+// hooks are observable. Keep the service alive in the target workspace and
+// leave log observation to BuildWorld's build log rather than an infinite loop.
+func normalizeLongRunningJenkinsProcess(command string) string {
+	command = persistentTailMonitor.ReplaceAllString(command, "\n# BuildWorld manages service log observation; the Jenkins infinite tail monitor was removed.")
+	if monitor := strings.Index(command, "tail -f"); monitor >= 0 {
+		if loop := strings.Index(command[monitor:], "while true; do"); loop >= 0 {
+			start := strings.LastIndex(command[:monitor], "\n")
+			if start < 0 {
+				start = 0
+			}
+			command = command[:start] + "\n# BuildWorld manages service log observation; the Jenkins infinite tail monitor was removed."
+		}
+	}
+	command = foregroundService.ReplaceAllString(command, `${1}nohup ${2} > ${3} 2>&1 &
+${1}echo $! > buildworld-service.pid
+${1}echo "BuildWorld started background service PID $(cat buildworld-service.pid)"`)
+	command = teamResourcesFallback.ReplaceAllString(command, `if [ -f ./update-team-resources.sh ]; then$1
+elif [ -f ./_scripts/deploy/update-team-resources.sh ]; then
+  chmod +x ./_scripts/deploy/update-team-resources.sh
+  ./_scripts/deploy/update-team-resources.sh
+else$2
+fi`)
+	command = teamResourcesDirect.ReplaceAllString(command, `${1}if [ -f ./update-team-resources.sh ]; then
+${1}  chmod +x ./update-team-resources.sh
+${1}  ./update-team-resources.sh
+${1}elif [ -f ./_scripts/deploy/update-team-resources.sh ]; then
+${1}  chmod +x ./_scripts/deploy/update-team-resources.sh
+${1}  ./_scripts/deploy/update-team-resources.sh
+${1}else
+${1}  echo "⚠️ 未找到 Team-Resources 更新脚本，跳过"
+${1}fi`)
+	return command
+}
+
+// Jenkins scripted blocks frequently construct a command in a simple GString
+// and then call `sh command`. Resolve that safe, local form before extracting
+// shell steps; expressions remain untouched and therefore visible for review.
+func expandGroovyShellVariables(source string) string {
+	values := make(map[string]string)
+	for _, match := range groovyAssignment.FindAllStringSubmatchIndex(source, -1) {
+		if len(match) < 4 {
+			continue
+		}
+		value, _, ok := parseGroovyString(source, skipSourceSpace(source, match[1], len(source)))
+		if ok {
+			values[source[match[2]:match[3]]] = normalizeJenkinsShell(value)
+		}
+	}
+	for iteration := 0; iteration < len(values); iteration++ {
+		for name, value := range values {
+			values[name] = groovyVariableRef.ReplaceAllStringFunc(value, func(reference string) string {
+				key := strings.TrimSuffix(strings.TrimPrefix(reference, "${"), "}")
+				if replacement, found := values[key]; found {
+					return replacement
+				}
+				return reference
+			})
+		}
+	}
+	return bareShellVariable.ReplaceAllStringFunc(source, func(line string) string {
+		parts := bareShellVariable.FindStringSubmatch(line)
+		if len(parts) != 3 {
+			return line
+		}
+		if value, found := values[parts[2]]; found {
+			return parts[1] + strconv.Quote(value)
+		}
+		return line
+	})
 }
 
 func shellFileCondition(source string) (string, bool) {
-	match := fileExistsCondition.FindStringSubmatch(strings.TrimSpace(source))
-	if len(match) != 3 {
-		return "", false
+	source = strings.TrimSpace(source)
+	if match := fileExistsCondition.FindStringSubmatch(source); len(match) == 3 {
+		path, ok := shellPathExpression(strings.TrimSpace(match[2]))
+		if !ok {
+			return "", false
+		}
+		operator := "-e"
+		if match[1] == "!" {
+			operator = "! -e"
+		}
+		return `[ ` + operator + ` ` + path + ` ]`, true
 	}
-	operator := "-e"
-	if match[1] == "!" {
-		operator = "! -e"
+	if source == "isUnix()" {
+		return `[ -n "$(uname 2>/dev/null || true)" ]`, true
 	}
-	return `[ ` + operator + ` "${` + match[2] + `}" ]`, true
+	if match := statusCondition.FindStringSubmatch(source); len(match) == 4 {
+		return `[ "${` + match[1] + `}" ` + match[2] + ` "` + match[3] + `" ]`, true
+	}
+	return "", false
 }
 
 func shellPathExpression(source string) (string, bool) {
 	source = strings.TrimSpace(source)
 	if strings.HasPrefix(source, "env.") && isIdentifier(source[4:]) {
 		return `"${` + source[4:] + `}"`, true
+	}
+	if isIdentifier(source) {
+		return `"${` + source + `}"`, true
 	}
 	if value, _, ok := parseGroovyString(source, 0); ok {
 		return strconv.Quote(normalizeJenkinsShell(value)), true

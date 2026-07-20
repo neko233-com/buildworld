@@ -114,6 +114,7 @@ func NewRouter(d Deps) http.Handler {
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.getProject)
 					r.With(editors).Put("/", h.updateProject)
+					r.With(editors).Post("/validate", h.validateProjectConfig)
 					r.With(editors).Delete("/", h.deleteProject)
 					r.Get("/builds", h.listProjectBuilds)
 					r.With(editors).Post("/builds", h.triggerBuild)
@@ -318,13 +319,35 @@ func NewRouter(d Deps) http.Handler {
 		ws.HandleWebSocket(d.Hub, w, r)
 	})
 
+	// Disk-backed frontend assets can notify an open browser after HTML, CSS,
+	// JavaScript, or TypeScript output changes. These endpoints deliberately sit
+	// outside /api and do not expose project workspaces.
+	if d.LiveReload != nil {
+		r.Get("/__buildworld/livereload", d.LiveReload.ServeEvents)
+		r.Get("/__buildworld/livereload.js", d.LiveReload.ServeScript)
+	}
+
 	// Static frontend (SPA) — served from embedded or disk in main.
 	if d.StaticFS != nil {
 		fileServer := http.FileServer(http.FS(d.StaticFS))
+		serveIndex := func(w http.ResponseWriter, r *http.Request) {
+			indexHTML, err := fs.ReadFile(d.StaticFS, "index.html")
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			if d.LiveReload != nil {
+				indexHTML = []byte(strings.Replace(string(indexHTML), "</head>", "<script src=\"/__buildworld/livereload.js\"></script></head>", 1))
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(indexHTML)
+		}
 		r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 			path := r.URL.Path
-			if path == "/" {
-				fileServer.ServeHTTP(w, r)
+			if path == "/" || path == "/index.html" {
+				serveIndex(w, r)
 				return
 			}
 			// Try exact file first.
@@ -339,14 +362,7 @@ func NewRouter(d Deps) http.Handler {
 				return
 			}
 			// SPA fallback: serve index.html.
-			indexHTML, err := fs.ReadFile(d.StaticFS, "index.html")
-			if err != nil {
-				http.NotFound(w, r)
-				return
-			}
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(http.StatusOK)
-			w.Write(indexHTML)
+			serveIndex(w, r)
 		})
 	}
 

@@ -30,9 +30,10 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Ensure required directories exist.
-	artifactsRoot := "./artifacts"
-	for _, dir := range []string{filepath.Dir(cfg.Database.Path), cfg.Storage.Workspace, cfg.Plugins.Path, artifactsRoot} {
+	// Keep all mutable data in configured storage. A LaunchAgent has no stable
+	// shell working directory, so a relative ./artifacts root loses builds.
+	artifactsRoot := cfg.Storage.Artifacts
+	for _, dir := range []string{filepath.Dir(cfg.Database.Path), cfg.Storage.Workspace, cfg.Storage.BuildTemp, cfg.Storage.Logs, cfg.Plugins.Path, artifactsRoot} {
 		if dir != "" {
 			_ = os.MkdirAll(dir, 0o755)
 		}
@@ -117,10 +118,22 @@ func main() {
 	defer triggerChecker.Stop()
 
 	var staticFS fs.FS
+	var staticDir string
 	for _, distDir := range staticDirectories() {
 		if stat, err := os.Stat(distDir); err == nil && stat.IsDir() {
 			staticFS = os.DirFS(distDir)
+			staticDir = distDir
 			break
+		}
+	}
+	var liveReload *api.LiveReload
+	if staticDir != "" {
+		liveReload, err = api.NewLiveReload(staticDir)
+		if err != nil {
+			log.Printf("Web hot reload unavailable: %v", err)
+		} else {
+			defer liveReload.Stop()
+			log.Printf("Web hot reload watching %s", staticDir)
 		}
 	}
 
@@ -133,6 +146,7 @@ func main() {
 		Loader:     loader,
 		Artifacts:  artifactMgr,
 		StaticFS:   staticFS,
+		LiveReload: liveReload,
 		Statistics: statisticsService,
 		Approval:   approvalService,
 		BigScreen:  bigScreenService,

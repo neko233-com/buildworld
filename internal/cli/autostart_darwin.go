@@ -27,7 +27,8 @@ func enableAutostart(server, config string) error {
 		return err
 	}
 	path := filepath.Join(directory, launchAgentName+".plist")
-	contents := fmt.Sprintf("<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>Label</key><string>%s</string><key>ProgramArguments</key><array><string>%s</string><string>-config</string><string>%s</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/></dict></plist>", launchAgentName, plistValue(server), plistValue(config))
+	stateDir := filepath.Dir(config)
+	contents := fmt.Sprintf("<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>Label</key><string>%s</string><key>ProgramArguments</key><array><string>%s</string><string>-config</string><string>%s</string></array><key>WorkingDirectory</key><string>%s</string><key>StandardOutPath</key><string>%s</string><key>StandardErrorPath</key><string>%s</string><key>RunAtLoad</key><true/><key>KeepAlive</key><true/></dict></plist>", launchAgentName, plistValue(server), plistValue(config), plistValue(stateDir), plistValue(filepath.Join(stateDir, "server.log")), plistValue(filepath.Join(stateDir, "server.log")))
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		return err
 	}
@@ -50,7 +51,12 @@ func disableAutostart() error {
 }
 
 func stopAutostartService() (bool, error) {
-	if err := exec.Command("launchctl", "kill", "SIGTERM", "gui/"+strconv.Itoa(os.Getuid())+"/"+launchAgentName).Run(); err != nil {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, err
+	}
+	path := filepath.Join(home, "Library", "LaunchAgents", launchAgentName+".plist")
+	if err := exec.Command("launchctl", "bootout", "gui/"+strconv.Itoa(os.Getuid()), path).Run(); err != nil {
 		return false, nil
 	}
 	return true, nil

@@ -3,8 +3,10 @@ const sidebars = {
   docsSidebar: [
     'index',
     'installation',
+    'jenkins-migration-macos',
     'configuration',
     'pipelines',
+    'typescript-pipelines',
     'plugins',
     'agents',
     'templates',

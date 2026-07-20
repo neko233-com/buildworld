@@ -2,6 +2,8 @@ bin/
 data/
 *.db
 config.local.yaml
+.buildworld233-intranet.local.yaml
+.buildworld233-intranet/
 .env
 docs-site/node_modules/
 web/node_modules/

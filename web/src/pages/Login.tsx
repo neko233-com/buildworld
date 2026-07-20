@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Braces, Eye, EyeOff, LoaderCircle, LockKeyhole, Network, PackageCheck, Workflow } from 'lucide-react'
+import { Eye, EyeOff, LoaderCircle, LockKeyhole, Network, PackageCheck, Workflow } from 'lucide-react'
 import { Navigate } from 'react-router-dom'
 import { api, setToken } from '../api'
 import { localeLabels, type Locale, useI18n } from '../i18n'
+import { BuildWorldMark } from '../components/BuildWorldMark'
 
 const capabilityIcons = [Workflow, Network, PackageCheck]
 
@@ -34,7 +35,7 @@ export default function Login() {
   return <main className="login-page">
     <section className="login-context" aria-label={t('login.productOverview')}>
       <div className="login-context-inner">
-        <div className="login-brand"><span><Braces size={18} /></span><strong>{t('app.title')}</strong></div>
+        <div className="login-brand"><span><BuildWorldMark size={27} /></span><strong>{t('app.title')}</strong></div>
         <div className="login-intro"><p>{t('login.eyebrow')}</p><h1>{t('login.heroTitle')}</h1><span>{t('login.heroDescription')}</span></div>
         <div className="login-capabilities">
           {[t('login.capabilityProjects'), t('login.capabilityWorkers'), t('login.capabilityPortability')].map((label, index) => {

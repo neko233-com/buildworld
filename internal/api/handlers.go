@@ -281,6 +281,47 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// validateProjectConfig parses the persisted source without queuing a build.
+// Migration tooling uses it to prove that an imported definition is runnable
+// while avoiding side effects on an existing service.
+func (h *handlers) validateProjectConfig(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	project, err := h.d.Store.GetProject(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+	config, err := engine.ParsePipelineConfig(project.Config)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	stepCount := 0
+	for _, stage := range config.Stages {
+		stepCount += len(stage.Steps)
+	}
+	format := "yaml"
+	trimmed := strings.TrimSpace(project.Config)
+	if engine.IsTypeScriptPipeline(trimmed) {
+		format = "typescript"
+	} else if strings.HasPrefix(trimmed, "{") {
+		format = "json"
+	} else if strings.HasPrefix(trimmed, "#") {
+		format = "markdown"
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"valid":              true,
+		"format":             format,
+		"stages":             len(config.Stages),
+		"steps":              stepCount,
+		"allow_long_running": config.AllowLongRunning,
+	})
+}
+
 func (h *handlers) deleteProject(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDInt64(r)
 	if err != nil {

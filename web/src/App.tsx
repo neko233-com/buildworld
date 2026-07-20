@@ -5,11 +5,12 @@ import { localeLabels, type Locale, useI18n } from './i18n'
 import { API_STATUS_EVENT, api, clearToken } from './api'
 import { currentRole, isAdmin, type UserRole } from './authz'
 import { AppDialogs } from './components/AppDialogs'
+import { BuildWorldMark } from './components/BuildWorldMark'
 import { CommandPalette, type CommandPaletteGroup } from './components/CommandPalette'
 import { RouteErrorBoundary } from './components/RouteErrorBoundary'
 import InAppNotifications from './components/InAppNotifications'
 import { PageState } from './components/PageState'
-import { Activity, Bell, BookTemplate, Boxes, Braces, CircleUserRound, ClipboardList, CloudOff, FileClock, GitBranch, KeyRound, LayoutDashboard, Network, PackageOpen, Search, Settings2, ShieldCheck, SlidersHorizontal, TerminalSquare, UsersRound } from 'lucide-react'
+import { Activity, Bell, BookTemplate, Boxes, CircleUserRound, ClipboardList, CloudOff, FileClock, GitBranch, KeyRound, LayoutDashboard, Network, PackageOpen, Search, Settings2, ShieldCheck, SlidersHorizontal, TerminalSquare, UsersRound } from 'lucide-react'
 import { buildStatusLabel } from './lib/buildPresentation'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -176,7 +177,7 @@ function Layout() {
   return (
     <div className="app-shell">
       <aside className="app-sidebar">
-        <NavLink to="/" end className="app-brand"><span className="brand-mark"><Braces size={17} /></span><span>buildworld</span></NavLink>
+        <NavLink to="/" end className="app-brand"><span className="brand-mark"><BuildWorldMark size={22} /></span><span>buildworld</span></NavLink>
         <div className="sidebar-section"><p>{t('shell.workspace')}</p><NavItem href="/" label={t('nav.dashboard')} icon={LayoutDashboard} /><NavItem href="/projects" label={t('nav.projects')} icon={Boxes} /><NavItem href="/builds" label={t('nav.builds')} icon={Activity} /><NavItem href="/build-queue" label={t('nav.buildQueue')} icon={FileClock} /></div>
         <div className="sidebar-section"><p>{t('shell.execution')}</p><NavItem href="/agents" label={t('nav.agents')} icon={Network} /><NavItem href="/vcs-roots" label={t('nav.vcsRoots')} icon={GitBranch} /><NavItem href="/templates" label={t('nav.templates')} icon={BookTemplate} /><NavItem href="/deployments" label={t('nav.deployments')} icon={PackageOpen} />{admin && <NavItem href="/notifications" label={t('settings.notifications')} icon={Bell} />}</div>
         <div className="sidebar-section"><p>{t('shell.administration')}</p>{admin && <NavItem href="/credentials" label={t('nav.credentials')} icon={KeyRound} />}<NavItem href="/api-tokens" label={t('nav.apiTokens')} icon={KeyRound} /><NavItem href="/plugins" label={t('nav.plugins')} icon={TerminalSquare} />{admin && <><NavItem href="/users" label={t('nav.users')} icon={UsersRound} /><NavItem href="/audit-log" label={t('nav.auditLog')} icon={ClipboardList} /><NavItem href="/settings" label={t('nav.settings')} icon={Settings2} /></>}</div>

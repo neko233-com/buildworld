@@ -593,6 +593,48 @@ func (s *Store) ListPendingBuilds() ([]*Build, error) {
 	return scanBuilds(rows)
 }
 
+// RecoverInterruptedBuilds requeues work that was executing when the server
+// process exited. A normal user cancellation is terminal and is never touched.
+// It is transactional so the build and its visible queue item cannot disagree
+// after a restart.
+func (s *Store) RecoverInterruptedBuilds() (int, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query("SELECT id FROM builds WHERE status = 'running'")
+	if err != nil {
+		return 0, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	for _, id := range ids {
+		if _, err := tx.Exec("UPDATE builds SET status='pending', started_at=NULL, finished_at=NULL, duration_ms=NULL, log=COALESCE(log, '') || ? WHERE id=?", "\n[buildworld] Requeued after interrupted server restart.\n", id); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec("UPDATE build_queue_items SET status='queued', started_at=NULL WHERE build_id=?", id); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}
+
 // scanBuildExtras 把可空列从 sql.Null* 拷贝到 Build。集中实现避免重复。
 func scanBuildExtras(b *Build, branch, commit, params, log sql.NullString,
 	started, finished sql.NullTime, dur sql.NullInt64,

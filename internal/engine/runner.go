@@ -308,7 +308,9 @@ func (r *BuildRunner) SetWorkerDispatchToken(token string) {
 	r.workerDispatchToken = token
 }
 
-// StartQueue restores and coordinates pending builds from the durable store.
+// StartQueue restores interrupted work and coordinates pending builds from the
+// durable store. Recovery is on by default: an unexpected service restart
+// requeues only builds that were actively running, never cancelled work.
 // A single dispatcher replaces one timer per waiting build, which keeps worker
 // saturation bounded even when many projects target the same remote pool.
 func (r *BuildRunner) StartQueue(parent context.Context) {
@@ -320,6 +322,15 @@ func (r *BuildRunner) StartQueue(parent context.Context) {
 	ctx, cancel := context.WithCancel(parent)
 	r.queueCancel = cancel
 	r.queueMu.Unlock()
+	if r.store != nil {
+		if recovered, err := r.store.RecoverInterruptedBuilds(); err != nil {
+			// The periodic scan remains useful for existing pending work even when
+			// recovery encounters a transient database error.
+			fmt.Printf("build queue recovery failed: %v\n", err)
+		} else if recovered > 0 {
+			fmt.Printf("requeued %d build(s) interrupted by server restart\n", recovered)
+		}
+	}
 	go r.dispatchPendingLoop(ctx)
 	r.WakeQueue()
 }
@@ -543,8 +554,18 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		return
 	}
 	if build.TimeoutSec <= 0 {
-		build.TimeoutSec = r.executionPolicySnapshot().DefaultTimeoutSec
-		_ = r.store.SetBuildTimeout(buildID, build.TimeoutSec)
+		build.TimeoutSec = cfg.TimeoutSec
+		if build.TimeoutSec <= 0 && !cfg.AllowLongRunning {
+			build.TimeoutSec = r.executionPolicySnapshot().DefaultTimeoutSec
+		}
+		if build.TimeoutSec > 0 {
+			_ = r.store.SetBuildTimeout(buildID, build.TimeoutSec)
+		}
+	}
+	if cfg.DisableConcurrent {
+		if r.deferForProjectConcurrency(buildID, project.ID, cfg.AbortPrevious) {
+			return
+		}
 	}
 	if build.TimeoutSec > 0 {
 		var cancel context.CancelFunc
@@ -581,7 +602,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		}
 	}
 
-	env := r.buildEnv(build, cfg, project)
+	env := r.buildEnvAt(build, cfg, project, workspace)
 	if r.buildEnvironment != nil {
 		isolated, environmentErr := r.buildEnvironment.Environment(workspace)
 		if environmentErr != nil {
@@ -596,6 +617,14 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	totalStages := len(cfg.Stages)
 	var failedSteps []string
 	for i, stage := range cfg.Stages {
+		branch := build.Branch
+		if branch == "" {
+			branch = project.DefaultBranch
+		}
+		if !stageMatchesBranch(stage, branch) {
+			r.log(buildID, stage.Name, fmt.Sprintf("SKIPPED: branch %q does not match %s", branch, strings.Join(stage.Branches, ", ")))
+			continue
+		}
 		r.log(buildID, stage.Name, fmt.Sprintf("=== Stage: %s ===", stage.Name))
 		r.broadcastStatus(buildID, "running", stage.Name, float64(i)/float64(totalStages))
 
@@ -609,6 +638,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			}
 			if err := r.execStep(ctx, step, workspace, project, build, stepEnv, params, stage.Name, onOutput); err != nil {
 				if ctx.Err() == context.Canceled {
+					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 					r.log(buildID, stage.Name, fmt.Sprintf("CANCELLED: step %q stopped by user", step.Name))
 					_ = r.store.CancelBuild(buildID)
 					_ = r.store.UpdateBuildQueueItemStatusByBuildID(buildID, "cancelled")
@@ -617,11 +647,13 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 				}
 				r.log(buildID, stage.Name, fmt.Sprintf("ERROR: %v", err))
 				if ctx.Err() == context.DeadlineExceeded {
+					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 					r.fail(buildID, start, fmt.Sprintf("step %q timed out after %ds", step.Name, build.TimeoutSec), project)
 					r.finishCleanup(buildID)
 					return
 				}
 				if r.executionPolicySnapshot().FailFast {
+					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 					r.fail(buildID, start, fmt.Sprintf("step %q failed: %v", step.Name, err), project)
 					r.finishCleanup(buildID)
 					return
@@ -647,10 +679,12 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	}
 
 	if len(failedSteps) > 0 {
+		r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 		r.fail(buildID, start, fmt.Sprintf("%d step(s) failed: %s", len(failedSteps), strings.Join(failedSteps, ", ")), project)
 		r.finishCleanup(buildID)
 		return
 	}
+	r.runPostSteps(ctx, cfg, "success", workspace, project, build, env, params)
 
 	duration := time.Since(start).Milliseconds()
 	_ = r.store.FinishBuild(buildID, "success", duration)
@@ -676,6 +710,18 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	r.recordStatistics(buildID)
 }
 
+func stageMatchesBranch(stage Stage, branch string) bool {
+	if len(stage.Branches) == 0 {
+		return true
+	}
+	for _, allowed := range stage.Branches {
+		if branch == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *BuildRunner) cleanupCompleted(projectID int64, retain int) {
 	if retain == 0 {
 		retain = 30
@@ -686,6 +732,45 @@ func (r *BuildRunner) cleanupCompleted(projectID int64, retain int) {
 	if err := r.store.PruneCompletedBuilds(projectID, retain); err != nil {
 		// Retention is best-effort and must never change a finished build result.
 		return
+	}
+}
+
+func (r *BuildRunner) deferForProjectConcurrency(buildID, projectID int64, abortPrevious bool) bool {
+	builds, err := r.store.ListBuildsByProject(projectID)
+	if err != nil {
+		return false
+	}
+	for _, other := range builds {
+		if other.ID == buildID || other.Status != "running" {
+			continue
+		}
+		if abortPrevious {
+			r.log(buildID, "queue", fmt.Sprintf("Cancelling Build #%d due to disableConcurrentBuilds", other.Number))
+			r.Stop(other.ID)
+		} else {
+			r.log(buildID, "queue", fmt.Sprintf("Waiting for Build #%d due to disableConcurrentBuilds", other.Number))
+		}
+		return true
+	}
+	return false
+}
+
+func (r *BuildRunner) runPostSteps(_ context.Context, cfg *BuildConfig, outcome, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}) {
+	if len(cfg.Post) == 0 {
+		return
+	}
+	postCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	conditions := []string{"always", outcome, "cleanup"}
+	for _, condition := range conditions {
+		for _, step := range cfg.Post[condition] {
+			stage := "post " + condition
+			r.log(build.ID, stage, fmt.Sprintf("--- Step: %s ---", step.Name))
+			stepEnv := appendRuntimeEnv(env, cfg, step.Runtime)
+			if err := r.execStep(postCtx, step, workspace, project, build, stepEnv, params, stage, func(line string) { r.log(build.ID, stage, line) }); err != nil {
+				r.log(build.ID, stage, fmt.Sprintf("ERROR: %v", err))
+			}
+		}
 	}
 }
 
@@ -970,6 +1055,8 @@ func (r *BuildRunner) execStep(ctx context.Context, step Step, workspace string,
 
 func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}, stage string, onOutput func(string)) error {
 	switch step.Type {
+	case "service_watch":
+		return WatchService(ctx, workspace, resolveWatchConfig(step.Config, env, params), onOutput)
 	case "shell", "", "tail":
 		command := resolveVars(step.Command, env, params)
 		if step.Shell != "" {
@@ -1045,6 +1132,14 @@ func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace str
 	}
 }
 
+func resolveWatchConfig(config map[string]string, env []string, params map[string]interface{}) map[string]string {
+	resolved := make(map[string]string, len(config))
+	for key, value := range config {
+		resolved[key] = resolveVars(value, env, params)
+	}
+	return resolved
+}
+
 // appendRuntimeEnv resolves a single configured version automatically. Multiple
 // installed versions remain explicit through a fence header such as `go@1.26`.
 func appendRuntimeEnv(env []string, cfg *BuildConfig, selector string) []string {
@@ -1098,6 +1193,10 @@ func PlatformName() string {
 func buildIDOf(b *store.Build) int64 { return b.ID }
 
 func (r *BuildRunner) buildEnv(build *store.Build, cfg *BuildConfig, project *store.Project) []string {
+	return r.buildEnvAt(build, cfg, project, "")
+}
+
+func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *store.Project, workspace string) []string {
 	envMap := map[string]string{}
 	for k, v := range cfg.Environment {
 		envMap[k] = v
@@ -1112,6 +1211,9 @@ func (r *BuildRunner) buildEnv(build *store.Build, cfg *BuildConfig, project *st
 		for _, v := range projectVars {
 			envMap[v.Name] = v.Value
 		}
+	}
+	if workspace != "" {
+		envMap["WORKSPACE"] = workspace
 	}
 	return ExpandConfiguredEnvironment(envMap, os.Environ())
 }

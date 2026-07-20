@@ -197,7 +197,7 @@ func manifestDigest(manifest *BinaryManifest) (string, error) {
 
 func isRemoteBuiltinStep(stepType string) bool {
 	switch stepType {
-	case "", "shell", "tail", "powershell", "ps1", "pwsh", "bash", "sh", "python", "python3", "cmd", "script", "git":
+	case "", "shell", "tail", "service_watch", "powershell", "ps1", "pwsh", "bash", "sh", "python", "python3", "cmd", "script", "git":
 		return true
 	default:
 		return false

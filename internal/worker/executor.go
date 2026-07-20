@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/neko233-com/buildworld/internal/bytemsg"
 	"github.com/neko233-com/buildworld/internal/engine"
@@ -107,6 +108,12 @@ func (e *Executor) ExecuteBuild(req *pb.BuildRequest, stream grpc.ServerStreamin
 	env = append(env, isolated...)
 	runner := engine.NewExecutor()
 	for _, stage := range cfg.Stages {
+		if len(stage.Branches) > 0 && !matchesBranch(stage.Branches, req.Branch) {
+			if err := e.send(stream, req.BuildId, stage.Name, "", "skipped: branch does not match "+strings.Join(stage.Branches, ", "), "skipped", false); err != nil {
+				return err
+			}
+			continue
+		}
 		for _, step := range stage.Steps {
 			if step.Type == "git" {
 				continue
@@ -122,15 +129,46 @@ func (e *Executor) ExecuteBuild(req *pb.BuildRequest, stream grpc.ServerStreamin
 			}
 			err := e.runStep(buildCtx, runner, step, workspace, stepEnv, onOutput)
 			if err != nil {
+				e.runPost(cfg, "failure", workspace, env, runner, stream, req.BuildId)
 				return e.send(stream, req.BuildId, stage.Name, step.Name, err.Error(), "failed", true)
 			}
 			env = append(env, outputs...)
 		}
 	}
+	e.runPost(cfg, "success", workspace, env, runner, stream, req.BuildId)
 	if err := e.streamArtifacts(stream, req.BuildId, workspace, cfg.Artifacts); err != nil {
 		return e.send(stream, req.BuildId, "artifacts", "", err.Error(), "failed", true)
 	}
 	return e.send(stream, req.BuildId, "done", "", "completed", "success", false)
+}
+
+func (e *Executor) runPost(cfg *engine.BuildConfig, outcome, workspace string, env []string, runner *engine.Executor, stream grpc.ServerStreamingServer[pb.BuildResponse], buildID string) {
+	if len(cfg.Post) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	for _, condition := range []string{"always", outcome, "cleanup"} {
+		for _, step := range cfg.Post[condition] {
+			stage := "post " + condition
+			_ = e.send(stream, buildID, stage, step.Name, "started", "running", false)
+			err := e.runStep(ctx, runner, step, workspace, engine.AppendRuntimeEnvironment(env, cfg, step.Runtime), func(line string) {
+				_ = e.send(stream, buildID, stage, step.Name, line, "running", false)
+			})
+			if err != nil {
+				_ = e.send(stream, buildID, stage, step.Name, err.Error(), "failed", false)
+			}
+		}
+	}
+}
+
+func matchesBranch(allowed []string, branch string) bool {
+	for _, candidate := range allowed {
+		if branch == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Executor) ensurePlugins(ctx context.Context, references []*pb.PluginReference) error {
@@ -254,6 +292,12 @@ func (e *Executor) runStep(ctx context.Context, runner *engine.Executor, step en
 func (e *Executor) runBaseStep(ctx context.Context, runner *engine.Executor, step engine.Step, workspace string, env []string, onOutput func(string)) error {
 	command := engine.ResolvePipelineVariables(step.Command, env, nil)
 	switch step.Type {
+	case "service_watch":
+		config := make(map[string]string, len(step.Config))
+		for key, value := range step.Config {
+			config[key] = engine.ResolvePipelineVariables(value, env, nil)
+		}
+		return engine.WatchService(ctx, workspace, config, onOutput)
 	case "", "shell", "tail":
 		if step.Shell != "" {
 			return runner.RunMultiShell(ctx, step.Shell, command, workspace, env, onOutput)
