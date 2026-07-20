@@ -18,3 +18,13 @@ artifacts/
 release/
 /*.exe
 token.txt
+
+# Local editor settings, OS metadata, and package-manager caches.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+.npm/
+.pnpm-store/
+docs-site/.cache/
+web/.vite/
