@@ -24,10 +24,26 @@ cleanup() { rm -rf "$tmp"; }
 trap cleanup EXIT INT TERM
 
 echo "Downloading BuildWorld v$VERSION for $os/$arch ..."
-curl -fsSL "$base/$asset" -o "$tmp/$asset"
 curl -fsSL "$base/checksums.txt" -o "$tmp/checksums.txt"
 expected="$(tr -d '\r' < "$tmp/checksums.txt" | awk "\$2 == \"$asset\" {print \$1}")"
 [ -n "$expected" ] || { echo "Missing checksum for $asset" >&2; exit 1; }
+
+download_bundle() {
+  if curl -fsSL "$base/$asset" -o "$tmp/$asset"; then return; fi
+  rm -f "$tmp/$asset"
+  parts="$(tr -d '\r' < "$tmp/checksums.txt" | awk -v prefix="$asset.part" '$2 ~ ("^" prefix) {print $2}' | sort)"
+  [ -n "$parts" ] || { echo "Missing release archive and multipart fallback for $asset" >&2; exit 1; }
+  : > "$tmp/$asset"
+  for part in $parts; do
+    echo "Downloading $part ..."
+    curl -fsSL "$base/$part" -o "$tmp/$part"
+    part_expected="$(tr -d '\r' < "$tmp/checksums.txt" | awk "\$2 == \"$part\" {print \$1}")"
+    if command -v sha256sum >/dev/null 2>&1; then part_actual="$(sha256sum "$tmp/$part" | awk '{print $1}')"; else part_actual="$(shasum -a 256 "$tmp/$part" | awk '{print $1}')"; fi
+    [ "$part_actual" = "$part_expected" ] || { echo "Checksum mismatch for $part" >&2; exit 1; }
+    cat "$tmp/$part" >> "$tmp/$asset"
+  done
+}
+download_bundle
 if command -v sha256sum >/dev/null 2>&1; then actual="$(sha256sum "$tmp/$asset" | awk '{print $1}')"; else actual="$(shasum -a 256 "$tmp/$asset" | awk '{print $1}')"; fi
 [ "$actual" = "$expected" ] || { echo "Checksum mismatch for $asset" >&2; exit 1; }
 

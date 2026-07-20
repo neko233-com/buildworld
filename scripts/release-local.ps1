@@ -9,6 +9,7 @@ $Version = if ($Version.StartsWith('v')) { $Version } else { "v$Version" }
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $repoRoot ("release\$Version")
 $webRoot = Join-Path $repoRoot 'web'
+$partSizeBytes = 900KB
 $targets = @(
     @{ Os = 'windows'; Arch = 'amd64'; Archive = 'zip' },
     @{ Os = 'windows'; Arch = 'arm64'; Archive = 'zip' },
@@ -20,6 +21,23 @@ $targets = @(
 
 if (Test-Path $output) { Remove-Item -LiteralPath $output -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $output | Out-Null
+
+function Split-ReleaseAsset([string]$Archive) {
+    $parts = [System.Collections.Generic.List[string]]::new()
+    $stream = [IO.File]::OpenRead($Archive)
+    try {
+        $index = 0
+        $buffer = New-Object byte[] $partSizeBytes
+        while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $part = "$Archive.part$($index.ToString('000'))"
+            $target = [IO.File]::Open($part, [IO.FileMode]::Create, [IO.FileAccess]::Write)
+            try { $target.Write($buffer, 0, $read) } finally { $target.Dispose() }
+            $parts.Add($part)
+            $index++
+        }
+    } finally { $stream.Dispose() }
+    return $parts
+}
 
 Push-Location $webRoot
 try { npm ci; npm run build } finally { Pop-Location }
@@ -50,6 +68,10 @@ foreach ($target in $targets) {
         if ($LASTEXITCODE -ne 0) { throw "tar failed for $os/$arch" }
     }
     $assets.Add($archive)
+	# The installer treats the original archive as the canonical checksum while
+	# GitHub receives <=900 KiB parts. This survives restrictive proxy upload
+	# limits without weakening the one-click installer or verification contract.
+	foreach ($part in (Split-ReleaseAsset $archive)) { $assets.Add($part) }
 	Remove-Item -LiteralPath $stage -Recurse -Force
 }
 Remove-Item Env:GOOS, Env:GOARCH -ErrorAction SilentlyContinue
