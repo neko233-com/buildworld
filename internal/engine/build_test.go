@@ -378,3 +378,16 @@ retention_completed: 15
 		t.Fatalf("artifact/retention fields not preserved: %#v", config)
 	}
 }
+
+func TestStageMatchesBranch(t *testing.T) {
+	stage := Stage{Branches: []string{"main", "release"}}
+	if !stageMatchesBranch(stage, "main") || !stageMatchesBranch(stage, "release") {
+		t.Fatal("configured branches should run")
+	}
+	if stageMatchesBranch(stage, "feature/import") {
+		t.Fatal("unconfigured branch should be skipped")
+	}
+	if !stageMatchesBranch(Stage{}, "feature/import") {
+		t.Fatal("stage without a branch condition should run")
+	}
+}

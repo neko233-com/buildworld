@@ -112,6 +112,9 @@ func serverExecutable() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve BuildWorld executable: %w", err)
 	}
+	if resolved, resolveErr := filepath.EvalSymlinks(current); resolveErr == nil {
+		current = resolved
+	}
 	name := "buildworld-server"
 	if filepath.Ext(current) == ".exe" {
 		name += ".exe"
@@ -127,6 +130,16 @@ func serverExecutable() (string, error) {
 }
 
 func stopManagedServer() (bool, error) {
+	// Service managers restart a child that is killed directly. Stop the
+	// registered service first so pause/stop actually leaves BuildWorld down.
+	stopped, err := stopAutostartService()
+	if err != nil {
+		return false, err
+	}
+	if stopped {
+		_ = os.Remove(pidPath())
+		return true, nil
+	}
 	pid, err := readPID()
 	if err == nil && pid > 0 {
 		process, findErr := os.FindProcess(pid)
@@ -137,12 +150,5 @@ func stopManagedServer() (bool, error) {
 			}
 		}
 	}
-	stopped, err := stopAutostartService()
-	if err != nil {
-		return false, err
-	}
-	if stopped {
-		_ = os.Remove(pidPath())
-	}
-	return stopped, nil
+	return false, nil
 }

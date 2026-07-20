@@ -87,6 +87,27 @@ func TestBuildRunnerAppliesDefaultTimeout(t *testing.T) {
 	}
 }
 
+func TestBuildRunnerRunsMigratedPostSteps(t *testing.T) {
+	root := t.TempDir()
+	database, err := store.New(filepath.Join(root, "post.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	config := `{"stages":[{"name":"Build","steps":[{"name":"main","type":"shell","command":"echo main"}]}],"post":{"always":[{"name":"always","type":"shell","command":"echo post-always"}],"success":[{"name":"success","type":"shell","command":"echo post-success"}]}}`
+	project, err := database.CreateProject("post", "", "", "git", "main", config, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := executionPolicyBuild(t, database, project, 1)
+	runner := NewBuildRunner(database, nil, filepath.Join(root, "workspaces"), nil)
+	runner.Run(build.ID)
+	finished := waitForBuildStatus(t, database, build.ID, 5*time.Second, "success")
+	if !strings.Contains(finished.Log, "post-always") || !strings.Contains(finished.Log, "post-success") {
+		t.Fatalf("post steps missing from log:\n%s", finished.Log)
+	}
+}
+
 func TestBuildRunnerEnforcesGlobalConcurrency(t *testing.T) {
 	root := t.TempDir()
 	database, err := store.New(filepath.Join(root, "concurrency.db"))
@@ -192,6 +213,35 @@ func TestBuildRunnerDurableQueueHonorsReorderBeforeDispatch(t *testing.T) {
 	thirdFinished, _ := database.GetBuild(third.ID)
 	if secondFinished.StartedAt == nil || thirdFinished.StartedAt == nil || !thirdFinished.StartedAt.Before(*secondFinished.StartedAt) {
 		t.Fatalf("second/third start times = %v/%v; reordered third build did not dispatch first", secondFinished.StartedAt, thirdFinished.StartedAt)
+	}
+}
+
+func TestBuildRunnerStartQueueRecoversInterruptedBuild(t *testing.T) {
+	root := t.TempDir()
+	database, err := store.New(filepath.Join(root, "restart-recovery.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	project := executionPolicyProject(t, database, "restart-recovery", "echo recovered")
+	build := executionPolicyBuild(t, database, project, 1)
+	if err := database.StartBuild(build.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateBuildQueueItem(build.ID, project.ID, project.Name, 0, build.Trigger, build.Branch); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UpdateBuildQueueItemStatusByBuildID(build.ID, "running"); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewBuildRunner(database, nil, filepath.Join(root, "workspaces"), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runner.StartQueue(ctx)
+	defer runner.StopQueue()
+	finished := waitForBuildStatus(t, database, build.ID, 5*time.Second, "success")
+	if !strings.Contains(finished.Log, "Requeued after interrupted server restart") || !strings.Contains(finished.Log, "recovered") {
+		t.Fatalf("recovered build log = %s", finished.Log)
 	}
 }
 

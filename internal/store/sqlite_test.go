@@ -553,6 +553,55 @@ func TestBuildQueueTracksActiveBuildsAndPriority(t *testing.T) {
 	}
 }
 
+func TestRecoverInterruptedBuildsRequeuesOnlyRunningBuilds(t *testing.T) {
+	store, cleanup := newTestStore(t)
+	defer cleanup()
+	project, err := store.CreateProject("recovery-demo", "", "", "git", "main", `{}`, 0, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	running, err := store.CreateBuild(project.ID, 1, "manual", "main", "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := store.CreateBuild(project.ID, 2, "manual", "main", "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StartBuild(running.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateBuildQueueItem(running.ID, project.ID, project.Name, 5, running.Trigger, running.Branch); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateBuildQueueItemStatusByBuildID(running.ID, "running"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateBuildStatus(cancelled.ID, "cancelled"); err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := store.RecoverInterruptedBuilds()
+	if err != nil || recovered != 1 {
+		t.Fatalf("RecoverInterruptedBuilds() = %d, %v; want 1, nil", recovered, err)
+	}
+	current, err := store.GetBuild(running.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Status != "pending" || current.StartedAt != nil || !strings.Contains(current.Log, "Requeued after interrupted server restart") {
+		t.Fatalf("recovered build = %#v", current)
+	}
+	queue, err := store.ListBuildQueue("")
+	if err != nil || len(queue) != 1 || queue[0].Status != "queued" || queue[0].StartedAt != nil {
+		t.Fatalf("recovered queue = %#v, %v", queue, err)
+	}
+	unchanged, err := store.GetBuild(cancelled.ID)
+	if err != nil || unchanged.Status != "cancelled" {
+		t.Fatalf("cancelled build = %#v, %v", unchanged, err)
+	}
+}
+
 func TestCancelBuildIsTerminalSafeAndRecordsDuration(t *testing.T) {
 	store, cleanup := newTestStore(t)
 	defer cleanup()

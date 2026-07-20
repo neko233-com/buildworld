@@ -25,7 +25,7 @@ func TestBuildEnvironmentCreatesDedicatedLanguageCaches(t *testing.T) {
 			env[key] = data
 		}
 	}
-	for _, key := range []string{"TMP", "TEMP", "TMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "NPM_CONFIG_CACHE", "NPM_CONFIG_PREFIX", "NPM_CONFIG_USERCONFIG", "COREPACK_HOME", "PNPM_HOME"} {
+	for _, key := range []string{"TMP", "TEMP", "TMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "NPM_CONFIG_CACHE", "NPM_CONFIG_PREFIX", "NPM_CONFIG_USERCONFIG", "COREPACK_HOME", "PNPM_HOME", "BUILDWORLD_WORKSPACE", "WORKSPACE"} {
 		value := env[key]
 		if value == "" {
 			t.Fatalf("%s was not configured", key)
@@ -37,6 +37,9 @@ func TestBuildEnvironmentCreatesDedicatedLanguageCaches(t *testing.T) {
 	}
 	if env["GOCACHE"] == env["NPM_CONFIG_CACHE"] {
 		t.Fatal("Go and npm caches must be isolated")
+	}
+	if env["WORKSPACE"] != env["BUILDWORLD_WORKSPACE"] {
+		t.Fatalf("Jenkins workspace alias = %q, BuildWorld workspace = %q", env["WORKSPACE"], env["BUILDWORLD_WORKSPACE"])
 	}
 }
 

@@ -18,17 +18,26 @@ type BuildParameter struct {
 }
 
 type BuildConfig struct {
-	Name               string              `json:"name"`
-	Description        string              `json:"description"`
-	Parameters         []BuildParameter    `json:"parameters"`
-	Approval           *ApprovalPolicy     `json:"approval,omitempty"`
-	Stages             []Stage             `json:"stages"`
-	Triggers           []Trigger           `json:"triggers"`
-	Environment        map[string]string   `json:"environment"`
-	Artifacts          []string            `json:"artifacts"`
-	AgentRequirements  []string            `json:"agent_requirements"`
-	RetentionCompleted int                 `json:"retention_completed"`
-	Toolchains         map[string][]string `json:"toolchains,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Parameters  []BuildParameter  `json:"parameters"`
+	Approval    *ApprovalPolicy   `json:"approval,omitempty"`
+	Stages      []Stage           `json:"stages"`
+	Triggers    []Trigger         `json:"triggers"`
+	Environment map[string]string `json:"environment"`
+	Artifacts   []string          `json:"artifacts"`
+	// Post contains Jenkins-style lifecycle steps keyed by always, success,
+	// failure, or cleanup. They run after the normal stages on every worker.
+	Post               map[string][]Step `json:"post,omitempty"`
+	AgentRequirements  []string          `json:"agent_requirements"`
+	RetentionCompleted int               `json:"retention_completed"`
+	TimeoutSec         int               `json:"timeout_sec,omitempty"`
+	// AllowLongRunning keeps an intentional service observer alive instead of
+	// applying the default finite build timeout.
+	AllowLongRunning  bool                `json:"allow_long_running,omitempty"`
+	DisableConcurrent bool                `json:"disable_concurrent,omitempty"`
+	AbortPrevious     bool                `json:"abort_previous,omitempty"`
+	Toolchains        map[string][]string `json:"toolchains,omitempty"`
 }
 
 type Stage struct {
@@ -36,6 +45,7 @@ type Stage struct {
 	Steps     []Step   `json:"steps" yaml:"steps"`
 	Parallel  bool     `json:"parallel,omitempty" yaml:"parallel,omitempty"`
 	DependsOn []string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	Branches  []string `json:"branches,omitempty" yaml:"branches,omitempty"`
 }
 
 type Step struct {
@@ -237,7 +247,9 @@ func ParsePipelineConfig(raw string) (*BuildConfig, error) {
 	trimmed := strings.TrimSpace(raw)
 	var config *BuildConfig
 	var err error
-	if strings.HasPrefix(trimmed, "#") {
+	if IsTypeScriptPipeline(trimmed) {
+		config, err = ParseTypeScriptPipeline(raw)
+	} else if strings.HasPrefix(trimmed, "#") {
 		config, err = ParseMarkdownConfig(raw)
 	} else if strings.HasPrefix(trimmed, "{") {
 		config, err = ParseBuildConfig(raw)
@@ -261,15 +273,21 @@ func MergeBuildConfig(template, project *BuildConfig) *BuildConfig {
 		return template
 	}
 	merged := &BuildConfig{
-		Name:              project.Name,
-		Description:       project.Description,
-		Parameters:        append([]BuildParameter{}, template.Parameters...),
-		Approval:          template.Approval,
-		Stages:            append([]Stage{}, template.Stages...),
-		Triggers:          append([]Trigger{}, template.Triggers...),
-		Environment:       map[string]string{},
-		Artifacts:         append([]string{}, template.Artifacts...),
-		AgentRequirements: append([]string{}, template.AgentRequirements...),
+		Name:               project.Name,
+		Description:        project.Description,
+		Parameters:         append([]BuildParameter{}, template.Parameters...),
+		Approval:           template.Approval,
+		Stages:             append([]Stage{}, template.Stages...),
+		Triggers:           append([]Trigger{}, template.Triggers...),
+		Environment:        map[string]string{},
+		Artifacts:          append([]string{}, template.Artifacts...),
+		Post:               clonePostSteps(template.Post),
+		AgentRequirements:  append([]string{}, template.AgentRequirements...),
+		RetentionCompleted: template.RetentionCompleted,
+		TimeoutSec:         template.TimeoutSec,
+		AllowLongRunning:   template.AllowLongRunning,
+		DisableConcurrent:  template.DisableConcurrent,
+		AbortPrevious:      template.AbortPrevious,
 	}
 	if merged.Name == "" {
 		merged.Name = template.Name
@@ -296,8 +314,35 @@ func MergeBuildConfig(template, project *BuildConfig) *BuildConfig {
 	if len(project.Artifacts) > 0 {
 		merged.Artifacts = project.Artifacts
 	}
+	if len(project.Post) > 0 {
+		merged.Post = clonePostSteps(project.Post)
+	}
 	if len(project.AgentRequirements) > 0 {
 		merged.AgentRequirements = project.AgentRequirements
 	}
+	if project.RetentionCompleted != 0 {
+		merged.RetentionCompleted = project.RetentionCompleted
+	}
+	if project.TimeoutSec != 0 {
+		merged.TimeoutSec = project.TimeoutSec
+	}
+	if project.AllowLongRunning {
+		merged.AllowLongRunning = true
+	}
+	if project.DisableConcurrent {
+		merged.DisableConcurrent = true
+		merged.AbortPrevious = project.AbortPrevious
+	}
 	return merged
+}
+
+func clonePostSteps(source map[string][]Step) map[string][]Step {
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make(map[string][]Step, len(source))
+	for condition, steps := range source {
+		cloned[condition] = append([]Step(nil), steps...)
+	}
+	return cloned
 }

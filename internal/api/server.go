@@ -35,6 +35,7 @@ type Deps struct {
 	JWT        *auth.JWT
 	Loader     *plugin.Loader
 	StaticFS   fs.FS
+	LiveReload *LiveReload
 	Statistics *engine.StatisticsService
 	Approval   *engine.ApprovalService
 	BigScreen  *engine.BigScreenService

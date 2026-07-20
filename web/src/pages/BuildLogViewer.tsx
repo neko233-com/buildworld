@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion } from 'motion/react'
 import { Link, Navigate, useParams } from 'react-router-dom'
@@ -7,6 +7,7 @@ import { api } from '../api'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { visibleBuildLog } from '../lib/buildTimeline'
+import { isNearLogBottom, mergeLiveLog } from '../lib/logFollow'
 import { PageState } from '../components/PageState'
 
 function lineTone(line: string) {
@@ -72,6 +73,7 @@ export default function BuildLogViewer() {
   const searchRef = useRef<HTMLInputElement>(null)
   const logViewportRef = useRef<HTMLDivElement>(null)
   const lineRefs = useRef(new Map<number, HTMLDivElement>())
+  const followRef = useRef(true)
   const running = build?.status === 'running' || build?.status === 'pending'
   const source = visibleBuildLog(streamLog)
   const lines = useMemo(() => source ? source.split('\n') : [], [source])
@@ -80,12 +82,25 @@ export default function BuildLogViewer() {
     ? lines.flatMap((line, index) => line.toLocaleLowerCase().includes(normalizedQuery) ? [index] : [])
     : [], [lines, normalizedQuery])
 
+  const scrollToLatest = useCallback(() => {
+    const viewport = logViewportRef.current
+    if (!viewport) return
+    viewport.scrollTop = viewport.scrollHeight
+  }, [])
+
+  const setFollowing = useCallback((next: boolean) => {
+    const changed = followRef.current !== next
+    followRef.current = next
+    if (changed) setFollow(next)
+    if (changed && next && !query.trim()) requestAnimationFrame(scrollToLatest)
+  }, [query, scrollToLatest])
+
   useEffect(() => {
-    setStreamLog(logs?.log || '')
+    setStreamLog(current => mergeLiveLog(current, logs?.log || ''))
   }, [logs?.log])
 
   useEffect(() => {
-    if (!running || !validBuildID || typeof WebSocket === 'undefined') {
+    if (!validBuildID || typeof WebSocket === 'undefined') {
       setStreamState('fallback')
       return
     }
@@ -133,7 +148,7 @@ export default function BuildLogViewer() {
       if (retryTimer) window.clearTimeout(retryTimer)
       socket?.close()
     }
-  }, [buildID, reloadBuild, reloadLogs, running, validBuildID])
+  }, [buildID, reloadBuild, reloadLogs, validBuildID])
 
   useEffect(() => {
     if (!running || streamState === 'live') return
@@ -153,15 +168,15 @@ export default function BuildLogViewer() {
     setActiveMatch(0)
   }, [normalizedQuery])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (normalizedQuery && matches.length) {
       lineRefs.current.get(matches[Math.min(activeMatch, matches.length - 1)])?.scrollIntoView?.({ block: 'center' })
       return
     }
-    if (follow && logViewportRef.current) {
-      logViewportRef.current.scrollTop = logViewportRef.current.scrollHeight
+    if (!normalizedQuery && followRef.current) {
+      scrollToLatest()
     }
-  }, [activeMatch, follow, lines.length, matches, normalizedQuery])
+  }, [activeMatch, matches, normalizedQuery, scrollToLatest, source])
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
@@ -174,12 +189,13 @@ export default function BuildLogViewer() {
         searchRef.current?.focus()
       }
       if (event.key === 'End' && !event.ctrlKey && !event.metaKey) {
-        setFollow(true)
+        event.preventDefault()
+        setFollowing(true)
       }
     }
     window.addEventListener('keydown', handleKeyboard)
     return () => window.removeEventListener('keydown', handleKeyboard)
-  }, [query])
+  }, [query, setFollowing])
 
   if (!authenticated) return <Navigate to="/login" replace />
   if (!validBuildID) return <Navigate to="/builds" replace />
@@ -211,7 +227,7 @@ export default function BuildLogViewer() {
         <span className={`build-status ${build.status}`}>{t(`builds.${build.status}`)}</span>
       </div>
       <div className="plain-log-actions">
-        <button type="button" className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollow(value => !value)}>{follow ? <Pause size={14} /> : <Play size={14} />}{follow ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>
+        <button type="button" className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollowing(!follow)}>{follow ? <Pause size={14} /> : <Play size={14} />}{follow ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>
         <button type="button" className={wrap ? 'selected' : ''} aria-pressed={wrap} onClick={() => setWrap(value => !value)}><WrapText size={14} />{t('builds.wrapLines')}</button>
         <button type="button" onClick={() => download('txt')} disabled={!!downloading}>{downloading === 'txt' ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}.txt</button>
         <button type="button" onClick={() => download('json')} disabled={!!downloading}>{downloading === 'json' ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}JSON</button>
@@ -229,7 +245,7 @@ export default function BuildLogViewer() {
 
     <div className="plain-log-viewport" ref={logViewportRef} onScroll={() => {
       const viewport = logViewportRef.current
-      if (viewport && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 48) setFollow(false)
+      if (viewport) setFollowing(isNearLogBottom(viewport))
     }}>
       {lines.length ? <div className="plain-log-lines" role="log" aria-live={running ? 'polite' : 'off'}>
         {lines.map((line, index) => <div key={index} ref={element => { if (element) lineRefs.current.set(index, element); else lineRefs.current.delete(index) }} className={`${lineTone(line)} ${matches[activeMatch] === index ? 'active-match' : ''}`}><span>{index + 1}</span><code>{highlightLine(line, normalizedQuery)}</code></div>)}

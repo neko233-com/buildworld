@@ -1,0 +1,11 @@
+export const definePipeline = pipeline => pipeline
+export const step = (name, type, command, options = {}) => ({ ...options, name, type, command })
+export const shell = (name, command, options) => step(name, 'shell', command, options)
+export const tail = (name, command, options) => step(name, 'tail', command, options)
+export const script = (name, command, options) => step(name, 'script', command, options)
+export const git = (name, options) => step(name, 'git', '', options)
+export const notify = (name, options) => step(name, 'notify', '', options)
+export const watchService = (name, options = {}) => ({ name, type: 'service_watch', config: Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined && value !== null).map(([key, value]) => [key, String(value)])) })
+export const stage = (name, steps, options = {}) => ({ ...options, name, steps: Array.isArray(steps) ? steps : [steps] })
+export const trigger = (type, config = {}) => ({ type, config })
+export const parameter = (name, type, options = {}) => ({ ...options, name, type })
