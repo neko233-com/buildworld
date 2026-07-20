@@ -3,13 +3,16 @@ package api
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -18,16 +21,20 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/neko233-com/buildworld233/internal/auth"
-	"github.com/neko233-com/buildworld233/internal/engine"
-	"github.com/neko233-com/buildworld233/internal/plugin"
-	"github.com/neko233-com/buildworld233/internal/store"
-	"github.com/neko233-com/buildworld233/internal/webhook"
+	"github.com/neko233-com/buildworld/internal/auth"
+	"github.com/neko233-com/buildworld/internal/engine"
+	"github.com/neko233-com/buildworld/internal/migration"
+	"github.com/neko233-com/buildworld/internal/plugin"
+	"github.com/neko233-com/buildworld/internal/portability"
+	"github.com/neko233-com/buildworld/internal/store"
+	"github.com/neko233-com/buildworld/internal/webhook"
 )
 
 // handlers holds all dependencies needed by route handlers.
 type handlers struct {
-	d Deps
+	d           Deps
+	portability *portability.Registry
+	migrations  *migration.Registry
 }
 
 // ---------------------------------------------------------------------------
@@ -41,6 +48,10 @@ func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
+}
+
+func writeCodedErr(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]string{"error": message, "code": code})
 }
 
 func parseIDInt64(r *http.Request) (int64, error) {
@@ -58,7 +69,7 @@ func (h *handlers) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *handlers) version(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"version": "1.0.0"})
+	writeJSON(w, http.StatusOK, map[string]string{"version": "0.1.0"})
 }
 
 // ---------------------------------------------------------------------------
@@ -71,8 +82,9 @@ type loginReq struct {
 }
 
 type loginResp struct {
-	Token string       `json:"token"`
-	User  *store.User  `json:"user"`
+	Token     string      `json:"token"`
+	User      *store.User `json:"user"`
+	ExpiresIn int64       `json:"expires_in"`
 }
 
 func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
@@ -98,13 +110,21 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 
 	_ = h.d.Store.UpdateLastLogin(user.ID)
 
-	token, err := h.d.JWT.Generate(user.ID, user.Role, 24*time.Hour)
+	const sessionDuration = 30 * 24 * time.Hour
+	token, err := h.d.JWT.Generate(user.ID, user.Role, sessionDuration)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
+	http.SetCookie(w, &http.Cookie{
+		Name: "bw_session", Value: token, Path: "/", MaxAge: int(sessionDuration.Seconds()),
+		HttpOnly: true, Secure: h.d.Cfg.Server.TLS, SameSite: http.SameSiteLaxMode,
+	})
+	// Login is intentionally audited directly because this public endpoint has
+	// not yet passed through the JWT middleware that h.audit normally reads.
+	_ = h.d.Store.CreateAuditLog(user.ID, user.Username, "login", "session", "", "native JWT session issued", clientIP(r))
 	user.PasswordHash = ""
-	writeJSON(w, http.StatusOK, loginResp{Token: token, User: user})
+	writeJSON(w, http.StatusOK, loginResp{Token: token, User: user, ExpiresIn: int64(sessionDuration.Seconds())})
 }
 
 type registerReq struct {
@@ -154,17 +174,29 @@ func (h *handlers) me(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type createProjectReq struct {
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	RepoURL       string `json:"repo_url"`
-	RepoType      string `json:"repo_type"`
-	DefaultBranch string `json:"default_branch"`
-	VCSRootID     *int64 `json:"vcs_root_id"`
-	TemplateID    *int64 `json:"template_id"`
-	Config        string `json:"config"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	RepoURL       string   `json:"repo_url"`
+	RepoType      string   `json:"repo_type"`
+	DefaultBranch string   `json:"default_branch"`
+	VCSRootID     *int64   `json:"vcs_root_id"`
+	TemplateID    *int64   `json:"template_id"`
+	GroupID       *int64   `json:"group_id"`
+	Tags          []string `json:"tags"`
+	Config        string   `json:"config"`
 }
 
-func (h *handlers) listProjects(w http.ResponseWriter, _ *http.Request) {
+func (h *handlers) listProjects(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("view") == "summary" {
+		projects, err := h.d.Store.ListProjectSummaries()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("X-Buildworld-View-Version", "1")
+		writeJSON(w, http.StatusOK, projects)
+		return
+	}
 	projects, err := h.d.Store.ListProjects()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -186,12 +218,23 @@ func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
 	if req.RepoType == "" {
 		req.RepoType = "git"
 	}
+	if req.GroupID != nil {
+		if _, err := h.d.Store.GetProjectGroup(*req.GroupID); err != nil {
+			writeErr(w, http.StatusBadRequest, "project group not found")
+			return
+		}
+	}
 	p, err := h.d.Store.CreateProject(req.Name, req.Description, req.RepoURL, req.RepoType,
-		req.DefaultBranch, req.Config, userIDOf(r), req.VCSRootID, req.TemplateID)
+		req.DefaultBranch, req.Config, userIDOf(r), req.VCSRootID, req.TemplateID, req.Tags)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := h.d.Store.SetProjectGroup(p.ID, req.GroupID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	p, _ = h.d.Store.GetProject(p.ID)
 	writeJSON(w, http.StatusCreated, p)
 }
 
@@ -220,9 +263,19 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if req.GroupID != nil {
+		if _, err := h.d.Store.GetProjectGroup(*req.GroupID); err != nil {
+			writeErr(w, http.StatusBadRequest, "project group not found")
+			return
+		}
+	}
 	if err := h.d.Store.UpdateProject(id, req.Name, req.Description, req.RepoURL, req.RepoType,
-		req.DefaultBranch, req.Config, req.VCSRootID, req.TemplateID); err != nil {
+		req.DefaultBranch, req.Config, req.VCSRootID, req.TemplateID, req.Tags); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := h.d.Store.SetProjectGroup(id, req.GroupID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -250,6 +303,168 @@ type triggerBuildReq struct {
 	Parameters map[string]interface{} `json:"parameters"`
 }
 
+func decodeTriggerBuildRequest(r *http.Request) (triggerBuildReq, error) {
+	var req triggerBuildReq
+	if r.Body == nil {
+		return req, nil
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		return req, fmt.Errorf("invalid request body")
+	}
+	return req, nil
+}
+
+func (h *handlers) loadProjectBuildConfig(project *store.Project) (*engine.BuildConfig, error) {
+	config, err := engine.ParsePipelineConfig(project.Config)
+	if err != nil {
+		return nil, fmt.Errorf("invalid project build configuration: %w", err)
+	}
+	if project.TemplateID == nil {
+		return config, nil
+	}
+
+	template, err := h.d.Store.GetBuildTemplate(*project.TemplateID)
+	if err != nil {
+		return nil, fmt.Errorf("project build template is unavailable: %w", err)
+	}
+	templateConfig, err := engine.ParsePipelineConfig(template.Config)
+	if err != nil {
+		return nil, fmt.Errorf("invalid build template configuration: %w", err)
+	}
+	return engine.MergeBuildConfig(templateConfig, config), nil
+}
+
+func (h *handlers) resolveProjectBuildParameters(project *store.Project, supplied map[string]interface{}) (string, error) {
+	config, err := h.loadProjectBuildConfig(project)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := engine.ResolveBuildParameters(config.Parameters, supplied)
+	if err != nil {
+		return "", err
+	}
+	if len(resolved) == 0 {
+		return "", nil
+	}
+	encoded, err := json.Marshal(resolved)
+	if err != nil {
+		return "", fmt.Errorf("encode build parameters: %w", err)
+	}
+	return string(encoded), nil
+}
+
+func (h *handlers) requestBuildApproval(project *store.Project, build *store.Build, requesterID int64) error {
+	config, err := h.loadProjectBuildConfig(project)
+	if err != nil {
+		return err
+	}
+	required, err := engine.ApprovalRequired(config)
+	if err != nil || !required {
+		return err
+	}
+	if h.d.Approval == nil {
+		return fmt.Errorf("approval service is unavailable")
+	}
+	if _, err := h.d.Approval.RequestIfRequired(build.ID, requesterID, config); err != nil {
+		_ = h.d.Store.FinishBuild(build.ID, "failed", 0)
+		return err
+	}
+	return nil
+}
+
+func secretBuildParameterNames(config *engine.BuildConfig) map[string]struct{} {
+	names := make(map[string]struct{})
+	if config == nil {
+		return names
+	}
+	for _, parameter := range config.Parameters {
+		if parameter.IsSecret || strings.EqualFold(strings.TrimSpace(parameter.Type), "password") {
+			names[parameter.Name] = struct{}{}
+		}
+	}
+	return names
+}
+
+func looksLikeSecretParameter(name string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	if normalized == "key" {
+		return true
+	}
+	for _, marker := range []string{"password", "passwd", "secret", "token", "private_key", "api_key", "access_key", "_key", "-key"} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func redactBuildParameters(build *store.Build, secretNames map[string]struct{}) *store.Build {
+	if build == nil {
+		return nil
+	}
+	redacted := *build
+	if strings.TrimSpace(build.Parameters) == "" {
+		return &redacted
+	}
+
+	var parameters map[string]interface{}
+	if err := json.Unmarshal([]byte(build.Parameters), &parameters); err != nil {
+		redacted.Parameters = ""
+		return &redacted
+	}
+	for name := range parameters {
+		if _, secret := secretNames[name]; secret || looksLikeSecretParameter(name) {
+			parameters[name] = "********"
+		}
+	}
+	encoded, err := json.Marshal(parameters)
+	if err != nil {
+		redacted.Parameters = ""
+		return &redacted
+	}
+	redacted.Parameters = string(encoded)
+	return &redacted
+}
+
+func (h *handlers) publicBuild(build *store.Build) *store.Build {
+	if build == nil {
+		return nil
+	}
+	project, err := h.d.Store.GetProject(build.ProjectID)
+	if err != nil {
+		return redactBuildParameters(build, nil)
+	}
+	config, _ := h.loadProjectBuildConfig(project)
+	result := redactBuildParameters(build, secretBuildParameterNames(config))
+	if approval, approvalErr := h.d.Store.GetBuildApprovalByBuild(build.ID); approvalErr == nil {
+		if policy, policyErr := engine.ResolveApprovalPolicy(config); policyErr == nil {
+			approval.Prompt = policy.Prompt
+			approval.RequiredRoles = append([]string(nil), policy.RequiredRoles...)
+			approval.AllowRequester = policy.RequesterCanResolve()
+		}
+		result.Approval = approval
+	}
+	return result
+}
+
+func (h *handlers) publicBuilds(builds []*store.Build) []*store.Build {
+	result := make([]*store.Build, 0, len(builds))
+	secretNamesByProject := make(map[int64]map[string]struct{})
+	for _, build := range builds {
+		names, cached := secretNamesByProject[build.ProjectID]
+		if !cached {
+			project, projectErr := h.d.Store.GetProject(build.ProjectID)
+			if projectErr == nil {
+				config, _ := h.loadProjectBuildConfig(project)
+				names = secretBuildParameterNames(config)
+			}
+			secretNamesByProject[build.ProjectID] = names
+		}
+		result = append(result, redactBuildParameters(build, names))
+	}
+	return result
+}
+
 func (h *handlers) listBuilds(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -262,7 +477,70 @@ func (h *handlers) listBuilds(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, builds)
+	writeJSON(w, http.StatusOK, h.publicBuilds(builds))
+}
+
+func (h *handlers) searchBuilds(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	search := store.BuildSearch{
+		Query:   query.Get("q"),
+		Trigger: query.Get("trigger"),
+		Branch:  query.Get("branch"),
+		Limit:   25,
+	}
+	if raw := query.Get("project_id"); raw != "" {
+		projectID, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || projectID <= 0 {
+			writeErr(w, http.StatusBadRequest, "invalid project_id")
+			return
+		}
+		search.ProjectID = &projectID
+	}
+	if raw := query.Get("status"); raw != "" {
+		allowed := map[string]bool{
+			"pending": true, "pending_approval": true, "running": true,
+			"success": true, "failed": true, "cancelled": true, "rejected": true,
+		}
+		for _, status := range strings.Split(raw, ",") {
+			status = strings.TrimSpace(status)
+			if !allowed[status] {
+				writeErr(w, http.StatusBadRequest, "invalid status")
+				return
+			}
+			search.Statuses = append(search.Statuses, status)
+		}
+	}
+	if raw := query.Get("pinned"); raw != "" {
+		pinned, err := strconv.ParseBool(raw)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid pinned")
+			return
+		}
+		search.Pinned = &pinned
+	}
+	if raw := query.Get("limit"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit <= 0 {
+			writeErr(w, http.StatusBadRequest, "invalid limit")
+			return
+		}
+		search.Limit = min(limit, 100)
+	}
+	if raw := query.Get("offset"); raw != "" {
+		offset, err := strconv.Atoi(raw)
+		if err != nil || offset < 0 {
+			writeErr(w, http.StatusBadRequest, "invalid offset")
+			return
+		}
+		search.Offset = offset
+	}
+	result, err := h.d.Store.SearchBuilds(search)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	result.Items = h.publicBuilds(result.Items)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *handlers) listProjectBuilds(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +554,7 @@ func (h *handlers) listProjectBuilds(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, builds)
+	writeJSON(w, http.StatusOK, h.publicBuilds(builds))
 }
 
 func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
@@ -291,18 +569,20 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req triggerBuildReq
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	req, err := decodeTriggerBuildRequest(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
-	branch := req.Branch
+	branch := strings.TrimSpace(req.Branch)
 	if branch == "" {
 		branch = project.DefaultBranch
 	}
-	paramsJSON := ""
-	if len(req.Parameters) > 0 {
-		if b, err := json.Marshal(req.Parameters); err == nil {
-			paramsJSON = string(b)
-		}
+	paramsJSON, err := h.resolveProjectBuildParameters(project, req.Parameters)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	num, err := h.d.Store.NextBuildNumber(project.ID)
@@ -315,12 +595,18 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	// Kick off async build execution.
-	if h.d.Runner != nil {
-		h.d.Runner.Run(build.ID)
+	if err := h.requestBuildApproval(project, build, userIDOf(r)); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
-	writeJSON(w, http.StatusCreated, build)
+
+	if h.d.Runner != nil {
+		if err := h.d.Runner.Enqueue(build.ID); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusCreated, h.publicBuild(build))
 }
 
 func (h *handlers) getBuild(w http.ResponseWriter, r *http.Request) {
@@ -334,7 +620,7 @@ func (h *handlers) getBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "build not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, build)
+	writeJSON(w, http.StatusOK, h.publicBuild(build))
 }
 
 func (h *handlers) getBuildLogs(w http.ResponseWriter, r *http.Request) {
@@ -351,13 +637,83 @@ func (h *handlers) getBuildLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"log": build.Log})
 }
 
+func (h *handlers) getBuildTimeline(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	build, err := h.d.Store.GetBuild(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "build not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, engine.ParseBuildTimeline(build.Status, build.Log))
+}
+
+func (h *handlers) getBuildProblems(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	build, err := h.d.Store.GetBuild(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "build not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, engine.AnalyzeBuildProblems(build.Status, build.Log))
+}
+
+func (h *handlers) getBuildChain(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	chain, err := engine.NewBuildChainService(h.d.Store, nil).Resolve(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "build not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, chain)
+}
+
 func (h *handlers) stopBuild(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDInt64(r)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	_ = h.d.Store.CancelBuild(id)
+	if err := h.d.Store.CancelBuild(id); err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			writeErr(w, http.StatusNotFound, "build not found")
+		case errors.Is(err, store.ErrBuildNotCancellable):
+			writeErr(w, http.StatusConflict, "build is already finished")
+		default:
+			writeErr(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	if err := h.d.Store.UpdateBuildQueueItemStatusByBuildID(id, "cancelled"); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resolverID := userIDOf(r)
+	resolverName := ""
+	if resolverID > 0 {
+		if user, userErr := h.d.Store.GetUser(resolverID); userErr == nil {
+			resolverName = user.Username
+		}
+	}
+	if err := h.d.Store.CancelPendingBuildApproval(id, resolverID, resolverName); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if h.d.Runner != nil {
+		h.d.Runner.Stop(id)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
@@ -385,6 +741,10 @@ func (h *handlers) listAgents(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *handlers) registerAgent(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/auto-register") && (h.d.Cfg.Workers.EnrollmentToken == "" || r.Header.Get("X-Buildworld-Enroll-Token") != h.d.Cfg.Workers.EnrollmentToken) {
+		writeErr(w, http.StatusUnauthorized, "invalid worker enrollment token")
+		return
+	}
 	var req registerAgentReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -413,6 +773,20 @@ func (h *handlers) registerAgent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *handlers) workerHeartbeat(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	worker, err := h.d.Store.GetWorker(id)
+	if err != nil || !auth.CheckPassword(worker.TokenHash, r.Header.Get("X-Buildworld-Worker-Token")) {
+		writeErr(w, http.StatusUnauthorized, "invalid worker token")
+		return
+	}
+	if err := h.d.Store.UpdateWorkerHeartbeat(id, 0); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *handlers) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.d.Store.DeleteWorker(id); err != nil {
@@ -423,7 +797,24 @@ func (h *handlers) deleteAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) generateAgentToken(w http.ResponseWriter, _ *http.Request) {
-	token := uuid.New().String()
+	if h.d.Store == nil || h.d.Cfg == nil {
+		writeErr(w, http.StatusServiceUnavailable, "agent enrollment is unavailable")
+		return
+	}
+	random := make([]byte, 32)
+	if _, err := rand.Read(random); err != nil {
+		writeErr(w, http.StatusInternalServerError, "unable to generate secure enrollment token")
+		return
+	}
+	token := "bw_enroll_" + hex.EncodeToString(random)
+	if err := h.d.Store.SetEnvVar("system", nil, agentEnrollmentTokenSetting, token, true, "Remote agent enrollment and dispatch credential"); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.d.Cfg.Workers.EnrollmentToken = token
+	if h.d.Runner != nil {
+		h.d.Runner.SetWorkerDispatchToken(token)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
@@ -451,6 +842,46 @@ type installPluginReq struct {
 	Source         string `json:"source"`
 }
 
+type installGitHubPluginReq struct {
+	URL string `json:"url"`
+}
+
+func (h *handlers) installGitHubPlugin(w http.ResponseWriter, r *http.Request) {
+	if h.d.Loader == nil {
+		writeErr(w, http.StatusServiceUnavailable, "plugin loader unavailable")
+		return
+	}
+	var req installGitHubPluginReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		writeErr(w, http.StatusBadRequest, "GitHub URL is required")
+		return
+	}
+	manifest, err := h.d.Loader.InstallGitHub(r.Context(), req.URL)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	enabled := true
+	stored, storeErr := h.d.Store.GetPluginByName(manifest.Name)
+	switch {
+	case storeErr == nil:
+		enabled = stored.Enabled
+		storeErr = h.d.Store.UpdatePluginMetadata(stored.ID, manifest.Version, manifest.Description, "", manifest.Source)
+	case errors.Is(storeErr, sql.ErrNoRows):
+		stored, storeErr = h.d.Store.CreatePlugin(manifest.Name, manifest.Version, manifest.Description, "", "", "go", "", "", manifest.Source)
+	default:
+		// Preserve the original store error below.
+	}
+	if storeErr != nil {
+		writeErr(w, http.StatusInternalServerError, "persist plugin metadata: "+storeErr.Error())
+		return
+	}
+	stepsJSON, _ := json.Marshal(manifest.Steps)
+	_ = h.d.Store.UpdatePluginStatus(manifest.Name, enabled, string(stepsJSON), "[]", "[]")
+	h.audit(r, "install", "plugin", manifest.Name, "GitHub binary plugin: "+req.URL)
+	writeJSON(w, http.StatusCreated, manifest)
+}
+
 func (h *handlers) listPlugins(w http.ResponseWriter, _ *http.Request) {
 	dbPlugins, err := h.d.Store.ListPlugins()
 	if err != nil {
@@ -465,24 +896,34 @@ func (h *handlers) listPlugins(w http.ResponseWriter, _ *http.Request) {
 
 	if h.d.Loader != nil {
 		for _, name := range getBuiltinPluginNames(h.d.Loader) {
-			if _, exists := pluginMap[name]; !exists {
-				p := h.d.Loader.Get(name)
-				if p != nil {
-					uiExtJSON, _ := json.Marshal(p.UIExtensions())
-					dbP := &store.Plugin{
-						Name:         p.Name,
-						Version:      p.Version,
-						Description:  p.Description,
-						Author:       p.Author,
-						Enabled:      true,
-						Source:       "builtin",
-						Steps:        "[]",
-						Triggers:     "[]",
-						UIExtensions: string(uiExtJSON),
-					}
-					pluginMap[name] = dbP
-					_, _ = h.d.Store.CreatePlugin(p.Name, p.Version, p.Description, p.Author, "", "js", "", "", "builtin")
+			p := h.d.Loader.Get(name)
+			if p == nil {
+				continue
+			}
+			source := p.InstallSource()
+			if dbP, exists := pluginMap[name]; exists {
+				if source != "builtin" && dbP.Source != source {
+					_ = h.d.Store.UpdatePluginMetadata(dbP.ID, p.Version, p.Description, p.Author, source)
+					dbP.Version, dbP.Description, dbP.Author, dbP.Source = p.Version, p.Description, p.Author, source
 				}
+				continue
+			}
+			uiExtJSON, _ := json.Marshal(p.UIExtensions())
+			dbP := &store.Plugin{
+				Name:         p.Name,
+				Version:      p.Version,
+				Description:  p.Description,
+				Author:       p.Author,
+				Enabled:      true,
+				Source:       source,
+				Steps:        "[]",
+				Triggers:     "[]",
+				UIExtensions: string(uiExtJSON),
+			}
+			pluginMap[name] = dbP
+			created, _ := h.d.Store.CreatePlugin(p.Name, p.Version, p.Description, p.Author, "", "js", "", "", source)
+			if created != nil {
+				dbP.ID = created.ID
 			}
 		}
 	}
@@ -923,7 +1364,7 @@ func (h *handlers) updateUserPassword(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type setEnvVarReq struct {
-	Scope       string `json:"scope"`       // global | project
+	Scope       string `json:"scope"` // global | project
 	ProjectID   *int64 `json:"project_id"`
 	Name        string `json:"name"`
 	Value       string `json:"value"`
@@ -995,6 +1436,11 @@ func (h *handlers) deleteEnvVar(w http.ResponseWriter, r *http.Request) {
 
 // triggerBuildByWebhook creates a build for a project matching the repo URL.
 func (h *handlers) triggerBuildByWebhook(payload webhook.WebhookPayload) error {
+	if h.shouldRestartDevelopmentServer(payload.HeadCommit.Message) {
+		if err := h.restartDevelopmentServer(); err != nil {
+			return err
+		}
+	}
 	projects, err := h.d.Store.ListProjects()
 	if err != nil {
 		return err
@@ -1010,8 +1456,13 @@ func (h *handlers) triggerBuildByWebhook(payload webhook.WebhookPayload) error {
 			if err != nil {
 				return err
 			}
+			if err := h.requestBuildApproval(p, build, 0); err != nil {
+				return err
+			}
 			if h.d.Runner != nil {
-				h.d.Runner.Run(build.ID)
+				if err := h.d.Runner.Enqueue(build.ID); err != nil {
+					return err
+				}
 			}
 			return nil
 		}
@@ -1019,21 +1470,49 @@ func (h *handlers) triggerBuildByWebhook(payload webhook.WebhookPayload) error {
 	return nil
 }
 
+func (h *handlers) shouldRestartDevelopmentServer(message string) bool {
+	marker := h.d.Cfg.Automation.CommitRestartMarker
+	if marker == "" {
+		marker = "[buildworld:restart]"
+	}
+	return strings.Contains(strings.ToLower(message), strings.ToLower(marker))
+}
+
+func (h *handlers) restartDevelopmentServer() error {
+	command := strings.TrimSpace(h.d.Cfg.Automation.DevRestartCommand)
+	if command == "" {
+		return nil
+	}
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/c", command)
+	} else {
+		cmd = exec.Command("sh", "-c", command)
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Start()
+}
+
 func (h *handlers) githubWebhook(w http.ResponseWriter, r *http.Request) {
-	wh := webhook.NewWebhookHandler(h.d.Cfg.Auth.JWTSecret)
+	secret := h.d.Cfg.Automation.GitHubWebhookSecret
+	if secret == "" {
+		secret = h.d.Cfg.Auth.JWTSecret
+	}
+	wh := webhook.NewWebhookHandler(secret)
 	wh.OnPush(h.triggerBuildByWebhook)
 	wh.HandleGitHubWebhook(w, r)
 }
 
 func (h *handlers) gitlabWebhook(w http.ResponseWriter, r *http.Request) {
-	wh := webhook.NewWebhookHandler(h.d.Cfg.Auth.JWTSecret)
+	wh := webhook.NewWebhookHandler(h.d.Cfg.Automation.GitHubWebhookSecret)
 	wh.OnPush(h.triggerBuildByWebhook)
 	wh.HandleGitLabWebhook(w, r)
 }
 
 // giteaWebhook uses the same GitHub-compatible signature scheme (X-Gitea-Signature).
 func (h *handlers) giteaWebhook(w http.ResponseWriter, r *http.Request) {
-	wh := webhook.NewWebhookHandler(h.d.Cfg.Auth.JWTSecret)
+	wh := webhook.NewWebhookHandler(h.d.Cfg.Automation.GitHubWebhookSecret)
 	wh.OnPush(h.triggerBuildByWebhook)
 	wh.HandleGitHubWebhook(w, r)
 }
@@ -1056,9 +1535,15 @@ type createCredentialReq struct {
 }
 
 func maskCredentialSecrets(c *store.Credential) {
-	c.Password = "********"
-	c.PrivateKey = "********"
-	c.Token = "********"
+	if c.Password != "" {
+		c.Password = "********"
+	}
+	if c.PrivateKey != "" {
+		c.PrivateKey = "********"
+	}
+	if c.Token != "" {
+		c.Token = "********"
+	}
 }
 
 func (h *handlers) listCredentials(w http.ResponseWriter, r *http.Request) {
@@ -1214,7 +1699,7 @@ type createVCSRootReq struct {
 	URL          string `json:"url"`
 	Branch       string `json:"branch"`
 	CredentialID *int64 `json:"credential_id"`
-	PollInterval int    `json:"poll_interval"`
+	PollInterval *int   `json:"poll_interval"`
 	AutoCheckout bool   `json:"auto_checkout"`
 	Config       string `json:"config"`
 }
@@ -1241,7 +1726,11 @@ func (h *handlers) createVCSRoot(w http.ResponseWriter, r *http.Request) {
 	if req.Type == "" {
 		req.Type = "git"
 	}
-	v, err := h.d.Store.CreateVCSRoot(req.Name, req.Type, req.URL, req.Branch, req.CredentialID, req.PollInterval, req.AutoCheckout, req.Config)
+	pollInterval := 60
+	if req.PollInterval != nil {
+		pollInterval = max(0, *req.PollInterval)
+	}
+	v, err := h.d.Store.CreateVCSRoot(req.Name, req.Type, req.URL, req.Branch, req.CredentialID, pollInterval, req.AutoCheckout, req.Config)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1274,7 +1763,14 @@ func (h *handlers) updateVCSRoot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := h.d.Store.UpdateVCSRoot(id, req.Name, req.Type, req.URL, req.Branch, req.CredentialID, req.PollInterval, req.AutoCheckout, req.Config); err != nil {
+	pollInterval := 60
+	if existing, getErr := h.d.Store.GetVCSRoot(id); getErr == nil {
+		pollInterval = existing.PollInterval
+	}
+	if req.PollInterval != nil {
+		pollInterval = max(0, *req.PollInterval)
+	}
+	if err := h.d.Store.UpdateVCSRoot(id, req.Name, req.Type, req.URL, req.Branch, req.CredentialID, pollInterval, req.AutoCheckout, req.Config); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1401,10 +1897,22 @@ func (h *handlers) retryBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if h.d.Runner != nil {
-		h.d.Runner.Run(newBuild.ID)
+	project, err := h.d.Store.GetProject(newBuild.ProjectID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	writeJSON(w, http.StatusCreated, newBuild)
+	if err := h.requestBuildApproval(project, newBuild, userIDOf(r)); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.d.Runner != nil {
+		if err := h.d.Runner.Enqueue(newBuild.ID); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusCreated, h.publicBuild(newBuild))
 }
 
 func (h *handlers) pinBuild(w http.ResponseWriter, r *http.Request) {
@@ -1505,12 +2013,61 @@ func (h *handlers) uploadArtifact(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type createNotificationChannelReq struct {
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	Config      string                 `json:"config"`
-	Conditions  string                 `json:"conditions"`
-	Description string                 `json:"description"`
-	Enabled     bool                   `json:"enabled"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Config      string `json:"config"`
+	Conditions  string `json:"conditions"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
+}
+
+func validNotificationChannelType(value store.NotificationChannelType) bool {
+	switch value {
+	case store.NotificationChannelWeb,
+		store.NotificationChannelEmail,
+		store.NotificationChannelFeishu,
+		store.NotificationChannelWebhook,
+		store.NotificationChannelDiscord,
+		store.NotificationChannelWeCom,
+		store.NotificationChannelTelegram:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *handlers) listInAppNotifications(w http.ResponseWriter, r *http.Request) {
+	limit := 30
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			limit = value
+		}
+	}
+	feed, err := h.d.Store.GetInAppNotificationFeed(userIDOf(r), limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, feed)
+}
+
+func (h *handlers) markInAppNotificationsRead(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		LastEventID int64 `json:"last_event_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LastEventID < 0 {
+		writeErr(w, http.StatusBadRequest, "valid last_event_id is required")
+		return
+	}
+	if err := h.d.Store.MarkInAppNotificationsRead(userIDOf(r), req.LastEventID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "web notification not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "ok", "last_event_id": req.LastEventID})
 }
 
 func (h *handlers) listNotificationChannels(w http.ResponseWriter, _ *http.Request) {
@@ -1536,6 +2093,14 @@ func (h *handlers) createNotificationChannel(w http.ResponseWriter, r *http.Requ
 		req.Type = "webhook"
 	}
 	ct := store.NotificationChannelType(req.Type)
+	if !validNotificationChannelType(ct) {
+		writeErr(w, http.StatusBadRequest, "unsupported notification channel type")
+		return
+	}
+	if ct == store.NotificationChannelWeb {
+		writeErr(w, http.StatusConflict, "the built-in web notification channel already exists")
+		return
+	}
 	c, err := h.d.Store.CreateNotificationChannel(req.Name, ct, req.Config, req.Conditions, req.Description, req.Enabled)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -1570,7 +2135,15 @@ func (h *handlers) updateNotificationChannel(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	ct := store.NotificationChannelType(req.Type)
+	if !validNotificationChannelType(ct) {
+		writeErr(w, http.StatusBadRequest, "unsupported notification channel type")
+		return
+	}
 	if err := h.d.Store.UpdateNotificationChannel(id, req.Name, ct, req.Config, req.Conditions, req.Description, req.Enabled); err != nil {
+		if errors.Is(err, store.ErrRequiredNotificationChannel) {
+			writeCodedErr(w, http.StatusConflict, "required_notification_channel", "the built-in web notification channel must remain enabled")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1589,6 +2162,10 @@ func (h *handlers) deleteNotificationChannel(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := h.d.Store.DeleteNotificationChannel(id); err != nil {
+		if errors.Is(err, store.ErrRequiredNotificationChannel) {
+			writeCodedErr(w, http.StatusConflict, "required_notification_channel", "the built-in web notification channel is required")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1783,8 +2360,13 @@ func (h *handlers) deleteAPIToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := h.d.Store.DeleteAPIToken(id); err != nil {
+	deleted, err := h.d.Store.DeleteAPITokenForUser(id, userIDOf(r))
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !deleted {
+		writeErr(w, http.StatusNotFound, "api token not found")
 		return
 	}
 	h.audit(r, "delete", "api_token", fmt.Sprintf("%d", id), "")
@@ -1800,7 +2382,7 @@ func (h *handlers) listPendingApprovals(w http.ResponseWriter, _ *http.Request) 
 		writeErr(w, http.StatusServiceUnavailable, "approval service not available")
 		return
 	}
-	items, err := h.d.Approval.ListPending()
+	items, err := h.d.Approval.ListPendingDetails()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1827,9 +2409,11 @@ func (h *handlers) approveBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.audit(r, "approve", "build", fmt.Sprintf("%d", id), req.Comment)
-	// 审批通过后启动构建
 	if h.d.Runner != nil {
-		h.d.Runner.Run(id)
+		if err := h.d.Runner.Enqueue(id); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "approved"})
 }
@@ -2020,6 +2604,38 @@ func (h *handlers) createDeploymentEnv(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, d)
 }
 
+func (h *handlers) updateDeploymentEnv(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req createDeploymentEnvReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if _, err := h.d.Store.GetDeploymentEnv(id); err != nil {
+		writeErr(w, http.StatusNotFound, "environment not found")
+		return
+	}
+	if err := h.d.Store.UpdateDeploymentEnv(id, req.Name, req.Description, req.Config); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	updated, err := h.d.Store.GetDeploymentEnv(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "update", "deployment_env", fmt.Sprintf("%d", id), req.Name)
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (h *handlers) deleteDeploymentEnv(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDInt64(r)
 	if err != nil {
@@ -2065,10 +2681,10 @@ func (h *handlers) deployBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	h.audit(r, "deploy", "deployment_env", fmt.Sprintf("%d", envID), fmt.Sprintf("build %d", buildID))
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":     "deployed",
-		"env_id":     envID,
-		"build_id":   buildID,
-		"env_name":   env.Name,
+		"status":   "deployed",
+		"env_id":   envID,
+		"build_id": buildID,
+		"env_name": env.Name,
 	})
 }
 
@@ -2103,11 +2719,47 @@ func (h *handlers) createProjectGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	g, err := h.d.Store.CreateProjectGroup(req.Name, req.Description, req.ParentID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		if errors.Is(err, store.ErrProjectGroupNameExists) {
+			writeCodedErr(w, http.StatusConflict, "project_group_name_exists", err.Error())
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	h.audit(r, "create", "project_group", fmt.Sprintf("%d", g.ID), req.Name)
 	writeJSON(w, http.StatusCreated, g)
+}
+
+func (h *handlers) updateProjectGroup(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req createProjectGroupReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := h.d.Store.UpdateProjectGroup(id, req.Name, req.Description, req.ParentID); err != nil {
+		if errors.Is(err, store.ErrProjectGroupNameExists) {
+			writeCodedErr(w, http.StatusConflict, "project_group_name_exists", err.Error())
+			return
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "project group not found")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	group, err := h.d.Store.GetProjectGroup(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "update", "project_group", fmt.Sprintf("%d", id), req.Name)
+	writeJSON(w, http.StatusOK, group)
 }
 
 func (h *handlers) deleteProjectGroup(w http.ResponseWriter, r *http.Request) {
@@ -2117,6 +2769,10 @@ func (h *handlers) deleteProjectGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.d.Store.DeleteProjectGroup(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "project group not found")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -2145,17 +2801,58 @@ func (h *handlers) reorderBuildQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Priority int `json:"priority"`
+		Operation string `json:"operation"`
+		Priority  *int   `json:"priority,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := h.d.Store.UpdateBuildQueueItemPriority(id, int64(req.Priority)); err != nil {
+
+	if req.Operation != "" {
+		result, err := engine.NewBuildQueueReorderService(h.d.Store, nil).Apply(id, req.Operation)
+		if err != nil {
+			switch {
+			case errors.Is(err, engine.ErrUnknownQueueOperation):
+				writeErr(w, http.StatusBadRequest, err.Error())
+			case errors.Is(err, store.ErrBuildQueueItemNotMovable):
+				writeErr(w, http.StatusConflict, "build queue item is no longer movable")
+			default:
+				writeErr(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+		if h.d.Runner != nil {
+			h.d.Runner.WakeQueue()
+		}
+		h.audit(r, "reorder", "build_queue", fmt.Sprintf("%d", id), req.Operation)
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+
+	// Version 0 compatibility: older clients can still assign a raw priority.
+	if req.Priority == nil {
+		writeErr(w, http.StatusBadRequest, "operation is required")
+		return
+	}
+	if err := h.d.Store.UpdateBuildQueueItemPriority(id, int64(*req.Priority)); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	if h.d.Runner != nil {
+		h.d.Runner.WakeQueue()
+	}
+	items, err := h.d.Store.ListBuildQueue("")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, &engine.BuildQueueReorderResult{
+		Version:   engine.BuildQueueReorderVersion,
+		Status:    "ok",
+		Operation: "set_priority",
+		Items:     items,
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -2194,17 +2891,19 @@ func (h *handlers) httpTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req triggerBuildReq
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	branch := req.Branch
+	req, err := decodeTriggerBuildRequest(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	branch := strings.TrimSpace(req.Branch)
 	if branch == "" {
 		branch = project.DefaultBranch
 	}
-	paramsJSON := ""
-	if len(req.Parameters) > 0 {
-		if b, err := json.Marshal(req.Parameters); err == nil {
-			paramsJSON = string(b)
-		}
+	paramsJSON, err := h.resolveProjectBuildParameters(project, req.Parameters)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	num, err := h.d.Store.NextBuildNumber(project.ID)
 	if err != nil {
@@ -2216,12 +2915,19 @@ func (h *handlers) httpTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := h.requestBuildApproval(project, build, apiToken.UserID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	// 记录触发者
 	_ = h.d.Store.CreateAuditLog(apiToken.UserID, "", "trigger", "project", projectName, fmt.Sprintf("build #%d via api token %q", build.Number, apiToken.Name), clientIP(r))
 	if h.d.Runner != nil {
-		h.d.Runner.Run(build.ID)
+		if err := h.d.Runner.Enqueue(build.ID); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
-	writeJSON(w, http.StatusCreated, build)
+	writeJSON(w, http.StatusCreated, h.publicBuild(build))
 }
 
 // ---------------------------------------------------------------------------
@@ -2234,8 +2940,12 @@ func (h *handlers) getGlobalSettings(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	settings := map[string]string{}
+	settings := defaultGlobalSettings(h.d.Cfg)
 	for _, v := range vars {
+		if v.IsSecret {
+			settings[v.Name+"_configured"] = strconv.FormatBool(v.Value != "")
+			continue
+		}
 		settings[v.Name] = v.Value
 	}
 	writeJSON(w, http.StatusOK, settings)
@@ -2248,7 +2958,17 @@ func (h *handlers) updateGlobalSettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	for name, value := range settings {
+		if err := validateGlobalSetting(name, value); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if err := h.d.Store.SetEnvVar("system", nil, name, value, false, ""); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if h.d.Runner != nil {
+		if err := h.d.Runner.ReloadExecutionPolicy(); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2286,20 +3006,30 @@ func (h *handlers) serverMetrics(w http.ResponseWriter, r *http.Request) {
 		// 仅做 best-effort，跨平台时失败忽略
 		_ = stat
 	}
+	cpuLimitPercent := 100
+	backgroundMode := false
+	if h.d.Runner != nil {
+		policy := h.d.Runner.ExecutionPolicySnapshot()
+		cpuLimitPercent = policy.CPUPercent
+		backgroundMode = policy.BackgroundMode
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"go_version":       runtime.Version(),
-		"goroutines":       runtime.NumGoroutine(),
-		"cpu_count":        runtime.NumCPU(),
-		"mem_alloc_bytes":  m.Alloc,
-		"mem_sys_bytes":    m.Sys,
-		"heap_objects":     m.HeapObjects,
-		"disk_free_bytes":  diskFree,
-		"projects":         len(projects),
-		"builds_total":     len(builds),
-		"running_builds":   runningBuilds,
-		"online_workers":   onlineWorkers,
-		"workers_total":    len(workers),
-		"uptime_seconds":   int64(time.Since(startTime).Seconds()),
+		"go_version":        runtime.Version(),
+		"goroutines":        runtime.NumGoroutine(),
+		"cpu_count":         runtime.NumCPU(),
+		"gomaxprocs":        runtime.GOMAXPROCS(0),
+		"cpu_limit_percent": cpuLimitPercent,
+		"background_mode":   backgroundMode,
+		"mem_alloc_bytes":   m.Alloc,
+		"mem_sys_bytes":     m.Sys,
+		"heap_objects":      m.HeapObjects,
+		"disk_free_bytes":   diskFree,
+		"projects":          len(projects),
+		"builds_total":      len(builds),
+		"running_builds":    runningBuilds,
+		"online_workers":    onlineWorkers,
+		"workers_total":     len(workers),
+		"uptime_seconds":    int64(time.Since(startTime).Seconds()),
 	})
 }
 
@@ -2448,4 +3178,3 @@ func (h *handlers) getBigScreenData(w http.ResponseWriter, _ *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, data)
 }
-

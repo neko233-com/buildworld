@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/smtp"
+	"sync"
 	"time"
 
-	"github.com/neko233-com/buildworld233/internal/store"
+	"github.com/neko233-com/buildworld/internal/store"
 )
 
 type NotificationService struct {
@@ -20,28 +21,35 @@ func NewNotificationService(s *store.Store) *NotificationService {
 }
 
 type NotificationPayload struct {
-	Event     string                 `json:"event"`
-	BuildID   int64                  `json:"build_id"`
-	BuildNum  int                    `json:"build_number"`
-	ProjectID int64                  `json:"project_id"`
-	Project   string                 `json:"project"`
-	Status    string                 `json:"status"`
-	Trigger   string                 `json:"trigger"`
-	Branch    string                 `json:"branch,omitempty"`
-	Commit    string                 `json:"commit,omitempty"`
-	Duration  int64                  `json:"duration_ms,omitempty"`
-	Message   string                 `json:"message"`
-	Timestamp time.Time              `json:"timestamp"`
+	Event     string    `json:"event"`
+	BuildID   int64     `json:"build_id"`
+	BuildNum  int       `json:"build_number"`
+	ProjectID int64     `json:"project_id"`
+	Project   string    `json:"project"`
+	Status    string    `json:"status"`
+	Trigger   string    `json:"trigger"`
+	Branch    string    `json:"branch,omitempty"`
+	Commit    string    `json:"commit,omitempty"`
+	Duration  int64     `json:"duration_ms,omitempty"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 func (ns *NotificationService) SendBuildNotifications(build *store.Build, project *store.Project) error {
+	return ns.SendBuildEvent(build, project, "build.completed")
+}
+
+// SendBuildEvent delivers the shared channel configuration at lifecycle points.
+// Events include build.started and build.completed; per-channel conditions decide
+// which statuses should be delivered.
+func (ns *NotificationService) SendBuildEvent(build *store.Build, project *store.Project, eventType string) error {
 	channels, err := ns.store.ListEnabledNotificationChannels()
 	if err != nil {
 		return fmt.Errorf("list channels: %w", err)
 	}
 
 	payload := &NotificationPayload{
-		Event:     "build_completed",
+		Event:     eventType,
 		BuildID:   build.ID,
 		BuildNum:  build.Number,
 		ProjectID: build.ProjectID,
@@ -58,13 +66,21 @@ func (ns *NotificationService) SendBuildNotifications(build *store.Build, projec
 		payload.Duration = *build.DurationMs
 	}
 
+	var deliveries sync.WaitGroup
 	for _, channel := range channels {
 		if !ns.matchesConditions(channel, payload) {
 			continue
 		}
-
-		go ns.sendToChannel(channel, payload, build.ID)
+		deliveries.Add(1)
+		go func(target *store.NotificationChannel) {
+			defer deliveries.Done()
+			ns.sendToChannel(target, payload, build.ID)
+		}(channel)
 	}
+	// Each enabled matching channel is independent and executes concurrently.
+	// The runner invokes this method asynchronously, so waiting here guarantees
+	// that all delivery results are persisted without delaying the build itself.
+	deliveries.Wait()
 
 	return nil
 }
@@ -106,12 +122,22 @@ func (ns *NotificationService) sendToChannel(channel *store.NotificationChannel,
 	var success bool
 
 	switch channel.Type {
+	case store.NotificationChannelWeb:
+		// The persisted event is the delivery. Authenticated browsers consume it
+		// through the in-app notification feed.
+		success = true
 	case store.NotificationChannelEmail:
 		success, errMsg = ns.sendEmail(channel, payload)
 	case store.NotificationChannelFeishu:
 		success, errMsg = ns.sendFeishu(channel, payload)
 	case store.NotificationChannelWebhook:
 		success, errMsg = ns.sendWebhook(channel, payload)
+	case store.NotificationChannelDiscord:
+		success, errMsg = ns.sendDiscord(channel, payload)
+	case store.NotificationChannelWeCom:
+		success, errMsg = ns.sendWeCom(channel, payload)
+	case store.NotificationChannelTelegram:
+		success, errMsg = ns.sendTelegram(channel, payload)
 	default:
 		errMsg = "unknown channel type"
 	}
@@ -122,6 +148,76 @@ func (ns *NotificationService) sendToChannel(channel *store.NotificationChannel,
 	} else {
 		ns.store.UpdateNotificationEventStatus(event.ID, "failed", &errMsg, nil)
 	}
+}
+
+func (ns *NotificationService) sendDiscord(channel *store.NotificationChannel, payload *NotificationPayload) (bool, string) {
+	var config struct {
+		WebhookURL string `json:"webhook_url"`
+	}
+	if err := json.Unmarshal([]byte(channel.Config), &config); err != nil {
+		return false, fmt.Sprintf("invalid config: %v", err)
+	}
+	if config.WebhookURL == "" {
+		return false, "missing webhook URL"
+	}
+	color := 0x39a778
+	if payload.Status == "failed" {
+		color = 0xc95050
+	} else if payload.Status == "running" {
+		color = 0x168ab4
+	}
+	message := map[string]interface{}{"embeds": []interface{}{map[string]interface{}{
+		"title": fmt.Sprintf("%s · Build #%d", payload.Project, payload.BuildNum), "description": payload.Message, "color": color,
+		"fields": []map[string]string{{"name": "Branch", "value": payload.Branch, "inline": "true"}, {"name": "Status", "value": payload.Status, "inline": "true"}},
+	}}}
+	return postJSON(config.WebhookURL, message)
+}
+
+func (ns *NotificationService) sendWeCom(channel *store.NotificationChannel, payload *NotificationPayload) (bool, string) {
+	var config struct {
+		WebhookURL string `json:"webhook_url"`
+	}
+	if err := json.Unmarshal([]byte(channel.Config), &config); err != nil {
+		return false, fmt.Sprintf("invalid config: %v", err)
+	}
+	if config.WebhookURL == "" {
+		return false, "missing webhook URL"
+	}
+	content := fmt.Sprintf("<font color=\"info\">%s</font>\n> Build: <font color=\"comment\">#%d</font>\n> Status: **%s**\n> Branch: %s", payload.Project, payload.BuildNum, payload.Status, payload.Branch)
+	return postJSON(config.WebhookURL, map[string]interface{}{"msgtype": "markdown", "markdown": map[string]string{"content": content}})
+}
+
+func (ns *NotificationService) sendTelegram(channel *store.NotificationChannel, payload *NotificationPayload) (bool, string) {
+	var config struct {
+		BotToken string `json:"bot_token"`
+		ChatID   string `json:"chat_id"`
+	}
+	if err := json.Unmarshal([]byte(channel.Config), &config); err != nil {
+		return false, fmt.Sprintf("invalid config: %v", err)
+	}
+	if config.BotToken == "" || config.ChatID == "" {
+		return false, "missing bot token or chat ID"
+	}
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", config.BotToken)
+	text := fmt.Sprintf("<b>%s</b>\nBuild #%d: <b>%s</b>\nBranch: <code>%s</code>", payload.Project, payload.BuildNum, payload.Status, payload.Branch)
+	return postJSON(url, map[string]string{"chat_id": config.ChatID, "text": text, "parse_mode": "HTML"})
+}
+
+func postJSON(url string, body interface{}) (bool, string) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return false, err.Error()
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(url, "application/json", bytes.NewReader(data))
+	if err != nil {
+		return false, fmt.Sprintf("http post failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, fmt.Sprintf("channel returned status: %d", resp.StatusCode)
+	}
+	return true, ""
 }
 
 func (ns *NotificationService) sendEmail(channel *store.NotificationChannel, payload *NotificationPayload) (bool, string) {
@@ -275,10 +371,10 @@ func (ns *NotificationService) sendFeishu(channel *store.NotificationChannel, pa
 
 func (ns *NotificationService) sendWebhook(channel *store.NotificationChannel, payload *NotificationPayload) (bool, string) {
 	var config struct {
-		URL        string            `json:"url"`
-		Method     string            `json:"method"`
-		Headers    map[string]string `json:"headers"`
-		Secret     string            `json:"secret"`
+		URL     string            `json:"url"`
+		Method  string            `json:"method"`
+		Headers map[string]string `json:"headers"`
+		Secret  string            `json:"secret"`
 	}
 
 	if err := json.Unmarshal([]byte(channel.Config), &config); err != nil {

@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/neko233-com/buildworld233/internal/store"
+	"github.com/neko233-com/buildworld/internal/store"
 )
 
 // SetupDefaultAdmin creates the default root/root admin account if absent.
@@ -21,7 +21,7 @@ func SetupDefaultAdmin(db *store.Store) error {
 		return err
 	}
 
-	_, err = db.CreateUser("root", "admin@buildworld233.local", passwordHash, "admin")
+	_, err = db.CreateUser("root", "admin@buildworld.local", passwordHash, "admin")
 	if err != nil {
 		return err
 	}

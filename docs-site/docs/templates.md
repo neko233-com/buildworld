@@ -51,7 +51,7 @@ Templates provide pre-built pipeline configurations for common workflows. Use te
 
 ```typescript
 // buildworld.config.ts
-import { nodeTypescript } from "buildworld233/templates";
+import { nodeTypescript } from "buildworld/templates";
 
 pipeline(nodeTypescript({
   node_version: "20",
@@ -107,20 +107,20 @@ pipeline(myTemplate);
 
 ```bash
 # Export template
-buildworld233 template export my-template
+buildworld template export my-template
 
 # Import template
-buildworld233 template import template.json
+buildworld template import template.json
 ```
 
 ## Template Search
 
 ```bash
 # Search templates
-buildworld233 template search "docker"
+buildworld template search "docker"
 
 # List all templates
-buildworld233 template list
+buildworld template list
 ```
 
 ## Next Steps

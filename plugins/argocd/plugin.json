@@ -2,6 +2,6 @@
   "name": "argocd",
   "version": "1.0.0",
   "description": "ArgoCD deployment: sync, wait, rollback, app create, app delete",
-  "author": "buildworld233",
+  "author": "buildworld",
   "steps": ["argocd-sync", "argocd-wait", "argocd-rollback", "argocd-app-create", "argocd-app-delete"]
 }

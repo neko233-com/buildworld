@@ -1,336 +1,120 @@
-import { useState, useCallback } from 'react'
+import { useCallback, useState } from 'react'
+import { motion } from 'motion/react'
+import { BellRing, Braces, Check, CircleCheck, Clock3, Eye, Layers3, Mail, MessageCircle, Monitor, Pencil, Plus, Send, Trash2, Webhook, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { useApi } from '../hooks'
+import { dialogs } from '../components/AppDialogs'
+import { ModalDialog } from '../components/ModalDialog'
+import { PageState } from '../components/PageState'
 import { api } from '../api'
 
-type ChannelType = 'email' | 'feishu' | 'webhook'
+type ChannelType = 'web' | 'email' | 'feishu' | 'webhook' | 'discord' | 'wecom' | 'telegram'
+type NotificationChannel = { id: number; name: string; type: ChannelType; config: string; conditions: string; description: string; enabled: boolean; created_at: string; updated_at: string }
+type ChannelForm = { name: string; type: ChannelType; description: string; enabled: boolean; statuses: string[] }
+const channelTypeDefinitions: Array<{ value: ChannelType; icon: typeof BellRing }> = [{ value: 'web', icon: Monitor }, { value: 'feishu', icon: MessageCircle }, { value: 'discord', icon: MessageCircle }, { value: 'wecom', icon: MessageCircle }, { value: 'telegram', icon: Send }, { value: 'email', icon: Mail }, { value: 'webhook', icon: Webhook }]
 
-interface NotificationChannel {
-  id: number
-  name: string
-  type: ChannelType
-  config: string
-  conditions: string
-  description: string
-  enabled: boolean
-  created_at: string
-  updated_at: string
+function parseStatuses(source: string): string[] {
+  try { const value = JSON.parse(source); return Array.isArray(value?.statuses) ? value.statuses : [] } catch { return [] }
 }
+function typeClass(type: ChannelType) { return `notification-type ${type}` }
 
 export default function Notifications() {
   const { t } = useI18n()
-  const { data: channels, reload } = useApi<NotificationChannel[]>(() => api.listNotificationChannels())
-  const [showModal, setShowModal] = useState(false)
+  const channelTypes = channelTypeDefinitions.map(definition => ({ ...definition, label: t(`notifications.type_${definition.value}`) }))
+  const statusOptions = [
+    { value: 'running', label: t('notifications.statusStarted') },
+    { value: 'success', label: t('notifications.statusSuccess') },
+    { value: 'failed', label: t('notifications.statusFailed') },
+    { value: 'cancelled', label: t('notifications.statusCancelled') },
+  ]
+  const labelForType = (type: ChannelType) => channelTypes.find(item => item.value === type)?.label || type
+  const labelForStatus = (status: string) => statusOptions.find(option => option.value === status)?.label || status
+  const labelForDelivery = (status: string) => status === 'delivered' ? t('notifications.delivered') : status === 'failed' ? t('notifications.deliveryFailed') : status
+  const labelForEvent = (eventType: string) => eventType === 'build.started' ? t('notifications.webStarted') : eventType === 'build.completed' ? t('notifications.webCompleted') : eventType
+  const { data: channels, loading, error, reload } = useApi<NotificationChannel[]>(() => api.listNotificationChannels())
+  const [showEditor, setShowEditor] = useState(false)
   const [editing, setEditing] = useState<NotificationChannel | null>(null)
-  const [showEvents, setShowEvents] = useState<number | null>(null)
+  const [eventsChannel, setEventsChannel] = useState<NotificationChannel | null>(null)
   const [events, setEvents] = useState<any[]>([])
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [form, setForm] = useState<ChannelForm>({ name: '', type: 'feishu', description: '', enabled: true, statuses: [] })
+  const [webhookURL, setWebhookURL] = useState('')
+  const [telegram, setTelegram] = useState({ bot_token: '', chat_id: '' })
+  const [email, setEmail] = useState({ smtp_host: '', smtp_port: 587, smtp_user: '', smtp_password: '', from: '', to: '' })
+  const [webhook, setWebhook] = useState({ url: '', method: 'POST', headers: '' })
 
-  const [form, setForm] = useState({
-    name: '',
-    type: 'webhook' as ChannelType,
-    config: '',
-    conditions: '',
-    description: '',
-    enabled: true,
-  })
-
-  const [emailConfig, setEmailConfig] = useState({
-    smtp_host: '',
-    smtp_port: 587,
-    smtp_user: '',
-    smtp_password: '',
-    from: '',
-    to: '',
-  })
-
-  const [feishuConfig, setFeishuConfig] = useState({
-    webhook_url: '',
-  })
-
-  const [webhookConfig, setWebhookConfig] = useState({
-    url: '',
-    method: 'POST',
-    headers: '',
-  })
-
-  const resetForm = useCallback(() => {
-    setForm({ name: '', type: 'webhook', config: '', conditions: '', description: '', enabled: true })
-    setEmailConfig({ smtp_host: '', smtp_port: 587, smtp_user: '', smtp_password: '', from: '', to: '' })
-    setFeishuConfig({ webhook_url: '' })
-    setWebhookConfig({ url: '', method: 'POST', headers: '' })
+  const reset = useCallback(() => {
+    setForm({ name: '', type: 'feishu', description: '', enabled: true, statuses: [] }); setWebhookURL(''); setTelegram({ bot_token: '', chat_id: '' }); setEmail({ smtp_host: '', smtp_port: 587, smtp_user: '', smtp_password: '', from: '', to: '' }); setWebhook({ url: '', method: 'POST', headers: '' }); setFormError('')
   }, [])
-
-  const openCreate = () => {
-    resetForm()
-    setEditing(null)
-    setShowModal(true)
-  }
-
+  const openCreate = () => { reset(); setEditing(null); setShowEditor(true) }
   const openEdit = (channel: NotificationChannel) => {
-    setEditing(channel)
-    setForm({
-      name: channel.name,
-      type: channel.type,
-      config: channel.config,
-      conditions: channel.conditions,
-      description: channel.description,
-      enabled: channel.enabled,
-    })
+    setEditing(channel); setForm({ name: channel.name, type: channel.type, description: channel.description || '', enabled: channel.type === 'web' ? true : channel.enabled, statuses: parseStatuses(channel.conditions) }); setFormError('')
     try {
-      const cfg = JSON.parse(channel.config)
-      if (channel.type === 'email') {
-        setEmailConfig({
-          smtp_host: cfg.smtp_host || '',
-          smtp_port: cfg.smtp_port || 587,
-          smtp_user: cfg.smtp_user || '',
-          smtp_password: cfg.smtp_password || '',
-          from: cfg.from || '',
-          to: Array.isArray(cfg.to) ? cfg.to.join(',') : '',
-        })
-      } else if (channel.type === 'feishu') {
-        setFeishuConfig({ webhook_url: cfg.webhook_url || '' })
-      } else {
-        setWebhookConfig({
-          url: cfg.url || '',
-          method: cfg.method || 'POST',
-          headers: cfg.headers ? JSON.stringify(cfg.headers, null, 2) : '',
-        })
+      const config = JSON.parse(channel.config)
+      if (channel.type === 'email') setEmail({ smtp_host: config.smtp_host || '', smtp_port: config.smtp_port || 587, smtp_user: config.smtp_user || '', smtp_password: config.smtp_password || '', from: config.from || '', to: Array.isArray(config.to) ? config.to.join(', ') : '' })
+      else if (channel.type === 'telegram') setTelegram({ bot_token: config.bot_token || '', chat_id: config.chat_id || '' })
+      else if (channel.type === 'webhook') setWebhook({ url: config.url || '', method: config.method || 'POST', headers: config.headers ? JSON.stringify(config.headers, null, 2) : '' })
+      else setWebhookURL(config.webhook_url || '')
+    } catch { reset() }
+    setShowEditor(true)
+  }
+  const toggleStatus = (status: string) => setForm(current => ({ ...current, statuses: current.statuses.includes(status) ? current.statuses.filter(value => value !== status) : [...current.statuses, status] }))
+  const formatWebhookHeaders = () => {
+    try {
+      const headers = webhook.headers.trim() ? JSON.parse(webhook.headers) : {}
+      if (!headers || Array.isArray(headers) || typeof headers !== 'object') throw new Error(t('config.invalid'))
+      setWebhook(current => ({ ...current, headers: `${JSON.stringify(headers, null, 2)}\n` }))
+      setFormError('')
+      dialogs.notify(t('config.formatted'), 'success')
+    } catch (reason: any) {
+      const message = reason.message || t('config.invalid')
+      setFormError(message)
+      dialogs.notify(t('config.invalid'))
+    }
+  }
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setFormError('')
+    try {
+      let config: Record<string, unknown> = {}
+      if (form.type === 'web') config = {}
+      else if (form.type === 'email') config = { smtp_host: email.smtp_host, smtp_port: email.smtp_port, smtp_user: email.smtp_user, smtp_password: email.smtp_password, from: email.from, to: email.to.split(',').map(value => value.trim()).filter(Boolean) }
+      else if (form.type === 'telegram') config = telegram
+      else if (form.type === 'webhook') { let headers: Record<string, string> = {}; if (webhook.headers.trim()) headers = JSON.parse(webhook.headers); config = { ...webhook, headers } }
+      else config = { webhook_url: webhookURL }
+      const data = {
+        name: form.name, type: form.type, description: form.description, enabled: form.type === 'web' ? true : form.enabled,
+        conditions: JSON.stringify(form.statuses.length ? { statuses: form.statuses } : {}, null, 2),
+        config: JSON.stringify(config, null, 2),
       }
-    } catch {
+      if (editing) await api.updateNotificationChannel(editing.id, data); else await api.createNotificationChannel(data)
+      setShowEditor(false); reload()
+    } catch (reason: any) {
+      const message = reason.message || t('common.error')
+      setFormError(message)
+      if (reason?.name !== 'ApiError') dialogs.notify(message)
+    } finally { setSaving(false) }
+  }
+  const handleDelete = async (channel: NotificationChannel) => { if (!await dialogs.confirm(t('notifications.removeConfirm').replace('{name}', channel.name), { title: t('notifications.removeTitle'), action: t('common.delete') })) return; try { await api.deleteNotificationChannel(channel.id); reload() } catch (reason: any) { dialogs.notify(reason.message || t('common.error')) } }
+  const toggleEnabled = async (channel: NotificationChannel) => {
+    if (channel.type === 'web') {
+      dialogs.notify(t('notifications.requiredDescription'), 'info')
+      return
     }
-    setShowModal(true)
+    try { await api.updateNotificationChannel(channel.id, { ...channel, enabled: !channel.enabled }); reload() } catch (reason: any) { dialogs.notify(reason.message || t('common.error')) }
   }
+  const showEvents = async (channel: NotificationChannel) => { try { setEvents(await api.listNotificationEvents(channel.id)); setEventsChannel(channel) } catch (reason: any) { dialogs.notify(reason.message || t('common.error')) } }
 
-  const handleSubmit = async () => {
-    let configStr = '{}'
-    if (form.type === 'email') {
-      configStr = JSON.stringify({
-        smtp_host: emailConfig.smtp_host,
-        smtp_port: emailConfig.smtp_port,
-        smtp_user: emailConfig.smtp_user,
-        smtp_password: emailConfig.smtp_password,
-        from: emailConfig.from,
-        to: emailConfig.to.split(',').map(s => s.trim()).filter(Boolean),
-      })
-    } else if (form.type === 'feishu') {
-      configStr = JSON.stringify({ webhook_url: feishuConfig.webhook_url })
-    } else {
-      let headers: Record<string, string> = {}
-      try { headers = JSON.parse(webhookConfig.headers) || {} } catch { }
-      configStr = JSON.stringify({ url: webhookConfig.url, method: webhookConfig.method, headers })
-    }
-
-    const data = { ...form, config: configStr }
-    if (editing) {
-      await api.updateNotificationChannel(editing.id, data)
-    } else {
-      await api.createNotificationChannel(data)
-    }
-    setShowModal(false)
-    reload()
-  }
-
-  const handleDelete = async (id: number) => {
-    if (!confirm(t('common.confirm'))) return
-    await api.deleteNotificationChannel(id)
-    reload()
-  }
-
-  const fetchEvents = async (id: number) => {
-    const evts = await api.listNotificationEvents(id)
-    setEvents(evts)
-    setShowEvents(id)
-  }
-
-  const getTypeLabel = (type: ChannelType) => {
-    const map: Record<ChannelType, string> = { email: 'Email', feishu: 'Feishu', webhook: 'Webhook' }
-    return map[type] || type
-  }
-
-  const getTypeColor = (type: ChannelType) => {
-    const map: Record<ChannelType, string> = {
-      email: 'bg-blue-100 text-blue-800',
-      feishu: 'bg-green-100 text-green-800',
-      webhook: 'bg-purple-100 text-purple-800',
-    }
-    return map[type] || 'bg-gray-100 text-gray-800'
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">{t('settings.notifications')}</h1>
-        <button onClick={openCreate} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-          {t('common.save')}
-        </button>
-      </div>
-
-      <div className="bg-white rounded-lg shadow border overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">{t('credentials.name')}</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">{t('credentials.type')}</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">{t('credentials.description')}</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Enabled</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Created</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">{t('credentials.actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {channels?.map(ch => (
-              <tr key={ch.id} className="border-t hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium">{ch.name}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex px-2 py-1 rounded text-xs font-medium ${getTypeColor(ch.type)}`}>
-                    {getTypeLabel(ch.type)}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-gray-600">{ch.description || '-'}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex px-2 py-1 rounded text-xs font-medium ${ch.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                    {ch.enabled ? 'Yes' : 'No'}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-gray-500 text-sm">{new Date(ch.created_at).toLocaleString()}</td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-2">
-                    <button onClick={() => openEdit(ch)} className="text-blue-600 hover:text-blue-800 text-sm">Edit</button>
-                    <button onClick={() => fetchEvents(ch.id)} className="text-green-600 hover:text-green-800 text-sm">Events</button>
-                    <button onClick={() => handleDelete(ch.id)} className="text-red-600 hover:text-red-800 text-sm">Delete</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!channels?.length && (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">{t('common.noData')}</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {showEvents !== null && (
-        <div className="bg-white rounded-lg shadow border p-4">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold">Notification Events</h2>
-            <button onClick={() => setShowEvents(null)} className="text-gray-600 hover:text-gray-800">Close</button>
-          </div>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {events.map(e => (
-              <div key={e.id} className={`p-3 rounded border ${e.status === 'delivered' ? 'border-green-200 bg-green-50' : e.status === 'failed' ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="font-medium">{e.event_type}</div>
-                    <div className="text-sm text-gray-600">{new Date(e.created_at).toLocaleString()}</div>
-                  </div>
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${e.status === 'delivered' ? 'bg-green-100 text-green-800' : e.status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
-                    {e.status}
-                  </span>
-                </div>
-                {e.error_message && <div className="mt-2 text-sm text-red-600">{e.error_message}</div>}
-              </div>
-            ))}
-            {!events.length && <div className="text-center text-gray-500 py-4">No events</div>}
-          </div>
-        </div>
-      )}
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
-            <h2 className="text-xl font-bold mb-4">{editing ? 'Edit Channel' : 'New Channel'}</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={e => setForm({ ...form, name: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                <select
-                  value={form.type}
-                  onChange={e => setForm({ ...form, type: e.target.value as ChannelType })}
-                  className="w-full border rounded px-3 py-2"
-                >
-                  <option value="email">Email</option>
-                  <option value="feishu">Feishu</option>
-                  <option value="webhook">Webhook</option>
-                </select>
-              </div>
-              {form.type === 'email' && (
-                <div className="border rounded p-3 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <input placeholder="SMTP Host" value={emailConfig.smtp_host} onChange={e => setEmailConfig({ ...emailConfig, smtp_host: e.target.value })} className="border rounded px-2 py-1 text-sm" />
-                    <input type="number" placeholder="SMTP Port" value={emailConfig.smtp_port} onChange={e => setEmailConfig({ ...emailConfig, smtp_port: parseInt(e.target.value) || 587 })} className="border rounded px-2 py-1 text-sm" />
-                  </div>
-                  <input placeholder="SMTP User" value={emailConfig.smtp_user} onChange={e => setEmailConfig({ ...emailConfig, smtp_user: e.target.value })} className="border rounded px-2 py-1 text-sm w-full" />
-                  <input type="password" placeholder="SMTP Password" value={emailConfig.smtp_password} onChange={e => setEmailConfig({ ...emailConfig, smtp_password: e.target.value })} className="border rounded px-2 py-1 text-sm w-full" />
-                  <input placeholder="From" value={emailConfig.from} onChange={e => setEmailConfig({ ...emailConfig, from: e.target.value })} className="border rounded px-2 py-1 text-sm w-full" />
-                  <input placeholder="To (comma separated)" value={emailConfig.to} onChange={e => setEmailConfig({ ...emailConfig, to: e.target.value })} className="border rounded px-2 py-1 text-sm w-full" />
-                </div>
-              )}
-              {form.type === 'feishu' && (
-                <div className="border rounded p-3">
-                  <input placeholder="Webhook URL" value={feishuConfig.webhook_url} onChange={e => setFeishuConfig({ webhook_url: e.target.value })} className="border rounded px-2 py-1 text-sm w-full" />
-                </div>
-              )}
-              {form.type === 'webhook' && (
-                <div className="border rounded p-3 space-y-2">
-                  <input placeholder="URL" value={webhookConfig.url} onChange={e => setWebhookConfig({ ...webhookConfig, url: e.target.value })} className="border rounded px-2 py-1 text-sm w-full" />
-                  <select value={webhookConfig.method} onChange={e => setWebhookConfig({ ...webhookConfig, method: e.target.value })} className="border rounded px-2 py-1 text-sm">
-                    <option value="POST">POST</option>
-                    <option value="GET">GET</option>
-                    <option value="PUT">PUT</option>
-                  </select>
-                  <textarea placeholder='Headers (JSON, e.g. {"Authorization": "Bearer xxx"})' value={webhookConfig.headers} onChange={e => setWebhookConfig({ ...webhookConfig, headers: e.target.value })} className="border rounded px-2 py-1 text-sm w-full h-20" />
-                </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Conditions (JSON)</label>
-                <textarea
-                  placeholder='{"statuses": ["success", "failed"]}'
-                  value={form.conditions}
-                  onChange={e => setForm({ ...form, conditions: e.target.value })}
-                  className="w-full border rounded px-3 py-2 h-20"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <input
-                  type="text"
-                  value={form.description}
-                  onChange={e => setForm({ ...form, description: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                />
-              </div>
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={form.enabled}
-                  onChange={e => setForm({ ...form, enabled: e.target.checked })}
-                  className="mr-2"
-                />
-                <label className="text-sm">Enabled</label>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-6">
-              <button onClick={() => setShowModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">
-                {t('common.cancel')}
-              </button>
-              <button onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-                {t('common.save')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
+  if (loading) return <PageState />
+  if (error) return <PageState error={error} onRetry={reload} />
+  const list = channels || []
+  const enabled = list.filter(channel => channel.enabled).length
+  return <motion.section className="notification-workbench" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <header className="operations-heading"><div><p>{enabled} / {list.length}</p><h1>{t('settings.notifications')}</h1></div><button className="primary-command" onClick={openCreate}><Plus size={16} />{t('notifications.new')}</button></header>
+    <section className="notification-summary"><article><span><BellRing size={15} />{t('notifications.sharedChannels')}</span><strong>{list.length}</strong><small>{t('notifications.deliveryRegistry')}</small></article><article><span><CircleCheck size={15} />{t('notifications.enabledChannels')}</span><strong className="positive">{enabled}</strong><small>{t('notifications.buildLifecycle')}</small></article><article><span><Send size={15} />{t('notifications.supportedTargets')}</span><div className="notification-targets">{channelTypes.map(type => { const Icon = type.icon; return <span key={type.value} title={type.label}><Icon size={13} />{type.label}</span> })}</div></article></section>
+    <section className="parallel-delivery-card"><div><Layers3 size={18} /><div><h2>{t('notifications.parallelTitle')}</h2><p>{t('notifications.parallelDescription')}</p></div></div><div className="parallel-channel-list">{list.filter(channel => channel.enabled).map(channel => <span key={channel.id}>{labelForType(channel.type)} · {channel.name}</span>)}</div></section>
+    <section className="operations-table-wrap notification-table-wrap"><table className="operations-table notification-table"><thead><tr><th>{t('notifications.name')}</th><th>{t('notifications.type')}</th><th>{t('notifications.deliveryScope')}</th><th>{t('notifications.description')}</th><th>{t('notifications.enabled')}</th><th>{t('notifications.updatedAt')}</th><th aria-label={t('agents.actions')} /></tr></thead><tbody>{!list.length && <tr><td colSpan={7} className="operations-empty"><BellRing size={18} />{t('common.noData')}</td></tr>}{list.map(channel => { const Icon = channelTypes.find(item => item.value === channel.type)?.icon || BellRing; const statuses = parseStatuses(channel.conditions); return <tr key={channel.id}><td><div className="notification-name"><Icon size={16} /><span><strong>{channel.name}</strong><small>{labelForType(channel.type)}{channel.type === 'web' ? ` · ${t('notifications.systemDefault')}` : ''}</small></span></div></td><td><span className={typeClass(channel.type)}>{labelForType(channel.type)}</span></td><td><div className="notification-statuses">{statuses.length ? statuses.map(status => <span key={status}>{labelForStatus(status)}</span>) : <span>{t('notifications.allStates')}</span>}</div></td><td className="muted-cell notification-description">{channel.description || '-'}</td><td>{channel.type === 'web' ? <span className="channel-required" title={t('notifications.requiredDescription')}><Check size={12} />{t('notifications.requiredEnabled')}</span> : <button className={`channel-toggle ${channel.enabled ? 'on' : ''}`} onClick={() => toggleEnabled(channel)} aria-label={channel.enabled ? t('notifications.disableChannel') : t('notifications.enableChannelAction')} aria-pressed={channel.enabled}><i /></button>}</td><td className="muted-cell">{channel.updated_at ? new Date(channel.updated_at).toLocaleString() : '-'}</td><td><div className="row-actions"><button className="row-icon" title={t('notifications.viewDeliveries')} aria-label={t('notifications.viewDeliveries')} onClick={() => showEvents(channel)}><Eye size={15} /></button><button className="row-icon" title={t('notifications.editChannel')} aria-label={t('notifications.editChannel')} onClick={() => openEdit(channel)}><Pencil size={15} /></button>{channel.type !== 'web' && <button className="row-icon danger" title={t('common.delete')} aria-label={t('common.delete')} onClick={() => handleDelete(channel)}><Trash2 size={15} /></button>}</div></td></tr>})}</tbody></table></section>
+    {showEditor && <ModalDialog className="notification-editor" ariaLabel={editing ? t('notifications.editTitle') : t('notifications.new')} busy={saving} onClose={() => setShowEditor(false)}><header><div><BellRing size={18} /><div><h2>{editing ? t('notifications.editTitle') : t('notifications.new')}</h2><p>{t('notifications.channelDescription')}</p></div></div><button type="button" onClick={() => setShowEditor(false)} title={t('common.close')} aria-label={t('common.close')}><X size={18} /></button></header><form onSubmit={handleSubmit} className="notification-editor-form"><label>{t('notifications.name')}<input required data-dialog-initial-focus readOnly={form.type === 'web'} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} autoFocus /></label><label>{t('notifications.type')}<select disabled={form.type === 'web'} value={form.type} onChange={event => setForm({ ...form, type: event.target.value as ChannelType })}>{channelTypes.filter(type => type.value !== 'web' || editing?.type === 'web').map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label><label className="wide">{t('notifications.description')}<input value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} /></label><fieldset className="wide"><legend>{t('notifications.deliveryStatuses')}</legend><div>{statusOptions.map(option => <button type="button" key={option.value} className={form.statuses.includes(option.value) ? 'selected' : ''} onClick={() => toggleStatus(option.value)} aria-pressed={form.statuses.includes(option.value)}>{form.statuses.includes(option.value) && <Check size={13} />}{option.label}</button>)}</div><small>{t('notifications.allStatuses')}</small></fieldset>{form.type === 'email' && <div className="notification-config-grid wide"><input aria-label={t('notifications.smtpHost')} placeholder={t('notifications.smtpHost')} value={email.smtp_host} onChange={event => setEmail({ ...email, smtp_host: event.target.value })} /><input type="number" aria-label={t('notifications.smtpPort')} placeholder={t('notifications.smtpPort')} value={email.smtp_port} onChange={event => setEmail({ ...email, smtp_port: Number(event.target.value) || 587 })} /><input aria-label={t('notifications.smtpUser')} placeholder={t('notifications.smtpUser')} value={email.smtp_user} onChange={event => setEmail({ ...email, smtp_user: event.target.value })} /><input type="password" aria-label={t('notifications.smtpPassword')} placeholder={t('notifications.smtpPassword')} value={email.smtp_password} onChange={event => setEmail({ ...email, smtp_password: event.target.value })} /><input aria-label={t('notifications.fromAddress')} placeholder={t('notifications.fromAddress')} value={email.from} onChange={event => setEmail({ ...email, from: event.target.value })} /><input aria-label={t('notifications.recipients')} placeholder={t('notifications.recipients')} value={email.to} onChange={event => setEmail({ ...email, to: event.target.value })} /></div>}{form.type === 'telegram' && <div className="notification-config-grid wide"><input aria-label={t('notifications.botToken')} placeholder={t('notifications.botToken')} value={telegram.bot_token} onChange={event => setTelegram({ ...telegram, bot_token: event.target.value })} /><input aria-label={t('notifications.chatId')} placeholder={t('notifications.chatId')} value={telegram.chat_id} onChange={event => setTelegram({ ...telegram, chat_id: event.target.value })} /></div>}{(form.type === 'feishu' || form.type === 'discord' || form.type === 'wecom') && <label className="wide">{labelForType(form.type)} {t('notifications.webhookUrl')}<input required value={webhookURL} onChange={event => setWebhookURL(event.target.value)} placeholder="https://" /></label>}{form.type === 'webhook' && <div className="notification-config-grid wide"><input aria-label={t('notifications.webhookUrl')} placeholder={t('notifications.webhookUrl')} value={webhook.url} onChange={event => setWebhook({ ...webhook, url: event.target.value })} /><select aria-label={t('notifications.httpMethod')} value={webhook.method} onChange={event => setWebhook({ ...webhook, method: event.target.value })}><option>POST</option><option>GET</option><option>PUT</option></select><div className="wide config-editor-label"><span><label htmlFor="notification-headers-json">{t('notifications.headersJson')}</label><button type="button" className="format-command" onClick={formatWebhookHeaders}><Braces size={13} />{t('config.format')}</button></span><textarea id="notification-headers-json" aria-label={t('notifications.headersJson')} placeholder="{\n  &quot;Authorization&quot;: &quot;Bearer ...&quot;\n}" value={webhook.headers} onChange={event => setWebhook({ ...webhook, headers: event.target.value })} /></div></div>}<label className={`channel-enabled wide ${form.type === 'web' ? 'required' : ''}`}><input type="checkbox" checked={form.type === 'web' ? true : form.enabled} disabled={form.type === 'web'} onChange={event => setForm({ ...form, enabled: event.target.checked })} /><span>{form.type === 'web' ? t('notifications.requiredEnabled') : t('notifications.enableChannel')}</span>{form.type === 'web' && <small>{t('notifications.requiredDescription')}</small>}</label>{formError && <p className="form-error">{formError}</p>}<footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}>{saving ? t('common.loading') : t('common.save')}</button></footer></form></ModalDialog>}
+    {eventsChannel && <ModalDialog className="notification-events-modal" ariaLabel={t('notifications.deliveryHistory')} closeOnBackdrop onClose={() => setEventsChannel(null)}><header><div><Clock3 size={18} /><div><h2>{eventsChannel.name}</h2><p>{t('notifications.eventsDescription')}</p></div></div><button onClick={() => setEventsChannel(null)} title={t('common.close')} aria-label={t('common.close')}><X size={18} /></button></header><div className="notification-events-list">{events.length ? events.map(event => <article key={event.id} className={`notification-event ${event.status}`}><div><strong>{labelForEvent(event.event_type)}</strong><small>{new Date(event.created_at).toLocaleString()}</small></div><span>{labelForDelivery(event.status)}</span>{event.error_message && <p>{event.error_message}</p>}</article>) : <p className="detail-empty">{t('notifications.noDeliveryAttempts')}</p>}</div><footer><button data-dialog-initial-focus onClick={() => setEventsChannel(null)}>{t('common.close')}</button></footer></ModalDialog>}
+  </motion.section>
 }

@@ -6,7 +6,7 @@ sidebar_position: 5
 
 ## Overview
 
-Plugins extend buildworld233 functionality. Plugins are written in TypeScript/JavaScript and run in the goja runtime.
+Plugins extend buildworld functionality. Plugins are written in TypeScript/JavaScript and run in the goja runtime.
 
 ## Plugin Structure
 

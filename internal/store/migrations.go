@@ -127,6 +127,7 @@ var migrations = []string{
 	)`,
 	`ALTER TABLE projects ADD COLUMN vcs_root_id INTEGER REFERENCES vcs_roots(id)`,
 	`ALTER TABLE projects ADD COLUMN template_id INTEGER REFERENCES build_templates(id)`,
+	`ALTER TABLE projects ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`,
 	`ALTER TABLE builds ADD COLUMN wait_dependency_on INTEGER REFERENCES builds(id)`,
 	`ALTER TABLE builds ADD COLUMN retried_from INTEGER REFERENCES builds(id)`,
 	`ALTER TABLE builds ADD COLUMN pinned BOOLEAN DEFAULT FALSE`,
@@ -158,6 +159,11 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_notification_events_channel ON notification_events(channel_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_notification_events_build ON notification_events(build_id)`,
+	`CREATE TABLE IF NOT EXISTS web_notification_reads (
+		user_id INTEGER PRIMARY KEY REFERENCES users(id),
+		last_event_id INTEGER NOT NULL DEFAULT 0,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`,
 	`CREATE TABLE IF NOT EXISTS build_stats (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		project_id INTEGER NOT NULL REFERENCES projects(id),
@@ -250,12 +256,16 @@ var migrations = []string{
 		started_at DATETIME
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_build_queue_status ON build_queue_items(status, priority DESC, queued_at)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_build_queue_build ON build_queue_items(build_id)`,
 	`ALTER TABLE builds ADD COLUMN approval_required BOOLEAN DEFAULT FALSE`,
 	`ALTER TABLE builds ADD COLUMN approved_by INTEGER`,
 	`ALTER TABLE builds ADD COLUMN approved_at DATETIME`,
 	`ALTER TABLE builds ADD COLUMN timeout_sec INTEGER DEFAULT 0`,
 	`ALTER TABLE builds ADD COLUMN test_result_id INTEGER`,
 	`ALTER TABLE projects ADD COLUMN group_id INTEGER REFERENCES project_groups(id)`,
+	`ALTER TABLE project_groups ADD COLUMN updated_at DATETIME`,
+	`ALTER TABLE build_approvals ADD COLUMN resolved_by INTEGER`,
+	`ALTER TABLE build_approvals ADD COLUMN resolved_by_username TEXT DEFAULT ''`,
 	`CREATE TABLE IF NOT EXISTS git_hooks (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		project_id INTEGER NOT NULL REFERENCES projects(id),
@@ -280,4 +290,5 @@ var migrations = []string{
 	`ALTER TABLE plugins ADD COLUMN script_lang TEXT DEFAULT 'js'`,
 	`ALTER TABLE plugins ADD COLUMN source_script TEXT DEFAULT ''`,
 	`ALTER TABLE plugins ADD COLUMN source_ui_script TEXT DEFAULT ''`,
+	`ALTER TABLE workers ADD COLUMN active_builds INTEGER DEFAULT 0`,
 }

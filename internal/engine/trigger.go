@@ -9,24 +9,26 @@ import (
 	"sync"
 	"time"
 
-	"github.com/neko233-com/buildworld233/internal/store"
-	"github.com/neko233-com/buildworld233/internal/ws"
+	"github.com/neko233-com/buildworld/internal/store"
+	"github.com/neko233-com/buildworld/internal/ws"
 )
 
 type TriggerChecker struct {
-	store  *store.Store
-	runner *BuildRunner
-	hub    *ws.Hub
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	store    *store.Store
+	runner   *BuildRunner
+	approval *ApprovalService
+	hub      *ws.Hub
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
 }
 
 func NewTriggerChecker(s *store.Store, r *BuildRunner, h *ws.Hub) *TriggerChecker {
 	return &TriggerChecker{
-		store:  s,
-		runner: r,
-		hub:    h,
-		stopCh: make(chan struct{}),
+		store:    s,
+		runner:   r,
+		approval: NewApprovalService(s),
+		hub:      h,
+		stopCh:   make(chan struct{}),
 	}
 }
 
@@ -75,7 +77,7 @@ func (tc *TriggerChecker) checkCronTriggers() {
 				continue
 			}
 			if matchCron(cronExpr, now) {
-				tc.triggerProjectBuild(p, "schedule", p.DefaultBranch, "")
+				tc.triggerProjectBuild(p, "schedule", p.DefaultBranch, "", nil)
 			}
 		}
 	}
@@ -138,7 +140,7 @@ func (tc *TriggerChecker) pollVCSRoots() {
 					}
 				}
 				if hasVCSTrigger {
-					tc.triggerProjectBuild(p, "vcs", root.Branch, sha)
+					tc.triggerProjectBuild(p, "vcs", root.Branch, sha, nil)
 				}
 			}
 		}
@@ -174,7 +176,8 @@ func (tc *TriggerChecker) HandleBuildFinish(build *store.Build) {
 				continue
 			}
 			branch := t.Config["branch"]
-			tc.triggerProjectBuild(p, "finish", branch, "")
+			dependency := build.ID
+			tc.triggerProjectBuild(p, "finish", branch, "", &dependency)
 		}
 	}
 }
@@ -196,7 +199,7 @@ func (tc *TriggerChecker) loadProjectConfig(p *store.Project) (*BuildConfig, err
 	return cfg, nil
 }
 
-func (tc *TriggerChecker) triggerProjectBuild(p *store.Project, trigger, branch, commitSHA string) {
+func (tc *TriggerChecker) triggerProjectBuild(p *store.Project, trigger, branch, commitSHA string, dependency *int64) {
 	if branch == "" {
 		branch = p.DefaultBranch
 	}
@@ -204,12 +207,18 @@ func (tc *TriggerChecker) triggerProjectBuild(p *store.Project, trigger, branch,
 	if err != nil {
 		return
 	}
-	build, err := tc.store.CreateBuild(p.ID, num, trigger, branch, commitSHA, "", nil, nil)
+	build, err := tc.store.CreateBuild(p.ID, num, trigger, branch, commitSHA, "", dependency, nil)
 	if err != nil {
 		return
 	}
+	if config, configErr := tc.loadProjectConfig(p); configErr == nil {
+		if _, approvalErr := tc.approval.RequestIfRequired(build.ID, 0, config); approvalErr != nil {
+			_ = tc.store.FinishBuild(build.ID, "failed", 0)
+			return
+		}
+	}
 	if tc.runner != nil {
-		tc.runner.Run(build.ID)
+		_ = tc.runner.Enqueue(build.ID)
 	}
 }
 

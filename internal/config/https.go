@@ -51,17 +51,17 @@ func NewHTTPSManager(workspace string) *HTTPSManager {
 func (m *HTTPSManager) Setup(domain, email string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Create cert directory
 	if err := os.MkdirAll(m.certDir, 0755); err != nil {
 		return fmt.Errorf("create cert directory: %w", err)
 	}
-	
+
 	// Try to use proxysss if available
 	if m.isProxysssAvailable() {
 		return m.setupProxysss(domain, email)
 	}
-	
+
 	// Fallback to self-signed certificate
 	return m.setupSelfSigned(domain)
 }
@@ -73,30 +73,30 @@ func (m *HTTPSManager) isProxysssAvailable() bool {
 
 func (m *HTTPSManager) setupProxysss(domain, email string) error {
 	// Use proxysss to get Let's Encrypt certificate
-	cmd := exec.Command("proxysss", "certonly", "--webroot", 
+	cmd := exec.Command("proxysss", "certonly", "--webroot",
 		"--webroot-path", m.certDir,
 		"-d", domain,
 		"--email", email,
 		"--agree-tos",
 		"--non-interactive",
 	)
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("proxysss certonly failed: %w, output: %s", err, output)
 	}
-	
+
 	// Update config
 	m.proxyConfig.Enabled = true
 	m.proxyConfig.Domain = domain
 	m.proxyConfig.Email = email
-	
+
 	m.tlsConfig.Enabled = true
 	m.tlsConfig.Domain = domain
 	m.tlsConfig.Email = email
 	m.tlsConfig.CertFile = filepath.Join(m.certDir, domain, "fullchain.pem")
 	m.tlsConfig.KeyFile = filepath.Join(m.certDir, domain, "privkey.pem")
-	
+
 	return nil
 }
 
@@ -104,13 +104,13 @@ func (m *HTTPSManager) setupSelfSigned(domain string) error {
 	// Generate self-signed certificate
 	certFile := filepath.Join(m.certDir, "server.crt")
 	keyFile := filepath.Join(m.certDir, "server.key")
-	
+
 	// Generate key
 	cmd := exec.Command("openssl", "genrsa", "-out", keyFile, "2048")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("generate key: %w, output: %s", err, output)
 	}
-	
+
 	// Generate certificate
 	cmd = exec.Command("openssl", "req", "-new", "-x509",
 		"-key", keyFile,
@@ -121,28 +121,28 @@ func (m *HTTPSManager) setupSelfSigned(domain string) error {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("generate cert: %w, output: %s", err, output)
 	}
-	
+
 	m.tlsConfig.Enabled = true
 	m.tlsConfig.CertFile = certFile
 	m.tlsConfig.KeyFile = keyFile
-	
+
 	return nil
 }
 
 func (m *HTTPSManager) GetTLSConfig() *tls.Config {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if !m.tlsConfig.Enabled {
 		return nil
 	}
-	
+
 	cert, err := tls.LoadX509KeyPair(m.tlsConfig.CertFile, m.tlsConfig.KeyFile)
 	if err != nil {
 		log.Printf("Failed to load TLS certificate: %v", err)
 		return nil
 	}
-	
+
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
@@ -164,18 +164,18 @@ func (m *HTTPSManager) GetDomain() string {
 func (m *HTTPSManager) RenewCertificates() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if !m.proxyConfig.Enabled {
 		return nil
 	}
-	
+
 	// Use proxysss to renew certificates
 	cmd := exec.Command("proxysss", "renew", "--non-interactive")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("certificate renewal failed: %w, output: %s", err, output)
 	}
-	
+
 	return nil
 }
 
@@ -183,7 +183,7 @@ func (m *HTTPSManager) StartRenewalTicker(interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		
+
 		for range ticker.C {
 			if err := m.RenewCertificates(); err != nil {
 				log.Printf("Certificate renewal failed: %v", err)
@@ -198,7 +198,7 @@ func LoadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load TLS certificate: %w", err)
 	}
-	
+
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
@@ -210,16 +210,16 @@ func GenerateSelfSignedCert(domain, outputDir string) (certFile, keyFile string,
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return "", "", fmt.Errorf("create output directory: %w", err)
 	}
-	
+
 	certFile = filepath.Join(outputDir, "server.crt")
 	keyFile = filepath.Join(outputDir, "server.key")
-	
+
 	// Generate key
 	cmd := exec.Command("openssl", "genrsa", "-out", keyFile, "2048")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", "", fmt.Errorf("generate key: %w, output: %s", err, output)
 	}
-	
+
 	// Generate certificate
 	cmd = exec.Command("openssl", "req", "-new", "-x509",
 		"-key", keyFile,
@@ -230,6 +230,6 @@ func GenerateSelfSignedCert(domain, outputDir string) (certFile, keyFile string,
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", "", fmt.Errorf("generate cert: %w, output: %s", err, output)
 	}
-	
+
 	return certFile, keyFile, nil
 }

@@ -8,38 +8,46 @@ import (
 )
 
 type BuildParameter struct {
-	Name        string      `json:"name"`
-	Type        string      `json:"type"`
-	Description string      `json:"description"`
-	Default     interface{} `json:"default"`
-	Required    bool        `json:"required"`
-	Choices     []string    `json:"choices,omitempty"`
-	IsSecret    bool        `json:"is_secret"`
+	Name        string      `json:"name" yaml:"name"`
+	Type        string      `json:"type" yaml:"type"`
+	Description string      `json:"description" yaml:"description"`
+	Default     interface{} `json:"default" yaml:"default"`
+	Required    bool        `json:"required" yaml:"required"`
+	Choices     []string    `json:"choices,omitempty" yaml:"choices,omitempty"`
+	IsSecret    bool        `json:"is_secret" yaml:"is_secret"`
 }
 
 type BuildConfig struct {
-	Name              string            `json:"name"`
-	Description       string            `json:"description"`
-	Parameters        []BuildParameter  `json:"parameters"`
-	Stages            []Stage           `json:"stages"`
-	Triggers          []Trigger         `json:"triggers"`
-	Environment       map[string]string `json:"environment"`
-	Artifacts         []string          `json:"artifacts"`
-	AgentRequirements []string          `json:"agent_requirements"`
+	Name               string              `json:"name"`
+	Description        string              `json:"description"`
+	Parameters         []BuildParameter    `json:"parameters"`
+	Approval           *ApprovalPolicy     `json:"approval,omitempty"`
+	Stages             []Stage             `json:"stages"`
+	Triggers           []Trigger           `json:"triggers"`
+	Environment        map[string]string   `json:"environment"`
+	Artifacts          []string            `json:"artifacts"`
+	AgentRequirements  []string            `json:"agent_requirements"`
+	RetentionCompleted int                 `json:"retention_completed"`
+	Toolchains         map[string][]string `json:"toolchains,omitempty"`
 }
 
 type Stage struct {
-	Name     string `json:"name"`
-	Steps    []Step `json:"steps"`
-	Parallel bool   `json:"parallel,omitempty"`
+	Name      string   `json:"name" yaml:"name"`
+	Steps     []Step   `json:"steps" yaml:"steps"`
+	Parallel  bool     `json:"parallel,omitempty" yaml:"parallel,omitempty"`
+	DependsOn []string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
 }
 
 type Step struct {
-	Name    string            `json:"name"`
-	Type    string            `json:"type"`
-	Command string            `json:"command,omitempty"`
-	Shell   string            `json:"shell,omitempty"`
-	Config  map[string]string `json:"config,omitempty"`
+	Name    string            `json:"name" yaml:"name"`
+	Type    string            `json:"type" yaml:"type"`
+	Command string            `json:"command,omitempty" yaml:"command,omitempty"`
+	Shell   string            `json:"shell,omitempty" yaml:"shell,omitempty"`
+	Config  map[string]string `json:"config,omitempty" yaml:"config,omitempty"`
+	// PlatformAdditions run after the shared command on a matching worker OS.
+	// This keeps a default pipeline readable and removes imperative platform branches.
+	PlatformAdditions map[string]string `json:"platform_additions,omitempty" yaml:"platform_additions,omitempty"`
+	Runtime           string            `json:"runtime,omitempty" yaml:"runtime,omitempty"`
 }
 
 type Trigger struct {
@@ -48,19 +56,19 @@ type Trigger struct {
 }
 
 type Build struct {
-	ID          int64                  `json:"id"`
-	ProjectID   int64                  `json:"project_id"`
-	Number      int                    `json:"number"`
-	Status      string                 `json:"status"`
-	Trigger     string                 `json:"trigger"`
-	Branch      string                 `json:"branch,omitempty"`
-	CommitSHA   string                 `json:"commit_sha,omitempty"`
-	Parameters  map[string]interface{} `json:"parameters,omitempty"`
-	StartedAt   *time.Time             `json:"started_at,omitempty"`
-	FinishedAt  *time.Time             `json:"finished_at,omitempty"`
-	DurationMs  *int64                 `json:"duration_ms,omitempty"`
-	Log         string                 `json:"log,omitempty"`
-	CreatedAt   time.Time              `json:"created_at"`
+	ID         int64                  `json:"id"`
+	ProjectID  int64                  `json:"project_id"`
+	Number     int                    `json:"number"`
+	Status     string                 `json:"status"`
+	Trigger    string                 `json:"trigger"`
+	Branch     string                 `json:"branch,omitempty"`
+	CommitSHA  string                 `json:"commit_sha,omitempty"`
+	Parameters map[string]interface{} `json:"parameters,omitempty"`
+	StartedAt  *time.Time             `json:"started_at,omitempty"`
+	FinishedAt *time.Time             `json:"finished_at,omitempty"`
+	DurationMs *int64                 `json:"duration_ms,omitempty"`
+	Log        string                 `json:"log,omitempty"`
+	CreatedAt  time.Time              `json:"created_at"`
 }
 
 type BuildManager struct {
@@ -94,33 +102,102 @@ func (m *BuildManager) CreateBuild(projectID int64, config *BuildConfig, params 
 }
 
 func (m *BuildManager) ValidateParameters(parameters []BuildParameter, params map[string]interface{}) error {
-	for _, param := range parameters {
-		val, exists := params[param.Name]
+	return ValidateBuildParameters(parameters, params)
+}
 
-		if param.Required && !exists {
-			return fmt.Errorf("required parameter %s is missing", param.Name)
+// ResolveBuildParameters copies supplied values, applies declared defaults and
+// validates the result. Unknown values are kept for backwards-compatible API
+// automation, while every declared value is checked consistently across UI,
+// token-triggered and internal callers.
+func ResolveBuildParameters(parameters []BuildParameter, supplied map[string]interface{}) (map[string]interface{}, error) {
+	resolved := make(map[string]interface{}, len(supplied)+len(parameters))
+	for key, value := range supplied {
+		resolved[key] = value
+	}
+
+	seen := make(map[string]struct{}, len(parameters))
+	for _, parameter := range parameters {
+		name := strings.TrimSpace(parameter.Name)
+		if name == "" {
+			return nil, fmt.Errorf("build parameter name cannot be empty")
 		}
-
-		if !exists {
-			continue
+		if _, exists := seen[name]; exists {
+			return nil, fmt.Errorf("build parameter %s is declared more than once", name)
 		}
-
-		switch param.Type {
-		case "choice":
-			if !contains(param.Choices, fmt.Sprintf("%v", val)) {
-				return fmt.Errorf("parameter %s: invalid choice %v, must be one of %v", param.Name, val, param.Choices)
-			}
-		case "boolean":
-			if _, ok := val.(bool); !ok {
-				return fmt.Errorf("parameter %s: must be boolean", param.Name)
-			}
-		case "string", "password", "text":
-			if _, ok := val.(string); !ok {
-				return fmt.Errorf("parameter %s: must be string", param.Name)
+		seen[name] = struct{}{}
+		if _, exists := resolved[name]; !exists {
+			switch parameterType := strings.ToLower(strings.TrimSpace(parameter.Type)); {
+			case parameter.Default != nil:
+				resolved[name] = parameter.Default
+			case parameterType == "boolean":
+				resolved[name] = false
+			case parameterType == "choice" && len(parameter.Choices) > 0:
+				resolved[name] = parameter.Choices[0]
 			}
 		}
 	}
+
+	if err := ValidateBuildParameters(parameters, resolved); err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}
+
+func ValidateBuildParameters(parameters []BuildParameter, params map[string]interface{}) error {
+	for _, param := range parameters {
+		name := strings.TrimSpace(param.Name)
+		val, exists := params[name]
+
+		if param.Required && (!exists || val == nil || isBlankBuildParameter(val)) {
+			return fmt.Errorf("required parameter %s is missing", name)
+		}
+
+		if !exists || val == nil {
+			continue
+		}
+
+		switch strings.ToLower(strings.TrimSpace(param.Type)) {
+		case "", "string", "password", "text":
+			if _, ok := val.(string); !ok {
+				return fmt.Errorf("parameter %s: must be string", name)
+			}
+		case "choice":
+			choice, ok := val.(string)
+			if !ok {
+				return fmt.Errorf("parameter %s: must be a string choice", name)
+			}
+			if !contains(param.Choices, choice) {
+				return fmt.Errorf("parameter %s: invalid choice, must be one of %v", name, param.Choices)
+			}
+		case "boolean":
+			if _, ok := val.(bool); !ok {
+				return fmt.Errorf("parameter %s: must be boolean", name)
+			}
+		case "number":
+			if !isNumericBuildParameter(val) {
+				return fmt.Errorf("parameter %s: must be a number", name)
+			}
+		default:
+			return fmt.Errorf("parameter %s: unsupported type %q", name, param.Type)
+		}
+	}
 	return nil
+}
+
+func isBlankBuildParameter(value interface{}) bool {
+	text, ok := value.(string)
+	return ok && strings.TrimSpace(text) == ""
+}
+
+func isNumericBuildParameter(value interface{}) bool {
+	switch value.(type) {
+	case int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64,
+		float32, float64, json.Number:
+		return true
+	default:
+		return false
+	}
 }
 
 func contains(slice []string, item string) bool {
@@ -158,10 +235,22 @@ func ParseBuildConfig(jsonStr string) (*BuildConfig, error) {
 
 func ParsePipelineConfig(raw string) (*BuildConfig, error) {
 	trimmed := strings.TrimSpace(raw)
-	if strings.HasPrefix(trimmed, "{") {
-		return ParseBuildConfig(raw)
+	var config *BuildConfig
+	var err error
+	if strings.HasPrefix(trimmed, "#") {
+		config, err = ParseMarkdownConfig(raw)
+	} else if strings.HasPrefix(trimmed, "{") {
+		config, err = ParseBuildConfig(raw)
+	} else {
+		config, err = ParseYAMLConfig(raw)
 	}
-	return ParseYAMLConfig(raw)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ResolveApprovalPolicy(config); err != nil {
+		return nil, err
+	}
+	return config, nil
 }
 
 func MergeBuildConfig(template, project *BuildConfig) *BuildConfig {
@@ -175,6 +264,7 @@ func MergeBuildConfig(template, project *BuildConfig) *BuildConfig {
 		Name:              project.Name,
 		Description:       project.Description,
 		Parameters:        append([]BuildParameter{}, template.Parameters...),
+		Approval:          template.Approval,
 		Stages:            append([]Stage{}, template.Stages...),
 		Triggers:          append([]Trigger{}, template.Triggers...),
 		Environment:       map[string]string{},
@@ -186,6 +276,9 @@ func MergeBuildConfig(template, project *BuildConfig) *BuildConfig {
 	}
 	if merged.Description == "" {
 		merged.Description = template.Description
+	}
+	if project.Approval != nil {
+		merged.Approval = project.Approval
 	}
 	for k, v := range template.Environment {
 		merged.Environment[k] = v

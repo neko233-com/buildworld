@@ -1,44 +1,48 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env sh
+set -eu
 
 REPO="neko233-com/buildworld233"
-BINARY="buildworld233"
 VERSION="${1:-latest}"
+NO_AUTOSTART="${BUILDWORLD_NO_AUTOSTART:-0}"
 
-get_latest_version() {
-    curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/' || echo "0.1.0"
+latest_version() {
+  curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -n 1
 }
 
-install() {
-    local ver="$1"
-    local os=$(uname -s | tr '[:upper:]' '[:lower:]')
-    local arch=$(uname -m)
-    case "$arch" in
-        x86_64) arch="amd64" ;;
-        aarch64|arm64) arch="arm64" ;;
-    esac
-    local asset="${BINARY}-${os}-${arch}"
-    local url="https://github.com/$REPO/releases/download/v$ver/$asset"
-    local install_dir="/usr/local/bin"
-    echo "Downloading $url ..."
-    sudo curl -fsSL "$url" -o "$install_dir/$BINARY"
-    sudo chmod +x "$install_dir/$BINARY"
-    echo "Installed to $install_dir/$BINARY"
-    echo "Run: buildworld233 start"
-    echo "Status: buildworld233 status"
-    echo "Enable boot autostart: buildworld233 enable-autostart"
-    echo "Change port: buildworld233 set-port 6050"
-    echo "Self update: buildworld233 update"
-    echo "Hot reload config: buildworld233 reload-config"
-    echo "Export backup: buildworld233 backup export --output ./backup.zip"
-    echo "Import backup: buildworld233 backup import --input ./backup.zip"
-    echo "Generate worker token: buildworld233 worker generate-token"
-    echo "List workers: buildworld233 worker list"
-}
-
-if [ "$VERSION" = "latest" ]; then
-    VERSION=$(get_latest_version)
-fi
+os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+case "$os" in linux|darwin) ;; *) echo "Unsupported operating system: $os" >&2; exit 1 ;; esac
+case "$(uname -m)" in x86_64|amd64) arch="amd64" ;; aarch64|arm64) arch="arm64" ;; *) echo "Unsupported architecture" >&2; exit 1 ;; esac
+if [ "$VERSION" = "latest" ]; then VERSION="$(latest_version)"; fi
 VERSION="${VERSION#v}"
-echo "Installing buildworld233 v$VERSION ..."
-install "$VERSION"
+asset="buildworld-$os-$arch.tar.gz"
+base="https://github.com/$REPO/releases/download/v$VERSION"
+tmp="$(mktemp -d)"
+install_dir="${BUILDWORLD_INSTALL_DIR:-$HOME/.local/lib/buildworld}"
+bin_dir="${BUILDWORLD_BIN_DIR:-$HOME/.local/bin}"
+cleanup() { rm -rf "$tmp"; }
+trap cleanup EXIT INT TERM
+
+echo "Downloading BuildWorld v$VERSION for $os/$arch ..."
+curl -fsSL "$base/$asset" -o "$tmp/$asset"
+curl -fsSL "$base/checksums.txt" -o "$tmp/checksums.txt"
+expected="$(awk "\$2 == \"$asset\" {print \$1}" "$tmp/checksums.txt")"
+[ -n "$expected" ] || { echo "Missing checksum for $asset" >&2; exit 1; }
+if command -v sha256sum >/dev/null 2>&1; then actual="$(sha256sum "$tmp/$asset" | awk '{print $1}')"; else actual="$(shasum -a 256 "$tmp/$asset" | awk '{print $1}')"; fi
+[ "$actual" = "$expected" ] || { echo "Checksum mismatch for $asset" >&2; exit 1; }
+
+mkdir -p "$install_dir" "$bin_dir"
+tar -xzf "$tmp/$asset" -C "$install_dir"
+chmod +x "$install_dir/buildworld" "$install_dir/buildworld-server" "$install_dir/buildworld-worker"
+ln -sf "$install_dir/buildworld" "$bin_dir/buildworld"
+for profile in "$HOME/.profile" "$HOME/.zprofile" "$HOME/.bash_profile"; do
+  [ -e "$profile" ] || continue
+  grep -F 'BUILDWORLD_BIN_DIR' "$profile" >/dev/null 2>&1 || printf '\nexport BUILDWORLD_BIN_DIR="%s"\nexport PATH="$BUILDWORLD_BIN_DIR:$PATH"\n' "$bin_dir" >> "$profile"
+done
+mkdir -p "$HOME/.config/environment.d"
+printf 'BUILDWORLD_HOME=%s\nBUILDWORLD_BIN_DIR=%s\n' "$install_dir" "$bin_dir" > "$HOME/.config/environment.d/90-buildworld.conf"
+export PATH="$bin_dir:$PATH"
+
+if [ "$NO_AUTOSTART" != "1" ]; then
+  if ! buildworld enable-autostart; then echo "Autostart needs a user service manager; run 'buildworld enable-autostart' from an interactive session." >&2; fi
+fi
+echo "Installed BuildWorld v$VERSION. Run: buildworld start"

@@ -1,4 +1,4 @@
-# buildworld233 Design Specification
+# buildworld Design Specification
 
 **Date:** 2026-06-17
 **Version:** 1.0.0
@@ -17,7 +17,7 @@ Jenkins is the most widely used CI/CD server but suffers from:
 - **Account management** — limited, requires plugins for OAuth/LDAP
 - **No built-in TypeScript support** — Groovy-only scripting
 
-**buildworld233** aims to solve all these pain points while keeping Jenkins' proven concepts (pipelines, agents, workspaces, artifact storage).
+**buildworld** aims to solve all these pain points while keeping Jenkins' proven concepts (pipelines, agents, workspaces, artifact storage).
 
 ---
 
@@ -25,7 +25,7 @@ Jenkins is the most widely used CI/CD server but suffers from:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          buildworld233 (Server)                             │
+│                          buildworld (Server)                             │
 ├──────────────┬──────────────┬──────────────┬───────────────┬───────────────┤
 │   Web UI     │  REST API    │  WebSocket   │  CLI (bwctl)  │  Worker RPC   │
 │  (React/Vite)│  (chi)       │  (build log  │  (cobra)      │  (gRPC)       │
@@ -84,7 +84,7 @@ Jenkins is the most widely used CI/CD server but suffers from:
 ### Build Pipeline Model
 
 ```typescript
-// Example buildworld233 pipeline (TypeScript DSL)
+// Example buildworld pipeline (TypeScript DSL)
 pipeline({
   name: "my-app-build",
   triggers: {
@@ -158,7 +158,7 @@ Trigger (webhook/cron/manual)
 
 ### Overview
 
-buildworld233 uses an **agent-first architecture** where workers (agents) are the primary execution units:
+buildworld uses an **agent-first architecture** where workers (agents) are the primary execution units:
 
 - **Server** = Coordinator + API + UI + Storage (the brain)
 - **Agent** = Build executor (the muscle) - this is the primary design concept
@@ -204,7 +204,7 @@ agents:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Agent Node (buildworld233-agent)         │
+│                    Agent Node (buildworld-agent)         │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │  Agent Controller                                    │   │
@@ -363,27 +363,27 @@ type AgentHealth struct {
 
 ```bash
 # Server-side
-buildworld233 agent list                    # List all agents
-buildworld233 agent status <agent-id>       # Show agent status
-buildworld233 agent enable <agent-id>       # Enable agent
-buildworld233 agent disable <agent-id>      # Disable agent
-buildworld233 agent remove <agent-id>       # Remove agent
-buildworld233 agent generate-token          # Generate registration token
+buildworld agent list                    # List all agents
+buildworld agent status <agent-id>       # Show agent status
+buildworld agent enable <agent-id>       # Enable agent
+buildworld agent disable <agent-id>      # Disable agent
+buildworld agent remove <agent-id>       # Remove agent
+buildworld agent generate-token          # Generate registration token
 
 # Agent-side (standalone agent binary)
-buildworld233-agent start --server <server-url> --token <token>
-buildworld233-agent status
-buildworld233-agent stop
+buildworld-agent start --server <server-url> --token <token>
+buildworld-agent status
+buildworld-agent stop
 ```
 
 ### Agent Binary
 
 ```bash
 # Build agent binary
-go build -o buildworld233-agent ./cmd/agent
+go build -o buildworld-agent ./cmd/agent
 
 # Run agent
-./buildworld233-agent \
+./buildworld-agent \
   --server http://localhost:6050 \
   --token <registration-token> \
   --name "my-agent" \
@@ -449,27 +449,27 @@ type WorkerHealth struct {
 
 ```bash
 # Server-side
-buildworld233 worker list                    # List all workers
-buildworld233 worker status <worker-id>      # Show worker status
-buildworld233 worker enable <worker-id>      # Enable worker
-buildworld233 worker disable <worker-id>     # Disable worker
-buildworld233 worker remove <worker-id>      # Remove worker
-buildworld233 worker generate-token          # Generate registration token
+buildworld worker list                    # List all workers
+buildworld worker status <worker-id>      # Show worker status
+buildworld worker enable <worker-id>      # Enable worker
+buildworld worker disable <worker-id>     # Disable worker
+buildworld worker remove <worker-id>      # Remove worker
+buildworld worker generate-token          # Generate registration token
 
 # Worker-side (standalone worker binary)
-buildworld233-worker start --server <server-url> --token <token>
-buildworld233-worker status
-buildworld233-worker stop
+buildworld-worker start --server <server-url> --token <token>
+buildworld-worker status
+buildworld-worker stop
 ```
 
 ### Worker Binary
 
 ```bash
 # Build worker binary
-go build -o buildworld233-worker ./cmd/worker
+go build -o buildworld-worker ./cmd/worker
 
 # Run worker
-./buildworld233-worker \
+./buildworld-worker \
   --server http://localhost:6050 \
   --token <registration-token> \
   --name "my-worker" \
@@ -606,7 +606,7 @@ type User struct {
 
 ### Supported Git Servers
 
-buildworld233 supports all major Git hosting platforms:
+buildworld supports all major Git hosting platforms:
 
 | Platform | Webhook | OAuth | API | Status |
 |----------|---------|-------|-----|--------|
@@ -694,7 +694,7 @@ type SVNConfig struct {
 
 ### Environment Variable System
 
-buildworld233 supports hierarchical environment variables with secure field types:
+buildworld supports hierarchical environment variables with secure field types:
 
 ```go
 type EnvVar struct {
@@ -837,7 +837,7 @@ Build: deploy-app
 
 ### Build Now = Execute Packaging
 
-**Important clarification:** In buildworld233, "Build Now" means "Execute Packaging" (执行打包). This is the same as Jenkins' "Build Now" - it triggers a build execution with the current configuration and parameters.
+**Important clarification:** In buildworld, "Build Now" means "Execute Packaging" (执行打包). This is the same as Jenkins' "Build Now" - it triggers a build execution with the current configuration and parameters.
 
 ---
 
@@ -845,7 +845,7 @@ Build: deploy-app
 
 ### Auto-installed Environments
 
-buildworld233 can automatically install and configure development environments:
+buildworld can automatically install and configure development environments:
 
 ```go
 type DevEnvironment struct {
@@ -924,7 +924,7 @@ Settings → Environments → Setup Wizard
 │  - China Mirror (npmmirror.com)                             │
 │  - International (official)                                 │
 │                                                             │
-│  Install Location: [C:\\buildworld233\\env]                │
+│  Install Location: [C:\\buildworld\\env]                │
 │                                                             │
 │  [Install Selected]                                         │
 └─────────────────────────────────────────────────────────────┘
@@ -981,7 +981,7 @@ func DetectRegion() string {
 
 ### proxysss Integration
 
-buildworld233 integrates with neko233-com/proxysss for automatic HTTPS:
+buildworld integrates with neko233-com/proxysss for automatic HTTPS:
 
 ```yaml
 # config.yaml
@@ -1090,7 +1090,7 @@ Settings → General → Language
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  buildworld233    [Projects] [Builds] [Plugins] [Settings]  │
+│  buildworld    [Projects] [Builds] [Plugins] [Settings]  │
 ├──────────────────┬──────────────────────────────────────────┤
 │                  │                                          │
 │  Sidebar         │  Main Content Area                      │
@@ -1260,7 +1260,7 @@ Settings → Monitor
 ## [S8] Go Project Structure
 
 ```
-buildworld233/
+buildworld/
 ├── cmd/
 │   ├── server/          # Main server binary
 │   │   └── main.go
@@ -1566,7 +1566,7 @@ server:
   tls: false
 
 database:
-  path: "./data/buildworld233.db"
+  path: "./data/buildworld.db"
 
 auth:
   jwt_secret: "auto-generated-on-first-run"
@@ -1613,13 +1613,13 @@ workers:
 FROM golang:1.26 AS builder
 WORKDIR /app
 COPY . .
-RUN go build -o buildworld233 ./cmd/server
+RUN go build -o buildworld ./cmd/server
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates git subversion
-COPY --from=builder /app/buildworld233 /usr/local/bin/
+COPY --from=builder /app/buildworld /usr/local/bin/
 EXPOSE 6050
-CMD ["buildworld233"]
+CMD ["buildworld"]
 ```
 
 **Worker Dockerfile:**
@@ -1627,13 +1627,13 @@ CMD ["buildworld233"]
 FROM golang:1.26 AS builder
 WORKDIR /app
 COPY . .
-RUN go build -o buildworld233-worker ./cmd/worker
+RUN go build -o buildworld-worker ./cmd/worker
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates git subversion
-COPY --from=builder /app/buildworld233-worker /usr/local/bin/
+COPY --from=builder /app/buildworld-worker /usr/local/bin/
 EXPOSE 7050
-CMD ["buildworld233-worker"]
+CMD ["buildworld-worker"]
 ```
 
 **Docker Compose (server + local worker):**
@@ -1647,7 +1647,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml
-    command: buildworld233 start
+    command: buildworld start
     
   worker:
     build:
@@ -1658,7 +1658,7 @@ services:
       - WORKER_TOKEN=${WORKER_TOKEN}
     volumes:
       - ./data/workspaces:/app/workspaces
-    command: buildworld233-worker start --server http://server:6050 --token ${WORKER_TOKEN}
+    command: buildworld-worker start --server http://server:6050 --token ${WORKER_TOKEN}
 ```
 
 ### GitHub Actions Release
@@ -1687,7 +1687,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          binary="buildworld233-${{ matrix.goos }}-${{ matrix.goarch }}"
+          binary="buildworld-${{ matrix.goos }}-${{ matrix.goarch }}"
           if [ "${{ matrix.goos }}" = "windows" ]; then
             binary="${binary}.exe"
           fi
@@ -1695,7 +1695,7 @@ jobs:
       - name: Upload to Release
         uses: softprops/action-gh-release@v1
         with:
-          files: buildworld233-*
+          files: buildworld-*
 ```
 
 ---
@@ -1705,12 +1705,12 @@ jobs:
 ### Server - Windows (`scripts/install.ps1`)
 
 ```powershell
-# buildworld233 server installer (Windows PowerShell)
-# iwr -useb https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.ps1 | iex
+# buildworld server installer (Windows PowerShell)
+# iwr -useb https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.ps1 | iex
 param([string]$Version = "latest")
 $ErrorActionPreference = "Stop"
-$BinaryName = "buildworld233"
-$Repo = "neko233-com/buildworld233"
+$BinaryName = "buildworld"
+$Repo = "neko233-com/buildworld"
 
 function Get-LatestVersion {
     try {
@@ -1727,28 +1727,28 @@ function Install-BuildWorld233 {
     if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "arm64" }
     $asset = "$BinaryName-windows-$arch.exe"
     $url = "https://github.com/$Repo/releases/download/v$Ver/$asset"
-    $installDir = Join-Path $env:LOCALAPPDATA "buildworld233"
+    $installDir = Join-Path $env:LOCALAPPDATA "buildworld"
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
     $dest = Join-Path $installDir "$BinaryName.exe"
     Write-Host "Downloading $url ..."
     Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
     Write-Host "Installed to $dest"
     Write-Host "Add to PATH: $installDir"
-    Write-Host "Run: buildworld233 start"
-    Write-Host "Status: buildworld233 status"
-    Write-Host "Enable boot autostart: buildworld233 enable-autostart"
-    Write-Host "Change port: buildworld233 set-port 6050"
-    Write-Host "Self update: buildworld233 update"
-    Write-Host "Hot reload config: buildworld233 reload-config"
-    Write-Host "Export backup: buildworld233 backup export --output ./backup.zip"
-    Write-Host "Import backup: buildworld233 backup import --input ./backup.zip"
-    Write-Host "Generate worker token: buildworld233 worker generate-token"
-    Write-Host "List workers: buildworld233 worker list"
+    Write-Host "Run: buildworld start"
+    Write-Host "Status: buildworld status"
+    Write-Host "Enable boot autostart: buildworld enable-autostart"
+    Write-Host "Change port: buildworld set-port 6050"
+    Write-Host "Self update: buildworld update"
+    Write-Host "Hot reload config: buildworld reload-config"
+    Write-Host "Export backup: buildworld backup export --output ./backup.zip"
+    Write-Host "Import backup: buildworld backup import --input ./backup.zip"
+    Write-Host "Generate worker token: buildworld worker generate-token"
+    Write-Host "List workers: buildworld worker list"
 }
 
 if ($Version -eq "latest") { $Version = Get-LatestVersion }
 $Version = $Version -replace '^[vV]', ''
-Write-Host "Installing buildworld233 v$VERSION ..."
+Write-Host "Installing buildworld v$VERSION ..."
 Install-BuildWorld233 -Ver $Version
 ```
 
@@ -1756,12 +1756,12 @@ Install-BuildWorld233 -Ver $Version
 
 ```bash
 #!/bin/bash
-# buildworld233 server installer (Linux/macOS)
-# curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | bash
+# buildworld server installer (Linux/macOS)
+# curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | bash
 set -e
 
-REPO="neko233-com/buildworld233"
-BINARY="buildworld233"
+REPO="neko233-com/buildworld"
+BINARY="buildworld"
 VERSION="${1:-latest}"
 
 get_latest_version() {
@@ -1783,39 +1783,39 @@ install() {
     sudo curl -fsSL "$url" -o "$install_dir/$BINARY"
     sudo chmod +x "$install_dir/$BINARY"
     echo "Installed to $install_dir/$BINARY"
-    echo "Run: buildworld233 start"
-    echo "Status: buildworld233 status"
-    echo "Enable boot autostart: buildworld233 enable-autostart"
-    echo "Change port: buildworld233 set-port 6050"
-    echo "Self update: buildworld233 update"
-    echo "Hot reload config: buildworld233 reload-config"
-    echo "Export backup: buildworld233 backup export --output ./backup.zip"
-    echo "Import backup: buildworld233 backup import --input ./backup.zip"
-    echo "Generate worker token: buildworld233 worker generate-token"
-    echo "List workers: buildworld233 worker list"
+    echo "Run: buildworld start"
+    echo "Status: buildworld status"
+    echo "Enable boot autostart: buildworld enable-autostart"
+    echo "Change port: buildworld set-port 6050"
+    echo "Self update: buildworld update"
+    echo "Hot reload config: buildworld reload-config"
+    echo "Export backup: buildworld backup export --output ./backup.zip"
+    echo "Import backup: buildworld backup import --input ./backup.zip"
+    echo "Generate worker token: buildworld worker generate-token"
+    echo "List workers: buildworld worker list"
 }
 
 if [ "$VERSION" = "latest" ]; then
     VERSION=$(get_latest_version)
 fi
 VERSION="${VERSION#v}"
-echo "Installing buildworld233 v$VERSION ..."
+echo "Installing buildworld v$VERSION ..."
 install "$VERSION"
 ```
 
 ### Worker - Windows (`scripts/install-worker.ps1`)
 
 ```powershell
-# buildworld233 worker installer (Windows PowerShell)
-# iwr -useb https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install-worker.ps1 | iex
+# buildworld worker installer (Windows PowerShell)
+# iwr -useb https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install-worker.ps1 | iex
 param(
     [string]$Version = "latest",
     [string]$Server = "http://localhost:6050",
     [string]$Token = ""
 )
 $ErrorActionPreference = "Stop"
-$BinaryName = "buildworld233-worker"
-$Repo = "neko233-com/buildworld233"
+$BinaryName = "buildworld-worker"
+$Repo = "neko233-com/buildworld"
 
 function Get-LatestVersion {
     try {
@@ -1832,25 +1832,25 @@ function Install-BuildWorld233Worker {
     if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "arm64" }
     $asset = "$BinaryName-windows-$arch.exe"
     $url = "https://github.com/$Repo/releases/download/v$Ver/$asset"
-    $installDir = Join-Path $env:LOCALAPPDATA "buildworld233"
+    $installDir = Join-Path $env:LOCALAPPDATA "buildworld"
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
     $dest = Join-Path $installDir "$BinaryName.exe"
     Write-Host "Downloading $url ..."
     Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
     Write-Host "Installed to $dest"
-    Write-Host "Run worker: buildworld233-worker start --server $Server --token $Token"
-    Write-Host "Status: buildworld233-worker status"
-    Write-Host "Stop: buildworld233-worker stop"
+    Write-Host "Run worker: buildworld-worker start --server $Server --token $Token"
+    Write-Host "Status: buildworld-worker status"
+    Write-Host "Stop: buildworld-worker stop"
 }
 
 if ($Version -eq "latest") { $Version = Get-LatestVersion }
 $Version = $Version -replace '^[vV]', ''
-Write-Host "Installing buildworld233-worker v$Version ..."
+Write-Host "Installing buildworld-worker v$Version ..."
 Install-BuildWorld233Worker -Ver $Version
 
 if ($Token -ne "") {
     Write-Host "Starting worker..."
-    Start-Process -FilePath (Join-Path $env:LOCALAPPDATA "buildworld233\$BinaryName.exe") -ArgumentList "start", "--server", $Server, "--token", $Token
+    Start-Process -FilePath (Join-Path $env:LOCALAPPDATA "buildworld\$BinaryName.exe") -ArgumentList "start", "--server", $Server, "--token", $Token
 }
 ```
 
@@ -1858,12 +1858,12 @@ if ($Token -ne "") {
 
 ```bash
 #!/bin/bash
-# buildworld233 worker installer (Linux/macOS)
-# curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install-worker.sh | bash -s -- --server http://localhost:6050 --token <token>
+# buildworld worker installer (Linux/macOS)
+# curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install-worker.sh | bash -s -- --server http://localhost:6050 --token <token>
 set -e
 
-REPO="neko233-com/buildworld233"
-BINARY="buildworld233-worker"
+REPO="neko233-com/buildworld"
+BINARY="buildworld-worker"
 VERSION="latest"
 SERVER="http://localhost:6050"
 TOKEN=""
@@ -1896,21 +1896,21 @@ install() {
     sudo curl -fsSL "$url" -o "$install_dir/$BINARY"
     sudo chmod +x "$install_dir/$BINARY"
     echo "Installed to $install_dir/$BINARY"
-    echo "Run worker: buildworld233-worker start --server $SERVER --token $TOKEN"
-    echo "Status: buildworld233-worker status"
-    echo "Stop: buildworld233-worker stop"
+    echo "Run worker: buildworld-worker start --server $SERVER --token $TOKEN"
+    echo "Status: buildworld-worker status"
+    echo "Stop: buildworld-worker stop"
 }
 
 if [ "$VERSION" = "latest" ]; then
     VERSION=$(get_latest_version)
 fi
 VERSION="${VERSION#v}"
-echo "Installing buildworld233-worker v$VERSION ..."
+echo "Installing buildworld-worker v$VERSION ..."
 install "$VERSION"
 
 if [ -n "$TOKEN" ]; then
     echo "Starting worker..."
-    buildworld233-worker start --server "$SERVER" --token "$TOKEN" &
+    buildworld-worker start --server "$SERVER" --token "$TOKEN" &
 fi
 ```
 
@@ -1918,12 +1918,12 @@ fi
 
 ```bash
 #!/bin/bash
-# buildworld233 installer (Linux/macOS)
-# curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | bash
+# buildworld installer (Linux/macOS)
+# curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | bash
 set -e
 
-REPO="neko233-com/buildworld233"
-BINARY="buildworld233"
+REPO="neko233-com/buildworld"
+BINARY="buildworld"
 VERSION="${1:-latest}"
 
 get_latest_version() {
@@ -1945,21 +1945,21 @@ install() {
     sudo curl -fsSL "$url" -o "$install_dir/$BINARY"
     sudo chmod +x "$install_dir/$BINARY"
     echo "Installed to $install_dir/$BINARY"
-    echo "Run: buildworld233 start"
-    echo "Status: buildworld233 status"
-    echo "Enable boot autostart: buildworld233 enable-autostart"
-    echo "Change port: buildworld233 set-port 6050"
-    echo "Self update: buildworld233 update"
-    echo "Hot reload config: buildworld233 reload-config"
-    echo "Export backup: buildworld233 backup export --output ./backup.zip"
-    echo "Import backup: buildworld233 backup import --input ./backup.zip"
+    echo "Run: buildworld start"
+    echo "Status: buildworld status"
+    echo "Enable boot autostart: buildworld enable-autostart"
+    echo "Change port: buildworld set-port 6050"
+    echo "Self update: buildworld update"
+    echo "Hot reload config: buildworld reload-config"
+    echo "Export backup: buildworld backup export --output ./backup.zip"
+    echo "Import backup: buildworld backup import --input ./backup.zip"
 }
 
 if [ "$VERSION" = "latest" ]; then
     VERSION=$(get_latest_version)
 fi
 VERSION="${VERSION#v}"
-echo "Installing buildworld233 v$VERSION ..."
+echo "Installing buildworld v$VERSION ..."
 install "$VERSION"
 ```
 
@@ -1968,20 +1968,20 @@ install "$VERSION"
 ## [S12] CLI Commands
 
 ```bash
-buildworld233 start              # Start server
-buildworld233 status             # Show status
-buildworld233 stop               # Stop server
-buildworld233 restart            # Restart server
-buildworld233 enable-autostart   # Enable boot autostart
-buildworld233 disable-autostart  # Disable boot autostart
-buildworld233 set-port 6050      # Change port
-buildworld233 reload-config      # Hot-reload YAML config
-buildworld233 update             # Self-update from GitHub releases
-buildworld233 reset-admin-password --password <NEW>
-buildworld233 backup export --output ./backup.zip
-buildworld233 backup import --input ./backup.zip
-buildworld233 version            # Show version
-buildworld233 help               # Show help
+buildworld start              # Start server
+buildworld status             # Show status
+buildworld stop               # Stop server
+buildworld restart            # Restart server
+buildworld enable-autostart   # Enable boot autostart
+buildworld disable-autostart  # Disable boot autostart
+buildworld set-port 6050      # Change port
+buildworld reload-config      # Hot-reload YAML config
+buildworld update             # Self-update from GitHub releases
+buildworld reset-admin-password --password <NEW>
+buildworld backup export --output ./backup.zip
+buildworld backup import --input ./backup.zip
+buildworld version            # Show version
+buildworld help               # Show help
 ```
 
 ---
@@ -2045,14 +2045,14 @@ Settings → System → Update
 ### Export
 
 ```bash
-buildworld233 backup export --output ./backup-2024-01-15.zip
+buildworld backup export --output ./backup-2024-01-15.zip
 ```
 
 Contents:
 ```
 backup-2024-01-15.zip
 ├── database/
-│   └── buildworld233.db        # SQLite dump
+│   └── buildworld.db        # SQLite dump
 ├── config/
 │   └── config.yaml             # Current config
 ├── plugins/
@@ -2065,7 +2065,7 @@ backup-2024-01-15.zip
 ### Import
 
 ```bash
-buildworld233 backup import --input ./backup-2024-01-15.zip
+buildworld backup import --input ./backup-2024-01-15.zip
 ```
 
 ### Web UI
@@ -2277,7 +2277,7 @@ Pipeline Editor
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  buildworld233 Dashboard                                    │
+│  buildworld Dashboard                                    │
 ├──────────────────┬──────────────────────────────────────────┤
 │                  │                                          │
 │  Quick Actions   │  Recent Builds                          │
@@ -2363,8 +2363,8 @@ jobs:
           npm run test
       - name: E2E Tests
         run: |
-          go build -o buildworld233 ./cmd/server
-          ./buildworld233 start &
+          go build -o buildworld ./cmd/server
+          ./buildworld start &
           sleep 2
           cd web && npx playwright test
 ```
@@ -2389,7 +2389,7 @@ jobs:
 
 ### Phase 3: Worker System (Week 5-6)
 - [ ] gRPC proto definitions
-- [ ] Worker daemon (buildworld233-worker)
+- [ ] Worker daemon (buildworld-worker)
 - [ ] Worker registration & heartbeat
 - [ ] Build task assignment
 - [ ] Log streaming from worker to server

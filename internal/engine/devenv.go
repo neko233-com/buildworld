@@ -36,7 +36,7 @@ func NewDevEnvManager(workspace string) *DevEnvManager {
 
 func (m *DevEnvManager) initDefaults() {
 	installBase := filepath.Join(m.workspace, "env")
-	
+
 	m.environments["jdk"] = &DevEnvironment{
 		Name:        "JDK",
 		Version:     "21",
@@ -44,7 +44,7 @@ func (m *DevEnvManager) initDefaults() {
 		AutoInstall: true,
 		EnvVars:     []string{"JAVA_HOME", "PATH"},
 	}
-	
+
 	m.environments["maven"] = &DevEnvironment{
 		Name:        "Maven",
 		Version:     "3.9.6",
@@ -52,7 +52,7 @@ func (m *DevEnvManager) initDefaults() {
 		AutoInstall: true,
 		EnvVars:     []string{"MAVEN_HOME", "PATH"},
 	}
-	
+
 	m.environments["nodejs"] = &DevEnvironment{
 		Name:        "Node.js",
 		Version:     "24",
@@ -60,7 +60,7 @@ func (m *DevEnvManager) initDefaults() {
 		AutoInstall: true,
 		EnvVars:     []string{"NODE_HOME", "PATH"},
 	}
-	
+
 	m.environments["npm"] = &DevEnvironment{
 		Name:        "npm",
 		Version:     "latest",
@@ -68,7 +68,7 @@ func (m *DevEnvManager) initDefaults() {
 		AutoInstall: true,
 		EnvVars:     []string{},
 	}
-	
+
 	m.environments["gradle"] = &DevEnvironment{
 		Name:        "Gradle",
 		Version:     "8.5",
@@ -97,7 +97,7 @@ func (m *DevEnvManager) IsInstalled(name string) bool {
 	if !ok {
 		return false
 	}
-	
+
 	// Check if binary exists
 	binaryPath := m.getBinaryPath(env)
 	_, err := os.Stat(binaryPath)
@@ -116,22 +116,22 @@ func (m *DevEnvManager) getBinaryPath(env *DevEnvironment) string {
 func (m *DevEnvManager) Setup(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	env, ok := m.environments[name]
 	if !ok {
 		return fmt.Errorf("environment %s not found", name)
 	}
-	
+
 	if m.isBinaryAvailable(env.Name) {
 		env.IsInstalled = true
 		return nil
 	}
-	
+
 	// Auto-install if enabled
 	if env.AutoInstall {
 		return m.install(env)
 	}
-	
+
 	return fmt.Errorf("environment %s is not installed and auto-install is disabled", name)
 }
 
@@ -145,11 +145,11 @@ func (m *DevEnvManager) install(env *DevEnvironment) error {
 	if err := os.MkdirAll(env.InstallPath, 0755); err != nil {
 		return fmt.Errorf("create install directory: %w", err)
 	}
-	
+
 	// Detect platform and download
 	osName := runtime.GOOS
 	arch := runtime.GOARCH
-	
+
 	switch env.Name {
 	case "JDK":
 		return m.installJDK(env, osName, arch)
@@ -160,7 +160,7 @@ func (m *DevEnvManager) install(env *DevEnvironment) error {
 	case "Gradle":
 		return m.installGradle(env, osName, arch)
 	}
-	
+
 	return fmt.Errorf("automatic installation not supported for %s", env.Name)
 }
 
@@ -170,7 +170,7 @@ func (m *DevEnvManager) installJDK(env *DevEnvironment, osName, arch string) err
 		env.IsInstalled = true
 		return nil
 	}
-	
+
 	log := fmt.Sprintf("JDK %s detected at system level or will use bundled version", env.Version)
 	fmt.Println(log)
 	env.IsInstalled = true
@@ -182,7 +182,7 @@ func (m *DevEnvManager) installMaven(env *DevEnvironment, osName, arch string) e
 		env.IsInstalled = true
 		return nil
 	}
-	
+
 	log := fmt.Sprintf("Maven %s detected at system level or will use bundled version", env.Version)
 	fmt.Println(log)
 	env.IsInstalled = true
@@ -194,7 +194,7 @@ func (m *DevEnvManager) installNodeJS(env *DevEnvironment, osName, arch string) 
 		env.IsInstalled = true
 		return nil
 	}
-	
+
 	log := fmt.Sprintf("Node.js %s detected at system level or will use bundled version", env.Version)
 	fmt.Println(log)
 	env.IsInstalled = true
@@ -206,7 +206,7 @@ func (m *DevEnvManager) installGradle(env *DevEnvironment, osName, arch string) 
 		env.IsInstalled = true
 		return nil
 	}
-	
+
 	log := fmt.Sprintf("Gradle %s detected at system level or will use bundled version", env.Version)
 	fmt.Println(log)
 	env.IsInstalled = true
@@ -216,12 +216,12 @@ func (m *DevEnvManager) installGradle(env *DevEnvironment, osName, arch string) 
 func (m *DevEnvManager) GetEnvVars(name string) map[string]string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	env, ok := m.environments[name]
 	if !ok {
 		return nil
 	}
-	
+
 	vars := make(map[string]string)
 	for _, v := range env.EnvVars {
 		switch v {

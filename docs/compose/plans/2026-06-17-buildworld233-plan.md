@@ -1,4 +1,4 @@
-# buildworld233 Implementation Plan
+# buildworld Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use compose:subagent (recommended) or compose:execute to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -36,8 +36,8 @@
 - [ ] **Step 1: Initialize Go module**
 
 ```bash
-cd D:\Code\neko233-Projects\buildworld233
-go mod init github.com/neko233-com/buildworld233
+cd D:\Code\neko233-Projects\buildworld
+go mod init github.com/neko233-com/buildworld
 ```
 
 - [ ] **Step 2: Create Makefile**
@@ -48,10 +48,10 @@ go mod init github.com/neko233-com/buildworld233
 build: build-server build-worker build-cli
 
 build-server:
-	go build -o bin/buildworld233.exe ./cmd/server
+	go build -o bin/buildworld.exe ./cmd/server
 
 build-worker:
-	go build -o bin/buildworld233-worker.exe ./cmd/worker
+	go build -o bin/buildworld-worker.exe ./cmd/worker
 
 build-cli:
 	go build -o bin/bwctl.exe ./cmd/cli
@@ -82,7 +82,7 @@ package main
 import "fmt"
 
 func main() {
-	fmt.Println("buildworld233 server starting...")
+	fmt.Println("buildworld server starting...")
 }
 ```
 
@@ -93,7 +93,7 @@ package main
 import "fmt"
 
 func main() {
-	fmt.Println("buildworld233 worker starting...")
+	fmt.Println("buildworld worker starting...")
 }
 ```
 
@@ -104,7 +104,7 @@ package main
 import "fmt"
 
 func main() {
-	fmt.Println("buildworld233 CLI")
+	fmt.Println("buildworld CLI")
 }
 ```
 
@@ -115,7 +115,7 @@ make build
 ls bin/
 ```
 
-Expected: `buildworld233.exe`, `buildworld233-worker.exe`, `bwctl.exe`
+Expected: `buildworld.exe`, `buildworld-worker.exe`, `bwctl.exe`
 
 - [ ] **Step 6: Commit**
 
@@ -860,9 +860,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "buildworld233",
-	Short: "buildworld233 - A modern CI/CD server",
-	Long:  `buildworld233 is a Jenkins alternative with TypeScript DSL, plugin system, and distributed workers.`,
+	Use:   "buildworld",
+	Short: "buildworld - A modern CI/CD server",
+	Long:  `buildworld is a Jenkins alternative with TypeScript DSL, plugin system, and distributed workers.`,
 }
 
 func Execute() {
@@ -894,10 +894,10 @@ import (
 
 var startCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start the buildworld233 server",
+	Short: "Start the buildworld server",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		port, _ := cmd.Flags().GetInt("port")
-		fmt.Printf("Starting buildworld233 on port %d...\n", port)
+		fmt.Printf("Starting buildworld on port %d...\n", port)
 		// Will implement server start in Task 6
 		return nil
 	},
@@ -932,7 +932,7 @@ var statusCmd = &cobra.Command{
 
 var stopCmd = &cobra.Command{
 	Use:   "stop",
-	Short: "Stop the buildworld233 server",
+	Short: "Stop the buildworld server",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("Stopping server...")
 		return nil
@@ -943,7 +943,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("buildworld233 v0.1.0")
+		fmt.Println("buildworld v0.1.0")
 	},
 }
 ```
@@ -954,7 +954,7 @@ var versionCmd = &cobra.Command{
 // cmd/cli/main.go
 package main
 
-import "github.com/neko233-com/buildworld233/internal/cli"
+import "github.com/neko233-com/buildworld/internal/cli"
 
 func main() {
 	cli.Execute()
@@ -1004,7 +1004,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	
-	"github.com/neko233-com/buildworld233/internal/config"
+	"github.com/neko233-com/buildworld/internal/config"
 )
 
 func TestHealthEndpoint(t *testing.T) {
@@ -1053,7 +1053,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	
-	"github.com/neko233-com/buildworld233/internal/config"
+	"github.com/neko233-com/buildworld/internal/config"
 )
 
 func NewRouter(cfg *config.Config) http.Handler {
@@ -1086,7 +1086,7 @@ import (
 	"net/http"
 	"time"
 	
-	"github.com/neko233-com/buildworld233/internal/config"
+	"github.com/neko233-com/buildworld/internal/config"
 )
 
 type Server struct {
@@ -1483,7 +1483,7 @@ syntax = "proto3";
 
 package worker;
 
-option go_package = "github.com/neko233-com/buildworld233/internal/rpc/generated";
+option go_package = "github.com/neko233-com/buildworld/internal/rpc/generated";
 
 service WorkerService {
   rpc Register(RegisterRequest) returns (RegisterResponse);
@@ -1592,8 +1592,8 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	
-	"github.com/neko233-com/buildworld233/internal/config"
-	pb "github.com/neko233-com/buildworld233/internal/rpc/generated"
+	"github.com/neko233-com/buildworld/internal/config"
+	pb "github.com/neko233-com/buildworld/internal/rpc/generated"
 )
 
 type Daemon struct {
@@ -1805,8 +1805,8 @@ import (
 	"flag"
 	"log"
 	
-	"github.com/neko233-com/buildworld233/internal/config"
-	"github.com/neko233-com/buildworld233/internal/worker"
+	"github.com/neko233-com/buildworld/internal/config"
+	"github.com/neko233-com/buildworld/internal/worker"
 )
 
 func main() {
@@ -1837,7 +1837,7 @@ func main() {
 
 ```bash
 go get github.com/google/uuid google.golang.org/grpc
-go build -o bin/buildworld233-worker.exe ./cmd/worker
+go build -o bin/buildworld-worker.exe ./cmd/worker
 ```
 
 - [ ] **Step 5: Commit**
@@ -2499,7 +2499,7 @@ function App() {
             <div className="flex justify-between h-16">
               <div className="flex">
                 <a href="/" className="flex items-center px-2 py-2 text-gray-900 font-bold">
-                  buildworld233
+                  buildworld
                 </a>
                 <a href="/projects" className="flex items-center px-2 py-2 text-gray-600 hover:text-gray-900">
                   Projects
@@ -2697,7 +2697,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          binary="buildworld233-${{ matrix.goos }}-${{ matrix.goarch }}"
+          binary="buildworld-${{ matrix.goos }}-${{ matrix.goarch }}"
           if [ "${{ matrix.goos }}" = "windows" ]; then
             binary="${binary}.exe"
           fi
@@ -2707,7 +2707,7 @@ jobs:
       - name: Upload to Release
         uses: softprops/action-gh-release@v1
         with:
-          files: buildworld233-*
+          files: buildworld-*
 ```
 
 - [ ] **Step 3: Commit**
@@ -2735,8 +2735,8 @@ git commit -m "feat: add GitHub Actions CI/CD workflows"
 # scripts/install.ps1
 param([string]$Version = "latest")
 $ErrorActionPreference = "Stop"
-$BinaryName = "buildworld233"
-$Repo = "neko233-com/buildworld233"
+$BinaryName = "buildworld"
+$Repo = "neko233-com/buildworld"
 
 function Get-LatestVersion {
     try {
@@ -2753,18 +2753,18 @@ function Install-BuildWorld233 {
     if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "arm64" }
     $asset = "$BinaryName-windows-$arch.exe"
     $url = "https://github.com/$Repo/releases/download/v$Ver/$asset"
-    $installDir = Join-Path $env:LOCALAPPDATA "buildworld233"
+    $installDir = Join-Path $env:LOCALAPPDATA "buildworld"
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
     $dest = Join-Path $installDir "$BinaryName.exe"
     Write-Host "Downloading $url ..."
     Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
     Write-Host "Installed to $dest"
-    Write-Host "Run: buildworld233 start"
+    Write-Host "Run: buildworld start"
 }
 
 if ($Version -eq "latest") { $Version = Get-LatestVersion }
 $Version = $Version -replace '^[vV]', ''
-Write-Host "Installing buildworld233 v$Version ..."
+Write-Host "Installing buildworld v$Version ..."
 Install-BuildWorld233 -Ver $Version
 ```
 
@@ -2775,8 +2775,8 @@ Install-BuildWorld233 -Ver $Version
 # scripts/install.sh
 set -e
 
-REPO="neko233-com/buildworld233"
-BINARY="buildworld233"
+REPO="neko233-com/buildworld"
+BINARY="buildworld"
 VERSION="${1:-latest}"
 
 get_latest_version() {
@@ -2798,14 +2798,14 @@ install() {
     sudo curl -fsSL "$url" -o "$install_dir/$BINARY"
     sudo chmod +x "$install_dir/$BINARY"
     echo "Installed to $install_dir/$BINARY"
-    echo "Run: buildworld233 start"
+    echo "Run: buildworld start"
 }
 
 if [ "$VERSION" = "latest" ]; then
     VERSION=$(get_latest_version)
 fi
 VERSION="${VERSION#v}"
-echo "Installing buildworld233 v$VERSION ..."
+echo "Installing buildworld v$VERSION ..."
 install "$VERSION"
 ```
 
@@ -2836,10 +2836,10 @@ import (
 	"os/signal"
 	"syscall"
 	
-	"github.com/neko233-com/buildworld233/internal/api"
-	"github.com/neko233-com/buildworld233/internal/config"
-	"github.com/neko233-com/buildworld233/internal/engine"
-	"github.com/neko233-com/buildworld233/internal/store"
+	"github.com/neko233-com/buildworld/internal/api"
+	"github.com/neko233-com/buildworld/internal/config"
+	"github.com/neko233-com/buildworld/internal/engine"
+	"github.com/neko233-com/buildworld/internal/store"
 )
 
 func main() {
@@ -2910,7 +2910,7 @@ Expected: All binaries built successfully
 
 ```bash
 git add .
-git commit -m "feat: complete buildworld233 v1.0.0"
+git commit -m "feat: complete buildworld v1.0.0"
 ```
 
 ---

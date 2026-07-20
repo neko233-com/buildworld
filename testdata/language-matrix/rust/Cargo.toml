@@ -1,0 +1,8 @@
+[package]
+name = "buildworld-rust-minimal"
+version = "0.1.0"
+edition = "2024"
+description = "Minimal BuildWorld Rust packaging fixture"
+license = "MIT"
+
+[dependencies]

@@ -1,11 +1,25 @@
 import { useState } from 'react'
+import { motion } from 'motion/react'
+import { Braces, FolderGit2, GitBranch, KeyRound, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { api } from '../api'
 import { useApi } from '../hooks'
+import { dialogs } from '../components/AppDialogs'
+import { ModalDialog } from '../components/ModalDialog'
+import { PageState } from '../components/PageState'
+import { useI18n } from '../i18n'
+import { prettyConfigSource, prettyConfigSourceSync } from '../lib/configFormat'
+import { canEdit, isAdmin } from '../authz'
 
-const TYPE_COLORS: Record<string, string> = {
-  git: 'bg-blue-100 text-blue-800',
-  svn: 'bg-orange-100 text-orange-800',
-  hg: 'bg-purple-100 text-purple-800',
+interface VCSRoot {
+  id: number
+  name: string
+  type: string
+  url: string
+  branch: string
+  credential_id?: number
+  poll_interval: number
+  auto_checkout: boolean
+  config?: string
 }
 
 interface FormData {
@@ -16,6 +30,7 @@ interface FormData {
   credential_id: number | ''
   poll_interval: number
   auto_checkout: boolean
+  config: string
 }
 
 const emptyForm: FormData = {
@@ -26,171 +41,155 @@ const emptyForm: FormData = {
   credential_id: '',
   poll_interval: 60,
   auto_checkout: true,
+  config: '{}\n',
+}
+
+function rootTypeClass(type: string) {
+  return `vcs-type ${type}`
 }
 
 export default function VCSRoots() {
-  const { data: roots, loading, error, reload } = useApi(() => api.listVCSRoots())
-  const { data: credentials } = useApi(() => api.listCredentials())
-  const [showForm, setShowForm] = useState(false)
+  const { t } = useI18n()
+  const editable = canEdit()
+  const admin = isAdmin()
+  const { data: roots, loading, error, reload } = useApi<VCSRoot[]>(() => api.listVCSRoots())
+  const { data: credentials } = useApi<any[]>(() => admin ? api.listCredentials() : Promise.resolve([]), [admin])
+  const [editing, setEditing] = useState<VCSRoot | null>(null)
+  const [showEditor, setShowEditor] = useState(false)
   const [form, setForm] = useState<FormData>(emptyForm)
   const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
+  const openCreate = () => {
+    setEditing(null)
+    setForm(emptyForm)
+    setFormError('')
+    setShowEditor(true)
+  }
+
+  const openEdit = (root: VCSRoot) => {
+    let config = root.config || '{}\n'
+    try { config = prettyConfigSourceSync(config) } catch { /* Preserve invalid legacy source for repair. */ }
+    setEditing(root)
+    setForm({
+      name: root.name,
+      type: root.type || 'git',
+      url: root.url || '',
+      branch: root.branch || 'main',
+      credential_id: root.credential_id || '',
+      poll_interval: root.poll_interval || 0,
+      auto_checkout: root.auto_checkout,
+      config,
+    })
+    setFormError('')
+    setShowEditor(true)
+  }
+
+  const handleFormat = async () => {
+    setFormError('')
     try {
-      const data: any = {
-        name: form.name,
-        type: form.type,
-        url: form.url,
-        branch: form.branch,
-        poll_interval: form.poll_interval,
-        auto_checkout: form.auto_checkout,
+      const config = await prettyConfigSource(form.config)
+      setForm(current => ({ ...current, config }))
+      dialogs.notify(t('config.formatted'), 'success')
+    } catch (reason: any) {
+      const message = reason.message || t('config.invalid')
+      setFormError(message)
+      dialogs.notify(t('config.invalid'))
+    }
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setSaving(true)
+    setFormError('')
+    try {
+      const config = await prettyConfigSource(form.config)
+      const data = {
+        ...form,
+        config,
+        credential_id: form.credential_id === '' ? null : Number(form.credential_id),
+        poll_interval: Math.max(0, form.poll_interval),
       }
-      if (form.credential_id !== '') {
-        data.credential_id = Number(form.credential_id)
-      }
-      await api.createVCSRoot(data)
-      setShowForm(false)
-      setForm(emptyForm)
+      if (editing) await api.updateVCSRoot(editing.id, data)
+      else await api.createVCSRoot(data)
+      setShowEditor(false)
       reload()
-    } catch (err: any) {
-      alert(err.message)
+    } catch (reason: any) {
+      const message = reason.message || t('vcsRoots.saveFailed')
+      setFormError(message)
+      if (reason?.name !== 'ApiError') dialogs.notify(message)
     } finally {
       setSaving(false)
     }
   }
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Delete this VCS root?')) return
+  const handleDelete = async (root: VCSRoot) => {
+    if (!await dialogs.confirm(t('vcsRoots.deleteConfirm'), { title: t('vcsRoots.deleteTitle'), action: t('common.delete') })) return
     try {
-      await api.deleteVCSRoot(id)
+      await api.deleteVCSRoot(root.id)
       reload()
-    } catch (err: any) {
-      alert(err.message)
+    } catch (reason: any) {
+      dialogs.notify(reason.message || t('common.error'))
     }
   }
 
-  const getCredentialName = (credId: number) => {
-    const cred = credentials?.find(c => c.id === credId)
-    return cred ? cred.name : '-'
-  }
+  const getCredentialName = (credentialID?: number) => credentials?.find(credential => credential.id === credentialID)?.name || '-'
 
-  if (loading) return <div className="p-6">Loading...</div>
-  if (error) return <div className="p-6 text-red-500">Error: {error}</div>
+  if (loading) return <PageState />
+  if (error) return <PageState error={error} onRetry={reload} />
+
+  const list = roots || []
+  const automatic = list.filter(root => root.auto_checkout).length
+  const polling = list.filter(root => root.poll_interval > 0).length
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">VCS Roots</h1>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-        >
-          {showForm ? 'Cancel' : '+ New VCS Root'}
-        </button>
-      </div>
+    <motion.section className="operations-page vcs-workbench" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+      <header className="operations-heading">
+        <div><p>{list.length} {t('vcsRoots.registered')}</p><h1>{t('vcsRoots.title')}</h1></div>
+        {editable && <button className="primary-command" type="button" onClick={openCreate}><Plus size={16} />{t('vcsRoots.new')}</button>}
+      </header>
 
-      {showForm && (
-        <div className="bg-white p-6 rounded-lg shadow mb-6">
-          <h2 className="text-lg font-semibold mb-4">New VCS Root</h2>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-              <input className="w-full border rounded-lg px-3 py-2" value={form.name}
-                onChange={e => setForm(p => ({ ...p, name: e.target.value }))} required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
-              <select className="w-full border rounded-lg px-3 py-2" value={form.type}
-                onChange={e => setForm(p => ({ ...p, type: e.target.value }))}>
-                <option value="git">Git</option>
-                <option value="svn">SVN</option>
-                <option value="hg">Mercurial (hg)</option>
-              </select>
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">URL *</label>
-              <input className="w-full border rounded-lg px-3 py-2" placeholder="https://github.com/user/repo.git"
-                value={form.url} onChange={e => setForm(p => ({ ...p, url: e.target.value }))} required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
-              <input className="w-full border rounded-lg px-3 py-2" value={form.branch}
-                onChange={e => setForm(p => ({ ...p, branch: e.target.value }))} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Credential</label>
-              <select className="w-full border rounded-lg px-3 py-2" value={form.credential_id}
-                onChange={e => setForm(p => ({ ...p, credential_id: e.target.value === '' ? '' : Number(e.target.value) }))}>
-                <option value="">None</option>
-                {credentials?.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Poll Interval (seconds)</label>
-              <input type="number" className="w-full border rounded-lg px-3 py-2" value={form.poll_interval}
-                onChange={e => setForm(p => ({ ...p, poll_interval: Number(e.target.value) }))} min={0} />
-            </div>
-            <div className="flex items-end">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={form.auto_checkout}
-                  onChange={e => setForm(p => ({ ...p, auto_checkout: e.target.checked }))}
-                  className="w-4 h-4 rounded border-gray-300" />
-                <span className="text-sm font-medium text-gray-700">Auto Checkout</span>
-              </label>
-            </div>
-            <div className="md:col-span-2">
-              <button type="submit" disabled={saving}
-                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {saving ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <section className="notification-summary vcs-summary">
+        <article><span><FolderGit2 size={15} />{t('vcsRoots.total')}</span><strong>{list.length}</strong><small>{t('vcsRoots.totalHelp')}</small></article>
+        <article><span><GitBranch size={15} />{t('vcsRoots.automatic')}</span><strong className="positive">{automatic}</strong><small>{t('vcsRoots.automaticHelp')}</small></article>
+        <article><span><RefreshCw size={15} />{t('vcsRoots.polling')}</span><strong>{polling}</strong><small>{t('vcsRoots.pollingHelp')}</small></article>
+      </section>
 
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">URL</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Branch</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Credential</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Poll Interval</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {(roots || []).length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">No VCS roots</td></tr>
-            )}
-            {(roots || []).map(r => (
-              <tr key={r.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium">{r.name}</td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${TYPE_COLORS[r.type] || 'bg-gray-100'}`}>
-                    {r.type}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-gray-600 font-mono text-xs truncate max-w-xs">{r.url}</td>
-                <td className="px-4 py-3 text-gray-600">{r.branch || 'main'}</td>
-                <td className="px-4 py-3 text-gray-600">{r.credential_id ? getCredentialName(r.credential_id) : '-'}</td>
-                <td className="px-4 py-3 text-gray-600">{r.poll_interval === 0 ? 'Disabled' : `${r.poll_interval}s`}</td>
-                <td className="px-4 py-3">
-                  <button onClick={() => handleDelete(r.id)} className="text-red-600 hover:text-red-800 text-sm">
-                    Delete
-                  </button>
-                </td>
+      <section className="operations-table-wrap vcs-table-wrap">
+        <table className="operations-table vcs-table">
+          <thead><tr><th>{t('vcsRoots.name')}</th><th>{t('vcsRoots.type')}</th><th>{t('vcsRoots.url')}</th><th>{t('vcsRoots.branch')}</th><th>{t('vcsRoots.credential')}</th><th>{t('vcsRoots.pollInterval')}</th><th aria-label={t('projects.actions')} /></tr></thead>
+          <tbody>
+            {!list.length && <tr><td colSpan={7} className="operations-empty"><FolderGit2 size={18} />{t('vcsRoots.empty')}</td></tr>}
+            {list.map(root => (
+              <tr key={root.id}>
+                <td><button className="entity-link" type="button" disabled={!editable} onClick={() => openEdit(root)}><FolderGit2 size={16} /><span><strong>{root.name}</strong><small>{root.auto_checkout ? t('vcsRoots.autoCheckout') : t('vcsRoots.manualCheckout')}</small></span></button></td>
+                <td><span className={rootTypeClass(root.type)}>{root.type}</span></td>
+                <td><code className="repo-cell" title={root.url}>{root.url || '-'}</code></td>
+                <td><span className="branch-cell"><GitBranch size={13} />{root.branch || 'main'}</span></td>
+                <td>{root.credential_id ? <span className="vcs-credential"><KeyRound size={13} />{getCredentialName(root.credential_id)}</span> : <span className="muted-cell">{t('vcsRoots.none')}</span>}</td>
+                <td className="muted-cell">{root.poll_interval > 0 ? `${root.poll_interval}${t('vcsRoots.secondsShort')}` : t('vcsRoots.disabled')}</td>
+                <td><div className="row-actions">{editable && <><button className="row-icon" type="button" title={t('vcsRoots.edit')} aria-label={t('vcsRoots.edit')} onClick={() => openEdit(root)}><Pencil size={15} /></button><button className="row-icon danger" type="button" title={t('common.delete')} aria-label={t('common.delete')} onClick={() => handleDelete(root)}><Trash2 size={15} /></button></>}</div></td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
-    </div>
+      </section>
+
+      {showEditor && <ModalDialog className="notification-editor vcs-editor" ariaLabel={editing ? t('vcsRoots.edit') : t('vcsRoots.new')} busy={saving} onClose={() => setShowEditor(false)}>
+          <header><div><FolderGit2 size={18} /><div><h2>{editing ? t('vcsRoots.edit') : t('vcsRoots.new')}</h2><p>{t('vcsRoots.editorHelp')}</p></div></div><button type="button" onClick={() => setShowEditor(false)} title={t('common.close')}><X size={18} /></button></header>
+          <form className="notification-editor-form" onSubmit={handleSubmit}>
+            <label>{t('vcsRoots.name')}<input required autoFocus data-dialog-initial-focus value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
+            <label>{t('vcsRoots.type')}<select value={form.type} onChange={event => setForm({ ...form, type: event.target.value })}><option value="git">Git</option><option value="svn">Subversion</option><option value="hg">Mercurial</option></select></label>
+            <label className="wide">{t('vcsRoots.url')}<input required placeholder="https://github.com/team/repository.git or git@github.com:team/repository.git" value={form.url} onChange={event => setForm({ ...form, url: event.target.value })} /></label>
+            <label>{t('vcsRoots.branch')}<input value={form.branch} onChange={event => setForm({ ...form, branch: event.target.value })} /></label>
+            <label>{t('vcsRoots.credential')}<select value={form.credential_id} onChange={event => setForm({ ...form, credential_id: event.target.value === '' ? '' : Number(event.target.value) })}><option value="">{t('vcsRoots.none')}</option>{(credentials || []).map(credential => <option key={credential.id} value={credential.id}>{credential.name}</option>)}</select></label>
+            <label>{t('vcsRoots.pollInterval')}<input type="number" min={0} value={form.poll_interval} onChange={event => setForm({ ...form, poll_interval: Number(event.target.value) || 0 })} /></label>
+            <label className="channel-enabled vcs-auto-checkout"><input type="checkbox" checked={form.auto_checkout} onChange={event => setForm({ ...form, auto_checkout: event.target.checked })} />{t('vcsRoots.autoCheckout')}</label>
+            <div className="wide vcs-config-field"><div className="config-label-row"><label htmlFor="vcs-config">{t('vcsRoots.config')} (JSON/YAML)</label><button className="format-command" type="button" onClick={handleFormat}><Braces size={13} />{t('config.format')}</button></div><textarea id="vcs-config" className="code-input" rows={7} value={form.config} onChange={event => setForm({ ...form, config: event.target.value })} /></div>
+            {formError && <p className="form-error">{formError}</p>}
+            <footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}>{saving ? t('common.loading') : t('common.save')}</button></footer>
+          </form>
+      </ModalDialog>}
+    </motion.section>
   )
 }

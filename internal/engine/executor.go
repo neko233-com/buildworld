@@ -100,7 +100,7 @@ func (e *Executor) runPowerShell(ctx context.Context, command, dir string, env [
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		if isMultiLine {
-			scriptPath, err := e.writeTempScript(command, ".ps1")
+			scriptPath, err := e.writeTempScript(dir, command, ".ps1")
 			if err != nil {
 				return err
 			}
@@ -111,7 +111,7 @@ func (e *Executor) runPowerShell(ctx context.Context, command, dir string, env [
 		}
 	} else {
 		if isMultiLine {
-			scriptPath, err := e.writeTempScript(command, ".ps1")
+			scriptPath, err := e.writeTempScript(dir, command, ".ps1")
 			if err != nil {
 				return err
 			}
@@ -147,7 +147,7 @@ func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env 
 			cmd.Stderr = &lineWriter{callback: onOutput}
 			return cmd.Run()
 		}
-		scriptPath, err := e.writeTempScript(command, ".sh")
+		scriptPath, err := e.writeTempScript(dir, command, ".sh")
 		if err != nil {
 			return err
 		}
@@ -196,7 +196,7 @@ func (e *Executor) runCmd(ctx context.Context, command, dir string, env []string
 }
 
 func (e *Executor) runPython(ctx context.Context, shell, command, dir string, env []string, onOutput func(string)) error {
-	scriptPath, err := e.writeTempScript(command, ".py")
+	scriptPath, err := e.writeTempScript(dir, command, ".py")
 	if err != nil {
 		return err
 	}
@@ -217,8 +217,15 @@ func (e *Executor) runPython(ctx context.Context, shell, command, dir string, en
 	return cmd.Run()
 }
 
-func (e *Executor) writeTempScript(content, ext string) (string, error) {
-	f, err := os.CreateTemp("", "bw_script_*"+ext)
+func (e *Executor) writeTempScript(dir, content, ext string) (string, error) {
+	scriptRoot := filepath.Join(dir, ".buildworld", "scripts")
+	if dir == "" {
+		scriptRoot = filepath.Join(ResolveBuildTempRoot(""), "scripts")
+	}
+	if err := os.MkdirAll(scriptRoot, 0o755); err != nil {
+		return "", fmt.Errorf("create isolated script directory: %w", err)
+	}
+	f, err := os.CreateTemp(scriptRoot, "bw_script_*"+ext)
 	if err != nil {
 		return "", err
 	}

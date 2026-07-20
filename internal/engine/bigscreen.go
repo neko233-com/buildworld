@@ -2,10 +2,11 @@ package engine
 
 import (
 	"database/sql"
+	"log"
 	"runtime"
 	"time"
 
-	"github.com/neko233-com/buildworld233/internal/store"
+	"github.com/neko233-com/buildworld/internal/store"
 )
 
 type BigScreenService struct {
@@ -97,6 +98,7 @@ func safeCount(db *sql.DB, q string, args ...interface{}) int {
 func safeQuery(db *sql.DB, q string, args ...interface{}) *sql.Rows {
 	rows, err := db.Query(q, args...)
 	if err != nil {
+		log.Printf("bigscreen: query failed: %v", err)
 		return nil
 	}
 	return rows
@@ -118,8 +120,8 @@ func (s *BigScreenService) GetBigScreenData() (*BigScreenData, error) {
 	totalBuilds := safeCount(db, "SELECT COUNT(*) FROM builds")
 	runningBuilds := safeCount(db, "SELECT COUNT(*) FROM builds WHERE status = 'running'")
 	queuedBuilds := safeCount(db, "SELECT COUNT(*) FROM build_queue_items WHERE status = 'queued'")
-	successToday := safeCount(db, "SELECT COUNT(*) FROM builds WHERE status = 'success' AND date(started_at) = ?", today)
-	failedToday := safeCount(db, "SELECT COUNT(*) FROM builds WHERE status = 'failed' AND date(started_at) = ?", today)
+	successToday := safeCount(db, "SELECT COUNT(*) FROM builds WHERE status = 'success' AND date(COALESCE(finished_at, started_at), 'localtime') = ?", today)
+	failedToday := safeCount(db, "SELECT COUNT(*) FROM builds WHERE status = 'failed' AND date(COALESCE(finished_at, started_at), 'localtime') = ?", today)
 
 	totalFinished := successToday + failedToday
 	successRate := 0.0
@@ -145,16 +147,18 @@ func (s *BigScreenService) GetBigScreenData() (*BigScreenData, error) {
 
 	if rows := safeQuery(db, `SELECT b.id, b.number, p.name, b.status,
 		COALESCE(b.branch, ''), COALESCE(b.duration_ms, 0),
-		COALESCE(b.started_at, b.created_at)
+		COALESCE(CAST(b.started_at AS TEXT), '')
 		FROM builds b JOIN projects p ON b.project_id = p.id
 		ORDER BY b.id DESC LIMIT 20`); rows != nil {
 		defer rows.Close()
 		for rows.Next() {
 			var b BigScreenBuild
-			var started time.Time
+			var started string
 			if err := rows.Scan(&b.ID, &b.Number, &b.Project, &b.Status, &b.Branch, &b.Duration, &started); err == nil {
-				b.StartedAt = started.Format("2006-01-02 15:04:05")
+				b.StartedAt = started
 				data.RecentBuilds = append(data.RecentBuilds, b)
+			} else {
+				log.Printf("bigscreen: unable to scan recent build: %v", err)
 			}
 		}
 	}
@@ -166,6 +170,7 @@ func (s *BigScreenService) GetBigScreenData() (*BigScreenData, error) {
 				Name:      w.Name,
 				Status:    w.Status,
 				Pool:      w.Pool,
+				Builds:    w.ActiveBuilds,
 				MaxBuilds: w.MaxConcurrentBuilds,
 			})
 		}
@@ -193,11 +198,17 @@ func (s *BigScreenService) GetBigScreenData() (*BigScreenData, error) {
 		}
 	}
 
-	if rows := safeQuery(db, `SELECT date, COALESCE(SUM(success_count), 0), COALESCE(SUM(failed_count), 0), 0
-		FROM build_stats
-		WHERE date >= date('now', '-7 days')
-		GROUP BY date
-		ORDER BY date ASC`); rows != nil {
+	if rows := safeQuery(db, `SELECT
+		date(COALESCE(finished_at, started_at), 'localtime') AS build_date,
+		COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN status='running' THEN 1 ELSE 0 END), 0)
+		FROM builds
+		WHERE status IN ('success', 'failed', 'running')
+		  AND COALESCE(finished_at, started_at) IS NOT NULL
+		  AND date(COALESCE(finished_at, started_at), 'localtime') >= date('now', 'localtime', '-7 days')
+		GROUP BY build_date
+		ORDER BY build_date ASC`); rows != nil {
 		defer rows.Close()
 		for rows.Next() {
 			var tp BigScreenTrendPoint

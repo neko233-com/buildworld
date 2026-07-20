@@ -1,25 +1,31 @@
 import { useState } from 'react'
+import { motion } from 'motion/react'
+import { Copy, Eye, EyeOff, KeyRound, Pencil, Plus, Server, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useApi } from '../hooks'
 import { api } from '../api'
+import { dialogs } from '../components/AppDialogs'
+import { ModalDialog } from '../components/ModalDialog'
+import { PageState } from '../components/PageState'
+import { useI18n } from '../i18n'
 
-const CRED_TYPES = [
-  { value: '', label: 'All Types' },
-  { value: 'ssh_key', label: 'SSH Key' },
-  { value: 'git', label: 'Git' },
-  { value: 'svn', label: 'SVN' },
-  { value: 'hg', label: 'Mercurial (hg)' },
-]
-
-const TYPE_COLORS: Record<string, string> = {
-  ssh_key: 'bg-purple-100 text-purple-800',
-  git: 'bg-blue-100 text-blue-800',
-  svn: 'bg-orange-100 text-orange-800',
-  hg: 'bg-teal-100 text-teal-800',
+type CredentialType = 'ssh_key' | 'git' | 'svn' | 'hg'
+interface Credential {
+  id: number
+  name: string
+  type: CredentialType
+  host: string
+  username: string
+  password?: string
+  private_key?: string
+  public_key?: string
+  token?: string
+  description?: string
+  is_secret: boolean
+  updated_at?: string
 }
-
 interface FormData {
   name: string
-  type: string
+  type: CredentialType
   host: string
   username: string
   password: string
@@ -27,212 +33,177 @@ interface FormData {
   public_key: string
   token: string
   description: string
+  is_secret: boolean
 }
 
+const credentialTypes: Array<{ value: CredentialType; label: string }> = [
+  { value: 'ssh_key', label: 'SSH Key' },
+  { value: 'git', label: 'Git' },
+  { value: 'svn', label: 'Subversion' },
+  { value: 'hg', label: 'Mercurial' },
+]
 const emptyForm: FormData = {
   name: '', type: 'ssh_key', host: '', username: '',
-  password: '', private_key: '', public_key: '', token: '', description: '',
+  password: '', private_key: '', public_key: '', token: '', description: '', is_secret: true,
+}
+
+function typeLabel(type: CredentialType) {
+  return credentialTypes.find(item => item.value === type)?.label || type
+}
+function maskedSecret(credential: Credential) {
+  return credential.password || credential.private_key || credential.token || ''
 }
 
 export default function Credentials() {
+  const { t } = useI18n()
   const [filterType, setFilterType] = useState('')
-  const { data: creds, loading, error, reload } = useApi(
-    () => api.listCredentials(filterType || undefined),
-    [filterType]
-  )
-  const [showForm, setShowForm] = useState(false)
+  const { data: credentials, loading, error, reload } = useApi<Credential[]>(() => api.listCredentials(filterType || undefined), [filterType])
+  const [showEditor, setShowEditor] = useState(false)
+  const [editing, setEditing] = useState<Credential | null>(null)
   const [form, setForm] = useState<FormData>(emptyForm)
   const [saving, setSaving] = useState(false)
-  const [revealed, setRevealed] = useState<Record<number, boolean>>({})
+  const [formError, setFormError] = useState('')
+  const [revealed, setRevealed] = useState<Record<number, string>>({})
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const openCreate = () => {
+    setEditing(null)
+    setForm(emptyForm)
+    setFormError('')
+    setShowEditor(true)
+  }
+  const openEdit = (credential: Credential) => {
+    setEditing(credential)
+    setForm({
+      name: credential.name,
+      type: credential.type,
+      host: credential.host || '',
+      username: credential.username || '',
+      password: credential.password || '',
+      private_key: credential.private_key || '',
+      public_key: credential.public_key || '',
+      token: credential.token || '',
+      description: credential.description || '',
+      is_secret: credential.is_secret,
+    })
+    setFormError('')
+    setShowEditor(true)
+  }
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
     setSaving(true)
+    setFormError('')
     try {
-      await api.createCredential(form)
-      setShowForm(false)
-      setForm(emptyForm)
+      if (editing) await api.updateCredential(editing.id, form)
+      else await api.createCredential(form)
+      setShowEditor(false)
+      setRevealed({})
       reload()
-    } catch (err: any) {
-      alert(err.message)
+    } catch (reason: any) {
+      setFormError(reason.message || t('credentials.saveFailed'))
     } finally {
       setSaving(false)
     }
   }
-
-  const handleDelete = async (id: number) => {
-    if (!confirm('Delete this credential?')) return
+  const handleDelete = async (credential: Credential) => {
+    if (!await dialogs.confirm(t('credentials.deleteConfirm'), { title: t('credentials.deleteTitle'), action: t('common.delete') })) return
     try {
-      await api.deleteCredential(id)
+      await api.deleteCredential(credential.id)
+      setRevealed(current => {
+        const next = { ...current }
+        delete next[credential.id]
+        return next
+      })
       reload()
-    } catch (err: any) {
-      alert(err.message)
+    } catch (reason: any) {
+      dialogs.notify(reason.message || t('common.error'))
     }
   }
-
-  const toggleReveal = async (id: number) => {
-    if (revealed[id]) {
-      setRevealed(p => ({ ...p, [id]: false }))
-      reload()
+  const toggleReveal = async (credential: Credential) => {
+    if (revealed[credential.id] !== undefined) {
+      setRevealed(current => {
+        const next = { ...current }
+        delete next[credential.id]
+        return next
+      })
       return
     }
     try {
-      await api.getCredential(id, true)
-      setRevealed(p => ({ ...p, [id]: true }))
-      reload()
-    } catch (err: any) {
-      alert(err.message)
+      const full = await api.getCredential(credential.id, true)
+      setRevealed(current => ({ ...current, [credential.id]: full.password || full.private_key || full.token || '' }))
+    } catch (reason: any) {
+      dialogs.notify(reason.message || t('credentials.revealFailed'))
+    }
+  }
+  const copySecret = async (secret: string) => {
+    try {
+      await navigator.clipboard.writeText(secret)
+      dialogs.notify(t('credentials.copied'), 'success')
+    } catch {
+      dialogs.notify(t('common.copyFailed'))
     }
   }
 
-  const renderSecret = (value: string, isRevealed: boolean) => {
-    if (!value) return <span className="text-gray-400">-</span>
-    if (isRevealed) {
-      return (
-        <code className="text-xs bg-gray-100 px-1 rounded break-all max-w-xs block truncate">{value.slice(0, 60)}{value.length > 60 ? '...' : ''}</code>
-      )
-    }
-    return <span className="text-gray-500 font-mono">********</span>
-  }
+  if (loading) return <PageState />
+  if (error) return <PageState error={error} onRetry={reload} />
 
-  if (loading) return <div className="p-6">Loading...</div>
-  if (error) return <div className="p-6 text-red-500">Error: {error}</div>
+  const list = credentials || []
+  const hosts = new Set(list.map(credential => credential.host).filter(Boolean)).size
+  const sshKeys = list.filter(credential => credential.type === 'ssh_key').length
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Credentials</h1>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-        >
-          {showForm ? 'Cancel' : '+ Add Credential'}
-        </button>
-      </div>
+    <motion.section className="operations-page credential-workbench" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+      <header className="operations-heading">
+        <div><p>{list.length} {t('credentials.registered')}</p><h1>{t('credentials.title')}</h1></div>
+        <div className="credential-heading-actions"><select className="operations-filter" aria-label={t('credentials.filter')} value={filterType} onChange={event => setFilterType(event.target.value)}><option value="">{t('credentials.allTypes')}</option>{credentialTypes.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select><button className="primary-command" type="button" onClick={openCreate}><Plus size={16} />{t('credentials.new')}</button></div>
+      </header>
 
-      {showForm && (
-        <div className="bg-white p-6 rounded-lg shadow mb-6">
-          <h2 className="text-lg font-semibold mb-4">New Credential</h2>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-              <input className="w-full border rounded-lg px-3 py-2" value={form.name}
-                onChange={e => setForm(p => ({ ...p, name: e.target.value }))} required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
-              <select className="w-full border rounded-lg px-3 py-2" value={form.type}
-                onChange={e => setForm(p => ({ ...p, type: e.target.value }))}>
-                <option value="ssh_key">SSH Key</option>
-                <option value="git">Git</option>
-                <option value="svn">SVN</option>
-                <option value="hg">Mercurial (hg)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Host</label>
-              <input className="w-full border rounded-lg px-3 py-2" placeholder="github.com" value={form.host}
-                onChange={e => setForm(p => ({ ...p, host: e.target.value }))} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-              <input className="w-full border rounded-lg px-3 py-2" value={form.username}
-                onChange={e => setForm(p => ({ ...p, username: e.target.value }))} />
-            </div>
-            {form.type === 'ssh_key' ? (
-              <>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Private Key (PEM)</label>
-                  <textarea className="w-full border rounded-lg px-3 py-2 font-mono text-xs" rows={4}
-                    placeholder="-----BEGIN RSA PRIVATE KEY-----" value={form.private_key}
-                    onChange={e => setForm(p => ({ ...p, private_key: e.target.value }))} />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Public Key</label>
-                  <textarea className="w-full border rounded-lg px-3 py-2 font-mono text-xs" rows={2}
-                    placeholder="ssh-rsa AAAA..." value={form.public_key}
-                    onChange={e => setForm(p => ({ ...p, public_key: e.target.value }))} />
-                </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                  <input type="password" className="w-full border rounded-lg px-3 py-2" value={form.password}
-                    onChange={e => setForm(p => ({ ...p, password: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Access Token</label>
-                  <input type="password" className="w-full border rounded-lg px-3 py-2" value={form.token}
-                    onChange={e => setForm(p => ({ ...p, token: e.target.value }))} />
-                </div>
-              </>
-            )}
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <input className="w-full border rounded-lg px-3 py-2" value={form.description}
-                onChange={e => setForm(p => ({ ...p, description: e.target.value }))} />
-            </div>
-            <div className="md:col-span-2">
-              <button type="submit" disabled={saving}
-                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {saving ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <section className="notification-summary credential-summary">
+        <article><span><KeyRound size={15} />{t('credentials.total')}</span><strong>{list.length}</strong><small>{t('credentials.totalHelp')}</small></article>
+        <article><span><Server size={15} />{t('credentials.hosts')}</span><strong>{hosts}</strong><small>{t('credentials.hostsHelp')}</small></article>
+        <article><span><ShieldCheck size={15} />{t('credentials.sshKeys')}</span><strong>{sshKeys}</strong><small>{t('credentials.sshKeysHelp')}</small></article>
+      </section>
 
-      <div className="mb-4">
-        <select className="border rounded-lg px-3 py-2" value={filterType} onChange={e => setFilterType(e.target.value)}>
-          {CRED_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
-      </div>
-
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Host</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Username</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Secret</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {creds?.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">No credentials</td></tr>
-            )}
-            {creds?.map(c => (
-              <tr key={c.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium">{c.name}</td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${TYPE_COLORS[c.type] || 'bg-gray-100'}`}>
-                    {c.type}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-gray-600">{c.host || '-'}</td>
-                <td className="px-4 py-3 text-gray-600">{c.username || '-'}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    {renderSecret(c.password || c.private_key || c.token, revealed[c.id])}
-                    <button onClick={() => toggleReveal(c.id)} className="text-blue-600 text-xs hover:underline">
-                      {revealed[c.id] ? 'Hide' : 'Reveal'}
-                    </button>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <button onClick={() => handleDelete(c.id)} className="text-red-600 hover:text-red-800 text-sm">
-                    Delete
-                  </button>
-                </td>
+      <section className="operations-table-wrap credential-table-wrap">
+        <table className="operations-table credential-table">
+          <thead><tr><th>{t('credentials.name')}</th><th>{t('credentials.type')}</th><th>{t('credentials.host')}</th><th>{t('credentials.username')}</th><th>{t('credentials.secret')}</th><th>{t('credentials.updated')}</th><th aria-label={t('projects.actions')} /></tr></thead>
+          <tbody>
+            {!list.length && <tr><td colSpan={7} className="operations-empty"><KeyRound size={18} />{t('credentials.empty')}</td></tr>}
+            {list.map(credential => {
+              const hasSecret = Boolean(maskedSecret(credential))
+              const secret = revealed[credential.id]
+              return <tr key={credential.id}>
+                <td><button className="entity-link" type="button" onClick={() => openEdit(credential)}><KeyRound size={16} /><span><strong>{credential.name}</strong><small>{credential.description || t('credentials.noDescription')}</small></span></button></td>
+                <td><span className={`credential-type ${credential.type}`}>{typeLabel(credential.type)}</span></td>
+                <td><code className="credential-host">{credential.host || '*'}</code></td>
+                <td className="muted-cell">{credential.username || '-'}</td>
+                <td>{!hasSecret ? <span className="muted-cell">{t('credentials.noSecret')}</span> : <div className="credential-secret">{secret !== undefined ? <code title={secret}>{secret || t('credentials.emptySecret')}</code> : <span>••••••••</span>}<button className="row-icon" type="button" title={secret !== undefined ? t('credentials.hide') : t('credentials.reveal')} aria-label={secret !== undefined ? t('credentials.hide') : t('credentials.reveal')} onClick={() => toggleReveal(credential)}>{secret !== undefined ? <EyeOff size={14} /> : <Eye size={14} />}</button>{secret !== undefined && secret && <button className="row-icon" type="button" title={t('common.copy')} aria-label={t('common.copy')} onClick={() => copySecret(secret)}><Copy size={14} /></button>}</div>}</td>
+                <td className="muted-cell">{credential.updated_at ? new Date(credential.updated_at).toLocaleString() : '-'}</td>
+                <td><div className="row-actions"><button className="row-icon" type="button" title={t('credentials.edit')} aria-label={t('credentials.edit')} onClick={() => openEdit(credential)}><Pencil size={15} /></button><button className="row-icon danger" type="button" title={t('common.delete')} aria-label={t('common.delete')} onClick={() => handleDelete(credential)}><Trash2 size={15} /></button></div></td>
               </tr>
-            ))}
+            })}
           </tbody>
         </table>
-      </div>
-    </div>
+      </section>
+
+      {showEditor && <ModalDialog className="notification-editor credential-editor" ariaLabel={editing ? t('credentials.edit') : t('credentials.new')} busy={saving} onClose={() => setShowEditor(false)}>
+          <header><div><KeyRound size={18} /><div><h2>{editing ? t('credentials.edit') : t('credentials.new')}</h2><p>{t('credentials.editorHelp')}</p></div></div><button type="button" onClick={() => setShowEditor(false)} title={t('common.close')}><X size={18} /></button></header>
+          <form className="notification-editor-form" onSubmit={handleSubmit}>
+            <label>{t('credentials.name')}<input required autoFocus data-dialog-initial-focus value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
+            <label>{t('credentials.type')}<select value={form.type} onChange={event => setForm({ ...form, type: event.target.value as CredentialType })}>{credentialTypes.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
+            <label>{t('credentials.host')}<input placeholder="github.com" value={form.host} onChange={event => setForm({ ...form, host: event.target.value })} /></label>
+            <label>{t('credentials.username')}<input autoComplete="off" value={form.username} onChange={event => setForm({ ...form, username: event.target.value })} /></label>
+            {form.type === 'ssh_key' ? <>
+              <label className="wide">{t('credentials.privateKey')}<textarea className="credential-key-input" rows={6} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" value={form.private_key} onChange={event => setForm({ ...form, private_key: event.target.value })} /></label>
+              <label className="wide">{t('credentials.publicKey')}<textarea className="credential-key-input" rows={3} placeholder="ssh-ed25519 AAAA..." value={form.public_key} onChange={event => setForm({ ...form, public_key: event.target.value })} /></label>
+            </> : <>
+              <label>{t('credentials.password')}<input type="password" autoComplete="new-password" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} /></label>
+              <label>{t('credentials.token')}<input type="password" autoComplete="new-password" value={form.token} onChange={event => setForm({ ...form, token: event.target.value })} /></label>
+            </>}
+            <label className="wide">{t('credentials.description')}<input value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} /></label>
+            {formError && <p className="form-error">{formError}</p>}
+            <footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}>{saving ? t('common.loading') : t('common.save')}</button></footer>
+          </form>
+      </ModalDialog>}
+    </motion.section>
   )
 }

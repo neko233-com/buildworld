@@ -2,13 +2,23 @@ syntax = "proto3";
 
 package worker;
 
-option go_package = "github.com/neko233-com/buildworld233/internal/rpc/generated";
+option go_package = "github.com/neko233-com/buildworld/internal/rpc/generated";
 
 service WorkerService {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
   rpc ExecuteBuild(BuildRequest) returns (stream BuildResponse);
   rpc ReportStatus(StatusRequest) returns (StatusResponse);
+}
+
+// ProtocolInfo is the extensible bytemsg233 contract carried by every remote
+// execution request and response. A new major means incompatible wire or
+// execution semantics; a newer minor may add optional capabilities.
+message ProtocolInfo {
+  string name = 1;
+  uint32 major = 2;
+  uint32 minor = 3;
+  repeated string capabilities = 4;
 }
 
 message RegisterRequest {
@@ -44,6 +54,20 @@ message BuildRequest {
   string branch = 4;
   string commit_sha = 5;
   string pipeline_config = 6;
+  map<string, string> environment = 7;
+  string protocol_version = 8;
+  repeated PluginReference plugins = 9;
+  ProtocolInfo protocol = 10;
+}
+
+// PluginReference never carries executable code. The worker resolves the
+// approved GitHub source locally, then verifies this manifest digest before a
+// custom Go plugin step can run.
+message PluginReference {
+  string name = 1;
+  string version = 2;
+  string source = 3;
+  string manifest_sha256 = 4;
 }
 
 message BuildResponse {
@@ -53,6 +77,18 @@ message BuildResponse {
   string output = 4;
   string status = 5;
   bool is_error = 6;
+  ArtifactChunk artifact_chunk = 7;
+  ProtocolInfo protocol = 8;
+}
+
+// ArtifactChunk carries one ordered piece of a worker artifact. Keeping the
+// chunk below gRPC's default message limit lets workers return large artifacts
+// without requiring an inbound HTTP route to buildworld-server.
+message ArtifactChunk {
+  string name = 1;
+  bytes data = 2;
+  bool final_chunk = 3;
+  string sha256 = 4;
 }
 
 message StatusRequest {

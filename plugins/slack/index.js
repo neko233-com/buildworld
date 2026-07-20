@@ -6,7 +6,7 @@ registerStep("slack-notify", function(ctx) {
     var webhookUrl = ctx.config.webhook_url || "";
     var message = ctx.config.message || "Build completed";
     var channel = ctx.config.channel || "";
-    var username = ctx.config.username || "buildworld233";
+    var username = ctx.config.username || "buildworld";
     var iconEmoji = ctx.config.icon_emoji || ":hammer_and_wrench:";
     var color = ctx.config.color || "good";
 

@@ -6,7 +6,7 @@ sidebar_position: 6
 
 ## Overview
 
-buildworld233 uses an agent-first architecture where agents (workers) execute builds. Agents can be local (built-in) or remote.
+buildworld uses an agent-first architecture where agents (workers) execute builds. Agents can be local (built-in) or remote.
 
 ## Local Agent
 
@@ -28,11 +28,11 @@ agents:
 
 ```bash
 # Install agent
-curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install-worker.sh | bash
+curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | sh
 
 # Start agent
-buildworld233-agent start \
-  --server http://localhost:6050 \
+buildworld-worker \
+  --server http://localhost:8700 \
   --token <registration-token>
 ```
 
@@ -61,22 +61,22 @@ agents:
 
 ```bash
 # List all agents
-buildworld233 agent list
+buildworld agent list
 
 # Show agent status
-buildworld233 agent status <agent-id>
+buildworld agent status <agent-id>
 
 # Enable agent
-buildworld233 agent enable <agent-id>
+buildworld agent enable <agent-id>
 
 # Disable agent
-buildworld233 agent disable <agent-id>
+buildworld agent disable <agent-id>
 
 # Remove agent
-buildworld233 agent remove <agent-id>
+buildworld agent remove <agent-id>
 
 # Generate registration token
-buildworld233 agent generate-token
+buildworld agent generate-token
 ```
 
 ### Web UI

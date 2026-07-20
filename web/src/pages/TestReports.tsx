@@ -1,49 +1,52 @@
 import { useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { motion } from 'motion/react'
+import { ArrowLeft, CheckCircle2, CircleSlash2, FileCheck2, FlaskConical, LoaderCircle, Upload, XCircle } from 'lucide-react'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
+import { dialogs } from '../components/AppDialogs'
+import { PageState } from '../components/PageState'
+import { formatDuration } from '../lib/durationPresentation'
 
-function fmtDuration(ms?: number): string {
-  if (!ms) return '-'
-  return `${(ms / 1000).toFixed(2)}s`
+function TestMetric({ icon: Icon, label, value, tone = '' }: { icon: typeof FlaskConical; label: string; value: number; tone?: string }) {
+  return <article><span className={tone}><Icon size={17} /></span><div><p>{label}</p><strong>{value}</strong></div></article>
 }
 
-function Stat({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="bg-white p-4 rounded-lg shadow border">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
-    </div>
-  )
+function resultPresentation(status: string, t: (key: string) => string) {
+  if (status === 'passed' || status === 'success') return { tone: 'success', label: t('testReports.passed') }
+  if (status === 'failed' || status === 'failure' || status === 'error') return { tone: 'failed', label: t('testReports.failed') }
+  return { tone: 'pending', label: t('testReports.skipped') }
 }
 
 export default function TestReports() {
   const { t } = useI18n()
   const { id } = useParams<{ id: string }>()
   const buildId = Number(id)
-  const { data, loading, error, reload } = useApi(() => api.getBuildTestResults(buildId), [buildId])
+  const validBuildId = Number.isSafeInteger(buildId) && buildId > 0
+  const { data, loading, error, reload } = useApi(() => validBuildId ? api.getBuildTestResults(buildId) : Promise.resolve(null), [buildId, validBuildId])
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
     if (!file) return
     setUploading(true)
     try {
-      const text = await file.text()
-      await api.uploadTestResults(buildId, text)
-      reload()
-    } catch (err: any) {
-      alert(err.message)
+      await api.uploadTestResults(buildId, await file.text())
+      await reload()
+      dialogs.notify(t('testReports.uploaded'), 'success')
+    } catch (reason: any) {
+      dialogs.notify(reason.message || t('testReports.uploadFailed'))
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
     }
   }
 
-  if (loading) return <div className="text-gray-500">{t('common.loading')}</div>
-  if (error) return <div className="text-red-500">{t('common.error')}: {error}</div>
+  if (!validBuildId) return <Navigate to="/builds" replace />
+  if (loading) return <PageState />
+  if (error) return <PageState error={error} onRetry={reload} />
 
   const summary = data?.summary || data
   const passed = summary?.passed ?? summary?.tests ?? 0
@@ -52,61 +55,40 @@ export default function TestReports() {
   const total = summary?.total ?? (passed + failed + skipped)
   const cases: any[] = data?.cases || data?.test_cases || data?.testsuites || []
 
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">{t('testReports.title')}</h1>
-        <div className="flex items-center gap-3">
-          <input ref={fileRef} type="file" accept=".xml,text/xml" onChange={handleUpload} className="hidden" id="test-upload" />
-          <label
-            htmlFor="test-upload"
-            className={`inline-block cursor-pointer bg-blue-500 text-white px-4 py-2 rounded ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
-          >
-            {uploading ? t('common.loading') : t('testReports.upload')}
-          </label>
-          <Link to={`/builds/${buildId}`} className="text-blue-600 hover:underline text-sm">← #{buildId}</Link>
-        </div>
+  return <motion.section className="operations-page test-report-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <header className="operations-heading test-report-heading">
+      <div><p>#{buildId}</p><h1>{t('testReports.title')}</h1><small>{t('testReports.description')}</small></div>
+      <div className="test-report-actions">
+        <Link className="secondary-command" to={`/builds/${buildId}`}><ArrowLeft size={15} />{t('testReports.backToBuild')}</Link>
+        <input ref={fileRef} hidden type="file" accept=".xml,text/xml,application/xml" onChange={handleUpload} />
+        <button type="button" className="primary-command" onClick={() => fileRef.current?.click()} disabled={uploading} aria-busy={uploading}>
+          {uploading ? <LoaderCircle className="timeline-spinner" size={15} /> : <Upload size={15} />}
+          {uploading ? t('common.loading') : t('testReports.upload')}
+        </button>
       </div>
+    </header>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <Stat label={t('testReports.total')} value={total} color="text-gray-900" />
-        <Stat label={t('testReports.passed')} value={passed} color="text-green-600" />
-        <Stat label={t('testReports.failed')} value={failed} color="text-red-600" />
-        <Stat label={t('testReports.skipped')} value={skipped} color="text-yellow-600" />
-      </div>
+    <section className="test-report-metrics" aria-label={t('testReports.summary')}>
+      <TestMetric icon={FlaskConical} label={t('testReports.total')} value={total} />
+      <TestMetric icon={CheckCircle2} label={t('testReports.passed')} value={passed} tone="success" />
+      <TestMetric icon={XCircle} label={t('testReports.failed')} value={failed} tone="failed" />
+      <TestMetric icon={CircleSlash2} label={t('testReports.skipped')} value={skipped} tone="skipped" />
+    </section>
 
-      <div className="bg-white shadow rounded-lg">
-        <h2 className="text-lg font-semibold p-4 border-b">{t('testReports.testCases')}</h2>
-        {cases.length === 0 ? (
-          <p className="text-gray-500 text-center py-6">{t('common.noData')}</p>
-        ) : (
-          <table className="min-w-full">
-            <thead>
-              <tr className="border-b">
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">{t('testReports.name')}</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">{t('builds.status')}</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">{t('testReports.duration')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cases.map((c: any, i: number) => {
-                const status = c.status || (c.failure ? 'failed' : 'passed')
-                return (
-                  <tr key={i} className="border-b">
-                    <td className="px-4 py-3 text-sm font-medium">{c.name || c.testname || c.classname || '-'}</td>
-                    <td className="px-4 py-3 text-sm">
-                      <span className={`px-2 py-0.5 rounded ${status === 'passed' ? 'bg-green-100 text-green-800' : status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                        {status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{fmtDuration(c.time ? c.time * 1000 : c.duration_ms)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  )
+    <section className="detail-panel test-results-panel">
+      <header><div><FileCheck2 size={17} /><h2>{t('testReports.testCases')}</h2><span>{cases.length}</span></div></header>
+      {!cases.length ? <p className="operations-empty test-results-empty"><FlaskConical size={19} /><strong>{t('testReports.noCases')}</strong><small>{t('testReports.noCasesHelp')}</small></p> : <div className="operations-table-wrap"><table className="operations-table test-results-table">
+        <thead><tr><th>{t('testReports.name')}</th><th>{t('builds.status')}</th><th>{t('testReports.duration')}</th></tr></thead>
+        <tbody>{cases.map((testCase: any, index: number) => {
+          const rawStatus = testCase.status || (testCase.failure ? 'failed' : 'passed')
+          const presentation = resultPresentation(rawStatus, t)
+          return <tr key={`${testCase.classname || ''}-${testCase.name || testCase.testname || index}`}>
+            <td><strong>{testCase.name || testCase.testname || testCase.classname || '-'}</strong>{testCase.classname && <small>{testCase.classname}</small>}</td>
+            <td><span className={`build-status ${presentation.tone}`}>{presentation.label}</span></td>
+            <td className="muted-cell">{formatDuration(testCase.time ? testCase.time * 1000 : testCase.duration_ms)}</td>
+          </tr>
+        })}</tbody>
+      </table></div>}
+    </section>
+  </motion.section>
 }

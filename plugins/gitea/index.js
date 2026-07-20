@@ -33,7 +33,7 @@ registerStep("gitea-status", function(ctx) {
     var state = ctx.config.state || "success";
     var targetUrl = ctx.config.target_url || "";
     var description = ctx.config.description || "Build passed";
-    var context = ctx.config.context || "buildworld233";
+    var context = ctx.config.context || "buildworld";
 
     ctx.log("Setting Gitea commit status: " + state + " for " + ctx.commit);
 

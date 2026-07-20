@@ -1,9 +1,28 @@
 # Changelog
 
-All notable changes to buildworld233 will be documented in this file.
+All notable changes to buildworld will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.15.0] - 2026-07-20
+
+### Added
+
+- Package-proxy controls for domestic mirrors and official registries across Go,
+  Node, Maven, Gradle, Python, Cargo, NuGet, and Composer.
+- A standalone real-time build log viewer with WebSocket streaming and polling
+  fallback.
+- A functional cross-platform `buildworld` lifecycle CLI with background start,
+  pause, resume, restart, status, autostart, and root-password reset commands.
+- Local Windows, Linux, and macOS release packaging with checksum-verified
+  PowerShell and shell installers.
+
+### Changed
+
+- The default control-plane port is now `8700`.
+- Documentation is published through GitHub Pages; binary release packaging is
+  performed locally rather than by GitHub Actions.
 
 ## [1.9.0] - 2026-06-18
 

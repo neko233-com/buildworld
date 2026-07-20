@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-REPO="neko233-com/buildworld233"
-BINARY="buildworld233-worker"
+REPO="neko233-com/buildworld"
+BINARY="buildworld-worker"
 VERSION="${1:-latest}"
 
 get_latest_version() {
@@ -24,12 +24,12 @@ install() {
     sudo curl -fsSL "$url" -o "$install_dir/$BINARY"
     sudo chmod +x "$install_dir/$BINARY"
     echo "Installed to $install_dir/$BINARY"
-    echo "Register worker on server: buildworld233-worker register --server http://SERVER:6050 --name $(hostname)"
+    echo "Register worker on server: buildworld-worker register --server http://SERVER:8700 --name $(hostname)"
 }
 
 if [ "$VERSION" = "latest" ]; then
     VERSION=$(get_latest_version)
 fi
 VERSION="${VERSION#v}"
-echo "Installing buildworld233-worker v$VERSION ..."
+echo "Installing buildworld-worker v$VERSION ..."
 install "$VERSION"

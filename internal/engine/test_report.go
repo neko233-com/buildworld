@@ -4,7 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 
-	"github.com/neko233-com/buildworld233/internal/store"
+	"github.com/neko233-com/buildworld/internal/store"
 )
 
 // TestReportParser 解析 JUnit XML 测试报告
@@ -12,20 +12,20 @@ type TestReportParser struct{}
 
 // junitXML 是 JUnit XML 顶层结构
 type junitXML struct {
-	XMLName    xml.Name      `xml:"testsuites"`
-	TestSuites []junitSuite  `xml:"testsuite"`
+	XMLName    xml.Name     `xml:"testsuites"`
+	TestSuites []junitSuite `xml:"testsuite"`
 }
 
 // junitSuite 兼容单 testsuite 根元素
 type junitSuite struct {
-	XMLName    xml.Name      `xml:"testsuite"`
-	Name       string        `xml:"name,attr"`
-	Tests      int           `xml:"tests,attr"`
-	Failures   int           `xml:"failures,attr"`
-	Errors     int           `xml:"errors,attr"`
-	Skipped    int           `xml:"skipped,attr"`
-	Time       float64       `xml:"time,attr"`
-	TestCases  []junitCase   `xml:"testcase"`
+	XMLName   xml.Name    `xml:"testsuite"`
+	Name      string      `xml:"name,attr"`
+	Tests     int         `xml:"tests,attr"`
+	Failures  int         `xml:"failures,attr"`
+	Errors    int         `xml:"errors,attr"`
+	Skipped   int         `xml:"skipped,attr"`
+	Time      float64     `xml:"time,attr"`
+	TestCases []junitCase `xml:"testcase"`
 }
 
 type junitCase struct {

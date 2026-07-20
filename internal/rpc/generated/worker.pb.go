@@ -21,6 +21,77 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ProtocolInfo is the extensible bytemsg233 contract carried by every remote
+// execution request and response. A new major means incompatible wire or
+// execution semantics; a newer minor may add optional capabilities.
+type ProtocolInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Major         uint32                 `protobuf:"varint,2,opt,name=major,proto3" json:"major,omitempty"`
+	Minor         uint32                 `protobuf:"varint,3,opt,name=minor,proto3" json:"minor,omitempty"`
+	Capabilities  []string               `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProtocolInfo) Reset() {
+	*x = ProtocolInfo{}
+	mi := &file_proto_worker_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProtocolInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProtocolInfo) ProtoMessage() {}
+
+func (x *ProtocolInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_worker_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProtocolInfo.ProtoReflect.Descriptor instead.
+func (*ProtocolInfo) Descriptor() ([]byte, []int) {
+	return file_proto_worker_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ProtocolInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ProtocolInfo) GetMajor() uint32 {
+	if x != nil {
+		return x.Major
+	}
+	return 0
+}
+
+func (x *ProtocolInfo) GetMinor() uint32 {
+	if x != nil {
+		return x.Minor
+	}
+	return 0
+}
+
+func (x *ProtocolInfo) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
 type RegisterRequest struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	WorkerId            string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
@@ -35,7 +106,7 @@ type RegisterRequest struct {
 
 func (x *RegisterRequest) Reset() {
 	*x = RegisterRequest{}
-	mi := &file_proto_worker_proto_msgTypes[0]
+	mi := &file_proto_worker_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -47,7 +118,7 @@ func (x *RegisterRequest) String() string {
 func (*RegisterRequest) ProtoMessage() {}
 
 func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_worker_proto_msgTypes[0]
+	mi := &file_proto_worker_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60,7 +131,7 @@ func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterRequest.ProtoReflect.Descriptor instead.
 func (*RegisterRequest) Descriptor() ([]byte, []int) {
-	return file_proto_worker_proto_rawDescGZIP(), []int{0}
+	return file_proto_worker_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RegisterRequest) GetWorkerId() string {
@@ -115,7 +186,7 @@ type RegisterResponse struct {
 
 func (x *RegisterResponse) Reset() {
 	*x = RegisterResponse{}
-	mi := &file_proto_worker_proto_msgTypes[1]
+	mi := &file_proto_worker_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -127,7 +198,7 @@ func (x *RegisterResponse) String() string {
 func (*RegisterResponse) ProtoMessage() {}
 
 func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_worker_proto_msgTypes[1]
+	mi := &file_proto_worker_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -140,7 +211,7 @@ func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterResponse.ProtoReflect.Descriptor instead.
 func (*RegisterResponse) Descriptor() ([]byte, []int) {
-	return file_proto_worker_proto_rawDescGZIP(), []int{1}
+	return file_proto_worker_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *RegisterResponse) GetSuccess() bool {
@@ -170,7 +241,7 @@ type HeartbeatRequest struct {
 
 func (x *HeartbeatRequest) Reset() {
 	*x = HeartbeatRequest{}
-	mi := &file_proto_worker_proto_msgTypes[2]
+	mi := &file_proto_worker_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -182,7 +253,7 @@ func (x *HeartbeatRequest) String() string {
 func (*HeartbeatRequest) ProtoMessage() {}
 
 func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_worker_proto_msgTypes[2]
+	mi := &file_proto_worker_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -195,7 +266,7 @@ func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_proto_worker_proto_rawDescGZIP(), []int{2}
+	return file_proto_worker_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *HeartbeatRequest) GetWorkerId() string {
@@ -242,7 +313,7 @@ type HeartbeatResponse struct {
 
 func (x *HeartbeatResponse) Reset() {
 	*x = HeartbeatResponse{}
-	mi := &file_proto_worker_proto_msgTypes[3]
+	mi := &file_proto_worker_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -254,7 +325,7 @@ func (x *HeartbeatResponse) String() string {
 func (*HeartbeatResponse) ProtoMessage() {}
 
 func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_worker_proto_msgTypes[3]
+	mi := &file_proto_worker_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -267,7 +338,7 @@ func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_proto_worker_proto_rawDescGZIP(), []int{3}
+	return file_proto_worker_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *HeartbeatResponse) GetAcknowledged() bool {
@@ -278,20 +349,24 @@ func (x *HeartbeatResponse) GetAcknowledged() bool {
 }
 
 type BuildRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	BuildId        string                 `protobuf:"bytes,1,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
-	ProjectName    string                 `protobuf:"bytes,2,opt,name=project_name,json=projectName,proto3" json:"project_name,omitempty"`
-	RepoUrl        string                 `protobuf:"bytes,3,opt,name=repo_url,json=repoUrl,proto3" json:"repo_url,omitempty"`
-	Branch         string                 `protobuf:"bytes,4,opt,name=branch,proto3" json:"branch,omitempty"`
-	CommitSha      string                 `protobuf:"bytes,5,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
-	PipelineConfig string                 `protobuf:"bytes,6,opt,name=pipeline_config,json=pipelineConfig,proto3" json:"pipeline_config,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	BuildId         string                 `protobuf:"bytes,1,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
+	ProjectName     string                 `protobuf:"bytes,2,opt,name=project_name,json=projectName,proto3" json:"project_name,omitempty"`
+	RepoUrl         string                 `protobuf:"bytes,3,opt,name=repo_url,json=repoUrl,proto3" json:"repo_url,omitempty"`
+	Branch          string                 `protobuf:"bytes,4,opt,name=branch,proto3" json:"branch,omitempty"`
+	CommitSha       string                 `protobuf:"bytes,5,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
+	PipelineConfig  string                 `protobuf:"bytes,6,opt,name=pipeline_config,json=pipelineConfig,proto3" json:"pipeline_config,omitempty"`
+	Environment     map[string]string      `protobuf:"bytes,7,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ProtocolVersion string                 `protobuf:"bytes,8,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	Plugins         []*PluginReference     `protobuf:"bytes,9,rep,name=plugins,proto3" json:"plugins,omitempty"`
+	Protocol        *ProtocolInfo          `protobuf:"bytes,10,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *BuildRequest) Reset() {
 	*x = BuildRequest{}
-	mi := &file_proto_worker_proto_msgTypes[4]
+	mi := &file_proto_worker_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -303,7 +378,7 @@ func (x *BuildRequest) String() string {
 func (*BuildRequest) ProtoMessage() {}
 
 func (x *BuildRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_worker_proto_msgTypes[4]
+	mi := &file_proto_worker_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -316,7 +391,7 @@ func (x *BuildRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildRequest.ProtoReflect.Descriptor instead.
 func (*BuildRequest) Descriptor() ([]byte, []int) {
-	return file_proto_worker_proto_rawDescGZIP(), []int{4}
+	return file_proto_worker_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *BuildRequest) GetBuildId() string {
@@ -361,6 +436,105 @@ func (x *BuildRequest) GetPipelineConfig() string {
 	return ""
 }
 
+func (x *BuildRequest) GetEnvironment() map[string]string {
+	if x != nil {
+		return x.Environment
+	}
+	return nil
+}
+
+func (x *BuildRequest) GetProtocolVersion() string {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return ""
+}
+
+func (x *BuildRequest) GetPlugins() []*PluginReference {
+	if x != nil {
+		return x.Plugins
+	}
+	return nil
+}
+
+func (x *BuildRequest) GetProtocol() *ProtocolInfo {
+	if x != nil {
+		return x.Protocol
+	}
+	return nil
+}
+
+// PluginReference never carries executable code. The worker resolves the
+// approved GitHub source locally, then verifies this manifest digest before a
+// custom Go plugin step can run.
+type PluginReference struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Name           string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Version        string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	Source         string                 `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
+	ManifestSha256 string                 `protobuf:"bytes,4,opt,name=manifest_sha256,json=manifestSha256,proto3" json:"manifest_sha256,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PluginReference) Reset() {
+	*x = PluginReference{}
+	mi := &file_proto_worker_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PluginReference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PluginReference) ProtoMessage() {}
+
+func (x *PluginReference) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_worker_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PluginReference.ProtoReflect.Descriptor instead.
+func (*PluginReference) Descriptor() ([]byte, []int) {
+	return file_proto_worker_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *PluginReference) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PluginReference) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *PluginReference) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *PluginReference) GetManifestSha256() string {
+	if x != nil {
+		return x.ManifestSha256
+	}
+	return ""
+}
+
 type BuildResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	BuildId       string                 `protobuf:"bytes,1,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
@@ -369,13 +543,15 @@ type BuildResponse struct {
 	Output        string                 `protobuf:"bytes,4,opt,name=output,proto3" json:"output,omitempty"`
 	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
 	IsError       bool                   `protobuf:"varint,6,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
+	ArtifactChunk *ArtifactChunk         `protobuf:"bytes,7,opt,name=artifact_chunk,json=artifactChunk,proto3" json:"artifact_chunk,omitempty"`
+	Protocol      *ProtocolInfo          `protobuf:"bytes,8,opt,name=protocol,proto3" json:"protocol,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BuildResponse) Reset() {
 	*x = BuildResponse{}
-	mi := &file_proto_worker_proto_msgTypes[5]
+	mi := &file_proto_worker_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -387,7 +563,7 @@ func (x *BuildResponse) String() string {
 func (*BuildResponse) ProtoMessage() {}
 
 func (x *BuildResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_worker_proto_msgTypes[5]
+	mi := &file_proto_worker_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -400,7 +576,7 @@ func (x *BuildResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildResponse.ProtoReflect.Descriptor instead.
 func (*BuildResponse) Descriptor() ([]byte, []int) {
-	return file_proto_worker_proto_rawDescGZIP(), []int{5}
+	return file_proto_worker_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *BuildResponse) GetBuildId() string {
@@ -445,6 +621,91 @@ func (x *BuildResponse) GetIsError() bool {
 	return false
 }
 
+func (x *BuildResponse) GetArtifactChunk() *ArtifactChunk {
+	if x != nil {
+		return x.ArtifactChunk
+	}
+	return nil
+}
+
+func (x *BuildResponse) GetProtocol() *ProtocolInfo {
+	if x != nil {
+		return x.Protocol
+	}
+	return nil
+}
+
+// ArtifactChunk carries one ordered piece of a worker artifact. Keeping the
+// chunk below gRPC's default message limit lets workers return large artifacts
+// without requiring an inbound HTTP route to buildworld-server.
+type ArtifactChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	FinalChunk    bool                   `protobuf:"varint,3,opt,name=final_chunk,json=finalChunk,proto3" json:"final_chunk,omitempty"`
+	Sha256        string                 `protobuf:"bytes,4,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ArtifactChunk) Reset() {
+	*x = ArtifactChunk{}
+	mi := &file_proto_worker_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ArtifactChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ArtifactChunk) ProtoMessage() {}
+
+func (x *ArtifactChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_worker_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ArtifactChunk.ProtoReflect.Descriptor instead.
+func (*ArtifactChunk) Descriptor() ([]byte, []int) {
+	return file_proto_worker_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ArtifactChunk) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ArtifactChunk) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *ArtifactChunk) GetFinalChunk() bool {
+	if x != nil {
+		return x.FinalChunk
+	}
+	return false
+}
+
+func (x *ArtifactChunk) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
 type StatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	WorkerId      string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
@@ -454,7 +715,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_proto_worker_proto_msgTypes[6]
+	mi := &file_proto_worker_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -466,7 +727,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_worker_proto_msgTypes[6]
+	mi := &file_proto_worker_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -479,7 +740,7 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_proto_worker_proto_rawDescGZIP(), []int{6}
+	return file_proto_worker_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *StatusRequest) GetWorkerId() string {
@@ -501,7 +762,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_proto_worker_proto_msgTypes[7]
+	mi := &file_proto_worker_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -513,7 +774,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_worker_proto_msgTypes[7]
+	mi := &file_proto_worker_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -526,7 +787,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_proto_worker_proto_rawDescGZIP(), []int{7}
+	return file_proto_worker_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *StatusResponse) GetWorkerId() string {
@@ -561,7 +822,12 @@ var File_proto_worker_proto protoreflect.FileDescriptor
 
 const file_proto_worker_proto_rawDesc = "" +
 	"\n" +
-	"\x12proto/worker.proto\x12\x06worker\"\xbe\x01\n" +
+	"\x12proto/worker.proto\x12\x06worker\"r\n" +
+	"\fProtocolInfo\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05major\x18\x02 \x01(\rR\x05major\x12\x14\n" +
+	"\x05minor\x18\x03 \x01(\rR\x05minor\x12\"\n" +
+	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\"\xbe\x01\n" +
 	"\x0fRegisterRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -580,7 +846,7 @@ const file_proto_worker_proto_rawDesc = "" +
 	"disk_usage\x18\x04 \x01(\x02R\tdiskUsage\x12#\n" +
 	"\ractive_builds\x18\x05 \x01(\x05R\factiveBuilds\"7\n" +
 	"\x11HeartbeatResponse\x12\"\n" +
-	"\facknowledged\x18\x01 \x01(\bR\facknowledged\"\xc7\x01\n" +
+	"\facknowledged\x18\x01 \x01(\bR\facknowledged\"\xe0\x03\n" +
 	"\fBuildRequest\x12\x19\n" +
 	"\bbuild_id\x18\x01 \x01(\tR\abuildId\x12!\n" +
 	"\fproject_name\x18\x02 \x01(\tR\vprojectName\x12\x19\n" +
@@ -588,14 +854,35 @@ const file_proto_worker_proto_rawDesc = "" +
 	"\x06branch\x18\x04 \x01(\tR\x06branch\x12\x1d\n" +
 	"\n" +
 	"commit_sha\x18\x05 \x01(\tR\tcommitSha\x12'\n" +
-	"\x0fpipeline_config\x18\x06 \x01(\tR\x0epipelineConfig\"\x9f\x01\n" +
+	"\x0fpipeline_config\x18\x06 \x01(\tR\x0epipelineConfig\x12G\n" +
+	"\venvironment\x18\a \x03(\v2%.worker.BuildRequest.EnvironmentEntryR\venvironment\x12)\n" +
+	"\x10protocol_version\x18\b \x01(\tR\x0fprotocolVersion\x121\n" +
+	"\aplugins\x18\t \x03(\v2\x17.worker.PluginReferenceR\aplugins\x120\n" +
+	"\bprotocol\x18\n" +
+	" \x01(\v2\x14.worker.ProtocolInfoR\bprotocol\x1a>\n" +
+	"\x10EnvironmentEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x80\x01\n" +
+	"\x0fPluginReference\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12\x16\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\x12'\n" +
+	"\x0fmanifest_sha256\x18\x04 \x01(\tR\x0emanifestSha256\"\x8f\x02\n" +
 	"\rBuildResponse\x12\x19\n" +
 	"\bbuild_id\x18\x01 \x01(\tR\abuildId\x12\x14\n" +
 	"\x05stage\x18\x02 \x01(\tR\x05stage\x12\x12\n" +
 	"\x04step\x18\x03 \x01(\tR\x04step\x12\x16\n" +
 	"\x06output\x18\x04 \x01(\tR\x06output\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status\x12\x19\n" +
-	"\bis_error\x18\x06 \x01(\bR\aisError\",\n" +
+	"\bis_error\x18\x06 \x01(\bR\aisError\x12<\n" +
+	"\x0eartifact_chunk\x18\a \x01(\v2\x15.worker.ArtifactChunkR\rartifactChunk\x120\n" +
+	"\bprotocol\x18\b \x01(\v2\x14.worker.ProtocolInfoR\bprotocol\"p\n" +
+	"\rArtifactChunk\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1f\n" +
+	"\vfinal_chunk\x18\x03 \x01(\bR\n" +
+	"finalChunk\x12\x16\n" +
+	"\x06sha256\x18\x04 \x01(\tR\x06sha256\",\n" +
 	"\rStatusRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\"\x89\x01\n" +
 	"\x0eStatusResponse\x12\x1b\n" +
@@ -608,7 +895,7 @@ const file_proto_worker_proto_rawDesc = "" +
 	"\bRegister\x12\x17.worker.RegisterRequest\x1a\x18.worker.RegisterResponse\x12@\n" +
 	"\tHeartbeat\x12\x18.worker.HeartbeatRequest\x1a\x19.worker.HeartbeatResponse\x12=\n" +
 	"\fExecuteBuild\x12\x14.worker.BuildRequest\x1a\x15.worker.BuildResponse0\x01\x12=\n" +
-	"\fReportStatus\x12\x15.worker.StatusRequest\x1a\x16.worker.StatusResponseB=Z;github.com/neko233-com/buildworld233/internal/rpc/generatedb\x06proto3"
+	"\fReportStatus\x12\x15.worker.StatusRequest\x1a\x16.worker.StatusResponseB:Z8github.com/neko233-com/buildworld/internal/rpc/generatedb\x06proto3"
 
 var (
 	file_proto_worker_proto_rawDescOnce sync.Once
@@ -622,31 +909,40 @@ func file_proto_worker_proto_rawDescGZIP() []byte {
 	return file_proto_worker_proto_rawDescData
 }
 
-var file_proto_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_proto_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_proto_worker_proto_goTypes = []any{
-	(*RegisterRequest)(nil),   // 0: worker.RegisterRequest
-	(*RegisterResponse)(nil),  // 1: worker.RegisterResponse
-	(*HeartbeatRequest)(nil),  // 2: worker.HeartbeatRequest
-	(*HeartbeatResponse)(nil), // 3: worker.HeartbeatResponse
-	(*BuildRequest)(nil),      // 4: worker.BuildRequest
-	(*BuildResponse)(nil),     // 5: worker.BuildResponse
-	(*StatusRequest)(nil),     // 6: worker.StatusRequest
-	(*StatusResponse)(nil),    // 7: worker.StatusResponse
+	(*ProtocolInfo)(nil),      // 0: worker.ProtocolInfo
+	(*RegisterRequest)(nil),   // 1: worker.RegisterRequest
+	(*RegisterResponse)(nil),  // 2: worker.RegisterResponse
+	(*HeartbeatRequest)(nil),  // 3: worker.HeartbeatRequest
+	(*HeartbeatResponse)(nil), // 4: worker.HeartbeatResponse
+	(*BuildRequest)(nil),      // 5: worker.BuildRequest
+	(*PluginReference)(nil),   // 6: worker.PluginReference
+	(*BuildResponse)(nil),     // 7: worker.BuildResponse
+	(*ArtifactChunk)(nil),     // 8: worker.ArtifactChunk
+	(*StatusRequest)(nil),     // 9: worker.StatusRequest
+	(*StatusResponse)(nil),    // 10: worker.StatusResponse
+	nil,                       // 11: worker.BuildRequest.EnvironmentEntry
 }
 var file_proto_worker_proto_depIdxs = []int32{
-	0, // 0: worker.WorkerService.Register:input_type -> worker.RegisterRequest
-	2, // 1: worker.WorkerService.Heartbeat:input_type -> worker.HeartbeatRequest
-	4, // 2: worker.WorkerService.ExecuteBuild:input_type -> worker.BuildRequest
-	6, // 3: worker.WorkerService.ReportStatus:input_type -> worker.StatusRequest
-	1, // 4: worker.WorkerService.Register:output_type -> worker.RegisterResponse
-	3, // 5: worker.WorkerService.Heartbeat:output_type -> worker.HeartbeatResponse
-	5, // 6: worker.WorkerService.ExecuteBuild:output_type -> worker.BuildResponse
-	7, // 7: worker.WorkerService.ReportStatus:output_type -> worker.StatusResponse
-	4, // [4:8] is the sub-list for method output_type
-	0, // [0:4] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	11, // 0: worker.BuildRequest.environment:type_name -> worker.BuildRequest.EnvironmentEntry
+	6,  // 1: worker.BuildRequest.plugins:type_name -> worker.PluginReference
+	0,  // 2: worker.BuildRequest.protocol:type_name -> worker.ProtocolInfo
+	8,  // 3: worker.BuildResponse.artifact_chunk:type_name -> worker.ArtifactChunk
+	0,  // 4: worker.BuildResponse.protocol:type_name -> worker.ProtocolInfo
+	1,  // 5: worker.WorkerService.Register:input_type -> worker.RegisterRequest
+	3,  // 6: worker.WorkerService.Heartbeat:input_type -> worker.HeartbeatRequest
+	5,  // 7: worker.WorkerService.ExecuteBuild:input_type -> worker.BuildRequest
+	9,  // 8: worker.WorkerService.ReportStatus:input_type -> worker.StatusRequest
+	2,  // 9: worker.WorkerService.Register:output_type -> worker.RegisterResponse
+	4,  // 10: worker.WorkerService.Heartbeat:output_type -> worker.HeartbeatResponse
+	7,  // 11: worker.WorkerService.ExecuteBuild:output_type -> worker.BuildResponse
+	10, // 12: worker.WorkerService.ReportStatus:output_type -> worker.StatusResponse
+	9,  // [9:13] is the sub-list for method output_type
+	5,  // [5:9] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_proto_worker_proto_init() }
@@ -660,7 +956,7 @@ func file_proto_worker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_worker_proto_rawDesc), len(file_proto_worker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

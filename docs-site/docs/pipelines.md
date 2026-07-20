@@ -6,7 +6,7 @@ sidebar_position: 4
 
 ## Overview
 
-buildworld233 uses TypeScript/JavaScript for pipeline definitions. Pipelines are written in `buildworld.config.ts` or `buildworld.config.js` files.
+buildworld uses TypeScript/JavaScript for pipeline definitions. Pipelines are written in `buildworld.config.ts` or `buildworld.config.js` files.
 
 ## Basic Pipeline
 
@@ -164,7 +164,7 @@ Use pre-built templates for common workflows:
 
 ```typescript
 // Use a template
-import { nodeTypescript } from "buildworld233/templates";
+import { nodeTypescript } from "buildworld/templates";
 
 pipeline(nodeTypescript({
   node_version: "20",

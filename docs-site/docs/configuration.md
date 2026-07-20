@@ -6,16 +6,16 @@ sidebar_position: 3
 
 ## Configuration File
 
-buildworld233 uses a YAML configuration file. Default location: `./config.yaml`
+buildworld uses a YAML configuration file. Default location: `./config.yaml`
 
 ```yaml
 server:
   host: "0.0.0.0"
-  port: 6050
+  port: 8700
   tls: false
 
 database:
-  path: "./data/buildworld233.db"
+  path: "./data/buildworld.db"
 
 auth:
   jwt_secret: "auto-generated-on-first-run"
@@ -47,7 +47,7 @@ Configuration changes are automatically detected and applied:
 
 ```bash
 # Watch for config changes
-buildworld233 reload-config
+buildworld reload-config
 ```
 
 Some settings require restart:

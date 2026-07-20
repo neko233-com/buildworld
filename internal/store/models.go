@@ -31,38 +31,60 @@ type Project struct {
 	DefaultBranch string    `json:"default_branch"`
 	VCSRootID     *int64    `json:"vcs_root_id,omitempty"`
 	TemplateID    *int64    `json:"template_id,omitempty"`
+	GroupID       *int64    `json:"group_id,omitempty"`
+	Tags          []string  `json:"tags"`
 	Config        string    `json:"config"`
 	CreatedBy     int64     `json:"created_by"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+// ProjectSummary is the list-safe project representation. Pipeline config is
+// deliberately absent because a single definition may be hundreds of
+// kilobytes; callers that edit or run a parameterized build fetch GetProject.
+type ProjectSummary struct {
+	ID            int64     `json:"id"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description,omitempty"`
+	RepoURL       string    `json:"repo_url"`
+	RepoType      string    `json:"repo_type"`
+	DefaultBranch string    `json:"default_branch"`
+	VCSRootID     *int64    `json:"vcs_root_id,omitempty"`
+	TemplateID    *int64    `json:"template_id,omitempty"`
+	GroupID       *int64    `json:"group_id,omitempty"`
+	Tags          []string  `json:"tags"`
+	CreatedBy     int64     `json:"created_by"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 type Build struct {
-	ID                int64      `json:"id"`
-	ProjectID         int64      `json:"project_id"`
-	Number            int        `json:"number"`
-	Status            string     `json:"status"`
-	Trigger           string     `json:"trigger"`
-	Branch            string     `json:"branch,omitempty"`
-	CommitSHA         string     `json:"commit_sha,omitempty"`
-	Parameters        string     `json:"parameters,omitempty"`
-	WaitDependencyOn  *int64     `json:"wait_dependency_on,omitempty"`
-	RetriedFrom       *int64     `json:"retried_from,omitempty"`
-	Pinned            bool       `json:"pinned"`
-	StartedAt         *time.Time `json:"started_at,omitempty"`
-	FinishedAt        *time.Time `json:"finished_at,omitempty"`
-	DurationMs        *int64     `json:"duration_ms,omitempty"`
-	Log               string     `json:"log,omitempty"`
-	ApprovalRequired  bool       `json:"approval_required,omitempty"`
-	ApprovedBy        *int64     `json:"approved_by,omitempty"`
-	ApprovedAt        *time.Time `json:"approved_at,omitempty"`
-	TimeoutSec        int        `json:"timeout_sec,omitempty"`
-	TestResultID      *int64     `json:"test_result_id,omitempty"`
+	ID               int64          `json:"id"`
+	ProjectID        int64          `json:"project_id"`
+	Number           int            `json:"number"`
+	Status           string         `json:"status"`
+	Trigger          string         `json:"trigger"`
+	Branch           string         `json:"branch,omitempty"`
+	CommitSHA        string         `json:"commit_sha,omitempty"`
+	Parameters       string         `json:"parameters,omitempty"`
+	WaitDependencyOn *int64         `json:"wait_dependency_on,omitempty"`
+	RetriedFrom      *int64         `json:"retried_from,omitempty"`
+	Pinned           bool           `json:"pinned"`
+	StartedAt        *time.Time     `json:"started_at,omitempty"`
+	FinishedAt       *time.Time     `json:"finished_at,omitempty"`
+	DurationMs       *int64         `json:"duration_ms,omitempty"`
+	Log              string         `json:"log,omitempty"`
+	ApprovalRequired bool           `json:"approval_required,omitempty"`
+	ApprovedBy       *int64         `json:"approved_by,omitempty"`
+	ApprovedAt       *time.Time     `json:"approved_at,omitempty"`
+	TimeoutSec       int            `json:"timeout_sec,omitempty"`
+	TestResultID     *int64         `json:"test_result_id,omitempty"`
+	Approval         *BuildApproval `json:"approval,omitempty"`
 }
 
 type EnvVar struct {
 	ID          int64  `json:"id"`
-	Scope       string `json:"scope"`       // global, project
+	Scope       string `json:"scope"` // global, project
 	ProjectID   *int64 `json:"project_id,omitempty"`
 	Name        string `json:"name"`
 	Value       string `json:"value"`
@@ -90,6 +112,7 @@ type Worker struct {
 	Labels              string    `json:"labels"`
 	Pool                string    `json:"pool,omitempty"`
 	MaxConcurrentBuilds int       `json:"max_concurrent_builds"`
+	ActiveBuilds        int       `json:"active_builds"`
 	Status              string    `json:"status"`
 	LastHeartbeat       time.Time `json:"last_heartbeat"`
 	CreatedAt           time.Time `json:"created_at"`
@@ -165,33 +188,45 @@ type BuildTemplate struct {
 type NotificationChannelType string
 
 const (
+	NotificationChannelWeb      NotificationChannelType = "web"
 	NotificationChannelEmail    NotificationChannelType = "email"
 	NotificationChannelFeishu   NotificationChannelType = "feishu"
 	NotificationChannelWebhook  NotificationChannelType = "webhook"
+	NotificationChannelDiscord  NotificationChannelType = "discord"
+	NotificationChannelWeCom    NotificationChannelType = "wecom"
+	NotificationChannelTelegram NotificationChannelType = "telegram"
 )
 
+const DefaultWebNotificationChannelName = "页面内通知"
+
 type NotificationChannel struct {
-	ID          int64                      `json:"id"`
-	Name        string                     `json:"name"`
-	Type        NotificationChannelType    `json:"type"`
-	Config      string                     `json:"config"`
-	Enabled     bool                       `json:"enabled"`
-	Conditions  string                     `json:"conditions"`
-	Description string                     `json:"description,omitempty"`
-	CreatedAt   time.Time                  `json:"created_at"`
-	UpdatedAt   time.Time                  `json:"updated_at"`
+	ID          int64                   `json:"id"`
+	Name        string                  `json:"name"`
+	Type        NotificationChannelType `json:"type"`
+	Config      string                  `json:"config"`
+	Enabled     bool                    `json:"enabled"`
+	Conditions  string                  `json:"conditions"`
+	Description string                  `json:"description,omitempty"`
+	CreatedAt   time.Time               `json:"created_at"`
+	UpdatedAt   time.Time               `json:"updated_at"`
 }
 
 type NotificationEvent struct {
-	ID              int64     `json:"id"`
-	ChannelID       int64     `json:"channel_id"`
-	BuildID         *int64    `json:"build_id,omitempty"`
-	EventType       string    `json:"event_type"`
-	Payload         string    `json:"payload"`
-	Status          string    `json:"status"`
-	ErrorMessage    string    `json:"error_message,omitempty"`
-	DeliveredAt     *time.Time `json:"delivered_at,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID           int64      `json:"id"`
+	ChannelID    int64      `json:"channel_id"`
+	BuildID      *int64     `json:"build_id,omitempty"`
+	EventType    string     `json:"event_type"`
+	Payload      string     `json:"payload"`
+	Status       string     `json:"status"`
+	ErrorMessage string     `json:"error_message,omitempty"`
+	DeliveredAt  *time.Time `json:"delivered_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+type InAppNotificationFeed struct {
+	Items      []*NotificationEvent `json:"items"`
+	Unread     int                  `json:"unread_count"`
+	LastReadID int64                `json:"last_read_id"`
 }
 
 // BuildStat 每日构建统计聚合
@@ -233,14 +268,19 @@ type APIToken struct {
 
 // BuildApproval 构建审批记录
 type BuildApproval struct {
-	ID         int64      `json:"id"`
-	BuildID    int64      `json:"build_id"`
-	UserID     int64      `json:"user_id"`
-	Username   string     `json:"username"`
-	Status     string     `json:"status"` // pending/approved/rejected
-	Comment    string     `json:"comment,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+	ID                 int64      `json:"id"`
+	BuildID            int64      `json:"build_id"`
+	UserID             int64      `json:"user_id"`
+	Username           string     `json:"username"`
+	Status             string     `json:"status"` // pending/approved/rejected
+	Comment            string     `json:"comment,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	ResolvedAt         *time.Time `json:"resolved_at,omitempty"`
+	ResolvedBy         *int64     `json:"resolved_by,omitempty"`
+	ResolvedByUsername string     `json:"resolved_by_username,omitempty"`
+	Prompt             string     `json:"prompt,omitempty"`
+	RequiredRoles      []string   `json:"required_roles,omitempty"`
+	AllowRequester     bool       `json:"allow_requester"`
 }
 
 // TestResult 测试结果汇总
@@ -275,20 +315,26 @@ type ProjectGroup struct {
 	Description string    `json:"description,omitempty"`
 	ParentID    *int64    `json:"parent_id,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // BuildQueueItem 构建队列项
 type BuildQueueItem struct {
-	ID          int64      `json:"id"`
-	BuildID     int64      `json:"build_id"`
-	ProjectID   int64      `json:"project_id"`
-	ProjectName string     `json:"project_name"`
-	Priority    int        `json:"priority"`
-	Status      string     `json:"status"` // queued/running/cancelled
-	Trigger     string     `json:"trigger"`
-	Branch      string     `json:"branch"`
-	QueuedAt    time.Time  `json:"queued_at"`
-	StartedAt   *time.Time `json:"started_at,omitempty"`
+	ID                    int64      `json:"id"`
+	BuildID               int64      `json:"build_id"`
+	BuildNumber           int        `json:"build_number"`
+	ProjectID             int64      `json:"project_id"`
+	ProjectName           string     `json:"project_name"`
+	Priority              int        `json:"priority"`
+	Status                string     `json:"status"` // queued/running/pending_approval/cancelled
+	Trigger               string     `json:"trigger"`
+	Branch                string     `json:"branch"`
+	QueuedAt              time.Time  `json:"queued_at"`
+	StartedAt             *time.Time `json:"started_at,omitempty"`
+	QueuePosition         int        `json:"queue_position"`
+	WaitReason            string     `json:"wait_reason"`
+	WaitingForBuildID     *int64     `json:"waiting_for_build_id,omitempty"`
+	WaitingForBuildNumber *int       `json:"waiting_for_build_number,omitempty"`
 }
 
 type GitHookEvent string
