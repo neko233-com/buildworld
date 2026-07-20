@@ -26,6 +26,29 @@ function Assert-Checksum([string]$Archive, [string]$Checksums) {
     if ($actual -ne $expected.ToLowerInvariant()) { throw "Checksum mismatch for $name" }
 }
 
+function Get-BundleArchive([string]$Base, [string]$Asset, [string]$Archive, [string]$Checksums, [string]$Temporary) {
+    try {
+        Invoke-WebRequest -Uri "$Base/$Asset" -OutFile $Archive -UseBasicParsing
+        return
+    } catch {
+        Remove-Item -LiteralPath $Archive -Force -ErrorAction SilentlyContinue
+    }
+    $escaped = [Regex]::Escape($Asset) + '\.part\d+$'
+    $parts = @(($Checksums -split "`r?`n") | ForEach-Object { ($_ -split '\s{2,}', 2)[1] } | Where-Object { $_ -match $escaped } | Sort-Object)
+    if ($parts.Count -eq 0) { throw "No release archive or multipart fallback published for $Asset" }
+    $destination = [IO.File]::Open($Archive, [IO.FileMode]::Create, [IO.FileAccess]::Write)
+    try {
+        foreach ($part in $parts) {
+            $partPath = Join-Path $Temporary $part
+            Write-Host "Downloading $part ..."
+            Invoke-WebRequest -Uri "$Base/$part" -OutFile $partPath -UseBasicParsing
+            Assert-Checksum -Archive $partPath -Checksums $Checksums
+            $source = [IO.File]::OpenRead($partPath)
+            try { $source.CopyTo($destination) } finally { $source.Dispose() }
+        }
+    } finally { $destination.Dispose() }
+}
+
 function Add-UserPath([string]$Directory) {
     $current = [Environment]::GetEnvironmentVariable("Path", "User")
     $entries = @($current -split ';' | Where-Object { $_ })
@@ -46,8 +69,8 @@ $staging = Join-Path $temporary "staging"
 New-Item -ItemType Directory -Force -Path $temporary | Out-Null
 try {
     Write-Host "Downloading BuildWorld v$release for Windows $arch ..."
-    Invoke-WebRequest -Uri "$base/$asset" -OutFile $archive -UseBasicParsing
     $checksums = (Invoke-WebRequest -Uri "$base/checksums.txt" -UseBasicParsing).Content
+    Get-BundleArchive -Base $base -Asset $asset -Archive $archive -Checksums $checksums -Temporary $temporary
     Assert-Checksum -Archive $archive -Checksums $checksums
     Expand-Archive -LiteralPath $archive -DestinationPath $staging -Force
 
