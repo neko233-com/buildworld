@@ -40,14 +40,14 @@ try {
     # Keep the gate focused on this change. The repository still contains
     # historical Go files which predate gofmt; release work must not silently
     # rewrite unrelated user code.
-    $goFiles = @(
+    $goFiles = @(@(
         & git diff --name-only --diff-filter=ACMR HEAD -- '*.go'
         if ($LASTEXITCODE -ne 0) { throw "git diff failed with exit code $LASTEXITCODE" }
         & git ls-files --others --exclude-standard -- '*.go'
         if ($LASTEXITCODE -ne 0) { throw "git ls-files failed with exit code $LASTEXITCODE" }
         & git diff-tree --no-commit-id --name-only --diff-filter=ACMR -r HEAD -- '*.go'
         if ($LASTEXITCODE -ne 0) { throw "git diff-tree failed with exit code $LASTEXITCODE" }
-    ) | Sort-Object -Unique
+    ) | Sort-Object -Unique)
     if ($goFiles.Count -gt 0) {
         $unformatted = @(& gofmt -l -- $goFiles)
         if ($LASTEXITCODE -ne 0) { throw "gofmt inspection failed with exit code $LASTEXITCODE" }
