@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="moon" x1="13" y1="7" x2="35" y2="31" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DDF4FF"/>
+      <stop offset="1" stop-color="#67C7FF"/>
+    </linearGradient>
+    <linearGradient id="hammer" x1="13" y1="19" x2="34" y2="41" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5DCEFF"/>
+      <stop offset="1" stop-color="#0A84FF"/>
+    </linearGradient>
+  </defs>
+  <path d="M33.7 7.4A15.8 15.8 0 1 0 40 29.1 17.2 17.2 0 1 1 33.7 7.4Z" fill="url(#moon)"/>
+  <path d="M31.6 16.2c.7 1.2 1.7 2.1 2.9 2.8-1.5.7-3.2.8-4.8.2-1.5-.6-2.7-1.8-3.4-3.3 1.9.6 3.7.7 5.3.3Z" fill="#EFFFFF" fill-opacity=".72"/>
+  <g transform="rotate(-42 23 29)">
+    <path d="M18 20.5h10.5c1.4 0 2.5 1.1 2.5 2.5v3.4c0 1.4-1.1 2.5-2.5 2.5H18V20.5Z" fill="url(#hammer)"/>
+    <path d="M13.2 22.6H18v4.2h-4.8a2.1 2.1 0 1 1 0-4.2Z" fill="#B9ECFF"/>
+    <path d="M21.4 28.9h4.3v14c0 1.2-1 2.1-2.1 2.1-1.2 0-2.2-.9-2.2-2.1v-14Z" fill="#F5C66C"/>
+    <path d="M21.4 28.9h4.3v4.4h-4.3z" fill="#FFE3A3"/>
+  </g>
+</svg>
