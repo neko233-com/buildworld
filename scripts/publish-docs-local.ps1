@@ -82,6 +82,27 @@ function Get-LatestPagesBuild([string]$Repo) {
     throw "Unable to inspect the latest GitHub Pages build (gh exit ${exitCode}): $errorText"
 }
 
+function Request-PagesBuild([string]$Repo) {
+    $arguments = @(
+        'api', '--hostname', 'github.com', '--method', 'POST',
+        '-H', 'Accept: application/vnd.github+json',
+        '-H', 'X-GitHub-Api-Version: 2022-11-28',
+        "repos/$Repo/pages/builds"
+    )
+    $output = & gh @arguments 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -eq 0) {
+        return
+    }
+
+    $errorText = $output -join [Environment]::NewLine
+    if ($errorText -match '(?i)(HTTP\s+409|Conflict|build is already queued)') {
+        Write-Host 'A GitHub Pages build is already queued; waiting for the published commit.'
+        return
+    }
+    throw "Unable to request the GitHub Pages build (gh exit ${exitCode}): $errorText"
+}
+
 function Assert-DocumentationOutput([string]$BuildRoot) {
     if (-not (Test-Path -LiteralPath $BuildRoot -PathType Container)) {
         throw "Documentation build is incomplete: missing $BuildRoot"
@@ -314,6 +335,10 @@ try {
     if ($pages.build_type -ne 'legacy' -or $pages.source.branch -ne $pagesBranch -or $pages.source.path -ne '/') {
         throw 'GitHub Pages source does not match the requested legacy gh-pages:/ configuration.'
     }
+
+    # A newly enabled legacy Pages site does not always enqueue its first build
+    # when the source branch is pushed before the Pages source is configured.
+    Request-PagesBuild $repository
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($PublishTimeoutSeconds)
     $lastStatus = "waiting for build commit $publishedSha"
