@@ -24,8 +24,6 @@ func NewDefaultRegistry(data *store.Store, loaders ...*plugin.Loader) (*Registry
 		vcsRootStrategy{store: data},
 		templateStrategy{store: data},
 		notificationChannelStrategy{store: data},
-		deploymentEnvironmentStrategy{store: data},
-		gitHookStrategy{store: data},
 		pluginSettingsStrategy{store: data, loader: loader},
 	)
 }
@@ -158,13 +156,13 @@ func (s projectStrategy) Import(_ context.Context, data json.RawMessage, options
 type projectGroupRecord struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	ParentName  string `json:"parent_name,omitempty"`
+	Color       string `json:"color,omitempty"`
 }
 
 type projectGroupStrategy struct{ store *store.Store }
 
 func (projectGroupStrategy) Capability() Capability {
-	return Capability{Key: "project_groups", Version: 1, Description: "Hierarchical project groups"}
+	return Capability{Key: "project_groups", Version: 1, Description: "Project groups"}
 }
 
 func (s projectGroupStrategy) Export(_ context.Context, _ ExportOptions) (json.RawMessage, error) {
@@ -174,15 +172,7 @@ func (s projectGroupStrategy) Export(_ context.Context, _ ExportOptions) (json.R
 	}
 	records := make([]projectGroupRecord, 0, len(groups))
 	for _, group := range groups {
-		parentName := ""
-		if group.ParentID != nil {
-			parent, err := s.store.GetProjectGroup(*group.ParentID)
-			if err != nil {
-				return nil, fmt.Errorf("resolve parent for project group %q: %w", group.Name, err)
-			}
-			parentName = parent.Name
-		}
-		records = append(records, projectGroupRecord{Name: group.Name, Description: group.Description, ParentName: parentName})
+		records = append(records, projectGroupRecord{Name: group.Name, Description: group.Description, Color: group.Color})
 	}
 	return json.Marshal(records)
 }
@@ -199,50 +189,34 @@ func (s projectGroupStrategy) Import(_ context.Context, data json.RawMessage, op
 		return SectionResult{}, err
 	}
 	result := SectionResult{Count: len(records)}
-	pending := append([]projectGroupRecord(nil), records...)
-	for len(pending) > 0 {
-		next := make([]projectGroupRecord, 0, len(pending))
-		progressed := false
-		for _, record := range pending {
-			if record.Name == "" {
-				return result, fmt.Errorf("project group name is required")
-			}
-			var parentID *int64
-			if record.ParentName != "" {
-				parent, err := s.store.GetProjectGroupByName(record.ParentName)
-				if errors.Is(err, sql.ErrNoRows) {
-					next = append(next, record)
-					continue
-				}
-				if err != nil {
-					return result, err
-				}
-				value := parent.ID
-				parentID = &value
-			}
-			existing, err := s.store.GetProjectGroupByName(record.Name)
-			switch {
-			case err == nil && options.Mode == "skip":
-				result.Skipped++
-			case err == nil:
-				if err := s.store.UpdateProjectGroup(existing.ID, record.Name, record.Description, parentID); err != nil {
-					return result, err
-				}
-				result.Updated++
-			case errors.Is(err, sql.ErrNoRows):
-				if _, err := s.store.CreateProjectGroup(record.Name, record.Description, parentID); err != nil {
-					return result, err
-				}
-				result.Created++
-			default:
+	for _, record := range records {
+		if record.Name == "" {
+			return result, fmt.Errorf("project group name is required")
+		}
+		color := record.Color
+		if color == "" {
+			color = store.ProjectGroupColorNeutral
+		}
+		if !store.IsValidProjectGroupColor(color) {
+			return result, fmt.Errorf("project group %q: %w", record.Name, store.ErrInvalidProjectGroupColor)
+		}
+		existing, err := s.store.GetProjectGroupByName(record.Name)
+		switch {
+		case err == nil && options.Mode == "skip":
+			result.Skipped++
+		case err == nil:
+			if err := s.store.UpdateProjectGroupWithColor(existing.ID, record.Name, record.Description, color); err != nil {
 				return result, err
 			}
-			progressed = true
+			result.Updated++
+		case errors.Is(err, sql.ErrNoRows):
+			if _, err := s.store.CreateProjectGroupWithColor(record.Name, record.Description, color); err != nil {
+				return result, err
+			}
+			result.Created++
+		default:
+			return result, err
 		}
-		if !progressed {
-			return result, fmt.Errorf("project group hierarchy contains a missing parent or cycle")
-		}
-		pending = next
 	}
 	return result, nil
 }

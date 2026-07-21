@@ -4,7 +4,7 @@
 const config = {
   title: 'buildworld',
   tagline: 'A modern CI/CD server - Jenkins alternative',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/favicon.svg',
   url: 'https://neko233-com.github.io',
   baseUrl: '/buildworld233/',
   organizationName: 'neko233-com',

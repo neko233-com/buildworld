@@ -7,7 +7,6 @@
     "start": "docusaurus start",
     "build": "docusaurus build",
     "swizzle": "docusaurus swizzle",
-    "deploy": "docusaurus deploy",
     "clear": "docusaurus clear",
     "serve": "docusaurus serve"
   },
@@ -36,7 +35,7 @@
     ]
   },
   "engines": {
-    "node": ">=18.0"
+    "node": ">=24 <25"
   },
   "overrides": {
     "serialize-javascript": "7.0.5",

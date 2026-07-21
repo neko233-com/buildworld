@@ -32,7 +32,7 @@ func TestRouterRoleAuthorization(t *testing.T) {
 
 	tokens := map[string]string{}
 	for role, user := range users {
-		token, generateErr := jwt.Generate(user.ID, role, time.Hour)
+		token, generateErr := jwt.Generate(user.ID, role, user.SessionVersion, time.Hour)
 		if generateErr != nil {
 			t.Fatalf("Generate(%s) error = %v", role, generateErr)
 		}
@@ -62,7 +62,7 @@ func TestRouterRoleAuthorization(t *testing.T) {
 	if got := request(http.MethodPost, "/api/projects/", "viewer", `{"name":"denied"}`).Code; got != http.StatusForbidden {
 		t.Fatalf("viewer create project status = %d, want %d", got, http.StatusForbidden)
 	}
-	if got := request(http.MethodPost, "/api/projects/", "developer", `{"name":"allowed","config":"{}"}`).Code; got != http.StatusCreated {
+	if got := request(http.MethodPost, "/api/projects/", "developer", `{"name":"allowed","config":"jobs:\n  build:\n    steps:\n      - run: echo ok\n"}`).Code; got != http.StatusCreated {
 		t.Fatalf("developer create project status = %d, want %d", got, http.StatusCreated)
 	}
 	if got := request(http.MethodGet, "/api/users/", "developer", "").Code; got != http.StatusForbidden {

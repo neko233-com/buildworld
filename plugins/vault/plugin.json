@@ -1,7 +1,0 @@
-{
-  "name": "vault",
-  "version": "1.0.0",
-  "description": "HashiCorp Vault: read, write, delete, list secrets",
-  "author": "buildworld",
-  "steps": ["vault-read", "vault-write", "vault-delete", "vault-list"]
-}

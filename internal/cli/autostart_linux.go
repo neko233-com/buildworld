@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -44,6 +45,23 @@ func disableAutostart() error {
 func stopAutostartService() (bool, error) {
 	if err := exec.Command("systemctl", "--user", "stop", systemdServiceName).Run(); err != nil {
 		return false, nil
+	}
+	return true, nil
+}
+
+func startAutostartService() (bool, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, err
+	}
+	unit := filepath.Join(home, ".config", "systemd", "user", systemdServiceName)
+	if _, err := os.Stat(unit); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	if output, err := exec.Command("systemctl", "--user", "start", systemdServiceName).CombinedOutput(); err != nil {
+		return false, fmt.Errorf("start systemd user service: %w: %s", err, output)
 	}
 	return true, nil
 }

@@ -28,30 +28,37 @@ import (
 )
 
 type BuildRunner struct {
-	store               *store.Store
-	hub                 *ws.Hub
-	workspaces          *WorkspaceManager
-	buildEnvironment    *BuildEnvironment
-	executor            *Executor
-	gitClient           *git.Client
-	plugins             *plugin.Loader
-	artifacts           *ArtifactManager
-	triggerChecker      *TriggerChecker
-	notificationService *NotificationService
-	statisticsService   *StatisticsService
-	runsMu              sync.Mutex
-	runs                map[int64]context.CancelFunc
-	queueMu             sync.Mutex
-	queueCancel         context.CancelFunc
-	queueWake           chan struct{}
-	remoteWaitMu        sync.Mutex
-	remoteWaiting       map[int64]bool
-	workerDispatchToken string
-	policyMu            sync.Mutex
-	executionPolicy     ExecutionPolicy
-	activeBuilds        int
-	activeLocalBuilds   int
-	policyWake          chan struct{}
+	store                   *store.Store
+	hub                     *ws.Hub
+	workspaces              *WorkspaceManager
+	buildEnvironment        *BuildEnvironment
+	executor                *Executor
+	gitClient               *git.Client
+	plugins                 *plugin.Loader
+	artifacts               *ArtifactManager
+	triggerChecker          *TriggerChecker
+	notificationService     *NotificationService
+	statisticsService       *StatisticsService
+	runsMu                  sync.Mutex
+	runs                    map[int64]context.CancelFunc
+	queueMu                 sync.Mutex
+	queueCancel             context.CancelFunc
+	queueWake               chan struct{}
+	remoteWaitMu            sync.Mutex
+	remoteWaiting           map[int64]bool
+	workerDispatchToken     string
+	policyMu                sync.Mutex
+	executionPolicy         ExecutionPolicy
+	activeBuilds            int
+	activeLocalBuilds       int
+	policyWake              chan struct{}
+	durableLogMu            sync.Mutex
+	durableLogs             map[int64]*durableBuildLogBatch
+	durableLogAppend        func(int64, string) error
+	durableLogErrorReporter func(int64, error)
+	secretMaskersMu         sync.Mutex
+	secretMaskers           map[int64]*buildSecretMasker
+	liveLogBroadcast        func(int64, map[string]interface{})
 }
 
 const remoteArtifactMaxSize = 256 * 1024 * 1024
@@ -93,7 +100,9 @@ func NewBuildRunner(s *store.Store, hub *ws.Hub, wsRoot string, plugins *plugin.
 			CPUPercent:               25,
 			BackgroundMode:           true,
 		},
-		policyWake: make(chan struct{}, 1),
+		policyWake:    make(chan struct{}, 1),
+		durableLogs:   make(map[int64]*durableBuildLogBatch),
+		secretMaskers: make(map[int64]*buildSecretMasker),
 	}
 	_ = runner.ReloadExecutionPolicy()
 	return runner
@@ -543,6 +552,8 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		r.fail(buildID, start, fmt.Sprintf("invalid pipeline config: %v", err), project)
 		return
 	}
+	r.configureBuildSecretMasker(build, project, cfg)
+	defer r.clearBuildSecretMasker(buildID)
 	localExecution := len(cfg.AgentRequirements) == 0
 	if !r.acquireExecutionSlot(ctx, localExecution) {
 		return
@@ -598,7 +609,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	r.broadcastStatus(buildID, "running", "", 0)
 	if r.notificationService != nil {
 		if startedBuild, err := r.store.GetBuild(buildID); err == nil {
-			go r.notificationService.SendBuildEvent(startedBuild, project, "build.started")
+			r.sendBuildEventAsync(buildID, startedBuild, project, "build.started")
 		}
 	}
 
@@ -616,56 +627,132 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 
 	totalStages := len(cfg.Stages)
 	var failedSteps []string
+	stageStatuses := make(map[string]string, totalStages)
 	for i, stage := range cfg.Stages {
+		stageKey := StageKey(stage)
 		branch := build.Branch
 		if branch == "" {
 			branch = project.DefaultBranch
 		}
 		if !stageMatchesBranch(stage, branch) {
 			r.log(buildID, stage.Name, fmt.Sprintf("SKIPPED: branch %q does not match %s", branch, strings.Join(stage.Branches, ", ")))
+			stageStatuses[stageKey] = StageStatusSkipped
+			continue
+		}
+		shouldRun, conditionErr := ShouldRunStage(stage, stageStatuses)
+		if conditionErr != nil {
+			r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
+			r.fail(buildID, start, fmt.Sprintf("stage %q condition: %v", stage.Name, conditionErr), project)
+			return
+		}
+		if !shouldRun {
+			r.log(buildID, stage.Name, "SKIPPED: dependency/if condition evaluated to false")
+			stageStatuses[stageKey] = StageStatusSkipped
 			continue
 		}
 		r.log(buildID, stage.Name, fmt.Sprintf("=== Stage: %s ===", stage.Name))
 		r.broadcastStatus(buildID, "running", stage.Name, float64(i)/float64(totalStages))
 
-		for _, step := range stage.Steps {
+		stageCtx := ctx
+		cancelStage := func() {}
+		if stage.TimeoutSec > 0 {
+			stageCtx, cancelStage = context.WithTimeout(ctx, time.Duration(stage.TimeoutSec)*time.Second)
+		}
+		stageEnv := AppendPipelineEnvironment(env, stage.Environment)
+		stageBaseEnvLength := len(stageEnv)
+		stageFailed := false
+		for _, configuredStep := range stage.Steps {
+			step := configuredStep
+			if stage.WorkingDirectory != "" {
+				if step.Config == nil {
+					step.Config = make(map[string]string)
+				} else {
+					step.Config = cloneStringMap(step.Config)
+				}
+				if step.Config["working-directory"] == "" {
+					step.Config["working-directory"] = stage.WorkingDirectory
+				}
+			}
+			stepShouldRun := true
+			if strings.TrimSpace(step.If) != "" {
+				var conditionErr error
+				stepShouldRun, conditionErr = EvaluatePipelineCondition(step.If, ConditionContext{Success: !stageFailed, Failure: stageFailed})
+				if conditionErr != nil {
+					cancelStage()
+					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
+					r.fail(buildID, start, fmt.Sprintf("step %q condition: %v", step.Name, conditionErr), project)
+					return
+				}
+			}
+			if !stepShouldRun {
+				r.log(buildID, stage.Name, fmt.Sprintf("SKIPPED: step %q if condition evaluated to false", step.Name))
+				continue
+			}
 			r.log(buildID, stage.Name, fmt.Sprintf("--- Step: %s ---", step.Name))
-			stepEnv := appendRuntimeEnv(env, cfg, step.Runtime)
+			stepEnv := appendRuntimeEnv(stageEnv, cfg, step.Runtime)
 			var outputs []string
 			onOutput := func(line string) {
-				r.log(buildID, stage.Name, line)
+				r.logBuildOutput(buildID, stage.Name, line)
 				outputs = appendBuildKV(outputs, line)
 			}
-			if err := r.execStep(ctx, step, workspace, project, build, stepEnv, params, stage.Name, onOutput); err != nil {
+			stepErr := r.execStep(stageCtx, step, workspace, project, build, stepEnv, params, stage.Name, onOutput)
+			stepErr = completedStepError(stageCtx, stepErr)
+			_ = r.flushBuildOutput(buildID, stage.Name)
+			if stepErr != nil {
 				if ctx.Err() == context.Canceled {
+					cancelStage()
 					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 					r.log(buildID, stage.Name, fmt.Sprintf("CANCELLED: step %q stopped by user", step.Name))
+					r.flushDurableBuildLog(buildID, true)
 					_ = r.store.CancelBuild(buildID)
 					_ = r.store.UpdateBuildQueueItemStatusByBuildID(buildID, "cancelled")
 					r.broadcastStatus(buildID, "cancelled", stage.Name, 1)
 					return
 				}
-				r.log(buildID, stage.Name, fmt.Sprintf("ERROR: %v", err))
+				r.log(buildID, stage.Name, fmt.Sprintf("ERROR: %v", stepErr))
 				if ctx.Err() == context.DeadlineExceeded {
+					cancelStage()
 					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 					r.fail(buildID, start, fmt.Sprintf("step %q timed out after %ds", step.Name, build.TimeoutSec), project)
 					r.finishCleanup(buildID)
 					return
 				}
+				stageFailed = true
+				if stageCtx.Err() == context.DeadlineExceeded {
+					failedSteps = append(failedSteps, stage.Name+" (timeout)")
+					r.log(buildID, stage.Name, fmt.Sprintf("Stage timed out after %ds", stage.TimeoutSec))
+					if r.executionPolicySnapshot().FailFast {
+						cancelStage()
+						r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
+						r.fail(buildID, start, fmt.Sprintf("stage %q timed out after %ds", stage.Name, stage.TimeoutSec), project)
+						r.finishCleanup(buildID)
+						return
+					}
+					break
+				}
 				if r.executionPolicySnapshot().FailFast {
+					cancelStage()
 					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
-					r.fail(buildID, start, fmt.Sprintf("step %q failed: %v", step.Name, err), project)
+					r.fail(buildID, start, fmt.Sprintf("step %q failed: %v", step.Name, stepErr), project)
 					r.finishCleanup(buildID)
 					return
 				}
-				failedSteps = append(failedSteps, step.Name)
+				failedSteps = append(failedSteps, stage.Name+" / "+step.Name)
 				r.log(buildID, stage.Name, "Failure recorded; continuing because fail-fast is disabled")
 				continue
 			}
 			r.log(buildID, stage.Name, fmt.Sprintf("--- Step complete: %s ---", step.Name))
-			env = append(env, outputs...)
+			stageEnv = append(stageEnv, outputs...)
 		}
-		r.log(buildID, stage.Name, fmt.Sprintf("=== Stage complete: %s ===", stage.Name))
+		cancelStage()
+		env = append(env, stageEnv[stageBaseEnvLength:]...)
+		if stageFailed {
+			stageStatuses[stageKey] = StageStatusFailed
+			r.log(buildID, stage.Name, fmt.Sprintf("=== Stage failed: %s ===", stage.Name))
+		} else {
+			stageStatuses[stageKey] = StageStatusSuccess
+			r.log(buildID, stage.Name, fmt.Sprintf("=== Stage complete: %s ===", stage.Name))
+		}
 	}
 
 	if r.artifacts != nil && len(cfg.Artifacts) > 0 {
@@ -687,9 +774,10 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	r.runPostSteps(ctx, cfg, "success", workspace, project, build, env, params)
 
 	duration := time.Since(start).Milliseconds()
+	r.log(buildID, "", fmt.Sprintf("Build #%d succeeded in %s", build.Number, time.Since(start)))
+	r.flushDurableBuildLog(buildID, true)
 	_ = r.store.FinishBuild(buildID, "success", duration)
 	_ = r.store.UpdateBuildQueueItemStatusByBuildID(buildID, "success")
-	r.log(buildID, "", fmt.Sprintf("Build #%d succeeded in %s", build.Number, time.Since(start)))
 	r.broadcastStatus(buildID, "success", "", 1.0)
 
 	if r.triggerChecker != nil {
@@ -702,7 +790,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	if r.notificationService != nil {
 		finishedBuild, _ := r.store.GetBuild(buildID)
 		if finishedBuild != nil {
-			go r.notificationService.SendBuildNotifications(finishedBuild, project)
+			r.sendBuildEventAsync(buildID, finishedBuild, project, "build.completed")
 		}
 	}
 	r.cleanupCompleted(project.ID, cfg.RetentionCompleted)
@@ -767,7 +855,11 @@ func (r *BuildRunner) runPostSteps(_ context.Context, cfg *BuildConfig, outcome,
 			stage := "post " + condition
 			r.log(build.ID, stage, fmt.Sprintf("--- Step: %s ---", step.Name))
 			stepEnv := appendRuntimeEnv(env, cfg, step.Runtime)
-			if err := r.execStep(postCtx, step, workspace, project, build, stepEnv, params, stage, func(line string) { r.log(build.ID, stage, line) }); err != nil {
+			err := r.execStep(postCtx, step, workspace, project, build, stepEnv, params, stage, func(line string) {
+				r.logBuildOutput(build.ID, stage, line)
+			})
+			_ = r.flushBuildOutput(build.ID, stage)
+			if err != nil {
 				r.log(build.ID, stage, fmt.Sprintf("ERROR: %v", err))
 			}
 		}
@@ -782,11 +874,14 @@ func (r *BuildRunner) loadBuildConfig(project *store.Project) (*BuildConfig, err
 	if project.TemplateID != nil {
 		tmpl, err := r.store.GetBuildTemplate(*project.TemplateID)
 		if err == nil {
-			tmplCfg, err := ParseBuildConfig(tmpl.Config)
+			tmplCfg, err := ParsePipelineConfig(tmpl.Config)
 			if err == nil {
 				cfg = MergeBuildConfig(tmplCfg, cfg)
 			}
 		}
+	}
+	if err := ValidatePipelineSemantics(cfg); err != nil {
+		return nil, err
 	}
 	if cfg.Environment == nil {
 		cfg.Environment = map[string]string{}
@@ -884,7 +979,7 @@ func (r *BuildRunner) runRemote(ctx context.Context, build *store.Build, project
 		}
 	}
 	dispatchCtx := bytemsg.WithDispatchCredential(ctx, r.workerDispatchToken)
-	stream, err := pb.NewWorkerServiceClient(conn).ExecuteBuild(dispatchCtx, &pb.BuildRequest{BuildId: fmt.Sprintf("%d", build.ID), ProjectName: project.Name, RepoUrl: project.RepoURL, Branch: build.Branch, CommitSha: build.CommitSHA, PipelineConfig: project.Config, Environment: env, ProtocolVersion: bytemsg.LegacyVersion, Protocol: bytemsg.NewProtocolInfo(), Plugins: pluginRefs})
+	stream, err := pb.NewWorkerServiceClient(conn).ExecuteBuild(dispatchCtx, &pb.BuildRequest{BuildId: fmt.Sprintf("%d", build.ID), ProjectName: project.Name, RepoUrl: project.RepoURL, Branch: build.Branch, CommitSha: build.CommitSHA, PipelineConfig: project.Config, Environment: env, Protocol: bytemsg.NewProtocolInfo(), Plugins: pluginRefs})
 	if err != nil {
 		r.fail(build.ID, start, fmt.Sprintf("remote worker start: %v", err), project)
 		return
@@ -897,7 +992,9 @@ func (r *BuildRunner) runRemote(ctx context.Context, build *store.Build, project
 			if err == io.EOF {
 				break
 			}
+			_ = r.flushBuildOutput(build.ID, "remote")
 			if ctx.Err() == context.Canceled {
+				r.flushDurableBuildLog(build.ID, true)
 				_ = r.store.CancelBuild(build.ID)
 				_ = r.store.UpdateBuildQueueItemStatusByBuildID(build.ID, "cancelled")
 				r.broadcastStatus(build.ID, "cancelled", "remote", 1)
@@ -906,21 +1003,24 @@ func (r *BuildRunner) runRemote(ctx context.Context, build *store.Build, project
 			r.fail(build.ID, start, fmt.Sprintf("remote worker stream: %v", err), project)
 			return
 		}
-		if err := bytemsg.Validate(response.Protocol, ""); err != nil {
+		if err := bytemsg.Validate(response.Protocol); err != nil {
+			_ = r.flushBuildOutput(build.ID, "remote")
 			r.fail(build.ID, start, "remote worker response: "+err.Error(), project)
 			return
 		}
 		if chunk := response.GetArtifactChunk(); chunk != nil {
 			if err := r.receiveRemoteArtifact(build.ID, artifacts, chunk); err != nil {
+				_ = r.flushBuildOutput(build.ID, "remote")
 				r.fail(build.ID, start, fmt.Sprintf("remote artifact: %v", err), project)
 				return
 			}
 			continue
 		}
 		if response.Output != "" {
-			r.log(build.ID, response.Stage, response.Output)
+			r.logBuildOutput(build.ID, response.Stage, response.Output)
 		}
 		if response.IsError || response.Status == "failed" {
+			_ = r.flushBuildOutput(build.ID, response.Stage)
 			r.fail(build.ID, start, response.Output, project)
 			return
 		}
@@ -928,6 +1028,7 @@ func (r *BuildRunner) runRemote(ctx context.Context, build *store.Build, project
 			completed = true
 		}
 	}
+	_ = r.flushBuildOutput(build.ID, "remote")
 	if !completed {
 		r.fail(build.ID, start, "remote worker stream ended without a successful terminal response", project)
 		return
@@ -937,6 +1038,7 @@ func (r *BuildRunner) runRemote(ctx context.Context, build *store.Build, project
 		return
 	}
 	duration := time.Since(start).Milliseconds()
+	r.flushDurableBuildLog(build.ID, true)
 	_ = r.store.FinishBuild(build.ID, "success", duration)
 	_ = r.store.UpdateBuildQueueItemStatusByBuildID(build.ID, "success")
 	r.broadcastStatus(build.ID, "success", "", 1)
@@ -1053,28 +1155,46 @@ func (r *BuildRunner) execStep(ctx context.Context, step Step, workspace string,
 	return nil
 }
 
+// completedStepError closes the race between a command returning and its
+// context being cancelled. A cancelled step must never emit a success marker.
+func completedStepError(ctx context.Context, stepErr error) error {
+	if stepErr != nil {
+		return stepErr
+	}
+	return ctx.Err()
+}
+
 func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}, stage string, onOutput func(string)) error {
+	stepEnv := AppendStepEnvironment(env, step.Config)
+	workingDirectory := workspace
+	if configured := step.Config["working-directory"]; configured != "" {
+		resolved, err := ResolveWorkspaceDirectory(workspace, resolveVars(configured, stepEnv, params))
+		if err != nil {
+			return err
+		}
+		workingDirectory = resolved
+	}
 	switch step.Type {
 	case "service_watch":
-		return WatchService(ctx, workspace, resolveWatchConfig(step.Config, env, params), onOutput)
+		return WatchService(ctx, workingDirectory, resolveWatchConfig(step.Config, stepEnv, params), onOutput)
 	case "shell", "", "tail":
-		command := resolveVars(step.Command, env, params)
+		command := resolveVars(step.Command, stepEnv, params)
 		if step.Shell != "" {
-			return r.executor.RunMultiShell(ctx, step.Shell, command, workspace, env, func(line string) {
+			return r.executor.RunMultiShell(ctx, step.Shell, command, workingDirectory, stepEnv, func(line string) {
 				onOutput(strings.TrimRight(line, "\r\n"))
 			})
 		}
-		return r.executor.RunShell(ctx, command, workspace, env, func(line string) {
+		return r.executor.RunShell(ctx, command, workingDirectory, stepEnv, func(line string) {
 			onOutput(strings.TrimRight(line, "\r\n"))
 		})
 	case "powershell", "ps1", "pwsh":
-		command := resolveVars(step.Command, env, params)
-		return r.executor.RunMultiShell(ctx, step.Type, command, workspace, env, func(line string) {
+		command := resolveVars(step.Command, stepEnv, params)
+		return r.executor.RunMultiShell(ctx, step.Type, command, workingDirectory, stepEnv, func(line string) {
 			onOutput(strings.TrimRight(line, "\r\n"))
 		})
 	case "bash", "sh", "python", "python3", "cmd":
-		command := resolveVars(step.Command, env, params)
-		return r.executor.RunMultiShell(ctx, step.Type, command, workspace, env, func(line string) {
+		command := resolveVars(step.Command, stepEnv, params)
+		return r.executor.RunMultiShell(ctx, step.Type, command, workingDirectory, stepEnv, func(line string) {
 			onOutput(strings.TrimRight(line, "\r\n"))
 		})
 	case "git":
@@ -1087,26 +1207,43 @@ func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace str
 			branch = project.DefaultBranch
 		}
 		r.log(buildIDOf(build), stage, fmt.Sprintf("git clone %s (branch=%s)", url, branch))
-		if err := r.gitClient.Clone(url, workspace); err != nil {
+		if err := r.gitClient.CloneContext(ctx, url, workspace); err != nil {
 			return fmt.Errorf("git clone: %w", err)
 		}
 		if branch != "" {
-			_ = r.gitClient.Checkout(workspace, branch)
+			if err := r.gitClient.CheckoutContext(ctx, workspace, branch); err != nil {
+				return fmt.Errorf("git checkout: %w", err)
+			}
 		}
 		return nil
+	case "notify":
+		if r.notificationService == nil {
+			onOutput("Notification skipped: no notification service is configured")
+			return nil
+		}
+		currentBuild, err := r.store.GetBuild(build.ID)
+		if err != nil {
+			return fmt.Errorf("load build for pipeline notification: %w", err)
+		}
+		safeBuild, safeProject := r.maskedNotificationObjects(build.ID, currentBuild, project)
+		if err := r.notificationService.SendBuildEvent(safeBuild, safeProject, "pipeline.notification"); err != nil {
+			return fmt.Errorf("send pipeline notification: %w", err)
+		}
+		onOutput("Pipeline notification delivered")
+		return nil
 	case "script":
-		scriptPath := filepath.Join(workspace, ".bw_step.sh")
+		scriptPath := filepath.Join(workingDirectory, ".bw_step.sh")
 		if err := os.WriteFile(scriptPath, []byte(step.Command), 0o755); err != nil {
 			return err
 		}
-		return r.executor.RunShell(ctx, "sh .bw_step.sh", workspace, env, func(line string) {
+		return r.executor.RunShell(ctx, "sh .bw_step.sh", workingDirectory, stepEnv, func(line string) {
 			onOutput(strings.TrimRight(line, "\r\n"))
 		})
 	default:
 		if r.plugins != nil {
 			if handler := r.plugins.LookupStep(step.Type); handler != nil {
 				sc := &plugin.StepContext{
-					Workspace: workspace,
+					Workspace: workingDirectory,
 					Branch:    build.Branch,
 					Commit:    build.CommitSHA,
 					Config:    step.Config,
@@ -1298,7 +1435,9 @@ func resolveVars(s string, env []string, params map[string]interface{}) string {
 				return fmt.Sprintf("%v", v)
 			}
 		case "env":
-			// 从系统环境变量获取（os.Getenv）
+			if v, ok := envMap[name]; ok {
+				return v
+			}
 			if v, ok := lookupOSEnv(name); ok {
 				return v
 			}
@@ -1322,41 +1461,59 @@ func parseParams(jsonStr string) map[string]interface{} {
 	return m
 }
 
-func (r *BuildRunner) log(buildID int64, stage, line string) {
+func (r *BuildRunner) log(buildID int64, stage, line string) error {
+	return r.logMasked(buildID, r.maskBuildText(buildID, stage), r.maskBuildText(buildID, line))
+}
+
+func (r *BuildRunner) logMasked(buildID int64, stage, line string) error {
+	line = boundLiveBuildLogLine(line)
 	ts := time.Now().Format("15:04:05")
 	entry := fmt.Sprintf("[%s] [%s] %s\n", ts, stage, line)
-	_ = r.store.AppendBuildLog(buildID, entry)
-	if r.hub != nil {
-		ws.BroadcastBuildLog(r.hub, fmt.Sprintf("%d", buildID), map[string]interface{}{
-			"timestamp": ts, "stage": stage, "line": line, "level": "info",
-		})
+	payload := map[string]interface{}{
+		"timestamp": ts, "stage": stage, "line": line, "level": "info",
 	}
+	if r.liveLogBroadcast != nil {
+		r.liveLogBroadcast(buildID, payload)
+	} else if r.hub != nil {
+		ws.BroadcastBuildLog(r.hub, fmt.Sprintf("%d", buildID), payload)
+	}
+	return r.appendDurableBuildLog(buildID, entry)
 }
 
 func (r *BuildRunner) broadcastStatus(buildID int64, status, stage string, progress float64) {
+	switch status {
+	case "success", "failed", "cancelled":
+		r.flushDurableBuildLog(buildID, true)
+	}
 	if r.hub == nil {
 		return
 	}
 	ws.BroadcastBuildStatus(r.hub, fmt.Sprintf("%d", buildID), map[string]interface{}{
-		"status": status, "stage": stage, "progress": progress,
+		"status": r.maskBuildText(buildID, status), "stage": r.maskBuildText(buildID, stage), "progress": progress,
 	})
 }
 
 func (r *BuildRunner) fail(buildID int64, start time.Time, msg string, project *store.Project) {
 	r.log(buildID, "", "BUILD FAILED: "+msg)
+	// Persist the complete failure summary before status becomes terminal. Store
+	// status is used as the completion barrier by API clients and test runners.
+	r.flushDurableBuildLog(buildID, true)
 	_ = r.store.FinishBuild(buildID, "failed", time.Since(start).Milliseconds())
 	_ = r.store.UpdateBuildQueueItemStatusByBuildID(buildID, "failed")
-	r.broadcastStatus(buildID, "failed", "", 1.0)
 
 	if r.notificationService != nil && project != nil {
 		finishedBuild, _ := r.store.GetBuild(buildID)
 		if finishedBuild != nil {
-			go r.notificationService.SendBuildNotifications(finishedBuild, project)
+			r.sendBuildEventAsync(buildID, finishedBuild, project, "build.completed")
 		}
 	}
 
 	r.recordStatistics(buildID)
 	r.scheduleAutomaticRetry(buildID)
+	// Automatic-retry diagnostics belong to the failed build. Flush them before
+	// publishing terminal status so they cannot recreate leaked per-build state.
+	r.flushDurableBuildLog(buildID, true)
+	r.broadcastStatus(buildID, "failed", "", 1.0)
 }
 
 func (r *BuildRunner) scheduleAutomaticRetry(buildID int64) {

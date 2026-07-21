@@ -123,5 +123,5 @@ GET /api/notifications/channels/{id}/events
 
 ## Next Steps
 
-- [Pipeline Guide](/pipelines) - Create pipelines
-- [Configuration](/configuration) - Configure the server
+- [Pipeline Guide](./pipelines.md) - Create pipelines
+- [Configuration](./configuration.md) - Configure the server

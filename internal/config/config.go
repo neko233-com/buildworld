@@ -13,21 +13,17 @@ type Config struct {
 	Auth       AuthConfig       `yaml:"auth"`
 	Plugins    PluginsConfig    `yaml:"plugins"`
 	Storage    StorageConfig    `yaml:"storage"`
-	Git        GitConfig        `yaml:"git"`
 	Workers    WorkersConfig    `yaml:"workers"`
 	Automation AutomationConfig `yaml:"automation"`
 }
 
 type AutomationConfig struct {
 	GitHubWebhookSecret string `yaml:"github_webhook_secret"`
-	DevRestartCommand   string `yaml:"dev_restart_command"`
-	CommitRestartMarker string `yaml:"commit_restart_marker"`
 }
 
 type ServerConfig struct {
 	Host string `yaml:"host"`
 	Port int    `yaml:"port"`
-	TLS  bool   `yaml:"tls"`
 }
 
 type DatabaseConfig struct {
@@ -35,56 +31,28 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret string      `yaml:"jwt_secret"`
-	OAuth     OAuthConfig `yaml:"oauth"`
-}
-
-type OAuthConfig struct {
-	GitHub GitHubOAuth `yaml:"github"`
-}
-
-type GitHubOAuth struct {
-	ClientID     string `yaml:"client_id"`
-	ClientSecret string `yaml:"client_secret"`
+	JWTSecret string `yaml:"jwt_secret"`
 }
 
 type PluginsConfig struct {
-	Path      string `yaml:"path"`
-	HotReload bool   `yaml:"hot_reload"`
+	Path string `yaml:"path"`
 }
 
 type StorageConfig struct {
-	Workspace string `yaml:"workspace"`
 	BuildTemp string `yaml:"build_temp"`
 	Artifacts string `yaml:"artifacts"`
-	Logs      string `yaml:"logs"`
-}
-
-type GitConfig struct {
-	SSHKeyPath string `yaml:"ssh_key_path"`
-	KnownHosts string `yaml:"known_hosts"`
 }
 
 type WorkersConfig struct {
-	Local           LocalWorkerConfig    `yaml:"local"`
-	Remote          []RemoteWorkerConfig `yaml:"remote"`
-	EnrollmentToken string               `yaml:"enrollment_token"`
+	Local           LocalWorkerConfig `yaml:"local"`
+	EnrollmentToken string            `yaml:"enrollment_token"`
 }
 
 type LocalWorkerConfig struct {
-	Enabled             bool     `yaml:"enabled"`
 	MaxConcurrentBuilds int      `yaml:"max_concurrent_builds"`
 	Workspace           string   `yaml:"workspace"`
 	Pool                string   `yaml:"pool"`
 	Labels              []string `yaml:"labels"`
-}
-
-type RemoteWorkerConfig struct {
-	Name                string   `yaml:"name"`
-	Address             string   `yaml:"address"`
-	Token               string   `yaml:"token"`
-	Labels              []string `yaml:"labels"`
-	MaxConcurrentBuilds int      `yaml:"max_concurrent_builds"`
 }
 
 func Load(path string) (*Config, error) {

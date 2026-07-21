@@ -1,6 +1,0 @@
-{
-  "name": "powershell",
-  "version": "1.0.0",
-  "description": "PowerShell enhanced steps with output capture, error handling, and modules",
-  "author": "buildworld"
-}

@@ -18,6 +18,7 @@ artifacts/
 
 # Local release staging and one-off binaries.
 release/
+output/
 /*.exe
 token.txt
 

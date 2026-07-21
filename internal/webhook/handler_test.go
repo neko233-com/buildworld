@@ -2,13 +2,14 @@ package webhook
 
 import (
 	"bytes"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
 func TestWebhookHandlerGitHub(t *testing.T) {
-	handler := NewWebhookHandler("")
+	handler := NewWebhookHandler("github-secret")
 
 	received := false
 	handler.OnPush(func(payload WebhookPayload) error {
@@ -36,6 +37,7 @@ func TestWebhookHandlerGitHub(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/webhook/github", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(handler.computeHMAC([]byte(body))))
 	w := httptest.NewRecorder()
 
 	handler.HandleGitHubWebhook(w, req)
@@ -46,6 +48,100 @@ func TestWebhookHandlerGitHub(t *testing.T) {
 
 	if !received {
 		t.Error("Push handler was not called")
+	}
+}
+
+func TestWebhookHandlerGitLabSignedPush(t *testing.T) {
+	handler := NewWebhookHandler("gitlab-secret")
+	received := false
+	handler.OnPush(func(payload WebhookPayload) error {
+		received = payload.Repository.FullName == "owner/repo"
+		return nil
+	})
+	body := `{"ref":"refs/heads/main","repository":{"full_name":"owner/repo"}}`
+	req := httptest.NewRequest(http.MethodPost, "/webhook/gitlab", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Gitlab-Token", "gitlab-secret")
+	w := httptest.NewRecorder()
+
+	handler.HandleGitLabWebhook(w, req)
+
+	if w.Code != http.StatusOK || !received {
+		t.Fatalf("signed GitLab push = status %d received %t, want 200/true", w.Code, received)
+	}
+}
+
+func TestWebhookProvidersRequireConfiguredMatchingSecret(t *testing.T) {
+	body := []byte(`{"ref":"refs/heads/main","repository":{"full_name":"owner/repo"}}`)
+	providers := []struct {
+		name      string
+		handle    func(*WebhookHandler, http.ResponseWriter, *http.Request)
+		setSecret func(*http.Request, string)
+	}{
+		{
+			name:   "github",
+			handle: func(h *WebhookHandler, w http.ResponseWriter, r *http.Request) { h.HandleGitHubWebhook(w, r) },
+			setSecret: func(r *http.Request, secret string) {
+				signature := NewWebhookHandler(secret).computeHMAC(body)
+				r.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(signature))
+			},
+		},
+		{
+			name:   "gitlab",
+			handle: func(h *WebhookHandler, w http.ResponseWriter, r *http.Request) { h.HandleGitLabWebhook(w, r) },
+			setSecret: func(r *http.Request, secret string) {
+				r.Header.Set("X-Gitlab-Token", secret)
+			},
+		},
+		{
+			name:   "gitea",
+			handle: func(h *WebhookHandler, w http.ResponseWriter, r *http.Request) { h.HandleGiteaWebhook(w, r) },
+			setSecret: func(r *http.Request, secret string) {
+				signature := NewWebhookHandler(secret).computeHMAC(body)
+				r.Header.Set("X-Gitea-Signature", hex.EncodeToString(signature))
+			},
+		},
+	}
+
+	for _, provider := range providers {
+		t.Run(provider.name+"/empty-secret", func(t *testing.T) {
+			handler := NewWebhookHandler("")
+			called := false
+			handler.OnPush(func(WebhookPayload) error { called = true; return nil })
+			req := httptest.NewRequest(http.MethodPost, "/webhook/"+provider.name, bytes.NewReader(body))
+			provider.setSecret(req, "")
+			recorder := httptest.NewRecorder()
+			provider.handle(handler, recorder, req)
+			if recorder.Code != http.StatusServiceUnavailable || called {
+				t.Fatalf("status/callback = %d/%t, want 503/false", recorder.Code, called)
+			}
+		})
+
+		t.Run(provider.name+"/wrong-secret", func(t *testing.T) {
+			handler := NewWebhookHandler("expected-secret")
+			called := false
+			handler.OnPush(func(WebhookPayload) error { called = true; return nil })
+			req := httptest.NewRequest(http.MethodPost, "/webhook/"+provider.name, bytes.NewReader(body))
+			provider.setSecret(req, "wrong-secret")
+			recorder := httptest.NewRecorder()
+			provider.handle(handler, recorder, req)
+			if recorder.Code != http.StatusUnauthorized || called {
+				t.Fatalf("status/callback = %d/%t, want 401/false", recorder.Code, called)
+			}
+		})
+
+		t.Run(provider.name+"/correct-secret", func(t *testing.T) {
+			handler := NewWebhookHandler("expected-secret")
+			called := false
+			handler.OnPush(func(WebhookPayload) error { called = true; return nil })
+			req := httptest.NewRequest(http.MethodPost, "/webhook/"+provider.name, bytes.NewReader(body))
+			provider.setSecret(req, "expected-secret")
+			recorder := httptest.NewRecorder()
+			provider.handle(handler, recorder, req)
+			if recorder.Code != http.StatusOK || !called {
+				t.Fatalf("status/callback = %d/%t, want 200/true", recorder.Code, called)
+			}
+		})
 	}
 }
 
@@ -63,10 +159,12 @@ func TestWebhookHandlerMethodNotAllowed(t *testing.T) {
 }
 
 func TestWebhookHandlerInvalidPayload(t *testing.T) {
-	handler := NewWebhookHandler("")
+	handler := NewWebhookHandler("invalid-payload-secret")
 
-	req := httptest.NewRequest("POST", "/webhook/github", bytes.NewBufferString("invalid"))
+	body := []byte("invalid")
+	req := httptest.NewRequest("POST", "/webhook/github", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(handler.computeHMAC(body)))
 	w := httptest.NewRecorder()
 
 	handler.HandleGitHubWebhook(w, req)

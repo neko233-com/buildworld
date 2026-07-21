@@ -47,18 +47,26 @@ func (m *BuildLogManager) GetStructuredLogs(buildID int64) ([]LogEntry, error) {
 
 // DownloadLogs 返回 (data, filename)，format 为 "txt" 或 "json"。
 func (m *BuildLogManager) DownloadLogs(buildID int64, format string) ([]byte, string) {
+	data, filename, _ := m.DownloadLogsWithRetention(buildID, format)
+	return data, filename
+}
+
+// DownloadLogsWithRetention also reports whether durable history was trimmed.
+// Both text and JSON downloads retain an explicit marker in their content.
+func (m *BuildLogManager) DownloadLogsWithRetention(buildID int64, format string) ([]byte, string, bool) {
 	build, err := m.store.GetBuild(buildID)
 	if err != nil {
-		return nil, ""
+		return nil, "", false
 	}
 	filename := fmt.Sprintf("build-%d-logs.%s", buildID, format)
+	truncated := store.IsBuildLogTruncated(build.Log)
 	switch strings.ToLower(format) {
 	case "json":
 		entries := parseLogEntries(build.Log)
 		data, _ := json.MarshalIndent(entries, "", "  ")
-		return data, filename
+		return data, filename, truncated
 	default:
-		return []byte(build.Log), filename
+		return []byte(build.Log), filename, truncated
 	}
 }
 

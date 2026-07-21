@@ -1,9 +1,11 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
+
+	"github.com/neko233-com/buildworld/internal/processtree"
 )
 
 type Client struct{}
@@ -13,7 +15,11 @@ func NewClient() *Client {
 }
 
 func (c *Client) Clone(url, dest string) error {
-	cmd := exec.Command("git", "clone", url, dest)
+	return c.CloneContext(context.Background(), url, dest)
+}
+
+func (c *Client) CloneContext(ctx context.Context, url, dest string) error {
+	cmd := processtree.CommandContext(ctx, "git", "clone", url, dest)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git clone failed: %w, output: %s", err, output)
@@ -22,6 +28,10 @@ func (c *Client) Clone(url, dest string) error {
 }
 
 func (c *Client) CloneWithSSH(url, dest, username, password string) error {
+	return c.CloneWithSSHContext(context.Background(), url, dest, username, password)
+}
+
+func (c *Client) CloneWithSSHContext(ctx context.Context, url, dest, username, password string) error {
 	// Create credential helper for password authentication
 	credHelper, err := createSSHCredentialHelper(username, password)
 	if err != nil {
@@ -29,7 +39,7 @@ func (c *Client) CloneWithSSH(url, dest, username, password string) error {
 	}
 	defer os.Remove(credHelper)
 
-	cmd := exec.Command("git", "clone", url, dest)
+	cmd := processtree.CommandContext(ctx, "git", "clone", url, dest)
 	cmd.Env = append(os.Environ(),
 		"GIT_ASKPASS="+credHelper,
 		"GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no",
@@ -42,7 +52,11 @@ func (c *Client) CloneWithSSH(url, dest, username, password string) error {
 }
 
 func (c *Client) Pull(repoPath string) error {
-	cmd := exec.Command("git", "-C", repoPath, "pull")
+	return c.PullContext(context.Background(), repoPath)
+}
+
+func (c *Client) PullContext(ctx context.Context, repoPath string) error {
+	cmd := processtree.CommandContext(ctx, "git", "-C", repoPath, "pull")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git pull failed: %w, output: %s", err, output)
@@ -51,7 +65,11 @@ func (c *Client) Pull(repoPath string) error {
 }
 
 func (c *Client) Checkout(repoPath, branch string) error {
-	cmd := exec.Command("git", "-C", repoPath, "checkout", branch)
+	return c.CheckoutContext(context.Background(), repoPath, branch)
+}
+
+func (c *Client) CheckoutContext(ctx context.Context, repoPath, branch string) error {
+	cmd := processtree.CommandContext(ctx, "git", "-C", repoPath, "checkout", branch)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git checkout failed: %w, output: %s", err, output)
@@ -78,31 +96,4 @@ esac
 	}
 
 	return tmpFile.Name(), nil
-}
-
-func CreateSSHKeyPair(keyPath string) error {
-	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-f", keyPath, "-N", "")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("ssh-keygen failed: %w, output: %s", err, output)
-	}
-	return nil
-}
-
-func GetPublicKey(keyPath string) (string, error) {
-	pubKeyPath := keyPath + ".pub"
-	data, err := os.ReadFile(pubKeyPath)
-	if err != nil {
-		return "", fmt.Errorf("read public key: %w", err)
-	}
-	return string(data), nil
-}
-
-func GetFingerprint(pubKeyPath string) (string, error) {
-	cmd := exec.Command("ssh-keygen", "-lf", pubKeyPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("get fingerprint failed: %w, output: %s", err, output)
-	}
-	return string(output), nil
 }

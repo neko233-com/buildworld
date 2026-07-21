@@ -141,6 +141,19 @@ describe('BuildLogViewer', () => {
     expect(jsonDownload.disabled).toBe(false)
   })
 
+  it('clearly reports when durable history was truncated', async () => {
+    getBuildLogs.mockResolvedValueOnce({
+      log: '[buildworld] Earlier persisted log output was truncated\nnewest',
+      truncated: true,
+      retention_characters: 1_000_000,
+    })
+    await renderViewer()
+
+    const warning = container.querySelector('[role="status"].retention-warning')
+    expect(warning?.textContent).toContain('1000000-character limit')
+    expect(warning?.textContent).toContain('live WebSocket stream was unaffected')
+  })
+
   it('appends build-log socket events and reports the live connection state', async () => {
     getBuild.mockResolvedValue({ id: 42, number: 7, project_id: 3, status: 'running' })
     await renderViewer()
@@ -155,6 +168,34 @@ describe('BuildLogViewer', () => {
       payload: { timestamp: '10:00:02', stage: 'Build', line: 'compile completed' },
     }))
     expect(container.textContent).toContain('[10:00:02] [Build] compile completed')
+  })
+
+  it('follows new live output until the user scrolls away from the bottom', async () => {
+    getBuild.mockResolvedValue({ id: 42, number: 7, project_id: 3, status: 'running' })
+    await renderViewer()
+
+    const viewport = container.querySelector<HTMLDivElement>('.plain-log-viewport')!
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, get: () => 1200 })
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, get: () => 300 })
+    const socket = MockWebSocket.instances[0]
+
+    await act(async () => socket?.emitMessage({
+      type: 'build:log',
+      payload: { timestamp: '10:00:03', stage: 'Observe', line: 'latest server line' },
+    }))
+    expect(viewport.scrollTop).toBe(1200)
+
+    await act(async () => {
+      viewport.scrollTop = 500
+      viewport.dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    expect(container.textContent).toContain('Live follow paused')
+
+    await act(async () => socket?.emitMessage({
+      type: 'build:log',
+      payload: { timestamp: '10:00:04', stage: 'Observe', line: 'line while reviewing history' },
+    }))
+    expect(viewport.scrollTop).toBe(500)
   })
 
   it('redirects invalid and unauthenticated routes without issuing API calls', async () => {

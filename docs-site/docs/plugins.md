@@ -2,161 +2,69 @@
 sidebar_position: 5
 ---
 
-# Plugin Development
+# Go binary plugins
 
-## Overview
+BuildWorld v1 supports only out-of-process Go binary plugins. It does not load
+JavaScript or TypeScript plugin source, expose an `eval`/`exec` bridge, or allow
+plugins to inject browser UI. TypeScript remains available for pipeline files;
+it is a separate, statically parsed configuration format.
 
-Plugins extend buildworld functionality. Plugins are written in TypeScript/JavaScript and run in the goja runtime.
+## Install
 
-## Plugin Structure
+An administrator installs a plugin from its public HTTPS GitHub repository on
+the **Plugins** page. The repository must contain `plugin-buildworld.json` at
+its root. BuildWorld validates the manifest, then downloads a checksummed
+release for the current platform or locally builds the declared Go package.
 
-```
-plugins/
-├── my-plugin/
-│   ├── plugin.json      # Plugin metadata
-│   ├── index.js         # Plugin entry point
-│   └── package.json     # Dependencies (optional)
-```
-
-## Plugin Metadata
+Go plugins are trusted native programs, not sandboxed extensions. BuildWorld
+runs the binary with the service account's operating-system permissions. A
+SHA-256 checksum proves that bytes match the reviewed artifact; it does not
+prove the program is safe. Review and trust the repository and release before
+confirming installation, and run BuildWorld with the least privileges needed.
 
 ```json
 {
-  "name": "my-plugin",
-  "version": "1.0.0",
-  "description": "A custom plugin"
+  "api_version": "buildworld.plugin/v1",
+  "name": "acme-deploy",
+  "version": "1.2.0",
+  "description": "Deploy an Acme service",
+  "author": "Acme",
+  "entrypoint": "bin/acme-deploy",
+  "package": "./cmd/acme-deploy",
+  "steps": ["acme:deploy"]
 }
 ```
 
-## Plugin Entry Point
+Prebuilt entries add a `releases` array. Every release declares `goos`,
+`goarch`, an HTTPS download URL, and `checksum_sha256`. BuildWorld also records
+and verifies the checksum of locally built binaries.
 
-```javascript
-// index.js
-function onLoad() {
-  console.log("Plugin loaded!");
-  
-  // Register custom steps
-  return {
-    steps: {
-      "my-step": function(config) {
-        // Custom step implementation
-        console.log("Executing my-step with config:", config);
-      }
-    },
-    triggers: {
-      "my-trigger": function(event) {
-        // Custom trigger implementation
-        console.log("Triggered:", event);
-      }
-    }
-  };
-}
-
-function onUnload() {
-  console.log("Plugin unloaded!");
-}
-
-exports.onLoad = onLoad;
-exports.onUnload = onUnload;
-```
-
-## Registering Custom Steps
-
-```javascript
-// index.js
-function onLoad() {
-  return {
-    steps: {
-      "notify-slack": function(config) {
-        const { channel, message } = config;
-        // Send Slack notification
-        console.log(`Sending to ${channel}: ${message}`);
-      },
-      
-      "deploy-s3": function(config) {
-        const { bucket, source } = config;
-        // Deploy to S3
-        console.log(`Deploying ${source} to s3://${bucket}`);
-      }
-    }
-  };
-}
-```
-
-## Using Custom Steps in Pipeline
+## Execute a custom step
 
 ```typescript
-// buildworld.config.ts
 pipeline({
-  name: "my-build",
-  stages: [
-    {
-      name: "Deploy",
-      steps: [
-        {
-          name: "notify-slack",
-          type: "my-step",
-          config: {
-            channel: "#builds",
-            message: "Build completed!"
-          }
-        }
-      ]
-    }
-  ]
-});
+  name: "deploy",
+  stages: [{
+    name: "Deploy",
+    steps: [{
+      name: "Deploy service",
+      type: "acme:deploy",
+      config: { environment: "staging" }
+    }]
+  }]
+})
 ```
 
-## Hot Reload
+The plugin receives a JSON step context on standard input and returns logs,
+environment values, outputs, or an error as JSON on standard output. It runs in
+its own process and follows build cancellation.
 
-Plugins are automatically reloaded when files change:
+## Lifecycle
 
-1. Plugin files are watched by fsnotify
-2. On change: unload old plugin → reload new plugin
-3. Zero downtime — running builds continue with old version
+- Disable or enable a plugin without deleting its installation.
+- Reload after replacing an installed manifest or binary.
+- Remove deletes the installed binary directory and its database record.
+- Remote workers resolve the same approved GitHub source and verify the exact
+  manifest digest before execution.
 
-## Plugin API
-
-### Available APIs
-
-```javascript
-function onLoad() {
-  return {
-    // Pipeline API
-    pipeline: {
-      // Access pipeline configuration
-    },
-    
-    // Build API
-    build: {
-      // Access build information
-    },
-    
-    // Notification API
-    notify: {
-      slack: function(channel, message) { /* ... */ },
-      email: function(to, subject, body) { /* ... */ },
-      webhook: function(url, data) { /* ... */ }
-    },
-    
-    // Environment API
-    env: {
-      get: function(name) { /* ... */ },
-      set: function(name, value) { /* ... */ }
-    }
-  };
-}
-```
-
-## Best Practices
-
-1. **Keep plugins focused** - One plugin, one responsibility
-2. **Handle errors gracefully** - Catch and log errors
-3. **Use meaningful names** - Clear step and trigger names
-4. **Document your plugin** - Add description and usage examples
-5. **Test your plugin** - Verify it works in different scenarios
-
-## Next Steps
-
-- [Pipeline Guide](/pipelines) - Use plugins in pipelines
-- [Templates](/templates) - Create plugin-based templates
+See [TypeScript pipelines](./typescript-pipelines.md) for pipeline authoring.

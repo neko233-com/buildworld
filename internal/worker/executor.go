@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/neko233-com/buildworld/internal/bytemsg"
 	"github.com/neko233-com/buildworld/internal/engine"
 	"github.com/neko233-com/buildworld/internal/plugin"
+	"github.com/neko233-com/buildworld/internal/processtree"
 	pb "github.com/neko233-com/buildworld/internal/rpc/generated"
 	"google.golang.org/grpc"
 )
@@ -30,11 +30,6 @@ type Executor struct {
 	environment *engine.BuildEnvironment
 	pluginMu    sync.Mutex
 }
-
-// ProtocolVersion identifies the versioned binary message contract between
-// buildworld-server and every worker instance. Future incompatible changes use
-// a new value instead of silently decoding mismatched requests.
-const ProtocolVersion = bytemsg.LegacyVersion
 
 const (
 	remoteArtifactChunkSize = 512 * 1024
@@ -62,7 +57,7 @@ func NewExecutorWithPluginsAt(plugins *plugin.Loader, environment *engine.BuildE
 
 func (e *Executor) ExecuteBuild(req *pb.BuildRequest, stream grpc.ServerStreamingServer[pb.BuildResponse]) error {
 	ctx := stream.Context()
-	if err := bytemsg.Validate(req.Protocol, req.ProtocolVersion); err != nil {
+	if err := bytemsg.Validate(req.Protocol); err != nil {
 		return e.send(stream, req.BuildId, "", "", err.Error(), "failed", true)
 	}
 	buildCtx, cancel := context.WithCancel(ctx)
@@ -90,50 +85,156 @@ func (e *Executor) ExecuteBuild(req *pb.BuildRequest, stream grpc.ServerStreamin
 	}
 	defer os.RemoveAll(workspace)
 	if req.RepoUrl != "" {
-		if err := exec.CommandContext(buildCtx, "git", "clone", req.RepoUrl, workspace).Run(); err != nil {
+		if err := processtree.CommandContext(buildCtx, "git", "clone", req.RepoUrl, workspace).Run(); err != nil {
 			return e.send(stream, req.BuildId, "checkout", "clone", err.Error(), "failed", true)
 		}
 		if req.Branch != "" {
-			_ = exec.CommandContext(buildCtx, "git", "-C", workspace, "checkout", req.Branch).Run()
+			if err := processtree.CommandContext(buildCtx, "git", "-C", workspace, "checkout", req.Branch).Run(); err != nil {
+				return e.send(stream, req.BuildId, "checkout", "branch", err.Error(), "failed", true)
+			}
 		}
 	}
-	env := make([]string, 0, len(req.Environment))
-	for key, value := range req.Environment {
-		env = append(env, key+"="+value)
-	}
+	env := engine.AppendPipelineEnvironment(nil, cfg.Environment)
+	env = engine.AppendPipelineEnvironment(env, req.Environment)
 	isolated, err := e.environment.Environment(workspace)
 	if err != nil {
 		return err
 	}
 	env = append(env, isolated...)
 	runner := engine.NewExecutor()
+	stageStatuses := make(map[string]string, len(cfg.Stages))
+	var failedStages []string
+	buildFailed := false
 	for _, stage := range cfg.Stages {
+		stageKey := engine.StageKey(stage)
 		if len(stage.Branches) > 0 && !matchesBranch(stage.Branches, req.Branch) {
 			if err := e.send(stream, req.BuildId, stage.Name, "", "skipped: branch does not match "+strings.Join(stage.Branches, ", "), "skipped", false); err != nil {
 				return err
 			}
+			stageStatuses[stageKey] = engine.StageStatusSkipped
 			continue
 		}
-		for _, step := range stage.Steps {
+		shouldRun, err := engine.ShouldRunStage(stage, stageStatuses)
+		if err != nil {
+			return e.send(stream, req.BuildId, stage.Name, "", err.Error(), "failed", true)
+		}
+		skipMessage := "skipped: dependency/if condition evaluated to false"
+		if buildFailed {
+			if strings.TrimSpace(stage.If) == "" {
+				if shouldRun {
+					shouldRun = false
+					skipMessage = "skipped: fail-fast after previous stage failure"
+				}
+			} else {
+				shouldRun, err = engine.EvaluatePipelineCondition(stage.If, engine.ConditionContext{Success: false, Failure: true})
+				if err != nil {
+					return e.send(stream, req.BuildId, stage.Name, "", err.Error(), "failed", true)
+				}
+			}
+		}
+		if !shouldRun {
+			if err := e.send(stream, req.BuildId, stage.Name, "", skipMessage, "skipped", false); err != nil {
+				return err
+			}
+			stageStatuses[stageKey] = engine.StageStatusSkipped
+			continue
+		}
+
+		stageCtx := buildCtx
+		cancelStage := func() {}
+		if stage.TimeoutSec > 0 {
+			stageCtx, cancelStage = context.WithTimeout(buildCtx, time.Duration(stage.TimeoutSec)*time.Second)
+		}
+		stageEnv := engine.AppendPipelineEnvironment(env, stage.Environment)
+		stageBaseEnvLength := len(stageEnv)
+		stageFailed := false
+		for _, configuredStep := range stage.Steps {
+			step := configuredStep
+			if stage.WorkingDirectory != "" {
+				if step.Config == nil {
+					step.Config = make(map[string]string)
+				} else {
+					step.Config = cloneStringMap(step.Config)
+				}
+				if step.Config["working-directory"] == "" {
+					step.Config["working-directory"] = stage.WorkingDirectory
+				}
+			}
+			if stageFailed && strings.TrimSpace(step.If) == "" {
+				if err := e.send(stream, req.BuildId, stage.Name, step.Name, "skipped: fail-fast after previous step failure", "skipped", false); err != nil {
+					cancelStage()
+					return err
+				}
+				continue
+			}
+			stepShouldRun := true
+			if strings.TrimSpace(step.If) != "" {
+				var conditionErr error
+				stepShouldRun, conditionErr = engine.EvaluatePipelineCondition(step.If, engine.ConditionContext{Success: !stageFailed, Failure: stageFailed})
+				if conditionErr != nil {
+					cancelStage()
+					return e.send(stream, req.BuildId, stage.Name, step.Name, conditionErr.Error(), "failed", true)
+				}
+			}
+			if !stepShouldRun {
+				if err := e.send(stream, req.BuildId, stage.Name, step.Name, "skipped: if condition evaluated to false", "skipped", false); err != nil {
+					cancelStage()
+					return err
+				}
+				continue
+			}
 			if step.Type == "git" {
+				message := "checkout already completed by remote worker preflight"
+				if req.RepoUrl == "" {
+					message = "checkout skipped: no repository URL was supplied"
+				}
+				if err := e.send(stream, req.BuildId, stage.Name, step.Name, message, "success", false); err != nil {
+					cancelStage()
+					return err
+				}
 				continue
 			}
 			if err := e.send(stream, req.BuildId, stage.Name, step.Name, "started", "running", false); err != nil {
+				cancelStage()
 				return err
 			}
-			stepEnv := engine.AppendRuntimeEnvironment(env, cfg, step.Runtime)
+			stepEnv := engine.AppendRuntimeEnvironment(stageEnv, cfg, step.Runtime)
 			var outputs []string
 			onOutput := func(line string) {
 				outputs = engine.AppendBuildOutputs(outputs, line)
 				_ = e.send(stream, req.BuildId, stage.Name, step.Name, line, "running", false)
 			}
-			err := e.runStep(buildCtx, runner, step, workspace, stepEnv, onOutput)
+			err := e.runStep(stageCtx, runner, step, workspace, stepEnv, onOutput)
 			if err != nil {
-				e.runPost(cfg, "failure", workspace, env, runner, stream, req.BuildId)
-				return e.send(stream, req.BuildId, stage.Name, step.Name, err.Error(), "failed", true)
+				stageFailed = true
+				if sendErr := e.send(stream, req.BuildId, stage.Name, step.Name, "ERROR: "+err.Error(), "running", false); sendErr != nil {
+					cancelStage()
+					return sendErr
+				}
+				if stageCtx.Err() == context.DeadlineExceeded {
+					if sendErr := e.send(stream, req.BuildId, stage.Name, step.Name, fmt.Sprintf("stage timed out after %ds", stage.TimeoutSec), "running", false); sendErr != nil {
+						cancelStage()
+						return sendErr
+					}
+					break
+				}
+				continue
 			}
-			env = append(env, outputs...)
+			stageEnv = append(stageEnv, outputs...)
 		}
+		cancelStage()
+		env = append(env, stageEnv[stageBaseEnvLength:]...)
+		if stageFailed {
+			stageStatuses[stageKey] = engine.StageStatusFailed
+			failedStages = append(failedStages, stage.Name)
+			buildFailed = true
+		} else {
+			stageStatuses[stageKey] = engine.StageStatusSuccess
+		}
+	}
+	if len(failedStages) > 0 {
+		e.runPost(cfg, "failure", workspace, env, runner, stream, req.BuildId)
+		return e.send(stream, req.BuildId, "done", "", "failed stage(s): "+strings.Join(failedStages, ", "), "failed", true)
 	}
 	e.runPost(cfg, "success", workspace, env, runner, stream, req.BuildId)
 	if err := e.streamArtifacts(stream, req.BuildId, workspace, cfg.Artifacts); err != nil {
@@ -290,27 +391,42 @@ func (e *Executor) runStep(ctx context.Context, runner *engine.Executor, step en
 }
 
 func (e *Executor) runBaseStep(ctx context.Context, runner *engine.Executor, step engine.Step, workspace string, env []string, onOutput func(string)) error {
-	command := engine.ResolvePipelineVariables(step.Command, env, nil)
+	stepEnv := engine.AppendStepEnvironment(env, step.Config)
+	workingDirectory := workspace
+	if configured := step.Config["working-directory"]; configured != "" {
+		resolved, err := engine.ResolveWorkspaceDirectory(workspace, engine.ResolvePipelineVariables(configured, stepEnv, nil))
+		if err != nil {
+			return err
+		}
+		workingDirectory = resolved
+	}
+	command := engine.ResolvePipelineVariables(step.Command, stepEnv, nil)
 	switch step.Type {
 	case "service_watch":
 		config := make(map[string]string, len(step.Config))
 		for key, value := range step.Config {
-			config[key] = engine.ResolvePipelineVariables(value, env, nil)
+			config[key] = engine.ResolvePipelineVariables(value, stepEnv, nil)
 		}
-		return engine.WatchService(ctx, workspace, config, onOutput)
+		return engine.WatchService(ctx, workingDirectory, config, onOutput)
 	case "", "shell", "tail":
 		if step.Shell != "" {
-			return runner.RunMultiShell(ctx, step.Shell, command, workspace, env, onOutput)
+			return runner.RunMultiShell(ctx, step.Shell, command, workingDirectory, stepEnv, onOutput)
 		}
-		return runner.RunShell(ctx, command, workspace, env, onOutput)
+		return runner.RunShell(ctx, command, workingDirectory, stepEnv, onOutput)
 	case "powershell", "ps1", "pwsh", "bash", "sh", "python", "python3", "cmd":
-		return runner.RunMultiShell(ctx, step.Type, command, workspace, env, onOutput)
+		return runner.RunMultiShell(ctx, step.Type, command, workingDirectory, stepEnv, onOutput)
 	case "script":
-		return runner.RunMultiShell(ctx, "sh", command, workspace, env, onOutput)
+		return runner.RunMultiShell(ctx, "sh", command, workingDirectory, stepEnv, onOutput)
+	case "git":
+		onOutput("checkout already handled by remote worker preflight")
+		return nil
+	case "notify":
+		onOutput("Notification skipped: remote workers do not own notification credentials")
+		return nil
 	default:
 		if e.plugins != nil {
 			if handler := e.plugins.LookupStep(step.Type); handler != nil {
-				sc := &plugin.StepContext{Workspace: workspace, Config: step.Config}
+				sc := &plugin.StepContext{Workspace: workingDirectory, Config: step.Config}
 				if err := handler(ctx, sc); err != nil {
 					return err
 				}
@@ -328,6 +444,14 @@ func (e *Executor) runBaseStep(ctx context.Context, runner *engine.Executor, ste
 		}
 		return fmt.Errorf("remote worker does not support step type: %s", step.Type)
 	}
+}
+
+func cloneStringMap(source map[string]string) map[string]string {
+	cloned := make(map[string]string, len(source))
+	for key, value := range source {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func (e *Executor) send(stream grpc.ServerStreamingServer[pb.BuildResponse], id, stage, step, output, status string, isError bool) error {

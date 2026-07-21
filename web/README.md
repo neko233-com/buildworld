@@ -1,78 +1,26 @@
-# React + TypeScript + Vite
+# BuildWorld Web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+BuildWorld 的 React + TypeScript 管理界面。生产构建由 Go 控制面提供，默认地址为 `http://127.0.0.1:8700`。
 
-Currently, two official plugins are available:
+## 本地开发
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+需要 Node.js 24 和 npm。先启动 BuildWorld 服务端，再运行：
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```powershell
+npm ci
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Vite 开发服务器监听 `http://127.0.0.1:8701`，并将 `/api` 与 `/ws` 代理到 `http://127.0.0.1:8700`。可通过 `BUILDWORLD_API_TARGET` 覆盖后端地址。
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+HTML、CSS、JavaScript 和 TypeScript 修改由 Vite 热更新，无需重新启动开发服务器。
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## 本地验证
+
+```powershell
+npm test
+npm run lint
+npm run build
 ```
-# Development endpoint
 
-`npm run dev` listens on `http://127.0.0.1:8701` and proxies API and WebSocket
-requests to the BuildWorld server at `http://127.0.0.1:8700` by default. Set
-`BUILDWORLD_API_TARGET` to override the backend target.
+`npm run build` 输出到 `web/dist`，由仓库根目录的本地发布脚本打入各平台安装包。项目不使用 GitHub Actions。

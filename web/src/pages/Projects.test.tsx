@@ -12,6 +12,7 @@ vi.mock('../api', () => ({
     listProjects: vi.fn(),
     getProject: vi.fn(),
     listProjectGroups: vi.fn(),
+    validatePipeline: vi.fn(),
     triggerBuild: vi.fn(),
     deleteProject: vi.fn(),
   },
@@ -20,8 +21,23 @@ vi.mock('../api', () => ({
 const listProjects = vi.mocked(api.listProjects)
 const getProject = vi.mocked(api.getProject)
 const listProjectGroups = vi.mocked(api.listProjectGroups)
+const validatePipeline = vi.mocked(api.validatePipeline)
 const triggerBuild = vi.mocked(api.triggerBuild)
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+
+async function expandFolder(container: HTMLElement, contentID = 'project-folder-ungrouped') {
+  const toggle = container.querySelector<HTMLButtonElement>(`button[aria-controls="${contentID}"]`)
+  await act(async () => {
+    toggle?.click()
+  })
+}
+
+async function flushRequests() {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
 
 describe('Projects', () => {
   let container: HTMLDivElement
@@ -34,6 +50,7 @@ describe('Projects', () => {
     listProjects.mockReset()
     getProject.mockReset()
     listProjectGroups.mockReset()
+    validatePipeline.mockReset()
     triggerBuild.mockReset()
     listProjects.mockResolvedValue([{
       id: 3,
@@ -47,6 +64,7 @@ describe('Projects', () => {
     }])
     listProjectGroups.mockResolvedValue([])
     getProject.mockImplementation(async id => ({ ...(await listProjects())[0], id }))
+    validatePipeline.mockResolvedValue({ valid: true, format: 'typescript', stages: 1, steps: 1, parameters: [], allow_long_running: false })
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -63,6 +81,7 @@ describe('Projects', () => {
     await act(async () => {
       root.render(<MemoryRouter><Projects /></MemoryRouter>)
     })
+    await expandFolder(container)
 
     expect(container.querySelector('a[href="/projects/new"]')).not.toBeNull()
     expect(container.querySelector('a.entity-link[href="/projects/3"]')?.textContent).toContain('Packaging matrix')
@@ -78,21 +97,25 @@ describe('Projects', () => {
       name: 'Signed release',
       repo_type: 'git',
       default_branch: 'main',
-      config: JSON.stringify({
-        parameters: [{ name: 'signing_token', type: 'password', required: true }],
-      }),
+      config: `import { definePipeline, parameter } from '@buildworld/pipeline'
+export default definePipeline({ parameters: [parameter('signing_token', 'password', { required: true })], stages: [] })
+`,
     }
     listProjects.mockResolvedValue([{ ...project, config: undefined }])
     getProject.mockResolvedValue(project)
+    validatePipeline.mockResolvedValue({ valid: true, format: 'typescript', stages: 0, steps: 0, parameters: [{ name: 'signing_token', type: 'password', required: true }], allow_long_running: false })
     await act(async () => {
       root.render(<MemoryRouter><Projects /></MemoryRouter>)
     })
+    await expandFolder(container)
 
     const quickBuild = container.querySelector<HTMLButtonElement>('button.row-run')
     expect(quickBuild).not.toBeNull()
     await act(async () => {
       quickBuild?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await Promise.resolve()
     })
+    await flushRequests()
 
     expect(getProject).toHaveBeenCalledWith(4)
     expect(triggerBuild).not.toHaveBeenCalled()
@@ -105,22 +128,79 @@ describe('Projects', () => {
       name: 'On-demand release',
       repo_type: 'git',
       default_branch: 'main',
-      config: JSON.stringify({
-        parameters: [{ name: 'release_channel', type: 'choice', required: true, choices: ['staging', 'production'] }],
-      }),
+      config: `import { definePipeline, parameter } from '@buildworld/pipeline'
+export default definePipeline({ parameters: [parameter('release_channel', 'choice', { required: true, choices: ['staging', 'production'] })], stages: [] })
+`,
     }
     listProjects.mockResolvedValue([{ ...project, config: undefined }])
     getProject.mockResolvedValue(project)
+    validatePipeline.mockResolvedValue({ valid: true, format: 'typescript', stages: 0, steps: 0, parameters: [{ name: 'release_channel', type: 'choice', required: true, choices: ['staging', 'production'] }], allow_long_running: false })
     await act(async () => {
       root.render(<MemoryRouter><Projects /></MemoryRouter>)
     })
+    await expandFolder(container)
 
     const customBuild = container.querySelector<HTMLButtonElement>('button.custom-build')
     await act(async () => {
       customBuild?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await Promise.resolve()
     })
+    await flushRequests()
 
     expect(getProject).toHaveBeenCalledWith(5)
     expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('release_channel')
+  })
+
+  it('starts folders collapsed, mounts tables on demand, and restores v2 expanded state', async () => {
+    listProjects.mockResolvedValue([
+      {
+        id: 6,
+        name: 'World server',
+        group_id: 8,
+        repo_type: 'git',
+        default_branch: 'main',
+      },
+      {
+        id: 7,
+        name: 'Unsorted tool',
+        repo_type: 'git',
+        default_branch: 'main',
+      },
+    ])
+    listProjectGroups.mockResolvedValue([{ id: 8, name: 'Game servers', color: 'mint' }])
+    localStorage.setItem('buildworld.projects.folders', JSON.stringify({ version: 1, collapsed: [] }))
+    await act(async () => {
+      root.render(<MemoryRouter><Projects /></MemoryRouter>)
+    })
+
+    const folder = container.querySelector<HTMLElement>('.project-folder[data-group-color="mint"]')
+    const toggle = folder?.querySelector<HTMLButtonElement>('button[aria-controls="project-folder-8"]')
+    const content = container.querySelector<HTMLElement>('#project-folder-8')
+    expect(folder).not.toBeNull()
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false')
+    expect(content?.hidden).toBe(true)
+    expect(content?.querySelector('table')).toBeNull()
+    expect(container.querySelector('#project-folder-ungrouped table')).toBeNull()
+
+    await act(async () => {
+      toggle?.click()
+    })
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(content?.hidden).toBe(false)
+    expect(folder?.querySelector('a[href="/projects/6"]')?.textContent).toContain('World server')
+    expect(JSON.parse(localStorage.getItem('buildworld.projects.folders') || '{}')).toEqual({
+      version: 2,
+      expanded: ['group:8'],
+    })
+
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => {
+      root.render(<MemoryRouter><Projects /></MemoryRouter>)
+    })
+    expect(container.querySelector('button[aria-controls="project-folder-8"]')?.getAttribute('aria-expanded')).toBe('true')
+    expect(container.querySelector('#project-folder-8 a[href="/projects/6"]')?.textContent).toContain('World server')
+    expect(container.querySelector('button[aria-controls="project-folder-ungrouped"]')?.getAttribute('aria-expanded')).toBe('false')
+    expect(container.querySelector('#project-folder-ungrouped table')).toBeNull()
   })
 })

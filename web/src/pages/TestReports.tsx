@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { ArrowLeft, CheckCircle2, CircleSlash2, FileCheck2, FlaskConical, LoaderCircle, Upload, XCircle } from 'lucide-react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { useI18n } from '../i18n'
-import { api } from '../api'
+import { api, type TestCaseResult } from '../api'
 import { useApi } from '../hooks'
 import { dialogs } from '../components/AppDialogs'
 import { PageState } from '../components/PageState'
@@ -13,9 +13,9 @@ function TestMetric({ icon: Icon, label, value, tone = '' }: { icon: typeof Flas
   return <article><span className={tone}><Icon size={17} /></span><div><p>{label}</p><strong>{value}</strong></div></article>
 }
 
-function resultPresentation(status: string, t: (key: string) => string) {
-  if (status === 'passed' || status === 'success') return { tone: 'success', label: t('testReports.passed') }
-  if (status === 'failed' || status === 'failure' || status === 'error') return { tone: 'failed', label: t('testReports.failed') }
+function resultPresentation(status: TestCaseResult['status'], t: (key: string) => string) {
+  if (status === 'passed') return { tone: 'success', label: t('testReports.passed') }
+  if (status === 'failed') return { tone: 'failed', label: t('testReports.failed') }
   return { tone: 'pending', label: t('testReports.skipped') }
 }
 
@@ -36,8 +36,8 @@ export default function TestReports() {
       await api.uploadTestResults(buildId, await file.text())
       await reload()
       dialogs.notify(t('testReports.uploaded'), 'success')
-    } catch (reason: any) {
-      dialogs.notify(reason.message || t('testReports.uploadFailed'))
+    } catch (reason: unknown) {
+      dialogs.notify(reason instanceof Error ? reason.message : t('testReports.uploadFailed'))
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -48,12 +48,12 @@ export default function TestReports() {
   if (loading) return <PageState />
   if (error) return <PageState error={error} onRetry={reload} />
 
-  const summary = data?.summary || data
-  const passed = summary?.passed ?? summary?.tests ?? 0
-  const failed = summary?.failed ?? summary?.failures ?? 0
-  const skipped = summary?.skipped ?? summary?.skips ?? 0
-  const total = summary?.total ?? (passed + failed + skipped)
-  const cases: any[] = data?.cases || data?.test_cases || data?.testsuites || []
+  const summary = data?.summary
+  const passed = summary?.passed ?? 0
+  const failed = summary?.failed ?? 0
+  const skipped = summary?.skipped ?? 0
+  const total = summary?.total ?? 0
+  const cases = data?.cases ?? []
 
   return <motion.section className="operations-page test-report-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
     <header className="operations-heading test-report-heading">
@@ -79,13 +79,13 @@ export default function TestReports() {
       <header><div><FileCheck2 size={17} /><h2>{t('testReports.testCases')}</h2><span>{cases.length}</span></div></header>
       {!cases.length ? <p className="operations-empty test-results-empty"><FlaskConical size={19} /><strong>{t('testReports.noCases')}</strong><small>{t('testReports.noCasesHelp')}</small></p> : <div className="operations-table-wrap"><table className="operations-table test-results-table">
         <thead><tr><th>{t('testReports.name')}</th><th>{t('builds.status')}</th><th>{t('testReports.duration')}</th></tr></thead>
-        <tbody>{cases.map((testCase: any, index: number) => {
-          const rawStatus = testCase.status || (testCase.failure ? 'failed' : 'passed')
-          const presentation = resultPresentation(rawStatus, t)
-          return <tr key={`${testCase.classname || ''}-${testCase.name || testCase.testname || index}`}>
-            <td><strong>{testCase.name || testCase.testname || testCase.classname || '-'}</strong>{testCase.classname && <small>{testCase.classname}</small>}</td>
+        <tbody>{cases.map((testCase, index) => {
+          const presentation = resultPresentation(testCase.status, t)
+          const detail = [testCase.classname, testCase.type, testCase.message].filter(Boolean).join(' · ')
+          return <tr key={`${testCase.classname || ''}-${testCase.name}-${index}`}>
+            <td><strong>{testCase.name || testCase.classname || '-'}</strong>{detail && <small>{detail}</small>}</td>
             <td><span className={`build-status ${presentation.tone}`}>{presentation.label}</span></td>
-            <td className="muted-cell">{formatDuration(testCase.time ? testCase.time * 1000 : testCase.duration_ms)}</td>
+            <td className="muted-cell">{formatDuration(testCase.duration_ms)}</td>
           </tr>
         })}</tbody>
       </table></div>}

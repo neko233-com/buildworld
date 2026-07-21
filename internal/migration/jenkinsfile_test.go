@@ -227,6 +227,147 @@ node {
 	}
 }
 
+func TestJenkinsfileStrategyWarnsForMacOSProtectedDirectories(t *testing.T) {
+	declarativeShell := func(command string) string {
+		return `pipeline {
+  agent any
+  stages {
+    stage('Build') {
+      steps { sh '''` + command + `''' }
+    }
+  }
+}`
+	}
+	scriptedShell := func(command string) string {
+		return `node {
+  stage('Build') { sh '''` + command + `''' }
+}`
+	}
+	tests := []struct {
+		name   string
+		source string
+		want   int
+	}{
+		{
+			name: "absolute Desktop environment",
+			source: `pipeline {
+  agent any
+  environment { TARGET_DIR = '/Users/gamer/Desktop/project' }
+  stages { stage('Build') { steps { sh 'make package' } } }
+}`,
+			want: 1,
+		},
+		{
+			name:   "absolute Documents shell token",
+			source: declarativeShell("cd /Users/gamer/Documents/project\nmake package\n"),
+			want:   1,
+		},
+		{
+			name:   "absolute Downloads shell token",
+			source: declarativeShell("cd /Users/gamer/Downloads/project\nmake package\n"),
+			want:   1,
+		},
+		{
+			name:   "quoted dollar HOME prefix",
+			source: declarativeShell("cd \"$HOME\"/Desktop/project\n"),
+			want:   1,
+		},
+		{
+			name:   "quoted braced HOME prefix",
+			source: declarativeShell("cd \"${HOME}\"/Documents/project\n"),
+			want:   1,
+		},
+		{
+			name:   "scripted dollar HOME path",
+			source: scriptedShell("cd $HOME/Downloads && make package\n"),
+			want:   1,
+		},
+		{
+			name:   "scripted tilde path",
+			source: scriptedShell("cd ~/Desktop/project && make package\n"),
+			want:   1,
+		},
+		{
+			name: "declarative references are deduplicated",
+			source: declarativeShell(`cd /Users/gamer/Desktop/project
+cp result "$HOME"/Documents/result
+cp result $HOME/Downloads/result
+`),
+			want: 1,
+		},
+		{
+			name:   "DesktopBackup is a sibling",
+			source: declarativeShell("cd /Users/gamer/DesktopBackup/project\n"),
+			want:   0,
+		},
+		{
+			name:   "quoted Desktop Project is a sibling",
+			source: declarativeShell("cd \"/Users/gamer/Desktop Project/project\"\n"),
+			want:   0,
+		},
+		{
+			name:   "escaped Desktop Project is a sibling",
+			source: declarativeShell("cd /Users/gamer/Desktop\\ Project/project\n"),
+			want:   0,
+		},
+		{
+			name:   "shell comment is ignored",
+			source: declarativeShell("# cd /Users/gamer/Desktop/project\necho ok\n"),
+			want:   0,
+		},
+		{
+			name: "HTTPS URL is ignored",
+			source: `pipeline {
+  agent any
+  environment { REFERENCE_URL = 'https://example.invalid/Users/gamer/Desktop/project' }
+  stages { stage('Build') { steps { sh 'echo ok' } } }
+}`,
+			want: 0,
+		},
+		{
+			name: "environment sibling with spaces is ignored",
+			source: `pipeline {
+  agent any
+  environment { TARGET_DIR = '/Users/gamer/Desktop Project/project' }
+  stages { stage('Build') { steps { sh 'echo ok' } } }
+}`,
+			want: 0,
+		},
+		{
+			name: "protected path in PATH style value",
+			source: `pipeline {
+  agent any
+  environment { TOOL_PATH = '${env.PATH}:/Users/gamer/Documents/tools' }
+  stages { stage('Build') { steps { sh 'echo ok' } } }
+}`,
+			want: 1,
+		},
+		{
+			name:   "Developer directory is unprotected",
+			source: declarativeShell("cd /Users/gamer/Developer/project\n"),
+			want:   0,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := NewJenkinsfileStrategy().Convert(Request{Source: test.source})
+			if err != nil {
+				t.Fatal(err)
+			}
+			count := 0
+			for _, warning := range result.Warnings {
+				if warning.Code == "macos_protected_directory" {
+					count++
+				}
+			}
+			if count != test.want {
+				t.Fatalf("macOS protected-directory warnings = %d, want %d: %#v", count, test.want, result.Warnings)
+			}
+		})
+	}
+}
+
 func TestJenkinsfileStrategyBackgroundsJenkinsServiceMonitors(t *testing.T) {
 	result, err := NewJenkinsfileStrategy().Convert(Request{Source: `
 pipeline {
@@ -277,6 +418,7 @@ pipeline {
     TARGET_DIR = "/srv/game"
     PID_FILE = "server.pid"
     LOG_FILE = "server.log"
+    PORT = "10101"
   }
   stages {
     stage('Monitor') {
@@ -286,11 +428,13 @@ pipeline {
           SERVER_PID=\$(cat ${PID_FILE})
           tail -f ${LOG_FILE} 2>/dev/null &
           TAIL_PID=\$!
+          HEARTBEAT_INTERVAL=30
           while true; do
             if ! kill -0 \${SERVER_PID} 2>/dev/null; then
               tail -50 ${LOG_FILE}
               exit 1
             fi
+            echo "[heartbeat] service is running (PID: \${SERVER_PID}, port: ${PORT})"
             sleep 5
           done
         """
@@ -311,6 +455,107 @@ pipeline {
 	}
 	if step.Config["target_dir"] != "${build.TARGET_DIR}" || step.Config["pid_file"] != "${build.PID_FILE}" || step.Config["log_file"] != "${build.LOG_FILE}" {
 		t.Fatalf("watch config = %#v", step.Config)
+	}
+	if step.Config["port"] != "${build.PORT}" || step.Config["heartbeat_seconds"] != "30" || step.Config["poll_seconds"] != "5" || step.Config["initial_lines"] != "10" {
+		t.Fatalf("watch cadence config = %#v", step.Config)
+	}
+}
+
+func TestJenkinsfileStrategyPreservesShellBlocksBeforeNativeWatch(t *testing.T) {
+	result, err := NewJenkinsfileStrategy().Convert(Request{Source: `
+pipeline {
+  agent any
+  environment {
+    TARGET_DIR = "/srv/game"
+    BINARY_NAME = "game-server"
+    PID_FILE = "server.pid"
+    LOG_FILE = "server.log"
+    PORT = "10101"
+  }
+  stages {
+    stage('构建与启动') {
+      steps {
+        script {
+          echo "================= 编译 Go 项目 ================="
+          sh """
+            cd ${TARGET_DIR}
+            go test ./...
+            go build -o ${BINARY_NAME} ./cmd/server
+          """
+
+          echo "================= 启动服务器 ================="
+          sh """
+            cd ${TARGET_DIR}
+            nohup ./${BINARY_NAME} > ${LOG_FILE} 2>&1 &
+            SERVER_PID=\$!
+            echo \${SERVER_PID} > ${PID_FILE}
+          """
+
+          echo "================= 启动日志监控 ================="
+          sh """
+            cd ${TARGET_DIR}
+            SERVER_PID=\$(cat ${PID_FILE})
+            tail -f ${LOG_FILE} 2>/dev/null &
+            TAIL_PID=\$!
+            HEARTBEAT_INTERVAL=30
+            LAST_HEARTBEAT=\$(date +%s)
+            while true; do
+              if ! kill -0 \${SERVER_PID} 2>/dev/null; then
+                tail -50 ${LOG_FILE}
+                exit 1
+              fi
+              CURRENT_TIME=\$(date +%s)
+              if [ \$((CURRENT_TIME - LAST_HEARTBEAT)) -ge \${HEARTBEAT_INTERVAL} ]; then
+                echo "[心跳] 服务器运行正常 (PID: \${SERVER_PID}, 端口: ${PORT})"
+                LAST_HEARTBEAT=\${CURRENT_TIME}
+              fi
+              sleep 5
+            done
+          """
+        }
+      }
+    }
+  }
+}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := engine.ParsePipelineConfig(result.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.AllowLongRunning {
+		t.Fatal("pipeline with native service watch must allow long-running builds")
+	}
+	steps := config.Stages[0].Steps
+	if len(steps) != 3 {
+		t.Fatalf("steps = %#v", steps)
+	}
+	if steps[0].Name != "编译 Go 项目" || steps[0].Type != "shell" {
+		t.Fatalf("compile step = %#v", steps[0])
+	}
+	if !strings.Contains(steps[0].Command, "go test ./...") || !strings.Contains(steps[0].Command, "go build -o ${BINARY_NAME}") {
+		t.Fatalf("compile commands were lost:\n%s", steps[0].Command)
+	}
+	if steps[1].Name != "启动服务器" || steps[1].Type != "shell" {
+		t.Fatalf("launch step = %#v", steps[1])
+	}
+	if !strings.Contains(steps[1].Command, "nohup ./${BINARY_NAME}") || !strings.Contains(steps[1].Command, "echo ${SERVER_PID} > ${PID_FILE}") {
+		t.Fatalf("launch commands were lost:\n%s", steps[1].Command)
+	}
+	if steps[2].Name != "启动日志监控" || steps[2].Type != "service_watch" {
+		t.Fatalf("watch step = %#v", steps[2])
+	}
+	if steps[2].Config["target_dir"] != "${build.TARGET_DIR}" || steps[2].Config["pid_file"] != "${build.PID_FILE}" || steps[2].Config["log_file"] != "${build.LOG_FILE}" {
+		t.Fatalf("watch config = %#v", steps[2].Config)
+	}
+	if steps[2].Config["port"] != "${build.PORT}" || steps[2].Config["heartbeat_seconds"] != "30" || steps[2].Config["poll_seconds"] != "5" || steps[2].Config["initial_lines"] != "10" {
+		t.Fatalf("watch cadence config = %#v", steps[2].Config)
+	}
+	for _, step := range steps[:2] {
+		if strings.Contains(step.Command, "tail -f") || strings.Contains(step.Command, "while true") {
+			t.Fatalf("monitor leaked into shell step %q:\n%s", step.Name, step.Command)
+		}
 	}
 }
 
@@ -364,6 +609,106 @@ fi
 	command := config.Stages[0].Steps[0].Command
 	if !strings.Contains(command, "elif [ -f ./_scripts/deploy/update-team-resources.sh ]; then") || !strings.Contains(command, "./_scripts/deploy/update-team-resources.sh") {
 		t.Fatalf("moved Team-Resources script was not mapped:\n%s", command)
+	}
+}
+
+func TestJenkinsfileStrategyUsesPrivateMacOSFeishuHelperPath(t *testing.T) {
+	result, err := NewJenkinsfileStrategy().Convert(Request{Source: `pipeline {
+  agent any
+  stages {
+    stage('飞书通知') {
+      steps { sh '''
+cd /Users/gamer/Desktop/Code/DevOps-Projects/jenkins-for-project-sf/feishu-robot
+./feishu-robot game-config-refresh --channel game || echo "继续执行"
+''' }
+    }
+  }
+}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := engine.ParsePipelineConfig(result.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := config.Stages[0].Steps[0].Command
+	want := `if [ ! -x "$HOME/Library/Application Support/buildworld/helpers/feishu-robot" ]; then
+  printf '%s\n' 'BuildWorld: install the trusted feishu-robot helper at $HOME/Library/Application Support/buildworld/helpers/feishu-robot with mode 0700 before enabling this pipeline.' >&2
+  exit 1
+fi
+cd "${TMPDIR:-/tmp}"
+"$HOME/Library/Application Support/buildworld/helpers/feishu-robot" game-config-refresh --channel game || echo "继续执行"`
+	if !strings.Contains(command, want) {
+		t.Fatalf("Feishu helper was not launched from the stable private path:\n%s", command)
+	}
+	if strings.Contains(command, "/Users/gamer/Desktop/") {
+		t.Fatalf("protected Desktop executable leaked into the migrated command:\n%s", command)
+	}
+	foundWarning := false
+	for _, warning := range result.Warnings {
+		if warning.Code == "macos_feishu_helper_install_required" &&
+			strings.Contains(warning.Message, "install or copy") &&
+			strings.Contains(warning.Message, `"$HOME/Library/Application Support/buildworld/helpers/feishu-robot"`) &&
+			strings.Contains(warning.Message, "0700") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Fatal("migrated helper must require private-path installation with mode 0700")
+	}
+	if strings.Contains(command, "eval") {
+		t.Fatalf("migrated helper command must not use eval:\n%s", command)
+	}
+	for _, folder := range []string{"Documents", "Downloads"} {
+		t.Run(folder, func(t *testing.T) {
+			source := strings.ReplaceAll(
+				`pipeline { agent any stages { stage('飞书通知') { steps { sh '''
+cd /Users/gamer/Desktop/tools/feishu-robot
+./feishu-robot game-config-refresh --channel game
+''' } } } }`,
+				"/Desktop/", "/"+folder+"/",
+			)
+			migrated, err := NewJenkinsfileStrategy().Convert(Request{Source: source})
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := engine.ParsePipelineConfig(migrated.Config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			migratedCommand := parsed.Stages[0].Steps[0].Command
+			if strings.Contains(migratedCommand, "/Users/gamer/"+folder+"/") ||
+				!strings.Contains(migratedCommand, `"$HOME/Library/Application Support/buildworld/helpers/feishu-robot" game-config-refresh --channel game`) {
+				t.Fatalf("%s helper was not migrated to the private path:\n%s", folder, migratedCommand)
+			}
+			if !hasWarning(migrated.Warnings, "macos_feishu_helper_install_required") {
+				t.Fatalf("%s helper did not require private installation: %#v", folder, migrated.Warnings)
+			}
+		})
+	}
+
+	safeSource := strings.ReplaceAll(
+		`pipeline { agent any stages { stage('飞书通知') { steps { sh '''
+cd /Users/gamer/Desktop/tools/feishu-robot
+./feishu-robot game-config-refresh
+''' } } } }`,
+		"/Desktop/", "/Developer/",
+	)
+	safeResult, err := NewJenkinsfileStrategy().Convert(Request{Source: safeSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	safeConfig, err := engine.ParsePipelineConfig(safeResult.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	safeCommand := safeConfig.Stages[0].Steps[0].Command
+	if strings.Contains(safeCommand, `${TMPDIR:-/tmp}`) || !strings.Contains(safeCommand, "cd /Users/gamer/Developer/tools/feishu-robot") {
+		t.Fatalf("unprotected helper working directory was unexpectedly rewritten:\n%s", safeCommand)
+	}
+	if hasWarning(safeResult.Warnings, "macos_feishu_helper_install_required") {
+		t.Fatalf("unprotected helper unexpectedly required private installation: %#v", safeResult.Warnings)
 	}
 }
 

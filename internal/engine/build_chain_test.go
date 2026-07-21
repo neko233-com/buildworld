@@ -30,7 +30,7 @@ func newBuildChainStore(t *testing.T) (*store.Store, func()) {
 func TestBuildChainServiceResolvesRetryAndDependencyComponent(t *testing.T) {
 	data, cleanup := newBuildChainStore(t)
 	defer cleanup()
-	project, err := data.CreateProject("chain", "", "", "git", "main", `{}`, 0, nil, nil, nil)
+	project, err := data.CreateProject("chain", "", "", "git", "main", testEmptyPipelineSource, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,11 +84,15 @@ func TestBuildChainRelationRegistryDeduplicatesEdges(t *testing.T) {
 func TestFinishTriggerPersistsSourceBuildRelationship(t *testing.T) {
 	data, cleanup := newBuildChainStore(t)
 	defer cleanup()
-	source, err := data.CreateProject("compile", "", "", "git", "main", `{"stages":[]}`, 0, nil, nil, nil)
+	source, err := data.CreateProject("compile", "", "", "git", "main", testEmptyPipelineSource, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	targetConfig := fmt.Sprintf(`{"stages":[],"triggers":[{"type":"finish","config":{"project_id":"%d"}}]}`, source.ID)
+	targetConfig := fmt.Sprintf(`import { definePipeline, trigger } from "@buildworld/pipeline"
+export default definePipeline({
+  stages: [],
+  triggers: [trigger("finish", { project_id: "%d" })],
+})`, source.ID)
 	target, err := data.CreateProject("package", "", "", "git", "main", targetConfig, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -9,10 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
-	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -22,6 +19,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/neko233-com/buildworld/internal/auth"
+	"github.com/neko233-com/buildworld/internal/buildinfo"
 	"github.com/neko233-com/buildworld/internal/engine"
 	"github.com/neko233-com/buildworld/internal/migration"
 	"github.com/neko233-com/buildworld/internal/plugin"
@@ -69,7 +67,7 @@ func (h *handlers) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *handlers) version(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"version": "0.1.0"})
+	writeJSON(w, http.StatusOK, map[string]string{"version": buildinfo.Version})
 }
 
 // ---------------------------------------------------------------------------
@@ -111,20 +109,28 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 	_ = h.d.Store.UpdateLastLogin(user.ID)
 
 	const sessionDuration = 30 * 24 * time.Hour
-	token, err := h.d.JWT.Generate(user.ID, user.Role, sessionDuration)
+	token, err := h.d.JWT.Generate(user.ID, user.Role, user.SessionVersion, sessionDuration)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: "bw_session", Value: token, Path: "/", MaxAge: int(sessionDuration.Seconds()),
-		HttpOnly: true, Secure: h.d.Cfg.Server.TLS, SameSite: http.SameSiteLaxMode,
+		HttpOnly: true, Secure: requestUsesHTTPS(r), SameSite: http.SameSiteLaxMode,
 	})
 	// Login is intentionally audited directly because this public endpoint has
 	// not yet passed through the JWT middleware that h.audit normally reads.
 	_ = h.d.Store.CreateAuditLog(user.ID, user.Username, "login", "session", "", "native JWT session issued", clientIP(r))
 	user.PasswordHash = ""
 	writeJSON(w, http.StatusOK, loginResp{Token: token, User: user, ExpiresIn: int64(sessionDuration.Seconds())})
+}
+
+func requestUsesHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	forwarded := strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]
+	return strings.EqualFold(strings.TrimSpace(forwarded), "https")
 }
 
 type registerReq struct {
@@ -186,22 +192,13 @@ type createProjectReq struct {
 	Config        string   `json:"config"`
 }
 
-func (h *handlers) listProjects(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("view") == "summary" {
-		projects, err := h.d.Store.ListProjectSummaries()
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		w.Header().Set("X-Buildworld-View-Version", "1")
-		writeJSON(w, http.StatusOK, projects)
-		return
-	}
-	projects, err := h.d.Store.ListProjects()
+func (h *handlers) listProjects(w http.ResponseWriter, _ *http.Request) {
+	projects, err := h.d.Store.ListProjectSummaries()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	w.Header().Set("X-Buildworld-View-Version", "1")
 	writeJSON(w, http.StatusOK, projects)
 }
 
@@ -215,8 +212,15 @@ func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if req.RepoType == "" {
-		req.RepoType = "git"
+	repoType, err := store.NormalizeRepositoryType(req.RepoType)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	req.RepoType = repoType
+	if _, err := engine.ParsePipelineConfig(req.Config); err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, "invalid pipeline config: "+err.Error())
+		return
 	}
 	if req.GroupID != nil {
 		if _, err := h.d.Store.GetProjectGroup(*req.GroupID); err != nil {
@@ -263,6 +267,16 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	repoType, err := store.NormalizeRepositoryType(req.RepoType)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	req.RepoType = repoType
+	if _, err := engine.ParsePipelineConfig(req.Config); err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, "invalid pipeline config: "+err.Error())
+		return
+	}
 	if req.GroupID != nil {
 		if _, err := h.d.Store.GetProjectGroup(*req.GroupID); err != nil {
 			writeErr(w, http.StatusBadRequest, "project group not found")
@@ -281,6 +295,46 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+type validatePipelineReq struct {
+	Source string `json:"source"`
+}
+
+func writePipelineValidation(w http.ResponseWriter, source string) {
+	config, err := engine.ParsePipelineConfig(source)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	stepCount := 0
+	for _, stage := range config.Stages {
+		stepCount += len(stage.Steps)
+	}
+	format := "yaml"
+	trimmed := strings.TrimSpace(source)
+	if engine.IsTypeScriptPipeline(trimmed) {
+		format = "typescript"
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"valid":              true,
+		"format":             format,
+		"stages":             len(config.Stages),
+		"steps":              stepCount,
+		"parameters":         config.Parameters,
+		"allow_long_running": config.AllowLongRunning,
+	})
+}
+
+// validatePipelineSource parses an unsaved editor draft without persisting it
+// or queuing a build. Monaco uses the response for authoritative DSL feedback.
+func (h *handlers) validatePipelineSource(w http.ResponseWriter, r *http.Request) {
+	var req validatePipelineReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	writePipelineValidation(w, req.Source)
+}
+
 // validateProjectConfig parses the persisted source without queuing a build.
 // Migration tooling uses it to prove that an imported definition is runnable
 // while avoiding side effects on an existing service.
@@ -295,31 +349,7 @@ func (h *handlers) validateProjectConfig(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
 	}
-	config, err := engine.ParsePipelineConfig(project.Config)
-	if err != nil {
-		writeErr(w, http.StatusUnprocessableEntity, err.Error())
-		return
-	}
-	stepCount := 0
-	for _, stage := range config.Stages {
-		stepCount += len(stage.Steps)
-	}
-	format := "yaml"
-	trimmed := strings.TrimSpace(project.Config)
-	if engine.IsTypeScriptPipeline(trimmed) {
-		format = "typescript"
-	} else if strings.HasPrefix(trimmed, "{") {
-		format = "json"
-	} else if strings.HasPrefix(trimmed, "#") {
-		format = "markdown"
-	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"valid":              true,
-		"format":             format,
-		"stages":             len(config.Stages),
-		"steps":              stepCount,
-		"allow_long_running": config.AllowLongRunning,
-	})
+	writePipelineValidation(w, project.Config)
 }
 
 func (h *handlers) deleteProject(w http.ResponseWriter, r *http.Request) {
@@ -675,7 +705,11 @@ func (h *handlers) getBuildLogs(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "build not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"log": build.Log})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"log":                  build.Log,
+		"truncated":            store.IsBuildLogTruncated(build.Log),
+		"retention_characters": store.BuildLogRetentionCharacters,
+	})
 }
 
 func (h *handlers) getBuildTimeline(w http.ResponseWriter, r *http.Request) {
@@ -865,22 +899,8 @@ func (h *handlers) generateAgentToken(w http.ResponseWriter, _ *http.Request) {
 
 type pluginWithStatus struct {
 	*store.Plugin
-	Status plugin.PluginStatus `json:"status"`
-}
-
-type installPluginReq struct {
-	Name           string `json:"name"`
-	Version        string `json:"version"`
-	Description    string `json:"description"`
-	Author         string `json:"author"`
-	Config         string `json:"config"`
-	Script         string `json:"script"`
-	UIScript       string `json:"ui_script"`
-	ScriptLang     string `json:"script_lang"`
-	SourceScript   string `json:"source_script"`
-	SourceUIScript string `json:"source_ui_script"`
-	UILang         string `json:"ui_lang"`
-	Source         string `json:"source"`
+	Loaded bool     `json:"loaded"`
+	Steps  []string `json:"steps"`
 }
 
 type installGitHubPluginReq struct {
@@ -903,13 +923,18 @@ func (h *handlers) installGitHubPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	enabled := true
+	loaded := h.d.Loader.GetInstalled(manifest.Name)
+	if loaded == nil {
+		writeErr(w, http.StatusInternalServerError, "installed plugin is not loaded")
+		return
+	}
 	stored, storeErr := h.d.Store.GetPluginByName(manifest.Name)
 	switch {
 	case storeErr == nil:
 		enabled = stored.Enabled
-		storeErr = h.d.Store.UpdatePluginMetadata(stored.ID, manifest.Version, manifest.Description, "", manifest.Source)
+		storeErr = h.d.Store.UpdatePluginMetadata(stored.ID, manifest.Version, manifest.Description, manifest.Author, loaded.Path, manifest.Source)
 	case errors.Is(storeErr, sql.ErrNoRows):
-		stored, storeErr = h.d.Store.CreatePlugin(manifest.Name, manifest.Version, manifest.Description, "", "", "go", "", "", manifest.Source)
+		stored, storeErr = h.d.Store.CreatePlugin(manifest.Name, manifest.Version, manifest.Description, manifest.Author, "", loaded.Path, manifest.Source)
 	default:
 		// Preserve the original store error below.
 	}
@@ -917,185 +942,68 @@ func (h *handlers) installGitHubPlugin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "persist plugin metadata: "+storeErr.Error())
 		return
 	}
-	stepsJSON, _ := json.Marshal(manifest.Steps)
-	_ = h.d.Store.UpdatePluginStatus(manifest.Name, enabled, string(stepsJSON), "[]", "[]")
+	h.d.Loader.SetEnabled(manifest.Name, enabled)
 	h.audit(r, "install", "plugin", manifest.Name, "GitHub binary plugin: "+req.URL)
 	writeJSON(w, http.StatusCreated, manifest)
 }
 
 func (h *handlers) listPlugins(w http.ResponseWriter, _ *http.Request) {
+	loadedPlugins := make(map[string]*plugin.Plugin)
+	if h.d.Loader != nil {
+		for _, loaded := range h.d.Loader.ListAll() {
+			loadedPlugins[loaded.Name] = loaded
+		}
+	}
+
 	dbPlugins, err := h.d.Store.ListPlugins()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	pluginMap := make(map[string]*store.Plugin)
-	for _, p := range dbPlugins {
-		pluginMap[p.Name] = p
-	}
-
-	if h.d.Loader != nil {
-		for _, name := range getBuiltinPluginNames(h.d.Loader) {
-			p := h.d.Loader.Get(name)
-			if p == nil {
-				continue
-			}
-			source := p.InstallSource()
-			if dbP, exists := pluginMap[name]; exists {
-				if source != "builtin" && dbP.Source != source {
-					_ = h.d.Store.UpdatePluginMetadata(dbP.ID, p.Version, p.Description, p.Author, source)
-					dbP.Version, dbP.Description, dbP.Author, dbP.Source = p.Version, p.Description, p.Author, source
-				}
-				continue
-			}
-			uiExtJSON, _ := json.Marshal(p.UIExtensions())
-			dbP := &store.Plugin{
-				Name:         p.Name,
-				Version:      p.Version,
-				Description:  p.Description,
-				Author:       p.Author,
-				Enabled:      true,
-				Source:       source,
-				Steps:        "[]",
-				Triggers:     "[]",
-				UIExtensions: string(uiExtJSON),
-			}
-			pluginMap[name] = dbP
-			created, _ := h.d.Store.CreatePlugin(p.Name, p.Version, p.Description, p.Author, "", "js", "", "", source)
-			if created != nil {
-				dbP.ID = created.ID
-			}
+	result := make([]pluginWithStatus, 0, len(dbPlugins))
+	for _, stored := range dbPlugins {
+		status := plugin.PluginStatus{Steps: []string{}}
+		steps := []string{}
+		if loaded := loadedPlugins[stored.Name]; loaded != nil {
+			status = loaded.GetStatus()
+			steps = status.Steps
 		}
-	}
-
-	var result []pluginWithStatus
-	for _, p := range pluginMap {
-		status := plugin.PluginStatus{Loaded: false, Steps: []string{}, Triggers: []string{}}
-		if h.d.Loader != nil {
-			if rp := h.d.Loader.Get(p.Name); rp != nil {
-				status = rp.GetStatus()
-				stepsJSON, _ := json.Marshal(status.Steps)
-				triggersJSON, _ := json.Marshal(status.Triggers)
-				uiExtJSON, _ := json.Marshal(rp.UIExtensions())
-				p.Steps = string(stepsJSON)
-				p.Triggers = string(triggersJSON)
-				p.UIExtensions = string(uiExtJSON)
-			}
-		}
-		result = append(result, pluginWithStatus{Plugin: p, Status: status})
+		result = append(result, pluginWithStatus{Plugin: stored, Loaded: status.Loaded, Steps: steps})
 	}
 
 	writeJSON(w, http.StatusOK, result)
 }
 
-func getBuiltinPluginNames(l *plugin.Loader) []string {
-	var names []string
-	for _, p := range l.ListAll() {
-		names = append(names, p.Name)
+func (h *handlers) resolvePlugin(idOrName string) (*store.Plugin, error) {
+	if id, err := strconv.ParseInt(idOrName, 10, 64); err == nil {
+		return h.d.Store.GetPlugin(id)
 	}
-	return names
-}
-
-func (h *handlers) installPlugin(w http.ResponseWriter, r *http.Request) {
-	var req installPluginReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	if req.Version == "" {
-		req.Version = "1.0.0"
-	}
-	if req.Source == "" {
-		req.Source = "upload"
-	}
-	if req.ScriptLang == "" {
-		req.ScriptLang = "js"
-	}
-
-	if h.d.Loader != nil && req.Script != "" {
-		if err := h.d.Loader.InstallPlugin(req.Name, req.Version, req.Description, req.Author, req.Script, req.UIScript, req.ScriptLang, req.SourceScript, req.SourceUIScript, req.UILang); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
-
-	p, err := h.d.Store.CreatePlugin(req.Name, req.Version, req.Description, req.Author, req.Config, req.ScriptLang, req.SourceScript, req.SourceUIScript, req.Source)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if h.d.Loader != nil {
-		if err := h.d.Loader.Load(req.Name); err != nil {
-			log.Printf("Warning: failed to load installed plugin %s: %v", req.Name, err)
-		} else if rp := h.d.Loader.Get(req.Name); rp != nil {
-			stepsJSON, _ := json.Marshal(rp.StepTypes())
-			triggersJSON, _ := json.Marshal(nil)
-			uiExtJSON, _ := json.Marshal(rp.UIExtensions())
-			_ = h.d.Store.UpdatePluginStatus(req.Name, true, string(stepsJSON), string(triggersJSON), string(uiExtJSON))
-		}
-	}
-
-	writeJSON(w, http.StatusCreated, p)
+	return h.d.Store.GetPluginByName(idOrName)
 }
 
 func (h *handlers) deletePlugin(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if name == "" {
-		id, err := parseIDInt64(r)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid name or id")
-			return
-		}
-		p, err := h.d.Store.GetPlugin(id)
-		if err != nil {
-			writeErr(w, http.StatusNotFound, "plugin not found")
-			return
-		}
-		name = p.Name
-	}
-
-	p, err := h.d.Store.GetPluginByName(name)
+	stored, err := h.resolvePlugin(chi.URLParam(r, "name"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "plugin not found")
 		return
 	}
-	if p.Source == "builtin" {
-		writeErr(w, http.StatusBadRequest, "cannot delete builtin plugin")
+	if h.d.Loader == nil {
+		writeErr(w, http.StatusServiceUnavailable, "plugin loader unavailable")
 		return
 	}
-
-	if h.d.Loader != nil {
-		_ = h.d.Loader.DeletePlugin(name)
-	}
-	if err := h.d.Store.DeletePluginByName(name); err != nil {
+	if err := h.d.Loader.DeletePlugin(stored.Name); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := h.d.Store.DeletePlugin(stored.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.audit(r, "delete", "plugin", stored.Name, "removed Go binary plugin")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (h *handlers) togglePlugin(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if name == "" {
-		id, err := parseIDInt64(r)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid name or id")
-			return
-		}
-		p, err := h.d.Store.GetPlugin(id)
-		if err != nil {
-			writeErr(w, http.StatusNotFound, "plugin not found")
-			return
-		}
-		name = p.Name
-	}
-
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
@@ -1104,182 +1012,56 @@ func (h *handlers) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.d.Store.GetPluginByName(name)
+	stored, err := h.resolvePlugin(chi.URLParam(r, "name"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "plugin not found")
 		return
 	}
-	if err := h.d.Store.UpdatePluginEnabled(p.ID, req.Enabled); err != nil {
+	if h.d.Loader == nil {
+		writeErr(w, http.StatusServiceUnavailable, "plugin loader unavailable")
+		return
+	}
+	if req.Enabled && h.d.Loader.GetInstalled(stored.Name) == nil {
+		if err := h.d.Loader.Load(stored.Name); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	h.d.Loader.SetEnabled(stored.Name, req.Enabled)
+	if err := h.d.Store.UpdatePluginEnabled(stored.ID, req.Enabled); err != nil {
+		h.d.Loader.SetEnabled(stored.Name, stored.Enabled)
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	if h.d.Loader != nil {
-		h.d.Loader.SetEnabled(name, req.Enabled)
-		if req.Enabled {
-			if err := h.d.Loader.Load(name); err != nil {
-				log.Printf("Warning: failed to enable plugin %s: %v", name, err)
-			}
-		} else {
-			h.d.Loader.Unload(name)
-		}
-	}
-
+	h.audit(r, "update", "plugin", stored.Name, fmt.Sprintf("enabled=%t", req.Enabled))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (h *handlers) reloadPlugin(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	if h.d.Loader == nil {
-		writeErr(w, http.StatusInternalServerError, "loader not configured")
-		return
-	}
-	if err := h.d.Loader.Reload(name); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if rp := h.d.Loader.Get(name); rp != nil {
-		stepsJSON, _ := json.Marshal(rp.StepTypes())
-		triggersJSON, _ := json.Marshal(nil)
-		uiExtJSON, _ := json.Marshal(rp.UIExtensions())
-		_ = h.d.Store.UpdatePluginStatus(name, true, string(stepsJSON), string(triggersJSON), string(uiExtJSON))
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (h *handlers) getPluginUI(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	if h.d.Loader == nil {
-		http.NotFound(w, r)
-		return
-	}
-	script, ok := h.d.Loader.GetPluginUI(name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(script))
-}
-
-func (h *handlers) listUIExtensions(w http.ResponseWriter, _ *http.Request) {
-	if h.d.Loader == nil {
-		writeJSON(w, http.StatusOK, map[string][]plugin.UIExtension{})
-		return
-	}
-	exts := h.d.Loader.GetAllUIExtensions()
-	writeJSON(w, http.StatusOK, exts)
-}
-
-func (h *handlers) getPluginSource(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
-		return
-	}
-
-	p, err := h.d.Store.GetPluginByName(name)
+	stored, err := h.resolvePlugin(chi.URLParam(r, "name"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "plugin not found")
 		return
 	}
-
-	if p.Source == "builtin" {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"source_script":    "",
-			"source_ui_script": "",
-			"script_lang":      "js",
-			"ui_lang":          "js",
-			"builtin":          true,
-		})
+	if h.d.Loader == nil {
+		writeErr(w, http.StatusServiceUnavailable, "plugin loader unavailable")
 		return
 	}
-
-	scriptLang := p.ScriptLang
-	sourceScript := p.SourceScript
-	sourceUIScript := p.SourceUIScript
-	uiLang := ""
-
-	if h.d.Loader != nil {
-		if s, l, ok := h.d.Loader.GetSourceScript(name); ok && sourceScript == "" {
-			sourceScript = s
-			scriptLang = l
-		}
-		if s, l, ok := h.d.Loader.GetSourceUIScript(name); ok && sourceUIScript == "" {
-			sourceUIScript = s
-			uiLang = l
-		}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"source_script":    sourceScript,
-		"source_ui_script": sourceUIScript,
-		"script_lang":      scriptLang,
-		"ui_lang":          uiLang,
-		"builtin":          false,
-	})
-}
-
-func (h *handlers) updatePluginSource(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
+	if err := h.d.Loader.Reload(stored.Name); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	p, err := h.d.Store.GetPluginByName(name)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "plugin not found")
+	h.d.Loader.SetEnabled(stored.Name, stored.Enabled)
+	loaded := h.d.Loader.GetInstalled(stored.Name)
+	if loaded == nil {
+		writeErr(w, http.StatusInternalServerError, "reloaded plugin is unavailable")
 		return
 	}
-
-	if p.Source == "builtin" {
-		writeErr(w, http.StatusBadRequest, "cannot edit builtin plugin")
-		return
-	}
-
-	var req installPluginReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if req.ScriptLang == "" {
-		req.ScriptLang = "js"
-	}
-
-	if h.d.Loader != nil {
-		if err := h.d.Loader.WritePluginFiles(name, req.Script, req.UIScript, req.ScriptLang, req.SourceScript, req.SourceUIScript, req.UILang); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
-
-	if err := h.d.Store.UpdatePluginSource(p.ID, req.ScriptLang, req.SourceScript, req.SourceUIScript, req.Script, req.UIScript); err != nil {
+	if err := h.d.Store.UpdatePluginMetadata(stored.ID, loaded.Version, loaded.Description, loaded.Author, loaded.Path, loaded.InstallSource()); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	if h.d.Loader != nil {
-		if err := h.d.Loader.Reload(name); err != nil {
-			log.Printf("Warning: failed to reload plugin %s: %v", name, err)
-		} else if rp := h.d.Loader.Get(name); rp != nil {
-			stepsJSON, _ := json.Marshal(rp.StepTypes())
-			triggersJSON, _ := json.Marshal(nil)
-			uiExtJSON, _ := json.Marshal(rp.UIExtensions())
-			_ = h.d.Store.UpdatePluginStatus(name, true, string(stepsJSON), string(triggersJSON), string(uiExtJSON))
-		}
-	}
-
+	h.audit(r, "reload", "plugin", stored.Name, "reloaded Go binary plugin")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -1477,11 +1259,6 @@ func (h *handlers) deleteEnvVar(w http.ResponseWriter, r *http.Request) {
 
 // triggerBuildByWebhook creates a build for a project matching the repo URL.
 func (h *handlers) triggerBuildByWebhook(payload webhook.WebhookPayload) error {
-	if h.shouldRestartDevelopmentServer(payload.HeadCommit.Message) {
-		if err := h.restartDevelopmentServer(); err != nil {
-			return err
-		}
-	}
 	projects, err := h.d.Store.ListProjects()
 	if err != nil {
 		return err
@@ -1511,51 +1288,29 @@ func (h *handlers) triggerBuildByWebhook(payload webhook.WebhookPayload) error {
 	return nil
 }
 
-func (h *handlers) shouldRestartDevelopmentServer(message string) bool {
-	marker := h.d.Cfg.Automation.CommitRestartMarker
-	if marker == "" {
-		marker = "[buildworld:restart]"
-	}
-	return strings.Contains(strings.ToLower(message), strings.ToLower(marker))
-}
-
-func (h *handlers) restartDevelopmentServer() error {
-	command := strings.TrimSpace(h.d.Cfg.Automation.DevRestartCommand)
-	if command == "" {
-		return nil
-	}
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/c", command)
-	} else {
-		cmd = exec.Command("sh", "-c", command)
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Start()
-}
-
 func (h *handlers) githubWebhook(w http.ResponseWriter, r *http.Request) {
-	secret := h.d.Cfg.Automation.GitHubWebhookSecret
-	if secret == "" {
-		secret = h.d.Cfg.Auth.JWTSecret
-	}
-	wh := webhook.NewWebhookHandler(secret)
+	wh := webhook.NewWebhookHandler(h.webhookSecret())
 	wh.OnPush(h.triggerBuildByWebhook)
 	wh.HandleGitHubWebhook(w, r)
 }
 
 func (h *handlers) gitlabWebhook(w http.ResponseWriter, r *http.Request) {
-	wh := webhook.NewWebhookHandler(h.d.Cfg.Automation.GitHubWebhookSecret)
+	wh := webhook.NewWebhookHandler(h.webhookSecret())
 	wh.OnPush(h.triggerBuildByWebhook)
 	wh.HandleGitLabWebhook(w, r)
 }
 
-// giteaWebhook uses the same GitHub-compatible signature scheme (X-Gitea-Signature).
 func (h *handlers) giteaWebhook(w http.ResponseWriter, r *http.Request) {
-	wh := webhook.NewWebhookHandler(h.d.Cfg.Automation.GitHubWebhookSecret)
+	wh := webhook.NewWebhookHandler(h.webhookSecret())
 	wh.OnPush(h.triggerBuildByWebhook)
-	wh.HandleGitHubWebhook(w, r)
+	wh.HandleGiteaWebhook(w, r)
+}
+
+func (h *handlers) webhookSecret() string {
+	if h.d.Cfg == nil {
+		return ""
+	}
+	return h.d.Cfg.Automation.GitHubWebhookSecret
 }
 
 // ---------------------------------------------------------------------------
@@ -1590,7 +1345,11 @@ func maskCredentialSecrets(c *store.Credential) {
 func (h *handlers) listCredentials(w http.ResponseWriter, r *http.Request) {
 	var credType *store.CredentialType
 	if t := r.URL.Query().Get("type"); t != "" {
-		ct := store.CredentialType(t)
+		ct, err := store.NormalizeCredentialType(t)
+		if err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
 		credType = &ct
 	}
 	creds, err := h.d.Store.ListCredentials(credType)
@@ -1617,10 +1376,11 @@ func (h *handlers) createCredential(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if req.Type == "" {
-		req.Type = "git"
+	ct, err := store.NormalizeCredentialType(req.Type)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
 	}
-	ct := store.CredentialType(req.Type)
 	c, err := h.d.Store.CreateCredential(req.Name, ct, req.Host, req.Username, req.Password, req.PrivateKey, req.PublicKey, req.Token, req.Description, req.IsSecret)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -1663,8 +1423,10 @@ func (h *handlers) updateCredential(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if req.Type == "" {
-		req.Type = "git"
+	ct, err := store.NormalizeCredentialType(req.Type)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
 	}
 	existing, err := h.d.Store.GetCredential(id)
 	if err != nil {
@@ -1680,7 +1442,6 @@ func (h *handlers) updateCredential(w http.ResponseWriter, r *http.Request) {
 	if req.Token == "********" {
 		req.Token = existing.Token
 	}
-	ct := store.CredentialType(req.Type)
 	if err := h.d.Store.UpdateCredential(id, req.Name, ct, req.Host, req.Username, req.Password, req.PrivateKey, req.PublicKey, req.Token, req.Description, req.IsSecret); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1717,7 +1478,11 @@ func (h *handlers) lookupCredential(w http.ResponseWriter, r *http.Request) {
 	if credType == "" {
 		credType = "git"
 	}
-	ct := store.CredentialType(credType)
+	ct, err := store.NormalizeCredentialType(credType)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 	c, err := h.d.Store.FindCredential(host, ct)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "credential not found")
@@ -1731,7 +1496,7 @@ func (h *handlers) lookupCredential(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// VCS Roots
+// VCS repository templates (Git only)
 // ---------------------------------------------------------------------------
 
 type createVCSRootReq struct {
@@ -1764,9 +1529,12 @@ func (h *handlers) createVCSRoot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if req.Type == "" {
-		req.Type = "git"
+	vcsType, err := store.NormalizeRepositoryType(req.Type)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
 	}
+	req.Type = vcsType
 	pollInterval := 60
 	if req.PollInterval != nil {
 		pollInterval = max(0, *req.PollInterval)
@@ -1804,6 +1572,12 @@ func (h *handlers) updateVCSRoot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	vcsType, err := store.NormalizeRepositoryType(req.Type)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	req.Type = vcsType
 	pollInterval := 60
 	if existing, getErr := h.d.Store.GetVCSRoot(id); getErr == nil {
 		pollInterval = existing.PollInterval
@@ -1865,6 +1639,10 @@ func (h *handlers) createTemplate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if _, err := engine.ParsePipelineConfig(req.Config); err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, "invalid pipeline configuration: "+err.Error())
+		return
+	}
 	t, err := h.d.Store.CreateBuildTemplate(req.Name, req.Config, req.Description)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -1896,6 +1674,10 @@ func (h *handlers) updateTemplate(w http.ResponseWriter, r *http.Request) {
 	var req createTemplateReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if _, err := engine.ParsePipelineConfig(req.Config); err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, "invalid pipeline configuration: "+err.Error())
 		return
 	}
 	if err := h.d.Store.UpdateBuildTemplate(id, req.Name, req.Config, req.Description); err != nil {
@@ -2347,6 +2129,39 @@ type createAPITokenReq struct {
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 
+func normalizeAPITokenScopes(requested []string) ([]string, error) {
+	normalized := make([]string, 0, len(requested))
+	seen := make(map[string]struct{}, len(requested))
+	for _, scope := range requested {
+		scope = strings.TrimSpace(scope)
+		if scope == "" {
+			return nil, fmt.Errorf("scope cannot be empty")
+		}
+		if len(scope) > 128 {
+			return nil, fmt.Errorf("scope is too long")
+		}
+		if _, exists := seen[scope]; exists {
+			continue
+		}
+		seen[scope] = struct{}{}
+		normalized = append(normalized, scope)
+	}
+	return normalized, nil
+}
+
+func hasAPITokenScope(scopes []string, required string) bool {
+	for _, scope := range scopes {
+		if scope == required {
+			return true
+		}
+	}
+	return false
+}
+
+func canTriggerBuildRole(role string) bool {
+	return role == "admin" || role == "developer"
+}
+
 func (h *handlers) listAPITokens(w http.ResponseWriter, r *http.Request) {
 	uid := userIDOf(r)
 	tokens, err := h.d.Store.ListAPITokens(uid)
@@ -2363,8 +2178,27 @@ func (h *handlers) createAPIToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	scopes, err := normalizeAPITokenScopes(req.Scopes)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.ExpiresAt != nil && !req.ExpiresAt.After(time.Now()) {
+		writeErr(w, http.StatusBadRequest, "expires_at must be in the future")
+		return
+	}
+	owner, err := h.d.Store.GetUser(userIDOf(r))
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, "authenticated user no longer exists")
+		return
+	}
+	if hasAPITokenScope(scopes, auth.ScopeBuildTrigger) && !canTriggerBuildRole(owner.Role) {
+		writeErr(w, http.StatusForbidden, "current role cannot grant build:trigger")
 		return
 	}
 	// 生成 bw_<32hex> 明文 token，仅返回一次
@@ -2377,13 +2211,12 @@ func (h *handlers) createAPIToken(w http.ResponseWriter, r *http.Request) {
 	hash := sha256.Sum256([]byte(plain))
 	tokenHash := hex.EncodeToString(hash[:])
 	prefix := plain[:11] // "bw_" + 前 8 hex
-	scopesJSON := "[]"
-	if len(req.Scopes) > 0 {
-		if b, err := json.Marshal(req.Scopes); err == nil {
-			scopesJSON = string(b)
-		}
+	scopesJSONBytes, err := json.Marshal(scopes)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to encode scopes")
+		return
 	}
-	t, err := h.d.Store.CreateAPIToken(userIDOf(r), req.Name, tokenHash, prefix, scopesJSON, req.ExpiresAt)
+	t, err := h.d.Store.CreateAPIToken(owner.ID, req.Name, tokenHash, prefix, string(scopesJSONBytes), req.ExpiresAt)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2496,7 +2329,7 @@ func (h *handlers) downloadBuildLogs(w http.ResponseWriter, r *http.Request) {
 		format = "txt"
 	}
 	mgr := engine.NewBuildLogManager(h.d.Store)
-	data, filename := mgr.DownloadLogs(id, format)
+	data, filename, truncated := mgr.DownloadLogsWithRetention(id, format)
 	if filename == "" {
 		writeErr(w, http.StatusNotFound, "build not found")
 		return
@@ -2507,6 +2340,8 @@ func (h *handlers) downloadBuildLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("X-BuildWorld-Log-Truncated", strconv.FormatBool(truncated))
+	w.Header().Set("X-BuildWorld-Log-Retention-Characters", strconv.Itoa(store.BuildLogRetentionCharacters))
 	w.Write(data)
 }
 
@@ -2558,6 +2393,12 @@ func (h *handlers) buildBadge(w http.ResponseWriter, r *http.Request) {
 // Test Results
 // ---------------------------------------------------------------------------
 
+type buildTestResultsResponse struct {
+	Summary *store.TestResult       `json:"summary"`
+	Cases   []engine.TestCaseResult `json:"cases"`
+	Results []*store.TestResult     `json:"results"`
+}
+
 func (h *handlers) getBuildTestResults(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDInt64(r)
 	if err != nil {
@@ -2569,7 +2410,23 @@ func (h *handlers) getBuildTestResults(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, results)
+	response := buildTestResultsResponse{
+		Cases:   make([]engine.TestCaseResult, 0),
+		Results: results,
+	}
+	if response.Results == nil {
+		response.Results = make([]*store.TestResult, 0)
+	}
+	if len(results) > 0 {
+		response.Summary = results[0]
+		parsed, parseErr := engine.ParseJUnitReport([]byte(results[0].ReportXML))
+		if parseErr != nil {
+			writeErr(w, http.StatusInternalServerError, "stored test report is invalid")
+			return
+		}
+		response.Cases = parsed.Cases
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *handlers) uploadTestResults(w http.ResponseWriter, r *http.Request) {
@@ -2597,146 +2454,13 @@ func (h *handlers) uploadTestResults(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// Deployment Environments
-// ---------------------------------------------------------------------------
-
-type createDeploymentEnvReq struct {
-	ProjectID   int64  `json:"project_id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Config      string `json:"config"`
-}
-
-func (h *handlers) listDeploymentEnvs(w http.ResponseWriter, r *http.Request) {
-	projectIDStr := r.URL.Query().Get("project_id")
-	if projectIDStr == "" {
-		writeErr(w, http.StatusBadRequest, "project_id is required")
-		return
-	}
-	pid, err := strconv.ParseInt(projectIDStr, 10, 64)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid project_id")
-		return
-	}
-	envs, err := h.d.Store.ListDeploymentEnvs(pid)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, envs)
-}
-
-func (h *handlers) createDeploymentEnv(w http.ResponseWriter, r *http.Request) {
-	var req createDeploymentEnvReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if req.Name == "" || req.ProjectID == 0 {
-		writeErr(w, http.StatusBadRequest, "name and project_id are required")
-		return
-	}
-	d, err := h.d.Store.CreateDeploymentEnv(req.ProjectID, req.Name, req.Description, req.Config)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	h.audit(r, "create", "deployment_env", fmt.Sprintf("%d", d.ID), req.Name)
-	writeJSON(w, http.StatusCreated, d)
-}
-
-func (h *handlers) updateDeploymentEnv(w http.ResponseWriter, r *http.Request) {
-	id, err := parseIDInt64(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	var req createDeploymentEnvReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	if _, err := h.d.Store.GetDeploymentEnv(id); err != nil {
-		writeErr(w, http.StatusNotFound, "environment not found")
-		return
-	}
-	if err := h.d.Store.UpdateDeploymentEnv(id, req.Name, req.Description, req.Config); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	updated, err := h.d.Store.GetDeploymentEnv(id)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	h.audit(r, "update", "deployment_env", fmt.Sprintf("%d", id), req.Name)
-	writeJSON(w, http.StatusOK, updated)
-}
-
-func (h *handlers) deleteDeploymentEnv(w http.ResponseWriter, r *http.Request) {
-	id, err := parseIDInt64(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	if err := h.d.Store.DeleteDeploymentEnv(id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	h.audit(r, "delete", "deployment_env", fmt.Sprintf("%d", id), "")
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (h *handlers) deployBuild(w http.ResponseWriter, r *http.Request) {
-	envID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid env id")
-		return
-	}
-	buildID, err := strconv.ParseInt(chi.URLParam(r, "buildId"), 10, 64)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid build id")
-		return
-	}
-	env, err := h.d.Store.GetDeploymentEnv(envID)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "env not found")
-		return
-	}
-	build, err := h.d.Store.GetBuild(buildID)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "build not found")
-		return
-	}
-	if build.ProjectID != env.ProjectID {
-		writeErr(w, http.StatusBadRequest, "build does not belong to env's project")
-		return
-	}
-	if err := h.d.Store.UpdateDeploymentLastBuild(envID, buildID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	h.audit(r, "deploy", "deployment_env", fmt.Sprintf("%d", envID), fmt.Sprintf("build %d", buildID))
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":   "deployed",
-		"env_id":   envID,
-		"build_id": buildID,
-		"env_name": env.Name,
-	})
-}
-
-// ---------------------------------------------------------------------------
 // Project Groups
 // ---------------------------------------------------------------------------
 
 type createProjectGroupReq struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	ParentID    *int64 `json:"parent_id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Color       *string `json:"color"`
 }
 
 func (h *handlers) listProjectGroups(w http.ResponseWriter, _ *http.Request) {
@@ -2758,7 +2482,15 @@ func (h *handlers) createProjectGroup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	g, err := h.d.Store.CreateProjectGroup(req.Name, req.Description, req.ParentID)
+	color := store.ProjectGroupColorNeutral
+	if req.Color != nil {
+		if !store.IsValidProjectGroupColor(*req.Color) {
+			writeErr(w, http.StatusBadRequest, store.ErrInvalidProjectGroupColor.Error())
+			return
+		}
+		color = *req.Color
+	}
+	g, err := h.d.Store.CreateProjectGroupWithColor(req.Name, req.Description, color)
 	if err != nil {
 		if errors.Is(err, store.ErrProjectGroupNameExists) {
 			writeCodedErr(w, http.StatusConflict, "project_group_name_exists", err.Error())
@@ -2782,7 +2514,24 @@ func (h *handlers) updateProjectGroup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := h.d.Store.UpdateProjectGroup(id, req.Name, req.Description, req.ParentID); err != nil {
+	existing, err := h.d.Store.GetProjectGroup(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "project group not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	color := existing.Color
+	if req.Color != nil {
+		if !store.IsValidProjectGroupColor(*req.Color) {
+			writeErr(w, http.StatusBadRequest, store.ErrInvalidProjectGroupColor.Error())
+			return
+		}
+		color = *req.Color
+	}
+	if err := h.d.Store.UpdateProjectGroupWithColor(id, req.Name, req.Description, color); err != nil {
 		if errors.Is(err, store.ErrProjectGroupNameExists) {
 			writeCodedErr(w, http.StatusConflict, "project_group_name_exists", err.Error())
 			return
@@ -2843,57 +2592,33 @@ func (h *handlers) reorderBuildQueue(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Operation string `json:"operation"`
-		Priority  *int   `json:"priority,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Operation != "" {
-		result, err := engine.NewBuildQueueReorderService(h.d.Store, nil).Apply(id, req.Operation)
-		if err != nil {
-			switch {
-			case errors.Is(err, engine.ErrUnknownQueueOperation):
-				writeErr(w, http.StatusBadRequest, err.Error())
-			case errors.Is(err, store.ErrBuildQueueItemNotMovable):
-				writeErr(w, http.StatusConflict, "build queue item is no longer movable")
-			default:
-				writeErr(w, http.StatusInternalServerError, err.Error())
-			}
-			return
-		}
-		if h.d.Runner != nil {
-			h.d.Runner.WakeQueue()
-		}
-		h.audit(r, "reorder", "build_queue", fmt.Sprintf("%d", id), req.Operation)
-		writeJSON(w, http.StatusOK, result)
-		return
-	}
-
-	// Version 0 compatibility: older clients can still assign a raw priority.
-	if req.Priority == nil {
+	if strings.TrimSpace(req.Operation) == "" {
 		writeErr(w, http.StatusBadRequest, "operation is required")
 		return
 	}
-	if err := h.d.Store.UpdateBuildQueueItemPriority(id, int64(*req.Priority)); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+	result, err := engine.NewBuildQueueReorderService(h.d.Store, nil).Apply(id, req.Operation)
+	if err != nil {
+		switch {
+		case errors.Is(err, engine.ErrUnknownQueueOperation):
+			writeErr(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, store.ErrBuildQueueItemNotMovable):
+			writeErr(w, http.StatusConflict, "build queue item is no longer movable")
+		default:
+			writeErr(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	if h.d.Runner != nil {
 		h.d.Runner.WakeQueue()
 	}
-	items, err := h.d.Store.ListBuildQueue("")
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, &engine.BuildQueueReorderResult{
-		Version:   engine.BuildQueueReorderVersion,
-		Status:    "ok",
-		Operation: "set_priority",
-		Items:     items,
-	})
+	h.audit(r, "reorder", "build_queue", fmt.Sprintf("%d", id), req.Operation)
+	writeJSON(w, http.StatusOK, result)
 }
 
 // ---------------------------------------------------------------------------
@@ -2906,25 +2631,27 @@ func (h *handlers) httpTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "projectName is required")
 		return
 	}
-	// API Token 校验
-	token := r.Header.Get("Authorization")
-	token = strings.TrimPrefix(token, "Bearer ")
-	if !strings.HasPrefix(token, "bw_") {
+	// API token validation is intentionally repeated here because this endpoint
+	// is public to JWT middleware and supports only scoped API-token auth.
+	authorization := strings.Fields(r.Header.Get("Authorization"))
+	if len(authorization) != 2 || !strings.EqualFold(authorization[0], "Bearer") {
 		writeErr(w, http.StatusUnauthorized, "valid api token required")
 		return
 	}
-	hash := sha256.Sum256([]byte(token))
-	hashStr := hex.EncodeToString(hash[:])
-	apiToken, err := h.d.Store.GetAPITokenByHash(hashStr)
-	if err != nil {
+	principal, ok := auth.ResolveAPIToken(h.d.Store, authorization[1])
+	if !ok {
 		writeErr(w, http.StatusUnauthorized, "invalid api token")
 		return
 	}
-	if apiToken.ExpiresAt != nil && apiToken.ExpiresAt.Before(time.Now()) {
-		writeErr(w, http.StatusUnauthorized, "token expired")
+	if !canTriggerBuildRole(principal.Role) {
+		writeErr(w, http.StatusForbidden, "current role cannot trigger builds")
 		return
 	}
-	_ = h.d.Store.UpdateAPITokenLastUsed(apiToken.ID)
+	if _, ok := principal.Scopes[auth.ScopeBuildTrigger]; !ok {
+		writeErr(w, http.StatusForbidden, "build:trigger scope required")
+		return
+	}
+	_ = h.d.Store.UpdateAPITokenLastUsed(principal.TokenID)
 
 	project, err := h.d.Store.GetProjectByName(projectName)
 	if err != nil {
@@ -2956,12 +2683,12 @@ func (h *handlers) httpTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := h.requestBuildApproval(project, build, apiToken.UserID); err != nil {
+	if err := h.requestBuildApproval(project, build, principal.UserID); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// 记录触发者
-	_ = h.d.Store.CreateAuditLog(apiToken.UserID, "", "trigger", "project", projectName, fmt.Sprintf("build #%d via api token %q", build.Number, apiToken.Name), clientIP(r))
+	_ = h.d.Store.CreateAuditLog(principal.UserID, "", "trigger", "project", projectName, fmt.Sprintf("build #%d via api token %q", build.Number, principal.Name), clientIP(r))
 	if h.d.Runner != nil {
 		if err := h.d.Runner.Enqueue(build.ID); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
@@ -3042,11 +2769,6 @@ func (h *handlers) serverMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var diskFree int64 = -1
-	if stat, err := os.Stat("."); err == nil {
-		// 仅做 best-effort，跨平台时失败忽略
-		_ = stat
-	}
 	cpuLimitPercent := 100
 	backgroundMode := false
 	if h.d.Runner != nil {
@@ -3064,7 +2786,6 @@ func (h *handlers) serverMetrics(w http.ResponseWriter, r *http.Request) {
 		"mem_alloc_bytes":   m.Alloc,
 		"mem_sys_bytes":     m.Sys,
 		"heap_objects":      m.HeapObjects,
-		"disk_free_bytes":   diskFree,
 		"projects":          len(projects),
 		"builds_total":      len(builds),
 		"running_builds":    runningBuilds,
@@ -3074,134 +2795,8 @@ func (h *handlers) serverMetrics(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// startTime 用于 metrics 的 uptime 计算
+// startTime is the process start used for the metrics uptime.
 var startTime = time.Now()
-
-// ---------------------------------------------------------------------------
-// Git Hooks
-// ---------------------------------------------------------------------------
-
-type createGitHookReq struct {
-	Name        string `json:"name"`
-	Event       string `json:"event"`
-	Branch      string `json:"branch"`
-	Secret      string `json:"secret"`
-	Enabled     *bool  `json:"enabled"`
-	BuildParams string `json:"build_params"`
-	Description string `json:"description"`
-}
-
-func (h *handlers) listGitHooks(w http.ResponseWriter, r *http.Request) {
-	projectID, err := parseIDInt64(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid project id")
-		return
-	}
-	hooks, err := h.d.Store.ListGitHooks(projectID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, hooks)
-}
-
-func (h *handlers) createGitHook(w http.ResponseWriter, r *http.Request) {
-	projectID, err := parseIDInt64(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid project id")
-		return
-	}
-	var req createGitHookReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	if req.Event == "" {
-		req.Event = "push"
-	}
-	enabled := true
-	if req.Enabled != nil {
-		enabled = *req.Enabled
-	}
-	hook, err := h.d.Store.CreateGitHook(projectID, req.Name, store.GitHookEvent(req.Event), req.Branch, req.Secret, enabled, req.BuildParams, req.Description)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	h.audit(r, "create", "git_hook", fmt.Sprintf("%d", hook.ID), req.Name)
-	writeJSON(w, http.StatusCreated, hook)
-}
-
-func (h *handlers) getGitHook(w http.ResponseWriter, r *http.Request) {
-	id, err := parseIDInt64(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	hook, err := h.d.Store.GetGitHook(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "hook not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, hook)
-}
-
-func (h *handlers) updateGitHook(w http.ResponseWriter, r *http.Request) {
-	id, err := parseIDInt64(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	existing, err := h.d.Store.GetGitHook(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "hook not found")
-		return
-	}
-	var req createGitHookReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if req.Name == "" {
-		req.Name = existing.Name
-	}
-	if req.Event == "" {
-		req.Event = string(existing.Event)
-	}
-	enabled := existing.Enabled
-	if req.Enabled != nil {
-		enabled = *req.Enabled
-	}
-	if err := h.d.Store.UpdateGitHook(id, req.Name, store.GitHookEvent(req.Event), req.Branch, req.Secret, enabled, req.BuildParams, req.Description); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	hook, err := h.d.Store.GetGitHook(id)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	h.audit(r, "update", "git_hook", fmt.Sprintf("%d", id), req.Name)
-	writeJSON(w, http.StatusOK, hook)
-}
-
-func (h *handlers) deleteGitHook(w http.ResponseWriter, r *http.Request) {
-	id, err := parseIDInt64(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	if err := h.d.Store.DeleteGitHook(id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	h.audit(r, "delete", "git_hook", fmt.Sprintf("%d", id), "")
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
 
 // ---------------------------------------------------------------------------
 // Big Screen

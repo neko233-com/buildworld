@@ -46,9 +46,12 @@ describe('JenkinsfileImportDialog', () => {
     const result: PipelineMigrationResult = {
       version: 'pipeline-migration/v1',
       source_format: 'jenkinsfile',
-      target_format: 'buildworld-json',
+      target_format: 'buildworld-typescript',
       config: '{\n  "stages": []\n}\n',
-      warnings: [{ code: 'post_review_required', message: 'Review Jenkins post conditions.' }],
+      warnings: [
+        { code: 'post_review_required', message: 'Review Jenkins post conditions.' },
+        { code: 'macos_protected_directory', message: 'Review macOS protected folders.' },
+      ],
       summary: { stage_count: 5, environment_count: 12 },
       hints: { repository_url: 'https://example.invalid/game.git', default_branch: 'main' },
     }
@@ -76,6 +79,8 @@ describe('JenkinsfileImportDialog', () => {
     expect(migratePipeline).toHaveBeenCalledWith('jenkinsfile', expect.stringContaining('pipeline'), 'game-server')
     expect(document.querySelector('.jenkins-preview-panel .jenkins-panel-heading')?.textContent).toMatch(/5.*12/)
     expect(document.body.textContent).toContain('Jenkins post conditions')
+    expect(document.body.textContent).toContain('macOS protected folder')
+    expect(document.body.textContent).not.toContain('Review macOS protected folders.')
     expect(document.querySelector<HTMLTextAreaElement>('.jenkins-preview-panel textarea')?.value).toBe(result.config)
 
     const apply = document.querySelector<HTMLButtonElement>('.jenkins-import-dialog footer button:last-child')

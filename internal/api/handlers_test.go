@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/neko233-com/buildworld/internal/buildinfo"
 	"github.com/neko233-com/buildworld/internal/config"
 	"github.com/neko233-com/buildworld/internal/store"
 )
@@ -108,8 +109,8 @@ func TestVersionEndpoint(t *testing.T) {
 	var resp map[string]string
 	json.NewDecoder(w.Body).Decode(&resp)
 
-	if resp["version"] != "0.1.0" {
-		t.Errorf("version = %s, want 0.1.0", resp["version"])
+	if resp["version"] != buildinfo.Version {
+		t.Errorf("version = %s, want %s", resp["version"], buildinfo.Version)
 	}
 }
 

@@ -1,25 +1,40 @@
 package store
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
 
-type User struct {
-	ID           int64     `json:"id"`
-	Username     string    `json:"username"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	Role         string    `json:"role"`
-	AvatarURL    string    `json:"avatar_url,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	LastLogin    time.Time `json:"last_login,omitempty"`
+const RepositoryTypeGit = "git"
+
+var ErrUnsupportedRepositoryType = errors.New("unsupported repository type")
+var ErrUnsupportedCredentialType = errors.New("unsupported credential type")
+
+// NormalizeRepositoryType keeps every write path aligned with the VCS
+// implementation BuildWorld actually ships. Empty values use the Git default.
+func NormalizeRepositoryType(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return RepositoryTypeGit, nil
+	}
+	if normalized != RepositoryTypeGit {
+		return "", fmt.Errorf("%w %q: only git is supported", ErrUnsupportedRepositoryType, value)
+	}
+	return RepositoryTypeGit, nil
 }
 
-type SSHKey struct {
-	ID          int64     `json:"id"`
-	UserID      int64     `json:"user_id"`
-	Name        string    `json:"name"`
-	PublicKey   string    `json:"public_key"`
-	Fingerprint string    `json:"fingerprint"`
-	CreatedAt   time.Time `json:"created_at"`
+type User struct {
+	ID             int64     `json:"id"`
+	Username       string    `json:"username"`
+	Email          string    `json:"email"`
+	PasswordHash   string    `json:"-"`
+	Role           string    `json:"role"`
+	SessionVersion int64     `json:"-"`
+	AvatarURL      string    `json:"avatar_url,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastLogin      time.Time `json:"last_login,omitempty"`
 }
 
 type Project struct {
@@ -119,23 +134,17 @@ type Worker struct {
 }
 
 type Plugin struct {
-	ID             int64     `json:"id"`
-	Name           string    `json:"name"`
-	Version        string    `json:"version"`
-	Description    string    `json:"description,omitempty"`
-	Author         string    `json:"author,omitempty"`
-	Enabled        bool      `json:"enabled"`
-	Config         string    `json:"config,omitempty"`
-	ScriptLang     string    `json:"script_lang"`
-	SourceScript   string    `json:"source_script,omitempty"`
-	SourceUIScript string    `json:"source_ui_script,omitempty"`
-	Path           string    `json:"path,omitempty"`
-	Source         string    `json:"source"`
-	Steps          string    `json:"steps,omitempty"`
-	Triggers       string    `json:"triggers,omitempty"`
-	UIExtensions   string    `json:"ui_extensions,omitempty"`
-	InstalledAt    time.Time `json:"installed_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Version     string    `json:"version"`
+	Description string    `json:"description,omitempty"`
+	Author      string    `json:"author,omitempty"`
+	Enabled     bool      `json:"enabled"`
+	Config      string    `json:"config,omitempty"`
+	Path        string    `json:"path,omitempty"`
+	Source      string    `json:"source"`
+	InstalledAt time.Time `json:"installed_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type CredentialType string
@@ -143,9 +152,20 @@ type CredentialType string
 const (
 	CredentialTypeSSHKey CredentialType = "ssh_key"
 	CredentialTypeGit    CredentialType = "git"
-	CredentialTypeSVN    CredentialType = "svn"
-	CredentialTypeHG     CredentialType = "hg"
 )
+
+// NormalizeCredentialType accepts the two authentication forms used by Git.
+// An omitted type retains the API's Git-token default.
+func NormalizeCredentialType(value string) (CredentialType, error) {
+	normalized := CredentialType(strings.ToLower(strings.TrimSpace(value)))
+	if normalized == "" {
+		return CredentialTypeGit, nil
+	}
+	if normalized != CredentialTypeGit && normalized != CredentialTypeSSHKey {
+		return "", fmt.Errorf("%w %q: use git or ssh_key", ErrUnsupportedCredentialType, value)
+	}
+	return normalized, nil
+}
 
 type Credential struct {
 	ID          int64          `json:"id"`
@@ -296,24 +316,12 @@ type TestResult struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// DeploymentEnv 部署环境
-type DeploymentEnv struct {
-	ID          int64     `json:"id"`
-	ProjectID   int64     `json:"project_id"`
-	Name        string    `json:"name"` // dev/staging/production
-	Description string    `json:"description,omitempty"`
-	Config      string    `json:"config"` // JSON 配置
-	LastBuildID *int64    `json:"last_build_id,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-// ProjectGroup 项目分组（支持层级）
+// ProjectGroup 项目分组（单层目录）。
 type ProjectGroup struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
-	ParentID    *int64    `json:"parent_id,omitempty"`
+	Color       string    `json:"color"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -335,28 +343,4 @@ type BuildQueueItem struct {
 	WaitReason            string     `json:"wait_reason"`
 	WaitingForBuildID     *int64     `json:"waiting_for_build_id,omitempty"`
 	WaitingForBuildNumber *int       `json:"waiting_for_build_number,omitempty"`
-}
-
-type GitHookEvent string
-
-const (
-	GitHookPush         GitHookEvent = "push"
-	GitHookTag          GitHookEvent = "tag_push"
-	GitHookPullRequest  GitHookEvent = "pull_request"
-	GitHookMergeRequest GitHookEvent = "merge_request"
-	GitHookRelease      GitHookEvent = "release"
-)
-
-type GitHook struct {
-	ID          int64        `json:"id"`
-	ProjectID   int64        `json:"project_id"`
-	Name        string       `json:"name"`
-	Event       GitHookEvent `json:"event"`
-	Branch      string       `json:"branch"`
-	Secret      string       `json:"secret,omitempty"`
-	Enabled     bool         `json:"enabled"`
-	BuildParams string       `json:"build_params"`
-	Description string       `json:"description,omitempty"`
-	CreatedAt   time.Time    `json:"created_at"`
-	UpdatedAt   time.Time    `json:"updated_at"`
 }

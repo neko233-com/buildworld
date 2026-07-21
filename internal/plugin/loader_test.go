@@ -1,309 +1,167 @@
 package plugin
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
-func TestPluginLoader(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "plugin-test-*")
+func writeBinaryTestPlugin(t *testing.T, root, name, version string, steps ...string) string {
+	t.Helper()
+	pluginDir := filepath.Join(root, name)
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entrypoint := "plugin"
+	entryFile := entrypoint
+	if runtime.GOOS == "windows" {
+		entryFile += ".exe"
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, entryFile), []byte("placeholder"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := BinaryManifest{
+		APIVersion: BinaryAPIVersion,
+		Name:       name,
+		Version:    version,
+		Entrypoint: entrypoint,
+		Steps:      steps,
+	}
+	data, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	pluginDir := filepath.Join(tmpDir, "test-plugin")
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin-buildworld.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{
-  "name": "test-plugin",
-  "version": "1.0.0",
-  "description": "A test plugin"
-}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`
-function onLoad() {
-  return "Plugin loaded!";
+	return pluginDir
 }
-`), 0644); err != nil {
+
+func TestLoaderLoadsOnlyBinaryManifest(t *testing.T) {
+	root := t.TempDir()
+	writeBinaryTestPlugin(t, root, "binary", "1.2.3", "deploy")
+	legacyDir := filepath.Join(root, "legacy")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "plugin.json"), []byte(`{"name":"legacy"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "index.js"), []byte(`registerStep("legacy", () => {})`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	loader := NewLoader(tmpDir)
-
-	if err := loader.Load("test-plugin"); err != nil {
-		t.Fatalf("Load() error = %v", err)
+	loader := NewLoader(root)
+	if err := loader.LoadAll(); err != nil {
+		t.Fatal(err)
 	}
-
-	plugin := loader.Get("test-plugin")
-	if plugin == nil {
-		t.Fatal("Get() returned nil")
+	loaded := loader.Get("binary")
+	if loaded == nil || loaded.Name != "binary" || loaded.Version != "1.2.3" {
+		t.Fatalf("loaded binary plugin = %#v", loaded)
 	}
-
-	if plugin.Name != "test-plugin" {
-		t.Errorf("Name = %s, want test-plugin", plugin.Name)
+	if loader.Get("legacy") != nil {
+		t.Fatal("legacy JavaScript plugin was loaded")
 	}
-
-	if plugin.Version != "1.0.0" {
-		t.Errorf("Version = %s, want 1.0.0", plugin.Version)
+	if err := loader.Load("legacy"); err == nil {
+		t.Fatal("Load accepted a directory without plugin-buildworld.json")
 	}
 }
 
-func TestPluginList(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "plugin-test-*")
-	if err != nil {
+func TestLoaderEnabledListReloadAndUnload(t *testing.T) {
+	root := t.TempDir()
+	writeBinaryTestPlugin(t, root, "alpha", "1.0.0", "alpha-step")
+	writeBinaryTestPlugin(t, root, "beta", "1.0.0", "beta-step")
+	loader := NewLoader(root)
+	if err := loader.LoadAll(); err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	for _, name := range []string{"plugin-a", "plugin-b"} {
-		dir := filepath.Join(tmpDir, name)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{
-  "name": "`+name+`",
-  "version": "1.0.0",
-  "description": "Test"
-}`), 0644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "index.js"), []byte(`
-function onLoad() {
-  return "ok";
-}
-`), 0644); err != nil {
-			t.Fatal(err)
-		}
+	if len(loader.List()) != 2 || len(loader.ListAll()) != 2 {
+		t.Fatalf("initial plugin lists = enabled %d, all %d", len(loader.List()), len(loader.ListAll()))
 	}
-
-	loader := NewLoader(tmpDir)
-	if err := loader.Load("plugin-a"); err != nil {
+	loader.SetEnabled("alpha", false)
+	if loader.Get("alpha") != nil || loader.LookupStep("alpha-step") != nil || len(loader.List()) != 1 {
+		t.Fatal("disabled plugin remains executable")
+	}
+	if err := loader.Reload("alpha"); err != nil {
 		t.Fatal(err)
 	}
-	if err := loader.Load("plugin-b"); err != nil {
+	if loader.IsEnabled("alpha") || loader.Get("alpha") != nil {
+		t.Fatal("reload changed disabled state")
+	}
+	loader.SetEnabled("alpha", true)
+	if loader.Get("alpha") == nil || loader.LookupStep("alpha-step") == nil {
+		t.Fatal("enabled plugin is unavailable")
+	}
+	if err := loader.Unload("alpha"); err != nil {
 		t.Fatal(err)
 	}
-
-	list := loader.List()
-	if len(list) != 2 {
-		t.Errorf("List() length = %d, want 2", len(list))
+	if loader.getLoaded("alpha") != nil {
+		t.Fatal("unloaded plugin remains registered")
 	}
 }
 
-func TestPluginLoadNonExistent(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "plugin-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	loader := NewLoader(tmpDir)
-	err = loader.Load("nonexistent-plugin")
-	if err == nil {
-		t.Error("Load() should return error for non-existent plugin")
-	}
-}
-
-func TestPluginLoadInvalidJSON(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "plugin-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	pluginDir := filepath.Join(tmpDir, "bad-json")
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{invalid json`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`function onLoad() { return "ok"; }`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	loader := NewLoader(tmpDir)
-	err = loader.Load("bad-json")
-	if err == nil {
-		t.Error("Load() should return error for invalid JSON")
-	}
-}
-
-func TestPluginLoadMissingScript(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "plugin-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	pluginDir := filepath.Join(tmpDir, "no-script")
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{
-  "name": "no-script",
-  "version": "1.0.0",
-  "description": "Missing script"
-}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	loader := NewLoader(tmpDir)
-	err = loader.Load("no-script")
-	if err == nil {
-		t.Error("Load() should return error when index.js is missing")
-	}
-}
-
-func TestPluginUnloadNonExistent(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "plugin-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	loader := NewLoader(tmpDir)
-	err = loader.Unload("nonexistent")
-	if err != nil {
-		t.Errorf("Unload() should not error for non-existent plugin, got: %v", err)
-	}
-}
-
-func TestPluginLoadMultiple(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "plugin-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	names := []string{"alpha", "beta", "gamma"}
-	for _, name := range names {
-		dir := filepath.Join(tmpDir, name)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		meta := `{"name":"` + name + `","version":"1.0.0","description":"Plugin ` + name + `"}`
-		if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(meta), 0644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "index.js"), []byte(`function onLoad() { return "ok"; }`), 0644); err != nil {
-			t.Fatal(err)
+func TestLoaderRejectsUnsafeNamesAndManifestMismatch(t *testing.T) {
+	root := t.TempDir()
+	loader := NewLoader(root)
+	for _, name := range []string{"../escape", `bad/name`, `bad\\name`, ""} {
+		if err := loader.Load(name); err == nil {
+			t.Fatalf("Load(%q) accepted an unsafe name", name)
 		}
 	}
-
-	loader := NewLoader(tmpDir)
-	for _, name := range names {
-		if err := loader.Load(name); err != nil {
-			t.Fatalf("Load(%s) error = %v", name, err)
-		}
-	}
-
-	list := loader.List()
-	if len(list) != 3 {
-		t.Errorf("List() length = %d, want 3", len(list))
-	}
-
-	for _, name := range names {
-		p := loader.Get(name)
-		if p == nil {
-			t.Errorf("Get(%s) returned nil", name)
-		} else if p.Name != name {
-			t.Errorf("Get(%s).Name = %s", name, p.Name)
-		}
-	}
-}
-
-func TestPluginMetadataParsing(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "plugin-test-*")
+	pluginDir := writeBinaryTestPlugin(t, root, "directory-name", "1.0.0", "step")
+	data, err := os.ReadFile(filepath.Join(pluginDir, "plugin-buildworld.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	pluginDir := filepath.Join(tmpDir, "meta-test")
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+	var manifest BinaryManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{
-  "name": "meta-test",
-  "version": "2.3.1",
-  "description": "A plugin for testing metadata"
-}`), 0644); err != nil {
+	manifest.Name = "different-name"
+	data, _ = json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin-buildworld.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`function onLoad() { return "ok"; }`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	loader := NewLoader(tmpDir)
-	if err := loader.Load("meta-test"); err != nil {
-		t.Fatal(err)
-	}
-
-	plugin := loader.Get("meta-test")
-	if plugin == nil {
-		t.Fatal("Get() returned nil")
-	}
-
-	tests := []struct {
-		field string
-		got   string
-		want  string
-	}{
-		{"Name", plugin.Name, "meta-test"},
-		{"Version", plugin.Version, "2.3.1"},
-		{"Description", plugin.Description, "A plugin for testing metadata"},
-		{"Path", plugin.Path, filepath.Join(tmpDir, "meta-test")},
-	}
-	for _, tt := range tests {
-		if tt.got != tt.want {
-			t.Errorf("%s = %q, want %q", tt.field, tt.got, tt.want)
-		}
+	if err := loader.Load("directory-name"); err == nil {
+		t.Fatal("Load accepted a manifest/directory name mismatch")
 	}
 }
 
-func TestPluginUnload(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "plugin-test-*")
-	if err != nil {
+func TestLoaderRejectsDuplicateStepOwnership(t *testing.T) {
+	root := t.TempDir()
+	writeBinaryTestPlugin(t, root, "alpha", "1.0.0", "shared:step")
+	writeBinaryTestPlugin(t, root, "beta", "1.0.0", "shared:step")
+	loader := NewLoader(root)
+	if err := loader.Load("alpha"); err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	pluginDir := filepath.Join(tmpDir, "test-plugin")
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
-		t.Fatal(err)
+	if err := loader.Load("beta"); err == nil {
+		t.Fatal("second plugin claimed an already registered step type")
 	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{
-  "name": "test-plugin",
-  "version": "1.0.0",
-  "description": "A test plugin"
-}`), 0644); err != nil {
-		t.Fatal(err)
+	if loader.GetInstalled("beta") != nil {
+		t.Fatal("conflicting plugin was registered")
 	}
-	if err := os.WriteFile(filepath.Join(pluginDir, "index.js"), []byte(`
-function onLoad() {
-  return "ok";
 }
-`), 0644); err != nil {
+
+func TestDeletePluginStaysInsideRoot(t *testing.T) {
+	root := t.TempDir()
+	pluginDir := writeBinaryTestPlugin(t, root, "remove-me", "1.0.0", "step")
+	loader := NewLoader(root)
+	if err := loader.Load("remove-me"); err != nil {
 		t.Fatal(err)
 	}
-
-	loader := NewLoader(tmpDir)
-	if err := loader.Load("test-plugin"); err != nil {
+	if err := loader.DeletePlugin("../outside"); err == nil {
+		t.Fatal("DeletePlugin accepted traversal")
+	}
+	if _, err := os.Stat(pluginDir); err != nil {
+		t.Fatalf("unsafe delete touched valid plugin: %v", err)
+	}
+	if err := loader.DeletePlugin("remove-me"); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := loader.Unload("test-plugin"); err != nil {
-		t.Fatalf("Unload() error = %v", err)
-	}
-
-	if loader.Get("test-plugin") != nil {
-		t.Error("Get() should return nil after Unload()")
+	if _, err := os.Stat(pluginDir); !os.IsNotExist(err) {
+		t.Fatalf("plugin directory still exists: %v", err)
 	}
 }

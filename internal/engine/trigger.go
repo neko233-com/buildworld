@@ -190,7 +190,7 @@ func (tc *TriggerChecker) loadProjectConfig(p *store.Project) (*BuildConfig, err
 	if p.TemplateID != nil {
 		tmpl, err := tc.store.GetBuildTemplate(*p.TemplateID)
 		if err == nil {
-			tmplCfg, err := ParseBuildConfig(tmpl.Config)
+			tmplCfg, err := ParsePipelineConfig(tmpl.Config)
 			if err == nil {
 				cfg = MergeBuildConfig(tmplCfg, cfg)
 			}

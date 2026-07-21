@@ -8,8 +8,9 @@ import (
 )
 
 type Claims struct {
-	UserID int64  `json:"user_id"`
-	Role   string `json:"role"`
+	UserID         int64  `json:"user_id"`
+	Role           string `json:"role"`
+	SessionVersion int64  `json:"session_version"`
 	jwt.RegisteredClaims
 }
 
@@ -21,10 +22,11 @@ func NewJWT(secret string) *JWT {
 	return &JWT{secret: []byte(secret)}
 }
 
-func (j *JWT) Generate(userID int64, role string, duration time.Duration) (string, error) {
+func (j *JWT) Generate(userID int64, role string, sessionVersion int64, duration time.Duration) (string, error) {
 	claims := &Claims{
-		UserID: userID,
-		Role:   role,
+		UserID:         userID,
+		Role:           role,
+		SessionVersion: sessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

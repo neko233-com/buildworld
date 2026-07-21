@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -64,6 +65,14 @@ func NewServer(d Deps) *Server {
 func (s *Server) Start() error {
 	log.Printf("HTTP server listening on %s", s.httpSrv.Addr)
 	return s.httpSrv.ListenAndServe()
+}
+
+// Serve starts the API on a listener reserved before side-effectful services
+// such as queue recovery. A duplicate server therefore cannot mutate builds
+// and only discover its port conflict afterward.
+func (s *Server) Serve(listener net.Listener) error {
+	log.Printf("HTTP server listening on %s", listener.Addr())
+	return s.httpSrv.Serve(listener)
 }
 
 func (s *Server) Stop(ctx context.Context) error {

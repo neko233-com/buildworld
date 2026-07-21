@@ -1,7 +1,0 @@
-{
-  "name": "s3",
-  "version": "1.0.0",
-  "description": "Object storage: upload, download, delete, sync, list via AWS S3",
-  "author": "buildworld",
-  "steps": ["s3-upload", "s3-download", "s3-delete", "s3-sync", "s3-list"]
-}

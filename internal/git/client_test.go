@@ -131,51 +131,6 @@ func TestGitCheckout(t *testing.T) {
 	}
 }
 
-func TestSSHKeyGeneration(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "ssh-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Check if ssh-keygen is available
-	if _, err := exec.LookPath("ssh-keygen"); err != nil {
-		t.Skip("ssh-keygen not available, skipping test")
-	}
-
-	keyPath := tmpDir + "/test-key"
-	err = CreateSSHKeyPair(keyPath)
-	if err != nil {
-		t.Fatalf("CreateSSHKeyPair() error = %v", err)
-	}
-
-	// Verify key files exist
-	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
-		t.Error("Private key file not created")
-	}
-	if _, err := os.Stat(keyPath + ".pub"); os.IsNotExist(err) {
-		t.Error("Public key file not created")
-	}
-
-	// Test getting public key
-	pubKey, err := GetPublicKey(keyPath)
-	if err != nil {
-		t.Fatalf("GetPublicKey() error = %v", err)
-	}
-	if pubKey == "" {
-		t.Error("GetPublicKey() returned empty string")
-	}
-
-	// Test getting fingerprint
-	fingerprint, err := GetFingerprint(keyPath + ".pub")
-	if err != nil {
-		t.Fatalf("GetFingerprint() error = %v", err)
-	}
-	if fingerprint == "" {
-		t.Error("GetFingerprint() returned empty string")
-	}
-}
-
 func TestCreateSSHCredentialHelper(t *testing.T) {
 	helper, err := createSSHCredentialHelper("testuser", "testpass")
 	if err != nil {

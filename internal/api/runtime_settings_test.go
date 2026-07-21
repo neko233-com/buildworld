@@ -83,6 +83,11 @@ func TestResourceSettingsDefaultLowAndHotReloadWithoutRestart(t *testing.T) {
 		defaults["port"] != "8700" {
 		t.Fatalf("low-resource defaults = %#v", defaults)
 	}
+	for _, removed := range []string{"tls", "logs_path"} {
+		if _, exists := defaults[removed]; exists {
+			t.Fatalf("unsupported runtime setting %q is still advertised", removed)
+		}
+	}
 
 	database, err := store.New(filepath.Join(t.TempDir(), "resource-settings.db"))
 	if err != nil {
@@ -116,32 +121,5 @@ func TestResourceSettingsDefaultLowAndHotReloadWithoutRestart(t *testing.T) {
 	}
 	if runtime.GOMAXPROCS(0) != expectedProcs {
 		t.Fatalf("GOMAXPROCS = %d, want %d", runtime.GOMAXPROCS(0), expectedProcs)
-	}
-}
-
-func TestApplyStoredSettingsMigratesLegacyDefaultPort(t *testing.T) {
-	database, err := store.New(filepath.Join(t.TempDir(), "legacy-port.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	if err := database.SetEnvVar("system", nil, "port", "7777", false, "legacy default"); err != nil {
-		t.Fatal(err)
-	}
-
-	upgraded := &config.Config{Server: config.ServerConfig{Port: 8700}}
-	if err := ApplyStoredSettings(upgraded, database); err != nil {
-		t.Fatal(err)
-	}
-	if upgraded.Server.Port != 8700 {
-		t.Fatalf("legacy default port was restored as %d, want 8700", upgraded.Server.Port)
-	}
-
-	custom := &config.Config{Server: config.ServerConfig{Port: 9000}}
-	if err := ApplyStoredSettings(custom, database); err != nil {
-		t.Fatal(err)
-	}
-	if custom.Server.Port != 7777 {
-		t.Fatalf("explicit legacy port was not preserved: got %d, want 7777", custom.Server.Port)
 	}
 }

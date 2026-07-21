@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "github.com/glebarez/go-sqlite"
 )
@@ -19,6 +21,36 @@ type Store struct {
 var ErrBuildNotCancellable = errors.New("build is not active")
 var ErrRequiredNotificationChannel = errors.New("required notification channel must remain enabled")
 var ErrProjectGroupNameExists = errors.New("project group name already exists")
+var ErrInvalidProjectGroupColor = errors.New("invalid project group color")
+
+const ProjectGroupColorNeutral = "neutral"
+
+// IsValidProjectGroupColor limits group backgrounds to the muted palette
+// supported by the Web client. Keeping tokens stable also makes API payloads
+// and exported data independent of a particular CSS color value.
+func IsValidProjectGroupColor(color string) bool {
+	switch color {
+	case ProjectGroupColorNeutral, "blue", "cyan", "mint", "green", "yellow", "orange", "pink", "purple":
+		return true
+	default:
+		return false
+	}
+}
+
+const (
+	// BuildLogRetentionCharacters bounds the durable SQLite blob. UTF-8 makes
+	// the byte ceiling at most four times this value, while character-based
+	// SQLite substr avoids corrupting multi-byte log text.
+	BuildLogRetentionCharacters = 1_000_000
+	BuildLogAppendMaxBytes      = 256 * 1024
+	BuildLogTruncationMarker    = "[buildworld] Earlier persisted log output was truncated; only the newest output is retained. Live WebSocket output was not truncated.\n"
+	BuildLogOversizedMarker     = "[buildworld] One oversized log entry was truncated before persistence. "
+)
+
+const appendBuildLogExpression = `CASE
+	WHEN length(COALESCE(log, '')) + length(?) <= ? THEN COALESCE(log, '') || ?
+	ELSE ? || substr(COALESCE(log, ''), -(? - length(?))) || ?
+END`
 
 func New(dbPath string) (*Store, error) {
 	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)")
@@ -34,6 +66,15 @@ func New(dbPath string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("configure database journal: %w", err)
 	}
+	// The database contains password hashes, repository credentials, API tokens,
+	// notification secrets, and secret environment variables. Keep an existing
+	// or newly created database private even when the process umask is permissive.
+	if dbPath != ":memory:" && !strings.HasPrefix(dbPath, "file::memory:") {
+		if err := os.Chmod(dbPath, 0o600); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("secure database permissions: %w", err)
+		}
+	}
 
 	store := &Store{db: db}
 	if err := store.migrate(); err != nil {
@@ -48,15 +89,31 @@ func New(dbPath string) (*Store, error) {
 }
 
 func (s *Store) migrate() error {
-	for _, m := range migrations {
-		if _, err := s.db.Exec(m); err != nil {
-			msg := err.Error()
-			if strings.Contains(msg, "duplicate column name") ||
-				strings.Contains(msg, "already exists") {
-				continue
-			}
-			return fmt.Errorf("migration [%s]: %w", m[:min(60, len(m))], err)
+	if err := runSchemaMigrations(s.db, schemaMigrations); err != nil {
+		return err
+	}
+	return s.normalizeEmptyRepositoryTypes()
+}
+
+// normalizeEmptyRepositoryTypes repairs only historical empty values. It
+// leaves every valid Git URL, branch, config, and association untouched.
+func (s *Store) normalizeEmptyRepositoryTypes() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin repository type normalization: %w", err)
+	}
+	statements := []string{
+		`UPDATE projects SET repo_type = 'git' WHERE repo_type IS NULL OR trim(repo_type) = ''`,
+		`UPDATE vcs_roots SET type = 'git' WHERE type IS NULL OR trim(type) = ''`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("normalize empty repository type: %w", err)
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit repository type normalization: %w", err)
 	}
 	return nil
 }
@@ -83,9 +140,9 @@ func (s *Store) GetUser(id int64) (*User, error) {
 	var avatar sql.NullString
 	var lastLogin sql.NullTime
 	err := s.db.QueryRow(
-		"SELECT id, username, email, password_hash, role, avatar_url, created_at, last_login FROM users WHERE id = ?",
+		"SELECT id, username, email, password_hash, role, session_version, avatar_url, created_at, last_login FROM users WHERE id = ?",
 		id,
-	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &avatar, &u.CreatedAt, &lastLogin)
+	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.SessionVersion, &avatar, &u.CreatedAt, &lastLogin)
 	if err != nil {
 		return nil, err
 	}
@@ -103,9 +160,9 @@ func (s *Store) GetUserByUsername(username string) (*User, error) {
 	var avatar sql.NullString
 	var lastLogin sql.NullTime
 	err := s.db.QueryRow(
-		"SELECT id, username, email, password_hash, role, avatar_url, created_at, last_login FROM users WHERE username = ?",
+		"SELECT id, username, email, password_hash, role, session_version, avatar_url, created_at, last_login FROM users WHERE username = ?",
 		username,
-	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &avatar, &u.CreatedAt, &lastLogin)
+	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.SessionVersion, &avatar, &u.CreatedAt, &lastLogin)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +176,7 @@ func (s *Store) GetUserByUsername(username string) (*User, error) {
 }
 
 func (s *Store) ListUsers() ([]*User, error) {
-	rows, err := s.db.Query("SELECT id, username, email, password_hash, role, avatar_url, created_at, last_login FROM users ORDER BY id")
+	rows, err := s.db.Query("SELECT id, username, email, password_hash, role, session_version, avatar_url, created_at, last_login FROM users ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +186,7 @@ func (s *Store) ListUsers() ([]*User, error) {
 		u := &User{}
 		var avatar sql.NullString
 		var lastLogin sql.NullTime
-		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &avatar, &u.CreatedAt, &lastLogin); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.SessionVersion, &avatar, &u.CreatedAt, &lastLogin); err != nil {
 			return nil, err
 		}
 		if avatar.Valid {
@@ -144,8 +201,18 @@ func (s *Store) ListUsers() ([]*User, error) {
 }
 
 func (s *Store) UpdateUserPassword(id int64, passwordHash string) error {
-	_, err := s.db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", passwordHash, id)
-	return err
+	result, err := s.db.Exec("UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE id = ?", passwordHash, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) UpdateUserRole(id int64, role string) error {
@@ -159,13 +226,30 @@ func (s *Store) UpdateLastLogin(id int64) error {
 }
 
 func (s *Store) DeleteUser(id int64) error {
-	_, err := s.db.Exec("DELETE FROM users WHERE id = ?", id)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Revoke credentials explicitly. This remains safe even on SQLite
+	// installations where foreign-key enforcement was disabled historically.
+	if _, err := tx.Exec("DELETE FROM api_tokens WHERE user_id = ?", id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM users WHERE id = ?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ---------------- Projects ----------------
 
 func (s *Store) CreateProject(name, description, repoURL, repoType, defaultBranch, config string, createdBy int64, vcsRootID, templateID *int64, tagSets ...[]string) (*Project, error) {
+	var err error
+	repoType, err = NormalizeRepositoryType(repoType)
+	if err != nil {
+		return nil, err
+	}
 	if defaultBranch == "" {
 		defaultBranch = "main"
 	}
@@ -350,6 +434,11 @@ func (s *Store) ListProjectsByVCSRoot(vcsRootID int64) ([]*Project, error) {
 }
 
 func (s *Store) UpdateProject(id int64, name, description, repoURL, repoType, defaultBranch, config string, vcsRootID, templateID *int64, tagSets ...[]string) error {
+	var err error
+	repoType, err = NormalizeRepositoryType(repoType)
+	if err != nil {
+		return err
+	}
 	tags := []string{}
 	if len(tagSets) > 0 {
 		tags = normalizeProjectTags(tagSets[0])
@@ -415,12 +504,75 @@ func parseProjectTags(source string) []string {
 }
 
 func (s *Store) DeleteProject(id int64) error {
-	_, err := s.db.Exec("DELETE FROM builds WHERE project_id = ?", id)
+	tx, err := s.db.Begin()
 	if err != nil {
+		return fmt.Errorf("begin project deletion: %w", err)
+	}
+	defer tx.Rollback()
+
+	exec := func(label, query string, args ...interface{}) error {
+		if _, err := tx.Exec(query, args...); err != nil {
+			return fmt.Errorf("delete project %s: %w", label, err)
+		}
+		return nil
+	}
+
+	// Build dependencies can cross project boundaries. Preserve those builds
+	// while removing references to history that belongs to the deleted project.
+	if err := exec("build dependency references", `UPDATE builds SET wait_dependency_on=NULL
+		WHERE wait_dependency_on IN (SELECT id FROM builds WHERE project_id=?)`, id); err != nil {
 		return err
 	}
-	_, err = s.db.Exec("DELETE FROM projects WHERE id = ?", id)
-	return err
+	if err := exec("build retry references", `UPDATE builds SET retried_from=NULL
+		WHERE retried_from IN (SELECT id FROM builds WHERE project_id=?)`, id); err != nil {
+		return err
+	}
+	if err := exec("test result references", `UPDATE builds SET test_result_id=NULL
+		WHERE test_result_id IN (
+			SELECT result.id FROM test_results result
+			JOIN builds build ON build.id=result.build_id
+			WHERE build.project_id=?
+		)`, id); err != nil {
+		return err
+	}
+
+	// Delete build-owned records before builds. Explicit ordering works on both
+	// foreign-key-enforced databases and installations created before FK checks
+	// were consistently enabled.
+	buildChildren := []struct {
+		label string
+		query string
+		args  []interface{}
+	}{
+		{"notification events", "DELETE FROM notification_events WHERE build_id IN (SELECT id FROM builds WHERE project_id=?)", []interface{}{id}},
+		{"artifacts", "DELETE FROM artifacts WHERE build_id IN (SELECT id FROM builds WHERE project_id=?)", []interface{}{id}},
+		{"queue items", "DELETE FROM build_queue_items WHERE project_id=? OR build_id IN (SELECT id FROM builds WHERE project_id=?)", []interface{}{id, id}},
+		{"test results", "DELETE FROM test_results WHERE build_id IN (SELECT id FROM builds WHERE project_id=?)", []interface{}{id}},
+		{"build approvals", "DELETE FROM build_approvals WHERE build_id IN (SELECT id FROM builds WHERE project_id=?)", []interface{}{id}},
+	}
+	for _, child := range buildChildren {
+		if err := exec(child.label, child.query, child.args...); err != nil {
+			return err
+		}
+	}
+	if err := exec("build statistics", "DELETE FROM build_stats WHERE project_id=?", id); err != nil {
+		return err
+	}
+	if err := exec("environment variables", "DELETE FROM env_vars WHERE project_id=?", id); err != nil {
+		return err
+	}
+	if err := exec("builds", "DELETE FROM builds WHERE project_id=?", id); err != nil {
+		return err
+	}
+	// VCS roots, build templates, groups, users, channels, and credentials are
+	// shared resources. Deleting only the project row preserves them.
+	if err := exec("row", "DELETE FROM projects WHERE id=?", id); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit project deletion: %w", err)
+	}
+	return nil
 }
 
 // ---------------- Builds ----------------
@@ -622,7 +774,9 @@ func (s *Store) RecoverInterruptedBuilds() (int, error) {
 	}
 
 	for _, id := range ids {
-		if _, err := tx.Exec("UPDATE builds SET status='pending', started_at=NULL, finished_at=NULL, duration_ms=NULL, log=COALESCE(log, '') || ? WHERE id=?", "\n[buildworld] Requeued after interrupted server restart.\n", id); err != nil {
+		args := boundedBuildLogArgs("\n[buildworld] Requeued after interrupted server restart.\n")
+		args = append(args, id)
+		if _, err := tx.Exec("UPDATE builds SET status='pending', started_at=NULL, finished_at=NULL, duration_ms=NULL, log="+appendBuildLogExpression+" WHERE id=?", args...); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec("UPDATE build_queue_items SET status='queued', started_at=NULL WHERE build_id=?", id); err != nil {
@@ -724,13 +878,70 @@ func (s *Store) FinishBuild(id int64, status string, durationMs int64) error {
 }
 
 func (s *Store) AppendBuildLog(id int64, line string) error {
-	_, err := s.db.Exec("UPDATE builds SET log = COALESCE(log, '') || ? WHERE id = ?", line, id)
+	args := boundedBuildLogArgs(line)
+	args = append(args, id)
+	_, err := s.db.Exec("UPDATE builds SET log = "+appendBuildLogExpression+" WHERE id = ?", args...)
 	return err
 }
 
+func boundedBuildLogArgs(line string) []any {
+	line = boundBuildLogEntry(line)
+	markerCharacters := utf8.RuneCountInString(BuildLogTruncationMarker)
+	retainedCharacters := BuildLogRetentionCharacters - markerCharacters
+	return []any{
+		line,
+		BuildLogRetentionCharacters,
+		line,
+		BuildLogTruncationMarker,
+		retainedCharacters,
+		line,
+		line,
+	}
+}
+
+func boundBuildLogEntry(line string) string {
+	if !utf8.ValidString(line) {
+		line = strings.ToValidUTF8(line, "\uFFFD")
+	}
+	if len(line) <= BuildLogAppendMaxBytes {
+		return line
+	}
+	start := len(line) - BuildLogAppendMaxBytes
+	for start < len(line) && !utf8.RuneStart(line[start]) {
+		start++
+	}
+	return BuildLogTruncationMarker + BuildLogOversizedMarker + line[start:]
+}
+
+func IsBuildLogTruncated(log string) bool {
+	return strings.HasPrefix(log, BuildLogTruncationMarker) || strings.Contains(log, BuildLogOversizedMarker)
+}
+
 func (s *Store) SetBuildLog(id int64, log string) error {
+	log = retainCompleteBuildLog(log)
 	_, err := s.db.Exec("UPDATE builds SET log = ? WHERE id = ?", log, id)
 	return err
+}
+
+func retainCompleteBuildLog(log string) string {
+	if !utf8.ValidString(log) {
+		log = strings.ToValidUTF8(log, "\uFFFD")
+	}
+	characters := utf8.RuneCountInString(log)
+	if characters <= BuildLogRetentionCharacters {
+		return log
+	}
+	keep := BuildLogRetentionCharacters - utf8.RuneCountInString(BuildLogTruncationMarker)
+	drop := characters - keep
+	start := len(log)
+	for index := range log {
+		if drop == 0 {
+			start = index
+			break
+		}
+		drop--
+	}
+	return BuildLogTruncationMarker + log[start:]
 }
 
 func (s *Store) RetryBuild(buildID int64) (*Build, error) {
@@ -929,16 +1140,10 @@ func (s *Store) MarkOfflineWorkers() error {
 
 // ---------------- Plugins ----------------
 
-func (s *Store) CreatePlugin(name, version, description, author, config, scriptLang, sourceScript, sourceUIScript, source string) (*Plugin, error) {
-	if source == "" {
-		source = "builtin"
-	}
-	if scriptLang == "" {
-		scriptLang = "js"
-	}
+func (s *Store) CreatePlugin(name, version, description, author, config, path, source string) (*Plugin, error) {
 	res, err := s.db.Exec(
-		"INSERT INTO plugins (name, version, description, author, enabled, config, script_lang, source_script, source_ui_script, source, steps, triggers, ui_extensions) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, '[]', '[]', '[]')",
-		name, version, description, author, config, scriptLang, sourceScript, sourceUIScript, source,
+		"INSERT INTO plugins (name, version, description, author, enabled, config, path, source) VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+		name, version, description, author, config, path, source,
 	)
 	if err != nil {
 		return nil, err
@@ -952,9 +1157,9 @@ type scannable interface {
 }
 
 func scanPlugin(p *Plugin, row scannable) error {
-	var desc, author, cfg, scriptLang, sourceScript, sourceUIScript, path, steps, triggers, uiExt sql.NullString
+	var desc, author, cfg, path, source sql.NullString
 	var updatedAt sql.NullTime
-	err := row.Scan(&p.ID, &p.Name, &p.Version, &desc, &author, &p.Enabled, &cfg, &scriptLang, &sourceScript, &sourceUIScript, &path, &p.Source, &steps, &triggers, &uiExt, &p.InstalledAt, &updatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Version, &desc, &author, &p.Enabled, &cfg, &path, &source, &p.InstalledAt, &updatedAt)
 	if err != nil {
 		return err
 	}
@@ -967,44 +1172,14 @@ func scanPlugin(p *Plugin, row scannable) error {
 	if cfg.Valid {
 		p.Config = cfg.String
 	}
-	if scriptLang.Valid {
-		p.ScriptLang = scriptLang.String
-	}
-	if sourceScript.Valid {
-		p.SourceScript = sourceScript.String
-	}
-	if sourceUIScript.Valid {
-		p.SourceUIScript = sourceUIScript.String
-	}
 	if path.Valid {
 		p.Path = path.String
 	}
-	if steps.Valid {
-		p.Steps = steps.String
-	}
-	if triggers.Valid {
-		p.Triggers = triggers.String
-	}
-	if uiExt.Valid {
-		p.UIExtensions = uiExt.String
+	if source.Valid {
+		p.Source = source.String
 	}
 	if updatedAt.Valid {
 		p.UpdatedAt = updatedAt.Time
-	}
-	if p.Source == "" {
-		p.Source = "builtin"
-	}
-	if p.ScriptLang == "" {
-		p.ScriptLang = "js"
-	}
-	if p.Steps == "" {
-		p.Steps = "[]"
-	}
-	if p.Triggers == "" {
-		p.Triggers = "[]"
-	}
-	if p.UIExtensions == "" {
-		p.UIExtensions = "[]"
 	}
 	return nil
 }
@@ -1012,19 +1187,19 @@ func scanPlugin(p *Plugin, row scannable) error {
 func (s *Store) GetPlugin(id int64) (*Plugin, error) {
 	p := &Plugin{}
 	err := scanPlugin(p, s.db.QueryRow(
-		"SELECT id, name, version, description, author, enabled, config, script_lang, source_script, source_ui_script, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins WHERE id = ?", id))
+		"SELECT id, name, version, description, author, enabled, config, path, source, installed_at, updated_at FROM plugins WHERE id = ?", id))
 	return p, err
 }
 
 func (s *Store) GetPluginByName(name string) (*Plugin, error) {
 	p := &Plugin{}
 	err := scanPlugin(p, s.db.QueryRow(
-		"SELECT id, name, version, description, author, enabled, config, script_lang, source_script, source_ui_script, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins WHERE name = ?", name))
+		"SELECT id, name, version, description, author, enabled, config, path, source, installed_at, updated_at FROM plugins WHERE name = ?", name))
 	return p, err
 }
 
 func (s *Store) ListPlugins() ([]*Plugin, error) {
-	rows, err := s.db.Query("SELECT id, name, version, description, author, enabled, config, script_lang, source_script, source_ui_script, path, source, steps, triggers, ui_extensions, installed_at, updated_at FROM plugins ORDER BY id")
+	rows, err := s.db.Query("SELECT id, name, version, description, author, enabled, config, path, source, installed_at, updated_at FROM plugins ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -1049,32 +1224,11 @@ func (s *Store) UpdatePluginEnabled(id int64, enabled bool) error {
 	return err
 }
 
-func (s *Store) UpdatePluginMetadata(id int64, version, description, author, source string) error {
-	if source == "" {
-		source = "builtin"
-	}
+func (s *Store) UpdatePluginMetadata(id int64, version, description, author, path, source string) error {
 	_, err := s.db.Exec(
-		"UPDATE plugins SET version=?, description=?, author=?, source=?, updated_at=? WHERE id=?",
-		version, description, author, source, time.Now(), id,
+		"UPDATE plugins SET version=?, description=?, author=?, path=?, source=?, updated_at=? WHERE id=?",
+		version, description, author, path, source, time.Now(), id,
 	)
-	return err
-}
-
-func (s *Store) UpdatePluginStatus(name string, enabled bool, steps, triggers, uiExtensions string) error {
-	v := 0
-	if enabled {
-		v = 1
-	}
-	if steps == "" {
-		steps = "[]"
-	}
-	if triggers == "" {
-		triggers = "[]"
-	}
-	if uiExtensions == "" {
-		uiExtensions = "[]"
-	}
-	_, err := s.db.Exec("UPDATE plugins SET enabled=?, steps=?, triggers=?, ui_extensions=?, updated_at=? WHERE name=?", v, steps, triggers, uiExtensions, time.Now(), name)
 	return err
 }
 
@@ -1085,17 +1239,6 @@ func (s *Store) DeletePluginByName(name string) error {
 
 func (s *Store) DeletePlugin(id int64) error {
 	_, err := s.db.Exec("DELETE FROM plugins WHERE id=?", id)
-	return err
-}
-
-func (s *Store) UpdatePluginSource(id int64, scriptLang, sourceScript, sourceUIScript, script, uiScript string) error {
-	if scriptLang == "" {
-		scriptLang = "js"
-	}
-	_, err := s.db.Exec(
-		"UPDATE plugins SET script_lang=?, source_script=?, source_ui_script=?, updated_at=? WHERE id=?",
-		scriptLang, sourceScript, sourceUIScript, time.Now(), id,
-	)
 	return err
 }
 
@@ -1227,9 +1370,13 @@ func (s *Store) DeleteEnvVar(id int64) error {
 // ---------------- Credentials ----------------
 
 func (s *Store) CreateCredential(name string, credType CredentialType, host, username, password, privateKey, publicKey, token, description string, isSecret bool) (*Credential, error) {
+	normalizedType, err := NormalizeCredentialType(string(credType))
+	if err != nil {
+		return nil, err
+	}
 	res, err := s.db.Exec(
 		"INSERT INTO credentials (name, type, host, username, password, private_key, public_key, token, description, is_secret) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		name, string(credType), host, username, password, privateKey, publicKey, token, description, isSecret,
+		name, string(normalizedType), host, username, password, privateKey, publicKey, token, description, isSecret,
 	)
 	if err != nil {
 		return nil, err
@@ -1375,9 +1522,13 @@ func (s *Store) ListCredentials(credType *CredentialType) ([]*Credential, error)
 }
 
 func (s *Store) UpdateCredential(id int64, name string, credType CredentialType, host, username, password, privateKey, publicKey, token, description string, isSecret bool) error {
-	_, err := s.db.Exec(
+	normalizedType, err := NormalizeCredentialType(string(credType))
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(
 		"UPDATE credentials SET name=?, type=?, host=?, username=?, password=?, private_key=?, public_key=?, token=?, description=?, is_secret=?, updated_at=? WHERE id=?",
-		name, string(credType), host, username, password, privateKey, publicKey, token, description, isSecret, time.Now(), id,
+		name, string(normalizedType), host, username, password, privateKey, publicKey, token, description, isSecret, time.Now(), id,
 	)
 	return err
 }
@@ -1387,9 +1538,14 @@ func (s *Store) DeleteCredential(id int64) error {
 	return err
 }
 
-// ---------------- VCS Roots ----------------
+// ---------------- VCS repository templates (Git only) ----------------
 
 func (s *Store) CreateVCSRoot(name, vcsType, url, branch string, credentialID *int64, pollInterval int, autoCheckout bool, config string) (*VCSRoot, error) {
+	var err error
+	vcsType, err = NormalizeRepositoryType(vcsType)
+	if err != nil {
+		return nil, err
+	}
 	if branch == "" {
 		branch = "main"
 	}
@@ -1476,7 +1632,12 @@ func (s *Store) ListVCSRoots() ([]*VCSRoot, error) {
 }
 
 func (s *Store) UpdateVCSRoot(id int64, name, vcsType, url, branch string, credentialID *int64, pollInterval int, autoCheckout bool, config string) error {
-	_, err := s.db.Exec(
+	var err error
+	vcsType, err = NormalizeRepositoryType(vcsType)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(
 		"UPDATE vcs_roots SET name=?, type=?, url=?, branch=?, credential_id=?, poll_interval=?, auto_checkout=?, config=?, updated_at=? WHERE id=?",
 		name, vcsType, url, branch, credentialID, pollInterval, autoCheckout, config, time.Now(), id,
 	)
@@ -2302,127 +2463,29 @@ func (s *Store) ListBuildTestResults(buildID int64) ([]*TestResult, error) {
 	return results, nil
 }
 
-// ---------------- Deployment Envs ----------------
-
-func (s *Store) CreateDeploymentEnv(projectID int64, name, description, config string) (*DeploymentEnv, error) {
-	if config == "" {
-		config = "{}"
-	}
-	res, err := s.db.Exec(
-		"INSERT INTO deployment_envs (project_id, name, description, config) VALUES (?, ?, ?, ?)",
-		projectID, name, description, config,
-	)
-	if err != nil {
-		return nil, err
-	}
-	id, _ := res.LastInsertId()
-	return s.GetDeploymentEnv(id)
-}
-
-func (s *Store) GetDeploymentEnv(id int64) (*DeploymentEnv, error) {
-	d := &DeploymentEnv{}
-	var desc sql.NullString
-	var lastBuild sql.NullInt64
-	err := s.db.QueryRow(
-		"SELECT id, project_id, name, description, config, last_build_id, created_at, updated_at FROM deployment_envs WHERE id = ?",
-		id,
-	).Scan(&d.ID, &d.ProjectID, &d.Name, &desc, &d.Config, &lastBuild, &d.CreatedAt, &d.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	d.Description = desc.String
-	if lastBuild.Valid {
-		v := lastBuild.Int64
-		d.LastBuildID = &v
-	}
-	return d, nil
-}
-
-func (s *Store) GetDeploymentEnvByProjectAndName(projectID int64, name string) (*DeploymentEnv, error) {
-	d := &DeploymentEnv{}
-	var desc sql.NullString
-	var lastBuild sql.NullInt64
-	err := s.db.QueryRow(
-		"SELECT id, project_id, name, description, config, last_build_id, created_at, updated_at FROM deployment_envs WHERE project_id = ? AND name = ?",
-		projectID, name,
-	).Scan(&d.ID, &d.ProjectID, &d.Name, &desc, &d.Config, &lastBuild, &d.CreatedAt, &d.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	d.Description = desc.String
-	if lastBuild.Valid {
-		value := lastBuild.Int64
-		d.LastBuildID = &value
-	}
-	return d, nil
-}
-
-func (s *Store) ListDeploymentEnvs(projectID int64) ([]*DeploymentEnv, error) {
-	rows, err := s.db.Query(
-		"SELECT id, project_id, name, description, config, last_build_id, created_at, updated_at FROM deployment_envs WHERE project_id = ? ORDER BY id",
-		projectID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var envs []*DeploymentEnv
-	for rows.Next() {
-		d := &DeploymentEnv{}
-		var desc sql.NullString
-		var lastBuild sql.NullInt64
-		if err := rows.Scan(&d.ID, &d.ProjectID, &d.Name, &desc, &d.Config, &lastBuild, &d.CreatedAt, &d.UpdatedAt); err != nil {
-			return nil, err
-		}
-		d.Description = desc.String
-		if lastBuild.Valid {
-			v := lastBuild.Int64
-			d.LastBuildID = &v
-		}
-		envs = append(envs, d)
-	}
-	return envs, nil
-}
-
-func (s *Store) UpdateDeploymentEnv(id int64, name, description, config string) error {
-	_, err := s.db.Exec(
-		"UPDATE deployment_envs SET name=?, description=?, config=?, updated_at=? WHERE id=?",
-		name, description, config, time.Now(), id,
-	)
-	return err
-}
-
-func (s *Store) UpdateDeploymentLastBuild(envID, buildID int64) error {
-	_, err := s.db.Exec("UPDATE deployment_envs SET last_build_id=?, updated_at=? WHERE id=?", buildID, time.Now(), envID)
-	return err
-}
-
-func (s *Store) DeleteDeploymentEnv(id int64) error {
-	_, err := s.db.Exec("DELETE FROM deployment_envs WHERE id = ?", id)
-	return err
-}
-
 // ---------------- Project Groups ----------------
 
-func (s *Store) CreateProjectGroup(name, description string, parentID *int64) (*ProjectGroup, error) {
+func (s *Store) CreateProjectGroup(name, description string) (*ProjectGroup, error) {
+	return s.CreateProjectGroupWithColor(name, description, ProjectGroupColorNeutral)
+}
+
+func (s *Store) CreateProjectGroupWithColor(name, description, color string) (*ProjectGroup, error) {
 	name = strings.TrimSpace(name)
 	description = strings.TrimSpace(description)
 	if name == "" {
 		return nil, fmt.Errorf("project group name is required")
+	}
+	if !IsValidProjectGroupColor(color) {
+		return nil, ErrInvalidProjectGroupColor
 	}
 	if _, err := s.GetProjectGroupByName(name); err == nil {
 		return nil, ErrProjectGroupNameExists
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	if parentID != nil {
-		if _, err := s.GetProjectGroup(*parentID); err != nil {
-			return nil, fmt.Errorf("parent project group not found: %w", err)
-		}
-	}
 	res, err := s.db.Exec(
-		"INSERT INTO project_groups (name, description, parent_id, updated_at) VALUES (?, ?, ?, ?)",
-		name, description, parentID, time.Now(),
+		"INSERT INTO project_groups (name, description, color, updated_at) VALUES (?, ?, ?, ?)",
+		name, description, color, time.Now(),
 	)
 	if err != nil {
 		if isProjectGroupNameConstraint(err) {
@@ -2437,12 +2500,11 @@ func (s *Store) CreateProjectGroup(name, description string, parentID *int64) (*
 func (s *Store) GetProjectGroup(id int64) (*ProjectGroup, error) {
 	g := &ProjectGroup{}
 	var desc sql.NullString
-	var parentID sql.NullInt64
 	var updatedAt sql.NullTime
 	err := s.db.QueryRow(
-		"SELECT id, name, description, parent_id, created_at, updated_at FROM project_groups WHERE id = ?",
+		"SELECT id, name, description, color, created_at, updated_at FROM project_groups WHERE id = ?",
 		id,
-	).Scan(&g.ID, &g.Name, &desc, &parentID, &g.CreatedAt, &updatedAt)
+	).Scan(&g.ID, &g.Name, &desc, &g.Color, &g.CreatedAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -2451,10 +2513,6 @@ func (s *Store) GetProjectGroup(id int64) (*ProjectGroup, error) {
 		g.UpdatedAt = updatedAt.Time
 	}
 	g.Description = desc.String
-	if parentID.Valid {
-		v := parentID.Int64
-		g.ParentID = &v
-	}
 	return g, nil
 }
 
@@ -2467,7 +2525,7 @@ func (s *Store) GetProjectGroupByName(name string) (*ProjectGroup, error) {
 }
 
 func (s *Store) ListProjectGroups() ([]*ProjectGroup, error) {
-	rows, err := s.db.Query("SELECT id, name, description, parent_id, created_at, updated_at FROM project_groups ORDER BY name COLLATE NOCASE, id")
+	rows, err := s.db.Query("SELECT id, name, description, color, created_at, updated_at FROM project_groups ORDER BY name COLLATE NOCASE, id")
 	if err != nil {
 		return nil, err
 	}
@@ -2476,9 +2534,8 @@ func (s *Store) ListProjectGroups() ([]*ProjectGroup, error) {
 	for rows.Next() {
 		g := &ProjectGroup{}
 		var desc sql.NullString
-		var parentID sql.NullInt64
 		var updatedAt sql.NullTime
-		if err := rows.Scan(&g.ID, &g.Name, &desc, &parentID, &g.CreatedAt, &updatedAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &desc, &g.Color, &g.CreatedAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		g.UpdatedAt = g.CreatedAt
@@ -2486,47 +2543,36 @@ func (s *Store) ListProjectGroups() ([]*ProjectGroup, error) {
 			g.UpdatedAt = updatedAt.Time
 		}
 		g.Description = desc.String
-		if parentID.Valid {
-			v := parentID.Int64
-			g.ParentID = &v
-		}
 		groups = append(groups, g)
 	}
 	return groups, nil
 }
 
-func (s *Store) UpdateProjectGroup(id int64, name, description string, parentID *int64) error {
+func (s *Store) UpdateProjectGroup(id int64, name, description string) error {
+	existing, err := s.GetProjectGroup(id)
+	if err != nil {
+		return err
+	}
+	return s.UpdateProjectGroupWithColor(id, name, description, existing.Color)
+}
+
+func (s *Store) UpdateProjectGroupWithColor(id int64, name, description, color string) error {
 	name = strings.TrimSpace(name)
 	description = strings.TrimSpace(description)
 	if name == "" {
 		return fmt.Errorf("project group name is required")
+	}
+	if !IsValidProjectGroupColor(color) {
+		return ErrInvalidProjectGroupColor
 	}
 	if existing, err := s.GetProjectGroupByName(name); err == nil && existing.ID != id {
 		return ErrProjectGroupNameExists
 	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if parentID != nil {
-		if *parentID == id {
-			return fmt.Errorf("project group cannot be its own parent")
-		}
-		parent, err := s.GetProjectGroup(*parentID)
-		if err != nil {
-			return fmt.Errorf("parent project group not found: %w", err)
-		}
-		for parent != nil && parent.ParentID != nil {
-			if *parent.ParentID == id {
-				return fmt.Errorf("project group hierarchy cannot contain a cycle")
-			}
-			parent, err = s.GetProjectGroup(*parent.ParentID)
-			if err != nil {
-				return err
-			}
-		}
-	}
 	result, err := s.db.Exec(
-		"UPDATE project_groups SET name=?, description=?, parent_id=?, updated_at=? WHERE id=?",
-		name, description, parentID, time.Now(), id,
+		"UPDATE project_groups SET name=?, description=?, color=?, updated_at=? WHERE id=?",
+		name, description, color, time.Now(), id,
 	)
 	if err != nil {
 		if isProjectGroupNameConstraint(err) {
@@ -2555,18 +2601,11 @@ func (s *Store) DeleteProjectGroup(id int64) error {
 		return err
 	}
 	defer tx.Rollback()
-	var parentID sql.NullInt64
-	if err := tx.QueryRow("SELECT parent_id FROM project_groups WHERE id = ?", id).Scan(&parentID); err != nil {
+	var existingID int64
+	if err := tx.QueryRow("SELECT id FROM project_groups WHERE id = ?", id).Scan(&existingID); err != nil {
 		return err
 	}
-	var replacement interface{}
-	if parentID.Valid {
-		replacement = parentID.Int64
-	}
-	if _, err := tx.Exec("UPDATE project_groups SET parent_id=?, updated_at=? WHERE parent_id=?", replacement, time.Now(), id); err != nil {
-		return err
-	}
-	if _, err := tx.Exec("UPDATE projects SET group_id=?, updated_at=? WHERE group_id=?", replacement, time.Now(), id); err != nil {
+	if _, err := tx.Exec("UPDATE projects SET group_id=NULL, updated_at=? WHERE group_id=?", time.Now(), id); err != nil {
 		return err
 	}
 	if _, err := tx.Exec("DELETE FROM project_groups WHERE id = ?", id); err != nil {
@@ -2692,117 +2731,4 @@ func (s *Store) UpdateBuildQueueItemStatusByBuildID(buildID int64, status string
 func (s *Store) UpdateBuildQueueItemPriority(id, priority int64) error {
 	_, err := s.db.Exec("UPDATE build_queue_items SET priority=? WHERE id=?", priority, id)
 	return err
-}
-
-// ---------------- Git Hooks ----------------
-
-func (s *Store) CreateGitHook(projectID int64, name string, event GitHookEvent, branch, secret string, enabled bool, buildParams, description string) (*GitHook, error) {
-	if buildParams == "" {
-		buildParams = "{}"
-	}
-	res, err := s.db.Exec(
-		"INSERT INTO git_hooks (project_id, name, event, branch, secret, enabled, build_params, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		projectID, name, string(event), branch, secret, enabled, buildParams, description,
-	)
-	if err != nil {
-		return nil, err
-	}
-	id, _ := res.LastInsertId()
-	return s.GetGitHook(id)
-}
-
-func (s *Store) GetGitHook(id int64) (*GitHook, error) {
-	h := &GitHook{}
-	var branch, secret, desc sql.NullString
-	err := s.db.QueryRow(
-		"SELECT id, project_id, name, event, branch, secret, enabled, build_params, description, created_at, updated_at FROM git_hooks WHERE id = ?",
-		id,
-	).Scan(&h.ID, &h.ProjectID, &h.Name, &h.Event, &branch, &secret, &h.Enabled, &h.BuildParams, &desc, &h.CreatedAt, &h.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	h.Branch = branch.String
-	h.Secret = secret.String
-	h.Description = desc.String
-	return h, nil
-}
-
-func (s *Store) GetGitHookByProjectAndName(projectID int64, name string) (*GitHook, error) {
-	h := &GitHook{}
-	var branch, secret, desc sql.NullString
-	err := s.db.QueryRow(
-		"SELECT id, project_id, name, event, branch, secret, enabled, build_params, description, created_at, updated_at FROM git_hooks WHERE project_id = ? AND name = ?",
-		projectID, name,
-	).Scan(&h.ID, &h.ProjectID, &h.Name, &h.Event, &branch, &secret, &h.Enabled, &h.BuildParams, &desc, &h.CreatedAt, &h.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	h.Branch = branch.String
-	h.Secret = secret.String
-	h.Description = desc.String
-	return h, nil
-}
-
-func (s *Store) ListGitHooks(projectID int64) ([]*GitHook, error) {
-	rows, err := s.db.Query(
-		"SELECT id, project_id, name, event, branch, secret, enabled, build_params, description, created_at, updated_at FROM git_hooks WHERE project_id = ? ORDER BY id",
-		projectID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var hooks []*GitHook
-	for rows.Next() {
-		h := &GitHook{}
-		var branch, secret, desc sql.NullString
-		if err := rows.Scan(&h.ID, &h.ProjectID, &h.Name, &h.Event, &branch, &secret, &h.Enabled, &h.BuildParams, &desc, &h.CreatedAt, &h.UpdatedAt); err != nil {
-			return nil, err
-		}
-		h.Branch = branch.String
-		h.Secret = secret.String
-		h.Description = desc.String
-		hooks = append(hooks, h)
-	}
-	return hooks, nil
-}
-
-func (s *Store) UpdateGitHook(id int64, name string, event GitHookEvent, branch, secret string, enabled bool, buildParams, description string) error {
-	if buildParams == "" {
-		buildParams = "{}"
-	}
-	_, err := s.db.Exec(
-		"UPDATE git_hooks SET name=?, event=?, branch=?, secret=?, enabled=?, build_params=?, description=?, updated_at=? WHERE id=?",
-		name, string(event), branch, secret, enabled, buildParams, description, time.Now(), id,
-	)
-	return err
-}
-
-func (s *Store) DeleteGitHook(id int64) error {
-	_, err := s.db.Exec("DELETE FROM git_hooks WHERE id = ?", id)
-	return err
-}
-
-func (s *Store) GetGitHookByProjectAndEvent(projectID int64, event string) ([]*GitHook, error) {
-	rows, err := s.db.Query(
-		"SELECT id, project_id, name, event, branch, secret, enabled, build_params, description, created_at, updated_at FROM git_hooks WHERE project_id = ? AND event = ? AND enabled = 1",
-		projectID, event,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var hooks []*GitHook
-	for rows.Next() {
-		h := &GitHook{}
-		var branch, secret, desc sql.NullString
-		if err := rows.Scan(&h.ID, &h.ProjectID, &h.Name, &h.Event, &branch, &secret, &h.Enabled, &h.BuildParams, &desc, &h.CreatedAt, &h.UpdatedAt); err != nil {
-			return nil, err
-		}
-		h.Branch = branch.String
-		h.Secret = secret.String
-		h.Description = desc.String
-		hooks = append(hooks, h)
-	}
-	return hooks, nil
 }

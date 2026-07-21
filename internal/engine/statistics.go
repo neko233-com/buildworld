@@ -29,7 +29,7 @@ func (ss *StatisticsService) RecordBuildCompletion(build *store.Build) error {
 		return nil
 	}
 
-	// Rebuild the materialized compatibility row from the builds table instead
+	// Rebuild the materialized singleton row from the builds table instead
 	// of incrementing it. Completion callbacks can be delivered more than once
 	// after retries or restarts, so an additive update is not idempotent.
 	current, err := ss.store.GetProjectBuildStats(build.ProjectID, 2)

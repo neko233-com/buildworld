@@ -11,10 +11,7 @@ import (
 
 const agentEnrollmentTokenSetting = "agent_enrollment_token"
 
-const (
-	defaultHTTPPort       = 8700
-	legacyDefaultHTTPPort = 7777
-)
+const defaultHTTPPort = 8700
 
 // ApplyStoredSettings restores settings that must be known before the build
 // runner is created. Config.yaml remains the bootstrap fallback.
@@ -31,18 +28,11 @@ func ApplyStoredSettings(cfg *config.Config, data *store.Store) error {
 		case "host":
 			cfg.Server.Host = value.Value
 		case "port":
-			if parsed, parseErr := strconv.Atoi(value.Value); parseErr == nil && parsed > 0 && parsed <= 65535 &&
-				!(parsed == legacyDefaultHTTPPort && cfg.Server.Port == defaultHTTPPort) {
+			if parsed, parseErr := strconv.Atoi(value.Value); parseErr == nil && parsed > 0 && parsed <= 65535 {
 				cfg.Server.Port = parsed
-			}
-		case "tls":
-			if parsed, parseErr := strconv.ParseBool(value.Value); parseErr == nil {
-				cfg.Server.TLS = parsed
 			}
 		case "artifacts_path":
 			cfg.Storage.Artifacts = value.Value
-		case "logs_path":
-			cfg.Storage.Logs = value.Value
 		case "build_temp_path":
 			cfg.Storage.BuildTemp = value.Value
 		case "local_agent_concurrency":
@@ -60,7 +50,6 @@ func defaultGlobalSettings(cfg *config.Config) map[string]string {
 	settings := map[string]string{
 		"host":                    "0.0.0.0",
 		"port":                    strconv.Itoa(defaultHTTPPort),
-		"tls":                     "false",
 		"build_timeout":           "1800",
 		"build_concurrency":       "2",
 		"local_agent_concurrency": "1",
@@ -68,7 +57,6 @@ func defaultGlobalSettings(cfg *config.Config) map[string]string {
 		"background_mode":         "true",
 		"retry_policy":            "failed_once",
 		"artifacts_path":          "./artifacts",
-		"logs_path":               "./logs",
 		"build_temp_path":         "./build_temp",
 		"go_validation_enabled":   "true",
 		"go_version":              "1.26",
@@ -88,12 +76,8 @@ func defaultGlobalSettings(cfg *config.Config) map[string]string {
 	if cfg.Server.Port > 0 {
 		settings["port"] = strconv.Itoa(cfg.Server.Port)
 	}
-	settings["tls"] = strconv.FormatBool(cfg.Server.TLS)
 	if cfg.Storage.Artifacts != "" {
 		settings["artifacts_path"] = cfg.Storage.Artifacts
-	}
-	if cfg.Storage.Logs != "" {
-		settings["logs_path"] = cfg.Storage.Logs
 	}
 	if cfg.Storage.BuildTemp != "" {
 		settings["build_temp_path"] = cfg.Storage.BuildTemp
@@ -107,7 +91,7 @@ func defaultGlobalSettings(cfg *config.Config) map[string]string {
 
 func validateGlobalSetting(name, value string) error {
 	switch name {
-	case "host", "artifacts_path", "logs_path", "build_temp_path":
+	case "host", "artifacts_path", "build_temp_path":
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s cannot be empty", name)
 		}
@@ -131,7 +115,7 @@ func validateGlobalSetting(name, value string) error {
 		if err != nil || parsed < 5 || parsed > 100 {
 			return fmt.Errorf("cpu_limit_percent must be between 5 and 100")
 		}
-	case "tls", "go_validation_enabled", "node_validation_enabled", "validation_fail_fast", "background_mode":
+	case "go_validation_enabled", "node_validation_enabled", "validation_fail_fast", "background_mode":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s must be true or false", name)
 		}

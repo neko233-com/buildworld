@@ -646,58 +646,42 @@ func TestCancelBuildIsTerminalSafeAndRecordsDuration(t *testing.T) {
 	}
 }
 
-func TestProjectGroupHierarchyAssignmentAndSafeDeletion(t *testing.T) {
+func TestProjectGroupSingleLevelAssignmentAndSafeDeletion(t *testing.T) {
 	data, cleanup := newTestStore(t)
 	defer cleanup()
 
-	root, err := data.CreateProjectGroup("products", "all products", nil)
+	root, err := data.CreateProjectGroup("products", "all products")
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := data.CreateProjectGroup("desktop", "desktop applications", &root.ID)
+	group, err := data.CreateProjectGroup("desktop", "desktop applications")
 	if err != nil {
 		t.Fatal(err)
 	}
-	grandchild, err := data.CreateProjectGroup("windows", "windows applications", &child.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := data.CreateProjectGroup("products", "duplicate name", nil); !errors.Is(err, ErrProjectGroupNameExists) {
+	if _, err := data.CreateProjectGroup("products", "duplicate name"); !errors.Is(err, ErrProjectGroupNameExists) {
 		t.Fatalf("duplicate create error = %v, want ErrProjectGroupNameExists", err)
 	}
-	if err := data.UpdateProjectGroup(child.ID, grandchild.Name, child.Description, child.ParentID); !errors.Is(err, ErrProjectGroupNameExists) {
+	if err := data.UpdateProjectGroup(group.ID, root.Name, group.Description); !errors.Is(err, ErrProjectGroupNameExists) {
 		t.Fatalf("duplicate update error = %v, want ErrProjectGroupNameExists", err)
 	}
 	project, err := data.CreateProject("installer", "", "", "git", "main", `{}`, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := data.SetProjectGroup(project.ID, &child.ID); err != nil {
+	if err := data.SetProjectGroup(project.ID, &group.ID); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := data.UpdateProjectGroup(root.ID, root.Name, root.Description, &grandchild.ID); err == nil {
-		t.Fatal("cyclic project group hierarchy should be rejected")
-	}
-	if err := data.DeleteProjectGroup(child.ID); err != nil {
+	if err := data.DeleteProjectGroup(group.ID); err != nil {
 		t.Fatal(err)
-	}
-
-	reparented, err := data.GetProjectGroup(grandchild.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reparented.ParentID == nil || *reparented.ParentID != root.ID {
-		t.Fatalf("grandchild parent = %#v, want %d", reparented.ParentID, root.ID)
 	}
 	assigned, err := data.GetProject(project.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assigned.GroupID == nil || *assigned.GroupID != root.ID {
-		t.Fatalf("project group = %#v, want %d", assigned.GroupID, root.ID)
+	if assigned.GroupID != nil {
+		t.Fatalf("project group = %#v, want nil after group deletion", assigned.GroupID)
 	}
-	if err := data.DeleteProjectGroup(child.ID); !errors.Is(err, sql.ErrNoRows) {
+	if err := data.DeleteProjectGroup(group.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("second delete error = %v, want sql.ErrNoRows", err)
 	}
 }
@@ -716,7 +700,7 @@ func TestDatabaseMigration(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	tables := []string{"users", "ssh_keys", "projects", "builds", "artifacts", "workers", "plugins"}
+	tables := []string{"users", "projects", "builds", "artifacts", "workers", "plugins", "credentials"}
 	for _, table := range tables {
 		var count int
 		err := store.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count)

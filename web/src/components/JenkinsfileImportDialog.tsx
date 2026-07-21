@@ -19,6 +19,7 @@ export default function JenkinsfileImportDialog({ projectName, onApply, onClose 
   const warningMessage = (warning: PipelineMigrationResult['warnings'][number]) => {
     if (warning.code === 'post_review_required') return t('jenkinsImport.postWarning')
     if (warning.code === 'options_review_required') return t('jenkinsImport.optionsWarning')
+    if (warning.code === 'macos_protected_directory') return t('jenkinsImport.macosProtectedDirectoryWarning')
     return warning.message
   }
 

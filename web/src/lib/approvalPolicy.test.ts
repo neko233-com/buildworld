@@ -9,19 +9,14 @@ const enabled = {
 }
 
 describe('approval policy configuration', () => {
-  it.each([
-    ['json', '{"stages":[]}'],
-    ['yaml', 'stages: []\n'],
-    ['markdown', '# Demo\n\n## Pipeline\n\n### Build\n```default shell\necho ok\n```\n'],
-  ])('round trips %s project configuration', (_format, source) => {
+  it('round trips jobs-based YAML project configuration', () => {
+    const source = 'jobs:\n  build:\n    steps:\n      - run: echo ok\n'
     const written = writeApprovalPolicy(source, enabled)
     expect(readApprovalPolicy(written)).toEqual(enabled)
     expect(readApprovalPolicy(writeApprovalPolicy(written, { ...enabled, enabled: false })).enabled).toBe(false)
   })
 
-  it('replaces an existing Markdown section without duplication', () => {
-    const source = '# Demo\n\n## Approval\n- strategy: single\n\n## Pipeline\n'
-    const written = writeApprovalPolicy(source, enabled)
-    expect(written.match(/^## Approval$/gm)).toHaveLength(1)
+  it.each(['{"stages":[]}', '# Markdown pipeline'])('rejects removed authoring format %s', source => {
+    expect(() => writeApprovalPolicy(source, enabled)).toThrow('jobs-based YAML')
   })
 })

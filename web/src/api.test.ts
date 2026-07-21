@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { API_FEEDBACK_EVENT, downloadAuthenticated, request, setToken, type APIFeedbackDetail } from './api'
+import { API_FEEDBACK_EVENT, api, downloadAuthenticated, request, setToken, type APIFeedbackDetail } from './api'
 
 describe('API request resilience', () => {
   afterEach(() => {
@@ -100,5 +100,27 @@ describe('API request resilience', () => {
     expect(fetchMock.mock.calls[0][0]).not.toContain('token=')
     expect(createObjectURL).toHaveBeenCalledOnce()
     expect(click).toHaveBeenCalledOnce()
+  })
+
+  it('uploads JUnit reports as raw XML', async () => {
+    setToken('secret-token')
+    const xml = '<testsuite name="unit"><testcase name="works"/></testsuite>'
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      id: 4,
+      build_id: 23,
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      duration_ms: 0,
+      created_at: '2026-07-21T10:00:00Z',
+    }), { status: 201 }))
+
+    await expect(api.uploadTestResults(23, xml)).resolves.toMatchObject({ id: 4, total: 1 })
+    expect(fetchMock).toHaveBeenCalledWith('/api/builds/23/test-results', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer secret-token', 'Content-Type': 'application/xml' },
+      body: xml,
+    })
   })
 })

@@ -68,12 +68,12 @@ launchctl print "gui/$(id -u)/com.buildworld.server"
 先在测试机验证指定版本，再在生产环境执行相同安装器：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | sh -s -- 0.0.2
+curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | sh -s -- 1.0.0
 buildworld status
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.ps1))) -Version 0.0.2
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.ps1))) -Version 1.0.0
 buildworld status
 ```
 
@@ -139,6 +139,7 @@ BuildWorld 飞书通道由 Go 原生服务发送，不运行 Python。创建通�
 
 - 立即替换 `root/root`：`printf '%s\n' '至少12位新密码' | buildworld reset-root-password --password-stdin`。
 - 仅用反向代理/TLS 或可信内网公开 `8700`；限制来源 IP。
+- 数据库含构建所需的凭据原文：限制服务账号和备份权限，并使用磁盘/备份加密。
 - Git 密钥、飞书 webhook、token 只放凭据/通知配置，不提交 Jenkinsfile、Pipeline 或仓库。
 - 每次更新前备份 SQLite 数据库与配置目录；定期校验制品存储。
 - 把生产部署配置为审批或人工触发，直到双工具并行验证结束。

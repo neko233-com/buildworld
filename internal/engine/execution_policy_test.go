@@ -21,7 +21,7 @@ func executionPolicyCommand(seconds int) string {
 
 func executionPolicyProject(t *testing.T, database *store.Store, name, command string) *store.Project {
 	t.Helper()
-	config := fmt.Sprintf(`{"stages":[{"name":"Verify","steps":[{"name":"Command","type":"shell","command":%q}]}]}`, command)
+	config := testShellPipelineSource("Verify", "Command", command)
 	project, err := database.CreateProject(name, "", "", "git", "main", config, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -87,6 +87,44 @@ func TestBuildRunnerAppliesDefaultTimeout(t *testing.T) {
 	}
 }
 
+func TestBuildRunnerAppliesDefaultTimeoutWhenTerminalWatcherCanBeSkipped(t *testing.T) {
+	root := t.TempDir()
+	database, err := store.New(filepath.Join(root, "conditional-watch-timeout.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	config := fmt.Sprintf(`import { definePipeline, shell, stage, step } from "@buildworld/pipeline"
+export default definePipeline({
+  allowLongRunning: true,
+  stages: [
+    stage("Slow", shell("Wait", %q)),
+    stage("Observe", step("Logs", "service_watch", "", {
+      if: "false",
+      config: { pid_file: "server.pid", log_file: "server.log" },
+    })),
+  ],
+})`, executionPolicyCommand(4))
+	project, err := database.CreateProject("conditional-watch-timeout", "", "", "git", "main", config, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := executionPolicyBuild(t, database, project, 1)
+	runner := NewBuildRunner(database, nil, filepath.Join(root, "workspaces"), nil)
+	if err := runner.ConfigureExecutionPolicy(ExecutionPolicy{DefaultTimeoutSec: 1, MaxConcurrentBuilds: 1, MaxConcurrentLocalBuilds: 1, RetryLimit: 0, FailFast: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	runner.Run(build.ID)
+	finished := waitForBuildStatus(t, database, build.ID, 5*time.Second, "failed")
+	if finished.TimeoutSec != 1 {
+		t.Fatalf("timeout_sec = %d, want finite default timeout 1", finished.TimeoutSec)
+	}
+	if !strings.Contains(finished.Log, "timed out after 1s") {
+		t.Fatalf("build log does not explain applied timeout:\n%s", finished.Log)
+	}
+}
+
 func TestBuildRunnerRunsMigratedPostSteps(t *testing.T) {
 	root := t.TempDir()
 	database, err := store.New(filepath.Join(root, "post.db"))
@@ -94,7 +132,14 @@ func TestBuildRunnerRunsMigratedPostSteps(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	config := `{"stages":[{"name":"Build","steps":[{"name":"main","type":"shell","command":"echo main"}]}],"post":{"always":[{"name":"always","type":"shell","command":"echo post-always"}],"success":[{"name":"success","type":"shell","command":"echo post-success"}]}}`
+	config := `import { definePipeline, shell, stage } from "@buildworld/pipeline"
+export default definePipeline({
+  stages: [stage("Build", shell("main", "echo main"))],
+  post: {
+    always: [shell("always", "echo post-always")],
+    success: [shell("success", "echo post-success")],
+  },
+})`
 	project, err := database.CreateProject("post", "", "", "git", "main", config, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -303,7 +348,13 @@ func TestBuildRunnerCanContinueAfterFailureAndStillFailBuild(t *testing.T) {
 	}
 	defer database.Close()
 	project := executionPolicyProject(t, database, "continue-after-failure", "")
-	config := `{"stages":[{"name":"Verify","steps":[{"name":"Expected failure","type":"shell","command":"command-that-does-not-exist-buildworld"},{"name":"Follow-up","type":"shell","command":"echo FOLLOW_UP_EXECUTED"}]}]}`
+	config := `import { definePipeline, shell, stage } from "@buildworld/pipeline"
+export default definePipeline({
+  stages: [stage("Verify", [
+    shell("Expected failure", "command-that-does-not-exist-buildworld"),
+    shell("Follow-up", "echo FOLLOW_UP_EXECUTED"),
+  ])],
+})`
 	if err := database.UpdateProject(project.ID, project.Name, project.Description, project.RepoURL, project.RepoType, project.DefaultBranch, config, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}

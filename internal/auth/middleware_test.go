@@ -13,14 +13,16 @@ import (
 
 func TestMiddlewareAuthenticatesNestedChiRoute(t *testing.T) {
 	jwt := NewJWT("middleware-test-secret")
-	token, err := jwt.Generate(42, "admin", time.Hour)
+	token, err := jwt.Generate(42, "admin", 3, time.Hour)
 	if err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}
 
 	router := chi.NewRouter()
 	router.Route("/api", func(r chi.Router) {
-		r.Use(Middleware(jwt, nil, "/api/auth/login"))
+		r.Use(Middleware(jwt, func(userID, sessionVersion int64) (string, bool) {
+			return "admin", userID == 42 && sessionVersion == 3
+		}, nil, "/api/auth/login"))
 		r.Get("/auth/me", func(w http.ResponseWriter, r *http.Request) {
 			_, _ = fmt.Fprint(w, UserIDFromContext(r.Context()))
 		})
@@ -46,7 +48,7 @@ func TestMiddlewareAuthenticatesNestedChiRoute(t *testing.T) {
 
 func TestMiddlewarePublicPathMatchingIsExactUnlessDirectory(t *testing.T) {
 	jwt := NewJWT("middleware-test-secret")
-	handler := Middleware(jwt, nil, "/api/auth/login", "/api/webhooks/")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := Middleware(jwt, nil, nil, "/api/auth/login", "/api/webhooks/")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -67,6 +69,48 @@ func TestMiddlewarePublicPathMatchingIsExactUnlessDirectory(t *testing.T) {
 				t.Fatalf("status = %d, want %d", recorder.Code, tt.want)
 			}
 		})
+	}
+}
+
+func TestMiddlewareUsesCurrentRoleAndRejectsRevokedSession(t *testing.T) {
+	jwt := NewJWT("middleware-current-user-secret")
+	token, err := jwt.Generate(81, "admin", 4, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	currentRole := "viewer"
+	currentVersion := int64(4)
+	userExists := true
+	validator := func(userID, sessionVersion int64) (string, bool) {
+		if !userExists || userID != 81 || sessionVersion != currentVersion {
+			return "", false
+		}
+		return currentRole, true
+	}
+	handler := Middleware(jwt, validator, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, RoleFromContext(r.Context()))
+	}))
+
+	request := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+		return recorder
+	}
+
+	if response := request(); response.Code != http.StatusOK || response.Body.String() != "viewer" {
+		t.Fatalf("current role response = %d %q, want 200 viewer", response.Code, response.Body.String())
+	}
+	currentVersion++
+	if response := request(); response.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked session status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+	currentVersion--
+	userExists = false
+	if response := request(); response.Code != http.StatusUnauthorized {
+		t.Fatalf("deleted user status = %d, want %d", response.Code, http.StatusUnauthorized)
 	}
 }
 
@@ -95,5 +139,34 @@ func TestRequireRolesAllowsOnlyConfiguredRoles(t *testing.T) {
 				t.Fatalf("status = %d, want %d", recorder.Code, tt.want)
 			}
 		})
+	}
+}
+
+func TestRequireAPITokenScope(t *testing.T) {
+	handler := RequireAPITokenScope(ScopeBuildTrigger)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	jwtRequest := httptest.NewRequest(http.MethodPost, "/", nil)
+	jwtRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(jwtRecorder, jwtRequest)
+	if jwtRecorder.Code != http.StatusNoContent {
+		t.Fatalf("JWT request status = %d, want %d", jwtRecorder.Code, http.StatusNoContent)
+	}
+
+	missingScope := httptest.NewRequest(http.MethodPost, "/", nil)
+	missingScope = missingScope.WithContext(context.WithValue(missingScope.Context(), CtxAPITokenScopes, map[string]struct{}{}))
+	missingRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(missingRecorder, missingScope)
+	if missingRecorder.Code != http.StatusForbidden {
+		t.Fatalf("missing-scope API token status = %d, want %d", missingRecorder.Code, http.StatusForbidden)
+	}
+
+	withScope := httptest.NewRequest(http.MethodPost, "/", nil)
+	withScope = withScope.WithContext(context.WithValue(withScope.Context(), CtxAPITokenScopes, map[string]struct{}{ScopeBuildTrigger: {}}))
+	withRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(withRecorder, withScope)
+	if withRecorder.Code != http.StatusNoContent {
+		t.Fatalf("scoped API token status = %d, want %d", withRecorder.Code, http.StatusNoContent)
 	}
 }

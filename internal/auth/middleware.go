@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -18,38 +19,105 @@ const (
 	CtxUserID contextKey = "user_id"
 	// CtxRole is the authenticated user role in request context.
 	CtxRole contextKey = "role"
+	// CtxAPITokenScopes stores scopes only when API-token authentication was used.
+	CtxAPITokenScopes contextKey = "api_token_scopes"
 )
 
-// APITokenValidator 验证 API Token 并返回 (userID, role, ok)。
-type APITokenValidator func(token string) (userID int64, role string, ok bool)
+const ScopeBuildTrigger = "build:trigger"
 
-// NewAPITokenValidator 基于 store 创建 API Token 验证器（bw_ 前缀 + SHA256 hash）。
+// APITokenPrincipal is resolved from persisted token metadata and its current
+// owner. Role is deliberately read from users on every request so deletion or
+// demotion takes effect without issuing a new token.
+type APITokenPrincipal struct {
+	TokenID int64
+	UserID  int64
+	Name    string
+	Role    string
+	Scopes  map[string]struct{}
+}
+
+// APITokenValidator validates an API token and returns its current principal.
+type APITokenValidator func(token string) (*APITokenPrincipal, bool)
+
+// JWTSessionValidator resolves current persisted role and rejects revoked
+// browser/agent sessions. Implementations must read current state per request.
+type JWTSessionValidator func(userID, sessionVersion int64) (role string, ok bool)
+
+// NewJWTSessionValidator creates a fail-closed validator backed by users.
+// Role is deliberately not trusted from JWT claims.
+func NewJWTSessionValidator(s *store.Store) JWTSessionValidator {
+	return func(userID, sessionVersion int64) (string, bool) {
+		if s == nil {
+			return "", false
+		}
+		user, err := s.GetUser(userID)
+		if err != nil || user == nil || user.SessionVersion != sessionVersion {
+			return "", false
+		}
+		return user.Role, true
+	}
+}
+
+// ResolveAPIToken validates token integrity, expiry, scopes, and ownership.
+// It does not update last_used_at; callers should do that only after accepting
+// the token for the requested operation.
+func ResolveAPIToken(s *store.Store, token string) (*APITokenPrincipal, bool) {
+	if s == nil || !strings.HasPrefix(token, "bw_") {
+		return nil, false
+	}
+	hash := sha256.Sum256([]byte(token))
+	apiToken, err := s.GetAPITokenByHash(hex.EncodeToString(hash[:]))
+	if err != nil || apiToken == nil {
+		return nil, false
+	}
+	if apiToken.ExpiresAt != nil && !apiToken.ExpiresAt.After(time.Now()) {
+		return nil, false
+	}
+
+	scopes := make(map[string]struct{})
+	if strings.TrimSpace(apiToken.Scopes) != "" {
+		var persisted []string
+		if err := json.Unmarshal([]byte(apiToken.Scopes), &persisted); err != nil {
+			return nil, false
+		}
+		for _, scope := range persisted {
+			scope = strings.TrimSpace(scope)
+			if scope == "" {
+				return nil, false
+			}
+			scopes[scope] = struct{}{}
+		}
+	}
+
+	user, err := s.GetUser(apiToken.UserID)
+	if err != nil || user == nil {
+		return nil, false
+	}
+	return &APITokenPrincipal{
+		TokenID: apiToken.ID,
+		UserID:  user.ID,
+		Name:    apiToken.Name,
+		Role:    user.Role,
+		Scopes:  scopes,
+	}, true
+}
+
+// NewAPITokenValidator creates a fail-closed API token validator.
 func NewAPITokenValidator(s *store.Store) APITokenValidator {
-	return func(token string) (int64, string, bool) {
-		if !strings.HasPrefix(token, "bw_") {
-			return 0, "", false
+	return func(token string) (*APITokenPrincipal, bool) {
+		principal, ok := ResolveAPIToken(s, token)
+		if !ok {
+			return nil, false
 		}
-		hash := sha256.Sum256([]byte(token))
-		apiToken, err := s.GetAPITokenByHash(hex.EncodeToString(hash[:]))
-		if err != nil || apiToken == nil {
-			return 0, "", false
-		}
-		if apiToken.ExpiresAt != nil && apiToken.ExpiresAt.Before(time.Now()) {
-			return 0, "", false
-		}
-		_ = s.UpdateAPITokenLastUsed(apiToken.ID)
-		user, err := s.GetUser(apiToken.UserID)
-		if err != nil {
-			return apiToken.UserID, "developer", true
-		}
-		return user.ID, user.Role, true
+		_ = s.UpdateAPITokenLastUsed(principal.TokenID)
+		return principal, true
 	}
 }
 
 // Middleware returns an HTTP middleware that validates a Bearer JWT, the native
 // bw_session cookie (for browser/AI agent flows), or an API Token.
 // Public paths (e.g. login, health, webhooks) bypass auth.
-func Middleware(jwt *JWT, apiTokenValidator APITokenValidator, publicPrefixes ...string) func(http.Handler) http.Handler {
+func Middleware(jwt *JWT, sessionValidator JWTSessionValidator, apiTokenValidator APITokenValidator, publicPrefixes ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			for _, p := range publicPrefixes {
@@ -67,9 +135,10 @@ func Middleware(jwt *JWT, apiTokenValidator APITokenValidator, publicPrefixes ..
 
 			// API Token (bw_ 前缀) 优先走 API Token 验证
 			if apiTokenValidator != nil && strings.HasPrefix(token, "bw_") {
-				if uid, role, ok := apiTokenValidator(token); ok {
-					ctx := context.WithValue(r.Context(), CtxUserID, uid)
-					ctx = context.WithValue(ctx, CtxRole, role)
+				if principal, ok := apiTokenValidator(token); ok {
+					ctx := context.WithValue(r.Context(), CtxUserID, principal.UserID)
+					ctx = context.WithValue(ctx, CtxRole, principal.Role)
+					ctx = context.WithValue(ctx, CtxAPITokenScopes, principal.Scopes)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				}
@@ -77,14 +146,23 @@ func Middleware(jwt *JWT, apiTokenValidator APITokenValidator, publicPrefixes ..
 				return
 			}
 
+			if jwt == nil || sessionValidator == nil {
+				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+				return
+			}
 			claims, err := jwt.Validate(token)
 			if err != nil {
 				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return
 			}
+			role, ok := sessionValidator(claims.UserID, claims.SessionVersion)
+			if !ok {
+				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+				return
+			}
 
 			ctx := context.WithValue(r.Context(), CtxUserID, claims.UserID)
-			ctx = context.WithValue(ctx, CtxRole, claims.Role)
+			ctx = context.WithValue(ctx, CtxRole, role)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -127,6 +205,22 @@ func RoleFromContext(ctx context.Context) string {
 	return ""
 }
 
+// IsAPITokenRequest reports whether middleware authenticated an API token.
+func IsAPITokenRequest(ctx context.Context) bool {
+	_, ok := ctx.Value(CtxAPITokenScopes).(map[string]struct{})
+	return ok
+}
+
+// HasAPITokenScope checks an exact persisted scope.
+func HasAPITokenScope(ctx context.Context, scope string) bool {
+	scopes, ok := ctx.Value(CtxAPITokenScopes).(map[string]struct{})
+	if !ok {
+		return false
+	}
+	_, ok = scopes[scope]
+	return ok
+}
+
 // RequireRoles authorizes requests whose authenticated role is in roles.
 // It is intended to run after Middleware has populated the request context.
 func RequireRoles(roles ...string) func(http.Handler) http.Handler {
@@ -141,6 +235,22 @@ func RequireRoles(roles ...string) func(http.Handler) http.Handler {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
 				_, _ = w.Write([]byte(`{"error":"forbidden"}`))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireAPITokenScope applies only to API-token requests. Browser/session JWT
+// requests continue through normal role authorization.
+func RequireAPITokenScope(scope string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if IsAPITokenRequest(r.Context()) && !HasAPITokenScope(r.Context(), scope) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error":"insufficient api token scope"}`))
 				return
 			}
 			next.ServeHTTP(w, r)

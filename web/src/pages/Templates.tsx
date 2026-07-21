@@ -8,8 +8,13 @@ import { dialogs } from '../components/AppDialogs'
 import { ModalDialog } from '../components/ModalDialog'
 import { PageState } from '../components/PageState'
 import { useI18n } from '../i18n'
-import { prettyConfigSource, prettyConfigSourceSync } from '../lib/configFormat'
+import { isTypeScriptPipelineSource, prettyPipelineSource, prettyPipelineSourceSync } from '../lib/configFormat'
+import {
+  isPipelineValidationReady,
+  pendingPipelineValidation,
+} from '../lib/pipelineValidation'
 import { canEdit } from '../authz'
+import PipelineSourceEditor from '../components/PipelineSourceEditor'
 
 interface Template {
   id: number
@@ -20,20 +25,15 @@ interface Template {
   updated_at?: string
 }
 
-const templateDefault = `{
-  "stages": [
-    {
-      "name": "Build",
-      "steps": [
-        {
-          "name": "compile",
-          "type": "shell",
-          "command": "echo building"
-        }
-      ]
-    }
-  ]
-}
+const templateDefault = `import { definePipeline, shell, stage } from '@buildworld/pipeline'
+
+export default definePipeline({
+  stages: [
+    stage('Build', [
+      shell('Compile', 'echo building'),
+    ]),
+  ],
+})
 `
 const emptyForm = { name: '', description: '', config: templateDefault }
 
@@ -48,26 +48,36 @@ export default function Templates() {
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
+  const [pipelineValidation, setPipelineValidation] = useState(() => pendingPipelineValidation(templateDefault))
+  const typeScriptConfig = isTypeScriptPipelineSource(form.config)
+  const pipelineReady = isPipelineValidationReady(pipelineValidation, form.config)
+  const pipelineBlockedMessage = pipelineValidation.message || t('config.resolveErrors')
 
   const openCreate = () => {
     setEditing(null)
     setForm(emptyForm)
     setFormError('')
+    setPipelineValidation(pendingPipelineValidation(templateDefault))
     setShowEditor(true)
   }
   const openEdit = (template: Template) => {
     let config = template.config || templateDefault
-    try { config = prettyConfigSourceSync(config) } catch { /* Keep legacy source editable. */ }
+    try { config = prettyPipelineSourceSync(config) } catch { /* Validation below reports unsupported source. */ }
     setEditing(template)
     setForm({ name: template.name, description: template.description || '', config })
     setFormError('')
+    setPipelineValidation(pendingPipelineValidation(config))
     setShowEditor(true)
   }
   const handleFormat = async () => {
     setFormError('')
     try {
-      const config = await prettyConfigSource(form.config)
+      const config = typeScriptConfig ? form.config : await prettyPipelineSource(form.config)
+      await api.validatePipeline(config)
       setForm(current => ({ ...current, config }))
+      if (typeScriptConfig && (!pipelineValidation.diagnosticsReady || pipelineValidation.diagnosticErrors > 0 || pipelineValidation.source !== config)) {
+        throw new Error(pipelineBlockedMessage)
+      }
       dialogs.notify(t('config.formatted'), 'success')
     } catch (reason: any) {
       const message = reason.message || t('config.invalid')
@@ -77,10 +87,15 @@ export default function Templates() {
   }
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (!pipelineReady) {
+      setFormError(pipelineBlockedMessage)
+      return
+    }
     setSaving(true)
     setFormError('')
     try {
-      const config = await prettyConfigSource(form.config)
+      const config = await prettyPipelineSource(form.config)
+      await api.validatePipeline(config)
       if (editing) await api.updateTemplate(editing.id, { ...form, config })
       else await api.createTemplate({ ...form, config })
       setShowEditor(false)
@@ -119,7 +134,7 @@ export default function Templates() {
       <section className="notification-summary templates-summary">
         <article><span><BookTemplate size={15} />{t('templates.total')}</span><strong>{list.length}</strong><small>{t('templates.totalHelp')}</small></article>
         <article><span><Boxes size={15} />{t('templates.projectsUsing')}</span><strong>{references}</strong><small>{t('templates.projectsUsingHelp')}</small></article>
-        <article><span><Braces size={15} />{t('templates.formats')}</span><div className="template-formats"><span>JSON</span><span>YAML</span></div><small>{t('templates.formatsHelp')}</small></article>
+        <article><span><Braces size={15} />{t('templates.formats')}</span><div className="template-formats"><span>TypeScript</span><span>YAML</span></div><small>{t('templates.formatsHelp')}</small></article>
       </section>
 
       <section className="operations-table-wrap templates-table-wrap">
@@ -130,7 +145,7 @@ export default function Templates() {
             {list.map(template => <tr key={template.id}>
               <td><button className="entity-link" type="button" disabled={!editable} onClick={() => openEdit(template)}><BookTemplate size={16} /><span><strong>{template.name}</strong><small>#{template.id}</small></span></button></td>
               <td className="muted-cell template-description">{template.description || '-'}</td>
-              <td><span className="template-config-kind"><Braces size={13} />{template.config?.trimStart().startsWith('{') ? 'JSON' : 'YAML'}</span></td>
+              <td><span className="template-config-kind"><Braces size={13} />{isTypeScriptPipelineSource(template.config || '') ? 'TypeScript' : 'YAML'}</span></td>
               <td className="muted-cell">{template.created_at ? new Date(template.created_at).toLocaleDateString() : '-'}</td>
               <td><div className="row-actions">{editable && <><button className="row-run" type="button" onClick={() => navigate(`/projects/new?template=${template.id}`)}><Play size={13} />{t('templates.use')}</button><button className="row-icon" type="button" title={t('templates.edit')} aria-label={t('templates.edit')} onClick={() => openEdit(template)}><Pencil size={15} /></button><button className="row-icon danger" type="button" title={t('common.delete')} aria-label={t('common.delete')} onClick={() => handleDelete(template)}><Trash2 size={15} /></button></>}</div></td>
             </tr>)}
@@ -143,9 +158,9 @@ export default function Templates() {
           <form className="notification-editor-form" onSubmit={handleSubmit}>
             <label>{t('templates.name')}<input required autoFocus data-dialog-initial-focus value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
             <label>{t('templates.description')}<input value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} /></label>
-            <div className="wide template-config-field"><div className="config-label-row"><label htmlFor="template-config">{t('templates.config')} (JSON/YAML)</label><button className="format-command" type="button" onClick={handleFormat}><Braces size={13} />{t('config.format')}</button></div><textarea id="template-config" className="code-input" rows={16} value={form.config} onChange={event => setForm({ ...form, config: event.target.value })} /><small>{t('templates.configHelp')}</small></div>
+            <div className="wide template-config-field"><div className="config-label-row"><label id="template-config-label">{t('templates.config')} (TypeScript / YAML)</label><button className="format-command" type="button" onClick={handleFormat}><Braces size={13} />{typeScriptConfig ? t('config.validate') : t('config.format')}</button></div><PipelineSourceEditor ariaLabel={t('templates.config')} value={form.config} onChange={config => { setPipelineValidation(pendingPipelineValidation(config)); setForm(current => ({ ...current, config })) }} onValidationChange={setPipelineValidation} statusId="template-pipeline-status" height={420} /><small>{t('templates.configHelp')}</small></div>
             {formError && <p className="form-error">{formError}</p>}
-            <footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}>{saving ? t('common.loading') : t('common.save')}</button></footer>
+            <footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving || !pipelineReady} aria-describedby={!pipelineReady ? 'template-pipeline-status' : undefined} title={!pipelineReady ? pipelineBlockedMessage : undefined}>{saving ? t('common.loading') : t('common.save')}</button></footer>
           </form>
       </ModalDialog>}
     </motion.section>

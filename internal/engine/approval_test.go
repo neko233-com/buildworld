@@ -22,18 +22,8 @@ func boolPointer(value bool) *bool {
 	return &value
 }
 
-func TestApprovalPolicyParsesAllProjectConfigFormats(t *testing.T) {
+func TestApprovalPolicyParsesSupportedProjectConfigFormats(t *testing.T) {
 	tests := map[string]string{
-		"json": `{
-		  "approval": {
-		    "version": 1,
-		    "strategy": "single",
-		    "required_roles": ["admin", "developer"],
-		    "allow_requester": false,
-		    "prompt": "Release to production"
-		  },
-		  "stages": []
-		}`,
 		"yaml": `approval:
   version: 1
   strategy: single
@@ -42,20 +32,15 @@ func TestApprovalPolicyParsesAllProjectConfigFormats(t *testing.T) {
     - developer
   allow_requester: false
   prompt: Release to production
-stages: []
+jobs:
+  validate:
+    steps: [{run: echo approved}]
 `,
-		"markdown": "# Approval fixture\n\n" +
-			"## Approval\n" +
-			"- version: 1\n" +
-			"- strategy: single\n" +
-			"- required_roles: admin, developer\n" +
-			"- allow_requester: false\n" +
-			"- prompt: Release to production\n\n" +
-			"## Pipeline\n\n" +
-			"### Validate / Echo\n" +
-			"```default shell\n" +
-			"echo approved\n" +
-			"```\n",
+		"typescript": `import { definePipeline, shell, stage } from "@buildworld/pipeline"
+export default definePipeline({
+  approval: { version: 1, strategy: "single", required_roles: ["admin", "developer"], allow_requester: false, prompt: "Release to production" },
+  stages: [stage("Validate", shell("Echo", "echo approved"))],
+})`,
 	}
 
 	for name, source := range tests {
@@ -98,7 +83,7 @@ func TestApprovalLifecycleEnforcesRoleAndRequesterPolicy(t *testing.T) {
 		"",
 		"git",
 		"main",
-		`{"approval":{"version":1,"strategy":"single","required_roles":["admin"],"allow_requester":false,"prompt":"Ship release?"},"stages":[]}`,
+		"approval:\n  version: 1\n  strategy: single\n  required_roles: [admin]\n  allow_requester: false\n  prompt: Ship release?\njobs:\n  approve:\n    steps:\n      - run: echo approved\n",
 		requester.ID,
 		nil,
 		nil,
@@ -186,7 +171,7 @@ func TestApprovalRejectTerminatesBuild(t *testing.T) {
 		"",
 		"git",
 		"main",
-		`{"approval":{"strategy":"single"},"stages":[]}`,
+		"approval:\n  strategy: single\njobs:\n  approve:\n    steps:\n      - run: echo approved\n",
 		admin.ID,
 		nil,
 		nil,
@@ -234,7 +219,7 @@ func TestCancellingPendingApprovalRemovesItFromInbox(t *testing.T) {
 		"",
 		"git",
 		"main",
-		`{"approval":{"strategy":"single"},"stages":[]}`,
+		"approval:\n  strategy: single\njobs:\n  approve:\n    steps:\n      - run: echo approved\n",
 		admin.ID,
 		nil,
 		nil,

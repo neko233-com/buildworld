@@ -25,6 +25,22 @@ var startCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if !foreground {
+			managed, err := startAutostartService()
+			if err != nil {
+				return err
+			}
+			if managed {
+				for range 40 {
+					if healthy(cfg.Server.Port) {
+						fmt.Printf("BuildWorld started at http://127.0.0.1:%d using the registered background service\n", cfg.Server.Port)
+						return nil
+					}
+					time.Sleep(250 * time.Millisecond)
+				}
+				return fmt.Errorf("BuildWorld background service started, but health check did not become ready; inspect %s", serverLogPath())
+			}
+		}
 		child := exec.Command(server, "-config", path)
 		if foreground {
 			child.Stdout = cmd.OutOrStdout()

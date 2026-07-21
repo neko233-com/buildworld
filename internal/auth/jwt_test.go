@@ -8,7 +8,7 @@ import (
 func TestJWTGenerate(t *testing.T) {
 	jwt := NewJWT("secret")
 
-	token, err := jwt.Generate(1, "admin", 24*time.Hour)
+	token, err := jwt.Generate(1, "admin", 7, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}
@@ -21,7 +21,7 @@ func TestJWTGenerate(t *testing.T) {
 func TestJWTValidate(t *testing.T) {
 	jwt := NewJWT("secret")
 
-	token, _ := jwt.Generate(1, "admin", 24*time.Hour)
+	token, _ := jwt.Generate(1, "admin", 7, 24*time.Hour)
 
 	claims, err := jwt.Validate(token)
 	if err != nil {
@@ -34,6 +34,10 @@ func TestJWTValidate(t *testing.T) {
 
 	if claims.Role != "admin" {
 		t.Errorf("Role = %s, want admin", claims.Role)
+	}
+
+	if claims.SessionVersion != 7 {
+		t.Errorf("SessionVersion = %d, want 7", claims.SessionVersion)
 	}
 }
 

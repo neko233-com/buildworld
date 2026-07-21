@@ -1,6 +1,0 @@
-{
-  "name": "svn",
-  "version": "1.0.0",
-  "description": "Subversion (SVN) integration: checkout, update, and commit",
-  "author": "buildworld"
-}

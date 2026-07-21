@@ -1,40 +1,36 @@
 import { parseDocument } from 'yaml'
+import { isTypeScriptPipelineSource } from './configFormat'
 
-function quoteMarkdown(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
+function quoteTypeScript(value: string) {
+  return JSON.stringify(value)
 }
 
-function upsertMarkdownSchedule(source: string, cron: string): string {
-  const heading = /^##[ \t]+Schedule[ \t]*\r?$/gim
-  const current = heading.exec(source)
-  const section = `## Schedule\n\n- cron: "${quoteMarkdown(cron)}"\n`
-  if (!current) return `${source.trimEnd()}\n\n${section}`
-
-  const nextHeading = /^##[ \t]+.+$/gm
-  nextHeading.lastIndex = heading.lastIndex
-  const next = nextHeading.exec(source)
-  const end = next?.index ?? source.length
-  return `${source.slice(0, current.index)}${section}\n${source.slice(end).trimStart()}`
+function writeTypeScriptSchedule(source: string, cron: string): string {
+  let next = source
+  const importPattern = /import\s*\{([^}]*)\}\s*from\s*(['"])@buildworld\/pipeline\2/
+  const importMatch = next.match(importPattern)
+  if (!importMatch) throw new Error('TypeScript pipeline must import helpers from @buildworld/pipeline')
+  const imports = importMatch[1].split(',').map(value => value.trim()).filter(Boolean)
+  if (!imports.includes('trigger')) {
+    next = next.replace(importPattern, `import { ${[...imports, 'trigger'].join(', ')} } from ${importMatch[2]}@buildworld/pipeline${importMatch[2]}`)
+  }
+  const schedulePattern = /trigger\s*\(\s*(['"])schedule\1\s*,\s*\{\s*cron\s*:\s*(['"])(?:\\.|(?!\2)[^\\])*\2\s*\}\s*\)/
+  const schedule = `trigger("schedule", { cron: ${quoteTypeScript(cron)} })`
+  if (schedulePattern.test(next)) return next.replace(schedulePattern, schedule)
+  const triggersPattern = /\btriggers\s*:\s*\[/
+  if (triggersPattern.test(next)) return next.replace(triggersPattern, match => `${match}${schedule}, `)
+  const pipelinePattern = /definePipeline\s*\(\s*\{/
+  if (!pipelinePattern.test(next)) throw new Error('TypeScript pipeline must export definePipeline({ ... })')
+  return next.replace(pipelinePattern, match => `${match}\n  triggers: [${schedule}],`)
 }
 
 /**
- * Writes one scheduler trigger while retaining the project's native pipeline format.
- * JSON uses Buildworld's `triggers` model, YAML uses its GitHub-compatible `on`
- * model, and Markdown remains the single editable source for Markdown pipelines.
+ * Writes one scheduler trigger while retaining TypeScript or jobs-based YAML.
  */
 export function writeScheduleToPipeline(source: string, cron: string): string {
   const trimmed = source.trim()
-  if (trimmed.startsWith('#')) return upsertMarkdownSchedule(source, cron)
-
-  if (trimmed.startsWith('{')) {
-    const parsed = JSON.parse(source) as Record<string, unknown>
-    const existing = Array.isArray(parsed.triggers) ? parsed.triggers : []
-    parsed.triggers = [
-      ...existing.filter((trigger: any) => trigger?.type !== 'schedule'),
-      { type: 'schedule', config: { cron } },
-    ]
-    return JSON.stringify(parsed, null, 2)
-  }
+  if (isTypeScriptPipelineSource(source)) return writeTypeScriptSchedule(source, cron)
+  if (trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.startsWith('#')) throw new Error('Only TypeScript and jobs-based YAML pipelines are supported')
 
   const document = parseDocument(source)
   if (document.errors.length > 0) throw new Error(document.errors[0].message)

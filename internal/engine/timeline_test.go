@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +63,7 @@ func TestParseBuildTimelineFailureSkipsRemainingSteps(t *testing.T) {
 	}
 }
 
-func TestParseBuildTimelineReconstructsLegacyLogs(t *testing.T) {
+func TestParseBuildTimelineDoesNotInventStepsWithoutPlan(t *testing.T) {
 	logText := strings.Join([]string{
 		"[10:00:01] [Build] === Stage: Build ===",
 		"[10:00:01] [Build] --- Step: Compile ---",
@@ -74,11 +73,8 @@ func TestParseBuildTimelineReconstructsLegacyLogs(t *testing.T) {
 	}, "\n")
 
 	timeline := ParseBuildTimeline("success", logText)
-	if timeline.TotalSteps != 2 || timeline.CompletedSteps != 2 {
-		t.Fatalf("legacy timeline = %#v", timeline)
-	}
-	if timeline.Steps[0].Name != "Compile" || timeline.Steps[1].Name != "Package" {
-		t.Fatalf("legacy step order = %#v", timeline.Steps)
+	if timeline.TotalSteps != 0 || timeline.CompletedSteps != 0 || len(timeline.Steps) != 0 {
+		t.Fatalf("unplanned log markers created timeline steps: %#v", timeline)
 	}
 }
 
@@ -111,6 +107,55 @@ func TestParseBuildTimelineCancellationOverridesCommandError(t *testing.T) {
 	}
 }
 
+func TestParseBuildTimelineCancellationMarksActiveStepAndSkipsRemaining(t *testing.T) {
+	logText := strings.Join([]string{
+		`[15:02:36] [] ::buildworld:plan {"stages":[{"name":"飞书通知","steps":["飞书通知"]},{"name":"更新 Team-Resources","steps":["更新 Team-Resources"]}]}`,
+		"[15:02:37] [飞书通知] === Stage: 飞书通知 ===",
+		"[15:02:37] [飞书通知] --- Step: 飞书通知 ---",
+		"[15:02:37] [飞书通知] ================= 发送飞书通知 =================",
+		"[15:02:42] [post always] --- Step: post always ---",
+		"[15:02:42] [post always] ================= 构建流程结束 =================",
+		"[15:02:42] [post failure] --- Step: post failure ---",
+		"[15:02:42] [post failure] 构建失败，请检查日志",
+		"[15:02:42] [post cleanup] --- Step: post cleanup ---",
+		"[15:02:42] [post cleanup] 清理临时文件...",
+		`[15:02:42] [飞书通知] CANCELLED: step "飞书通知" stopped by user`,
+		"",
+	}, "\n")
+
+	timeline := ParseBuildTimeline("cancelled", logText)
+	want := []string{"cancelled", "skipped"}
+	for i, status := range want {
+		if timeline.Steps[i].Status != status {
+			t.Fatalf("step %d status = %q, want %q; timeline = %#v", i, timeline.Steps[i].Status, status, timeline)
+		}
+	}
+	if timeline.CurrentStep != 0 || timeline.CompletedSteps != 0 {
+		t.Fatalf("timeline summary = %#v", timeline)
+	}
+}
+
+func TestParseBuildTimelineNextPlannedStepCompletesPreviousStep(t *testing.T) {
+	config := &BuildConfig{Stages: []Stage{{
+		Name:  "Build",
+		Steps: []Step{{Name: "Compile"}, {Name: "Package"}},
+	}}}
+	logText := strings.Join([]string{
+		"[10:00:00] [] " + encodeTimelinePlan(config),
+		"[10:00:01] [Build] === Stage: Build ===",
+		"[10:00:01] [Build] --- Step: Compile ---",
+		"[10:00:02] [Build] --- Step: Package ---",
+	}, "\n")
+
+	timeline := ParseBuildTimeline("running", logText)
+	if timeline.Steps[0].Status != "success" || timeline.Steps[1].Status != "running" {
+		t.Fatalf("planned transition timeline = %#v", timeline)
+	}
+	if timeline.CurrentStep != 1 || timeline.CompletedSteps != 1 {
+		t.Fatalf("planned transition summary = %#v", timeline)
+	}
+}
+
 func TestBuildRunnerExecutesAndCollectsLinearPipeline(t *testing.T) {
 	temporary := t.TempDir()
 	database, err := store.New(filepath.Join(temporary, "buildworld.db"))
@@ -119,20 +164,17 @@ func TestBuildRunnerExecutesAndCollectsLinearPipeline(t *testing.T) {
 	}
 	defer database.Close()
 
-	config := BuildConfig{
-		Name: "linear-smoke",
-		Stages: []Stage{
-			{Name: "Checkout", Steps: []Step{{Name: "Prepare", Type: "shell", Command: "echo checkout>order.txt"}}},
-			{Name: "Verify", Steps: []Step{{Name: "Test", Type: "shell", Command: "echo verify>>order.txt"}}},
-			{Name: "Package", Steps: []Step{{Name: "Archive", Type: "shell", Command: "echo package>>order.txt"}}},
-		},
-		Artifacts: []string{"order.txt"},
-	}
-	configJSON, err := json.Marshal(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	project, err := database.CreateProject("linear-smoke", "", "", "git", "main", string(configJSON), 0, nil, nil)
+	config := `import { definePipeline, shell, stage } from "@buildworld/pipeline"
+export default definePipeline({
+  name: "linear-smoke",
+  stages: [
+    stage("Checkout", shell("Prepare", "echo checkout>order.txt")),
+    stage("Verify", shell("Test", "echo verify>>order.txt")),
+    stage("Package", shell("Archive", "echo package>>order.txt")),
+  ],
+  artifacts: ["order.txt"],
+})`
+	project, err := database.CreateProject("linear-smoke", "", "", "git", "main", config, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
