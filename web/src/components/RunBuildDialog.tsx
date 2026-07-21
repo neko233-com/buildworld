@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CirclePlay, GitBranch, KeyRound, SlidersHorizontal, X } from 'lucide-react'
 import { parse as parseYAML } from 'yaml'
 import { api } from '../api'
 import { useI18n } from '../i18n'
 import { dialogs } from './AppDialogs'
 import { ModalDialog } from './ModalDialog'
+import { isTypeScriptPipelineSource } from '../lib/configFormat'
 
 export type BuildParameterDefinition = {
   name: string
@@ -38,18 +39,10 @@ const supportedTypes = new Set<BuildParameterDefinition['type']>([
   'number',
 ])
 
-export function parseBuildParameterDefinitions(source = ''): BuildParameterDefinition[] {
-  if (!source.trim()) return []
-  let config: any
-  try {
-    config = source.trimStart().startsWith('{') ? JSON.parse(source) : parseYAML(source)
-  } catch {
-    return []
-  }
-  if (!Array.isArray(config?.parameters)) return []
-
+export function normalizeBuildParameterDefinitions(parameters: unknown): BuildParameterDefinition[] {
+  if (!Array.isArray(parameters)) return []
   const seen = new Set<string>()
-  return config.parameters.flatMap((parameter: any) => {
+  return parameters.flatMap((parameter: any) => {
     const name = String(parameter?.name || '').trim()
     if (!name || seen.has(name)) return []
     seen.add(name)
@@ -68,14 +61,25 @@ export function parseBuildParameterDefinitions(source = ''): BuildParameterDefin
   })
 }
 
-export function requiresBuildParameterInput(source = ''): boolean {
-  return parseBuildParameterDefinitions(source).some(parameter => {
-    if (!parameter.required) return false
-    if (parameter.type === 'boolean') return false
+export function parseBuildParameterDefinitions(source = ''): BuildParameterDefinition[] {
+  const trimmed = source.trim()
+  if (!trimmed || isTypeScriptPipelineSource(source) || trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.startsWith('#')) return []
+  try {
+    return normalizeBuildParameterDefinitions(parseYAML(source)?.parameters)
+  } catch { return [] }
+}
+
+export function requiresBuildParameterDefinitionsInput(definitions: BuildParameterDefinition[]): boolean {
+  return definitions.some(parameter => {
+    if (!parameter.required || parameter.type === 'boolean') return false
     if (parameter.type === 'choice' && parameter.choices.length > 0) return false
     if (parameter.defaultValue === undefined || parameter.defaultValue === null) return true
     return typeof parameter.defaultValue === 'string' && !parameter.defaultValue.trim()
   })
+}
+
+export function requiresBuildParameterInput(source = ''): boolean {
+  return requiresBuildParameterDefinitionsInput(parseBuildParameterDefinitions(source))
 }
 
 function initialParameterValues(definitions: BuildParameterDefinition[]): Record<string, string | boolean> {
@@ -91,11 +95,29 @@ function initialParameterValues(definitions: BuildParameterDefinition[]): Record
 
 export default function RunBuildDialog({ project, onClose, onQueued }: RunBuildDialogProps) {
   const { t } = useI18n()
-  const definitions = useMemo(() => parseBuildParameterDefinitions(project.config), [project.config])
+  const [definitions, setDefinitions] = useState(() => parseBuildParameterDefinitions(project.config))
+  const [loadingDefinitions, setLoadingDefinitions] = useState(true)
   const [branch, setBranch] = useState(project.default_branch || 'main')
   const [values, setValues] = useState<Record<string, string | boolean>>(() => initialParameterValues(definitions))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    setLoadingDefinitions(true)
+    api.validatePipeline(project.config || '').then(metadata => {
+      if (!active) return
+      const next = normalizeBuildParameterDefinitions(metadata.parameters)
+      setDefinitions(next)
+      setValues(current => ({ ...initialParameterValues(next), ...current }))
+      setLoadingDefinitions(false)
+    }).catch(reason => {
+      if (!active) return
+      setError(reason?.message || t('config.invalid'))
+      setLoadingDefinitions(false)
+    })
+    return () => { active = false }
+  }, [project.config, t])
 
   const updateValue = (name: string, value: string | boolean) => {
     setValues(current => ({ ...current, [name]: value }))
@@ -120,6 +142,7 @@ export default function RunBuildDialog({ project, onClose, onQueued }: RunBuildD
       else if (String(value ?? '').length || parameter.required || parameter.defaultValue !== undefined) parameters[parameter.name] = value
     })
 
+    if (loadingDefinitions) return
     setSaving(true)
     try {
       const build = await api.triggerBuild(project.id, {
@@ -155,7 +178,7 @@ export default function RunBuildDialog({ project, onClose, onQueued }: RunBuildD
               <div><SlidersHorizontal size={15} /><strong>{t('builds.buildParameters')}</strong></div>
               <span>{t('builds.parameterCount').replace('{count}', String(definitions.length))}</span>
             </header>
-            {!definitions.length ? <p className="run-parameter-empty">{t('builds.noCustomParameters')}</p> : (
+            {loadingDefinitions ? <p className="run-parameter-empty">{t('common.loading')}</p> : !definitions.length ? <p className="run-parameter-empty">{t('builds.noCustomParameters')}</p> : (
               <div className="run-parameter-grid">
                 {definitions.map(parameter => {
                   const value = values[parameter.name]
@@ -182,7 +205,7 @@ export default function RunBuildDialog({ project, onClose, onQueued }: RunBuildD
         {error && <p className="run-build-error" role="alert">{error}</p>}
         <footer>
           <button type="button" disabled={saving} onClick={onClose}>{t('common.cancel')}</button>
-          <button type="submit" disabled={saving}><CirclePlay size={14} />{saving ? t('builds.queueing') : t('builds.queueBuild')}</button>
+          <button type="submit" disabled={saving || loadingDefinitions}><CirclePlay size={14} />{saving ? t('builds.queueing') : t('builds.queueBuild')}</button>
         </footer>
       </form>
     </ModalDialog>

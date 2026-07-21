@@ -1,7 +1,0 @@
-{
-  "name": "gradle",
-  "version": "1.0.0",
-  "description": "Gradle build: build, test, jar, publish, clean",
-  "author": "buildworld",
-  "steps": ["gradle-build", "gradle-test", "gradle-jar", "gradle-publish", "gradle-clean"]
-}

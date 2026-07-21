@@ -1,7 +1,0 @@
-{
-  "name": "terraform",
-  "version": "1.0.0",
-  "description": "Infrastructure as Code: init, plan, apply, destroy, validate, fmt",
-  "author": "buildworld",
-  "steps": ["terraform-init", "terraform-plan", "terraform-apply", "terraform-destroy", "terraform-validate", "terraform-fmt"]
-}

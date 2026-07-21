@@ -2,47 +2,28 @@ package plugin
 
 import (
 	"context"
-
-	"github.com/dop251/goja"
+	"sort"
 )
 
-type UIExtensionPoint string
-
-const (
-	UIExtProjectTab      UIExtensionPoint = "project_tab"
-	UIExtBuildDetail     UIExtensionPoint = "build_detail_panel"
-	UIExtPipelineStep    UIExtensionPoint = "pipeline_step_config"
-	UIExtDashboardWidget UIExtensionPoint = "dashboard_widget"
-	UIExtGlobalMenu      UIExtensionPoint = "global_menu"
-	UIExtSettingsTab     UIExtensionPoint = "settings_tab"
-)
-
-type UIExtension struct {
-	Point     UIExtensionPoint `json:"point"`
-	Name      string           `json:"name"`
-	Label     string           `json:"label"`
-	Component string           `json:"component"`
-	Icon      string           `json:"icon,omitempty"`
-}
-
+// PluginMeta is safe metadata returned to API clients. Executable source is
+// never stored in this structure or accepted by the plugin API.
 type PluginMeta struct {
-	Name         string        `json:"name"`
-	Version      string        `json:"version"`
-	Description  string        `json:"description"`
-	Author       string        `json:"author,omitempty"`
-	UIExtensions []UIExtension `json:"ui_extensions,omitempty"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Description string `json:"description"`
+	Author      string `json:"author,omitempty"`
 }
 
-// BinaryManifest is the portable contract for Go process plugins. It is data,
-// never code: Buildworld validates it before launching the referenced binary.
+// BinaryManifest is the portable contract for an out-of-process Go plugin.
+// BuildWorld validates it before launching the referenced executable.
 type BinaryManifest struct {
 	APIVersion  string `json:"api_version"`
 	Name        string `json:"name"`
 	Version     string `json:"version"`
 	Description string `json:"description"`
-	// Source is the trusted GitHub repository from which Buildworld installed
-	// this plugin. It lets a remote worker rebuild/download the same plugin for
-	// its own platform without receiving arbitrary executable bytes from a build.
+	Author      string `json:"author,omitempty"`
+	// Source is the trusted GitHub repository from which BuildWorld installed
+	// this plugin. Remote workers resolve the same source independently.
 	Source         string          `json:"source,omitempty"`
 	Entrypoint     string          `json:"entrypoint"`
 	Package        string          `json:"package,omitempty"`
@@ -51,9 +32,7 @@ type BinaryManifest struct {
 	Releases       []BinaryRelease `json:"releases,omitempty"`
 }
 
-// BinaryReference is the small, versioned plugin contract carried with a
-// remote build. The worker verifies the full manifest digest after resolving
-// this server-approved GitHub source in its own plugin cache.
+// BinaryReference is the versioned contract carried with a remote build.
 type BinaryReference struct {
 	Name           string `json:"name"`
 	Version        string `json:"version"`
@@ -62,8 +41,6 @@ type BinaryReference struct {
 }
 
 // BinaryRelease describes one immutable, platform-specific release asset.
-// Prebuilt assets always require their own checksum before Buildworld executes
-// them; source builds continue to record a checksum after compilation.
 type BinaryRelease struct {
 	GOOS           string `json:"goos"`
 	GOARCH         string `json:"goarch"`
@@ -72,12 +49,12 @@ type BinaryRelease struct {
 }
 
 type PluginStatus struct {
-	Loaded   bool     `json:"loaded"`
-	Error    string   `json:"error,omitempty"`
-	Steps    []string `json:"steps"`
-	Triggers []string `json:"triggers"`
+	Loaded bool     `json:"loaded"`
+	Steps  []string `json:"steps"`
 }
 
+// StepContext is serialized to an out-of-process plugin. It intentionally
+// contains data only; no callback or host execution bridge is exposed.
 type StepContext struct {
 	Workspace string
 	Branch    string
@@ -92,34 +69,19 @@ type StepContext struct {
 
 type StepHandler func(ctx context.Context, sc *StepContext) error
 
-type TriggerHandler func(payload map[string]interface{}) bool
-
 type Plugin struct {
 	PluginMeta
-	Path    string
-	runtime *goja.Runtime
-
-	stepTypes    map[string]StepHandler
-	triggerTypes map[string]TriggerHandler
-	uiExtensions []UIExtension
-	uiScript     string
-	loadError    string
-	binary       *BinaryManifest
+	Path      string
+	stepTypes map[string]StepHandler
+	binary    *BinaryManifest
 }
 
 func (p *Plugin) StepTypes() []string {
-	var names []string
-	for k := range p.stepTypes {
-		names = append(names, k)
+	names := make([]string, 0, len(p.stepTypes))
+	for name := range p.stepTypes {
+		names = append(names, name)
 	}
-	return names
-}
-
-func (p *Plugin) TriggerTypes() []string {
-	var names []string
-	for k := range p.triggerTypes {
-		names = append(names, k)
-	}
+	sort.Strings(names)
 	return names
 }
 
@@ -127,35 +89,13 @@ func (p *Plugin) GetStep(name string) StepHandler {
 	return p.stepTypes[name]
 }
 
-func (p *Plugin) GetTrigger(name string) TriggerHandler {
-	return p.triggerTypes[name]
-}
-
-func (p *Plugin) UIExtensions() []UIExtension {
-	return p.uiExtensions
-}
-
-func (p *Plugin) UIScript() string {
-	return p.uiScript
-}
-
-// InstallSource distinguishes immutable built-ins from portable GitHub binary
-// plugins without exposing the private executable manifest to API callers.
 func (p *Plugin) InstallSource() string {
-	if p.binary != nil && p.binary.Source != "" {
-		return p.binary.Source
+	if p.binary == nil {
+		return ""
 	}
-	return "builtin"
+	return p.binary.Source
 }
 
 func (p *Plugin) GetStatus() PluginStatus {
-	status := PluginStatus{
-		Loaded:   p.runtime != nil || p.binary != nil,
-		Steps:    p.StepTypes(),
-		Triggers: p.TriggerTypes(),
-	}
-	if p.loadError != "" {
-		status.Error = p.loadError
-	}
-	return status
+	return PluginStatus{Loaded: p.binary != nil, Steps: p.StepTypes()}
 }

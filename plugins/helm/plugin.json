@@ -1,7 +1,0 @@
-{
-  "name": "helm",
-  "version": "1.0.0",
-  "description": "Helm deployment: install, upgrade, rollback, uninstall, lint, template",
-  "author": "buildworld",
-  "steps": ["helm-install", "helm-upgrade", "helm-rollback", "helm-uninstall", "helm-lint", "helm-template"]
-}

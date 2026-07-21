@@ -1,7 +1,0 @@
-{
-  "name": "kubectl",
-  "version": "1.0.0",
-  "description": "Native kubectl: apply, delete, get, logs, exec, rollout operations",
-  "author": "buildworld",
-  "steps": ["kubectl-apply", "kubectl-delete", "kubectl-get", "kubectl-logs", "kubectl-exec", "kubectl-rollout"]
-}

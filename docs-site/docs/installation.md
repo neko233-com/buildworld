@@ -6,17 +6,23 @@ sidebar_position: 2
 
 ## Quick Install
 
+The repository is currently private. Authenticate once with `gh auth login`;
+the installer then reuses `GH_TOKEN`, `GITHUB_TOKEN`, or the GitHub CLI token.
+
 ### Linux/macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | sh
+gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld233/contents/scripts/install.sh | sh
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.ps1 | iex
+& ([scriptblock]::Create((gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld233/contents/scripts/install.ps1 | Out-String)))
 ```
+
+Both commands continue to work if the repository becomes public. The
+installers also support anonymous public-release downloads.
 
 ## Manual Install
 
@@ -99,5 +105,5 @@ docker run -d \
 
 ## Next Steps
 
-- [Configuration](/configuration) - Configure your instance
-- [Pipeline Guide](/pipelines) - Create build pipelines
+- [Configuration](./configuration.md) - Configure your instance
+- [Pipeline Guide](./pipelines.md) - Create build pipelines

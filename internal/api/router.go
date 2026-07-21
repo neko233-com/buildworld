@@ -60,13 +60,14 @@ func NewRouter(d Deps) http.Handler {
 	portabilityRegistry, _ := portability.NewDefaultRegistry(d.Store, d.Loader)
 	h := &handlers{d: d, portability: portabilityRegistry, migrations: migration.NewDefaultRegistry()}
 	apiTokenValidator := auth.NewAPITokenValidator(d.Store)
+	sessionValidator := auth.NewJWTSessionValidator(d.Store)
 	adminOnly := auth.RequireRoles("admin")
 	editors := auth.RequireRoles("admin", "developer")
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(contentTypeJSONMiddleware)
 		r.Group(func(r chi.Router) {
-			r.Use(auth.Middleware(d.JWT, apiTokenValidator, publicPrefixes...))
+			r.Use(auth.Middleware(d.JWT, sessionValidator, apiTokenValidator, publicPrefixes...))
 			// --- health & version ---
 			r.Get("/health", h.health)
 			r.Get("/version", h.version)
@@ -117,12 +118,8 @@ func NewRouter(d Deps) http.Handler {
 					r.With(editors).Post("/validate", h.validateProjectConfig)
 					r.With(editors).Delete("/", h.deleteProject)
 					r.Get("/builds", h.listProjectBuilds)
-					r.With(editors).Post("/builds", h.triggerBuild)
+					r.With(editors, auth.RequireAPITokenScope(auth.ScopeBuildTrigger)).Post("/builds", h.triggerBuild)
 					r.Get("/stats", h.getProjectStats)
-					r.Route("/hooks", func(r chi.Router) {
-						r.Get("/", h.listGitHooks)
-						r.With(editors).Post("/", h.createGitHook)
-					})
 				})
 			})
 
@@ -130,6 +127,7 @@ func NewRouter(d Deps) http.Handler {
 			r.Route("/pipeline-migrations", func(r chi.Router) {
 				r.With(editors).Post("/{format}", h.migratePipeline)
 			})
+			r.With(editors).Post("/pipeline-validation", h.validatePipelineSource)
 
 			// --- builds ---
 			r.Route("/builds", func(r chi.Router) {
@@ -144,9 +142,9 @@ func NewRouter(d Deps) http.Handler {
 					r.Get("/logs/download", h.downloadBuildLogs)
 					r.Get("/logs/search", h.searchBuildLogs)
 					r.With(editors).Post("/stop", h.stopBuild)
-					r.With(editors).Post("/retry", h.retryBuild)
+					r.With(editors, auth.RequireAPITokenScope(auth.ScopeBuildTrigger)).Post("/retry", h.retryBuild)
 					r.With(editors).Post("/pin", h.pinBuild)
-					r.With(editors).Post("/approve", h.approveBuild)
+					r.With(editors, auth.RequireAPITokenScope(auth.ScopeBuildTrigger)).Post("/approve", h.approveBuild)
 					r.With(editors).Post("/reject", h.rejectBuild)
 					r.Get("/artifacts", h.listBuildArtifacts)
 					r.With(editors).Post("/artifacts", h.uploadArtifact)
@@ -170,16 +168,11 @@ func NewRouter(d Deps) http.Handler {
 			// --- plugins ---
 			r.Route("/plugins", func(r chi.Router) {
 				r.Get("/", h.listPlugins)
-				r.With(adminOnly).Post("/", h.installPlugin)
 				r.With(adminOnly).Post("/github", h.installGitHubPlugin)
-				r.Get("/ui-extensions", h.listUIExtensions)
 				r.Route("/{name}", func(r chi.Router) {
 					r.With(adminOnly).Delete("/", h.deletePlugin)
 					r.With(adminOnly).Put("/enable", h.togglePlugin)
 					r.With(adminOnly).Post("/reload", h.reloadPlugin)
-					r.Get("/ui.js", h.getPluginUI)
-					r.With(adminOnly).Get("/source", h.getPluginSource)
-					r.With(adminOnly).Put("/source", h.updatePluginSource)
 				})
 			})
 
@@ -243,13 +236,6 @@ func NewRouter(d Deps) http.Handler {
 			// --- statistics ---
 			r.Get("/stats/dashboard", h.getDashboardStats)
 
-			// --- git hooks ---
-			r.Route("/hooks/{id}", func(r chi.Router) {
-				r.Get("/", h.getGitHook)
-				r.With(editors).Put("/", h.updateGitHook)
-				r.With(editors).Delete("/", h.deleteGitHook)
-			})
-
 			// --- big screen ---
 			r.Get("/bigscreen", h.getBigScreenData)
 
@@ -265,15 +251,6 @@ func NewRouter(d Deps) http.Handler {
 
 			// --- approvals ---
 			r.Get("/approvals/pending", h.listPendingApprovals)
-
-			// --- deployment environments ---
-			r.Route("/deployment-envs", func(r chi.Router) {
-				r.Get("/", h.listDeploymentEnvs)
-				r.With(editors).Post("/", h.createDeploymentEnv)
-				r.With(editors).Put("/{id}", h.updateDeploymentEnv)
-				r.With(editors).Delete("/{id}", h.deleteDeploymentEnv)
-				r.With(editors).Post("/{id}/deploy/{buildId}", h.deployBuild)
-			})
 
 			// --- project groups ---
 			r.Route("/project-groups", func(r chi.Router) {
@@ -315,7 +292,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 	})
 	// WebSocket endpoint.
-	r.With(auth.Middleware(d.JWT, apiTokenValidator)).Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+	r.With(auth.Middleware(d.JWT, sessionValidator, apiTokenValidator)).Get("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ws.HandleWebSocket(d.Hub, w, r)
 	})
 
@@ -325,6 +302,7 @@ func NewRouter(d Deps) http.Handler {
 	if d.LiveReload != nil {
 		r.Get("/__buildworld/livereload", d.LiveReload.ServeEvents)
 		r.Get("/__buildworld/livereload.js", d.LiveReload.ServeScript)
+		r.Get("/__buildworld/livereload/status", d.LiveReload.ServeStatus)
 	}
 
 	// Static frontend (SPA) — served from embedded or disk in main.

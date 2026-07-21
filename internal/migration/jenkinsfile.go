@@ -11,7 +11,11 @@ import (
 	"github.com/neko233-com/buildworld/internal/engine"
 )
 
-const maxJenkinsfileBytes = 2 << 20
+const (
+	maxJenkinsfileBytes      = 2 << 20
+	macOSFeishuHelperPath    = `$HOME/Library/Application Support/buildworld/helpers/feishu-robot`
+	macOSFeishuHelperWarning = `This Jenkins step launched feishu-robot from a macOS protected directory. Before enabling the migrated pipeline, install or copy the trusted binary to "$HOME/Library/Application Support/buildworld/helpers/feishu-robot" and set its mode to 0700. BuildWorld does not copy it automatically.`
+)
 
 var (
 	environmentAssignment = regexp.MustCompile(`(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([0-9]+)|\b(true|false)\b)\s*(?://.*)?$`)
@@ -29,6 +33,7 @@ var (
 	foregroundService     = regexp.MustCompile(`(?m)^(\s*)(go\s+run\s+\./cmd/server/main\.go|\./\$?\{?(?:BINARY_NAME|BINARY_NAME)\}?)[ \t]+2>&1[ \t]*\|[ \t]*tee[ \t]+([^\r\n]+)$`)
 	teamResourcesFallback = regexp.MustCompile(`(?s)if\s+\[\s+-f\s+\./update-team-resources\.sh\s+\];\s+then(.*?)\n\s*else(.*?)\n\s*fi`)
 	teamResourcesDirect   = regexp.MustCompile(`(?m)^(\s*)chmod\s+\+x\s+\./update-team-resources\.sh\s*\n\s*\./update-team-resources\.sh\s*$`)
+	macOSFeishuHelper     = regexp.MustCompile(`(?m)^([ \t]*)cd[ \t]+(/Users/[A-Za-z0-9._@%+=:,~-]+/(Desktop|Documents|Downloads)/[A-Za-z0-9._/@%+=:,~-]*feishu-robot)[ \t]*\n[ \t]*\./feishu-robot([^\r\n]*)$`)
 	jenkinsGitFetch       = regexp.MustCompile(`(?m)^(\s*git\s+fetch[^\r\n|]*)\s*$`)
 	jenkinsGitPull        = regexp.MustCompile(`(?m)^(\s*git\s+pull[^\r\n|]*)\s*$`)
 	jenkinsGitResetRemote = regexp.MustCompile(`(?m)^(\s*git\s+reset\s+--hard\s+origin/[^\s|]+)\s*$`)
@@ -126,6 +131,8 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 	if _, err := engine.ParsePipelineConfig(encoded); err != nil {
 		return nil, fmt.Errorf("validate migrated pipeline: %w", err)
 	}
+	warnings = appendMacOSProtectedDirectoryWarning(warnings, config)
+	warnings = appendMacOSFeishuHelperInstallWarning(warnings, source)
 
 	hints := Hints{RepositoryURL: config.Environment["GIT_REPO_URL"], DefaultBranch: "main"}
 	if match := originBranch.FindStringSubmatch(source); len(match) == 2 {
@@ -176,6 +183,8 @@ func convertScriptedJenkinsfile(request Request, source, mask string) (*Result, 
 	if _, err := engine.ParsePipelineConfig(encoded); err != nil {
 		return nil, fmt.Errorf("validate migrated pipeline: %w", err)
 	}
+	warnings = appendMacOSProtectedDirectoryWarning(warnings, config)
+	warnings = appendMacOSFeishuHelperInstallWarning(warnings, source)
 	hints := Hints{RepositoryURL: config.Environment["GIT_REPO_URL"], DefaultBranch: "main"}
 	if match := originBranch.FindStringSubmatch(source); len(match) == 2 {
 		hints.DefaultBranch = match[1]
@@ -574,6 +583,14 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			continue
 		}
 		stepSource := body[stepsBlock.start:stepsBlock.end]
+		if steps, stepWarnings, ok := translateJenkinsStageWatchSteps(stepSource, strings.TrimSpace(stageName)); ok {
+			for _, warning := range stepWarnings {
+				*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
+			}
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, Steps: steps})
+			position = closeBody + 1
+			continue
+		}
 		if watch, ok := extractJenkinsServiceWatch(stepSource, strings.TrimSpace(stageName)); ok {
 			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, Steps: []engine.Step{watch}})
 			position = closeBody + 1
@@ -901,8 +918,30 @@ func normalizeJenkinsShell(command string) string {
 			}
 		}
 	}
-	command = normalizeLongRunningJenkinsProcess(strings.TrimSpace(strings.Join(lines, "\n")))
+	command = normalizeMacOSFeishuHelperPath(strings.TrimSpace(strings.Join(lines, "\n")))
+	command = normalizeLongRunningJenkinsProcess(command)
 	return normalizeJenkinsGitSync(command)
+}
+
+// A protected Desktop/Documents/Downloads executable can stall the macOS
+// dynamic loader before main starts, even with a safe cwd. Never execute that
+// path from the migrated pipeline. Use the operator-installed private helper
+// path, fail clearly when it is absent, and preserve the original arguments.
+func normalizeMacOSFeishuHelperPath(command string) string {
+	return macOSFeishuHelper.ReplaceAllStringFunc(command, func(block string) string {
+		match := macOSFeishuHelper.FindStringSubmatch(block)
+		if len(match) != 5 {
+			return block
+		}
+		indent := match[1]
+		helper := `"` + macOSFeishuHelperPath + `"`
+		return indent + `if [ ! -x ` + helper + ` ]; then` + "\n" +
+			indent + `  printf '%s\n' 'BuildWorld: install the trusted feishu-robot helper at $HOME/Library/Application Support/buildworld/helpers/feishu-robot with mode 0700 before enabling this pipeline.' >&2` + "\n" +
+			indent + `  exit 1` + "\n" +
+			indent + `fi` + "\n" +
+			indent + `cd "${TMPDIR:-/tmp}"` + "\n" +
+			indent + helper + match[4]
+	})
 }
 
 // Jenkins credentials are encrypted with that controller's master key and
@@ -1174,4 +1213,206 @@ func appendWarning(warnings []Warning, code, message string) []Warning {
 		}
 	}
 	return append(warnings, Warning{Code: code, Message: message})
+}
+
+func appendMacOSProtectedDirectoryWarning(warnings []Warning, config *engine.BuildConfig) []Warning {
+	if !buildConfigReferencesMacOSProtectedDirectory(config) {
+		return warnings
+	}
+	return appendWarning(warnings, "macos_protected_directory", "This pipeline references a macOS protected directory. Jenkins privacy access is not inherited by BuildWorld; move the referenced workspace, file, script, or executable outside Desktop, Documents, and Downloads, or explicitly authorize the trusted installed server before cutover.")
+}
+
+func appendMacOSFeishuHelperInstallWarning(warnings []Warning, source string) []Warning {
+	if !macOSFeishuHelper.MatchString(source) {
+		return warnings
+	}
+	return appendWarning(warnings, "macos_feishu_helper_install_required", macOSFeishuHelperWarning)
+}
+
+func buildConfigReferencesMacOSProtectedDirectory(config *engine.BuildConfig) bool {
+	if config == nil {
+		return false
+	}
+	if directStringMapReferencesMacOSProtectedDirectory(config.Environment) || directStringsReferenceMacOSProtectedDirectory(config.Artifacts) {
+		return true
+	}
+	for _, parameter := range config.Parameters {
+		if value, ok := parameter.Default.(string); ok && directValueReferencesMacOSProtectedDirectory(value) {
+			return true
+		}
+		if directStringsReferenceMacOSProtectedDirectory(parameter.Choices) {
+			return true
+		}
+	}
+	for _, stage := range config.Stages {
+		if directValueReferencesMacOSProtectedDirectory(stage.WorkingDirectory) || directStringMapReferencesMacOSProtectedDirectory(stage.Environment) || stepsReferenceMacOSProtectedDirectory(stage.Steps) {
+			return true
+		}
+	}
+	for _, steps := range config.Post {
+		if stepsReferenceMacOSProtectedDirectory(steps) {
+			return true
+		}
+	}
+	for _, tools := range config.Toolchains {
+		if directStringsReferenceMacOSProtectedDirectory(tools) {
+			return true
+		}
+	}
+	return false
+}
+
+func stepsReferenceMacOSProtectedDirectory(steps []engine.Step) bool {
+	for _, step := range steps {
+		if commandReferencesMacOSProtectedDirectory(step.Command) ||
+			directValueReferencesMacOSProtectedDirectory(step.Shell) ||
+			directStringMapReferencesMacOSProtectedDirectory(step.Config) ||
+			commandStringMapReferencesMacOSProtectedDirectory(step.PlatformAdditions) {
+			return true
+		}
+	}
+	return false
+}
+
+func directStringMapReferencesMacOSProtectedDirectory(values map[string]string) bool {
+	for _, value := range values {
+		if directValueReferencesMacOSProtectedDirectory(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func commandStringMapReferencesMacOSProtectedDirectory(values map[string]string) bool {
+	for _, value := range values {
+		if commandReferencesMacOSProtectedDirectory(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func directStringsReferenceMacOSProtectedDirectory(values []string) bool {
+	for _, value := range values {
+		if directValueReferencesMacOSProtectedDirectory(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func commandReferencesMacOSProtectedDirectory(value string) bool {
+	for _, token := range shellReferenceTokens(value) {
+		if shellTokenReferencesMacOSProtectedDirectory(token) {
+			return true
+		}
+	}
+	return false
+}
+
+func directValueReferencesMacOSProtectedDirectory(value string) bool {
+	for _, candidate := range strings.Split(value, ":") {
+		candidate = strings.TrimSpace(candidate)
+		if len(candidate) >= 2 && ((candidate[0] == '"' && candidate[len(candidate)-1] == '"') || (candidate[0] == '\'' && candidate[len(candidate)-1] == '\'')) {
+			candidate = candidate[1 : len(candidate)-1]
+		}
+		if shellTokenReferencesMacOSProtectedDirectory(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func shellTokenReferencesMacOSProtectedDirectory(token string) bool {
+	candidate := token
+	if index := strings.LastIndexByte(candidate, '='); index >= 0 {
+		candidate = candidate[index+1:]
+	}
+	if candidate == "" || strings.Contains(candidate, "://") {
+		return false
+	}
+
+	var remainder string
+	switch {
+	case strings.HasPrefix(candidate, "/Users/"):
+		remainder = strings.TrimPrefix(candidate, "/Users/")
+		separator := strings.IndexByte(remainder, '/')
+		if separator <= 0 {
+			return false
+		}
+		remainder = remainder[separator+1:]
+	case strings.HasPrefix(candidate, "~/"):
+		remainder = strings.TrimPrefix(candidate, "~/")
+	case strings.HasPrefix(candidate, "$HOME/"):
+		remainder = strings.TrimPrefix(candidate, "$HOME/")
+	case strings.HasPrefix(candidate, "${HOME}/"):
+		remainder = strings.TrimPrefix(candidate, "${HOME}/")
+	case strings.HasPrefix(candidate, "${env.HOME}/"):
+		remainder = strings.TrimPrefix(candidate, "${env.HOME}/")
+	default:
+		return false
+	}
+
+	folder := remainder
+	if separator := strings.IndexByte(folder, '/'); separator >= 0 {
+		folder = folder[:separator]
+	}
+	return strings.EqualFold(folder, "Desktop") || strings.EqualFold(folder, "Documents") || strings.EqualFold(folder, "Downloads")
+}
+
+func shellReferenceTokens(value string) []string {
+	tokens := make([]string, 0)
+	var token strings.Builder
+	var quote byte
+	escaped := false
+	comment := false
+	flush := func() {
+		if token.Len() > 0 {
+			tokens = append(tokens, token.String())
+			token.Reset()
+		}
+	}
+
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if comment {
+			if character == '\n' {
+				comment = false
+			}
+			continue
+		}
+		if escaped {
+			token.WriteByte(character)
+			escaped = false
+			continue
+		}
+		if quote != 0 {
+			if character == quote {
+				quote = 0
+			} else if character == '\\' && quote == '"' {
+				escaped = true
+			} else {
+				token.WriteByte(character)
+			}
+			continue
+		}
+
+		switch {
+		case character == '\\':
+			escaped = true
+		case character == '\'' || character == '"':
+			quote = character
+		case character == '#' && token.Len() == 0:
+			comment = true
+		case unicode.IsSpace(rune(character)) || strings.ContainsRune(";|&()<>\n", rune(character)):
+			flush()
+		default:
+			token.WriteByte(character)
+		}
+	}
+	if escaped {
+		token.WriteByte('\\')
+	}
+	flush()
+	return tokens
 }

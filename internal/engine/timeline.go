@@ -90,16 +90,9 @@ func findTimelineStep(steps []BuildTimelineStep, stage, name string, after int) 
 	return -1
 }
 
-func appendLegacyStep(steps []BuildTimelineStep, stage, name string) ([]BuildTimelineStep, int) {
-	steps = append(steps, BuildTimelineStep{
-		Index: len(steps), Stage: stage, Name: name, Status: "pending",
-	})
-	return steps, len(steps) - 1
-}
-
 // ParseBuildTimeline turns the durable build log into an ordered, UI-ready
-// execution timeline. New builds carry a plan snapshot; legacy logs are
-// reconstructed from their stage and step markers.
+// execution timeline. Every v1 build carries an immutable plan snapshot; log
+// markers not present in that plan are ignored instead of inventing steps.
 func ParseBuildTimeline(buildStatus, logText string) BuildTimeline {
 	var plan TimelinePlan
 	for _, line := range strings.Split(logText, "\n") {
@@ -122,12 +115,12 @@ func ParseBuildTimeline(buildStatus, logText string) BuildTimeline {
 			currentStage = strings.TrimSuffix(strings.TrimPrefix(message, "=== Stage: "), " ===")
 		case strings.HasPrefix(message, "--- Step: ") && strings.HasSuffix(message, " ---"):
 			name := strings.TrimSuffix(strings.TrimPrefix(message, "--- Step: "), " ---")
-			if active >= 0 && steps[active].Status == "running" {
-				steps[active].Status = "success"
-			}
 			index := findTimelineStep(steps, currentStage, name, lastSeen)
 			if index < 0 {
-				steps, index = appendLegacyStep(steps, currentStage, name)
+				continue
+			}
+			if active >= 0 && steps[active].Status == "running" {
+				steps[active].Status = "success"
 			}
 			steps[index].Status = "running"
 			active = index

@@ -11,9 +11,10 @@ service WorkerService {
   rpc ReportStatus(StatusRequest) returns (StatusResponse);
 }
 
-// ProtocolInfo is the extensible bytemsg233 contract carried by every remote
-// execution request and response. A new major means incompatible wire or
-// execution semantics; a newer minor may add optional capabilities.
+// ProtocolInfo is the mandatory bytemsg233 contract carried by every remote
+// execution request and response. Major 1 is BuildWorld's first public worker
+// protocol. Each peer must declare every capability required by the current
+// execution formats; a new major means incompatible semantics.
 message ProtocolInfo {
   string name = 1;
   uint32 major = 2;
@@ -55,8 +56,10 @@ message BuildRequest {
   string commit_sha = 5;
   string pipeline_config = 6;
   map<string, string> environment = 7;
-  string protocol_version = 8;
+  reserved 8;
+  reserved "protocol_version";
   repeated PluginReference plugins = 9;
+  // Required. Missing or incompatible protocol information rejects execution.
   ProtocolInfo protocol = 10;
 }
 
@@ -78,6 +81,7 @@ message BuildResponse {
   string status = 5;
   bool is_error = 6;
   ArtifactChunk artifact_chunk = 7;
+  // Required on every streamed response.
   ProtocolInfo protocol = 8;
 }
 

@@ -9,60 +9,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/neko233-com/buildworld/internal/plugin"
 	pb "github.com/neko233-com/buildworld/internal/rpc/generated"
 	"github.com/neko233-com/buildworld/internal/store"
 )
 
-func TestBuildManagerCreate(t *testing.T) {
-	m := NewBuildManager()
-
-	config := &BuildConfig{
-		Name: "test-build",
-		Parameters: []BuildParameter{
-			{Name: "env", Type: "choice", Choices: []string{"dev", "prod"}, Required: true},
-			{Name: "debug", Type: "boolean", Default: false},
-		},
-	}
-
-	params := map[string]interface{}{
-		"env": "dev",
-	}
-
-	build := m.CreateBuild(1, config, params)
-	if build == nil {
-		t.Fatal("CreateBuild() returned nil")
-	}
-
-	if build.Number != 1 {
-		t.Errorf("Number = %d, want 1", build.Number)
-	}
-
-	if build.Status != "pending" {
-		t.Errorf("Status = %s, want pending", build.Status)
+func TestUnknownPluginStepReturnsClearError(t *testing.T) {
+	runner := &BuildRunner{executor: NewExecutor()}
+	err := runner.execStep(context.Background(), Step{Type: "missing:step"}, t.TempDir(), &store.Project{}, &store.Build{}, nil, nil, "plugin", func(string) {})
+	if err == nil || err.Error() != "unsupported step type: missing:step" {
+		t.Fatalf("unknown plugin step error = %v", err)
 	}
 }
 
-func TestPluginOutputsFlowToFollowingNodes(t *testing.T) {
-	pluginRoot := t.TempDir()
-	loader := plugin.NewLoader(pluginRoot)
-	if err := loader.InstallPlugin("emit", "1.0.0", "test", "test", `registerStep("emit-output", function(ctx) { ctx.output("IMAGE", "registry.local/app:42"); ctx.env("REGION", "ap-southeast-1"); });`, "", "js", "", "", "none"); err != nil {
-		t.Fatal(err)
+func TestCompletedStepErrorHonorsCancellationAtSuccessBoundary(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := completedStepError(ctx, nil); err != context.Canceled {
+		t.Fatalf("completed step error = %v, want context.Canceled", err)
 	}
-	if err := loader.Load("emit"); err != nil {
-		t.Fatal(err)
+	commandErr := fmt.Errorf("command failed")
+	if err := completedStepError(context.Background(), commandErr); err != commandErr {
+		t.Fatalf("command error = %v, want original error", err)
 	}
-	runner := &BuildRunner{plugins: loader, executor: NewExecutor()}
-	var lines []string
-	if err := runner.execStep(context.Background(), Step{Type: "emit-output"}, pluginRoot, &store.Project{}, &store.Build{}, nil, nil, "plugin", func(line string) { lines = append(lines, line) }); err != nil {
-		t.Fatal(err)
-	}
-	env := []string{}
-	for _, line := range lines {
-		env = appendBuildKV(env, line)
-	}
-	if got := resolveVars("deploy ${build.IMAGE} to ${build.REGION}", env, nil); got != "deploy registry.local/app:42 to ap-southeast-1" {
-		t.Fatalf("plugin outputs = %q", got)
+	if err := completedStepError(context.Background(), nil); err != nil {
+		t.Fatalf("successful step error = %v, want nil", err)
 	}
 }
 
@@ -73,7 +44,7 @@ func TestReceiveRemoteArtifactVerifiesAndSaves(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	project, err := db.CreateProject("artifact-test", "", "", "git", "main", `{"stages":[]}`, 0, nil, nil)
+	project, err := db.CreateProject("artifact-test", "", "", "git", "main", testEmptyPipelineSource, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +89,7 @@ func TestBuildRunnerDispatchesDurablePendingBuilds(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	project, err := db.CreateProject("queue-test", "", "", "git", "main", `{"stages":[]}`, 0, nil, nil)
+	project, err := db.CreateProject("queue-test", "", "", "git", "main", testEmptyPipelineSource, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,43 +117,8 @@ func TestBuildRunnerDispatchesDurablePendingBuilds(t *testing.T) {
 	t.Fatalf("durable queue left build in %q", current.Status)
 }
 
-func TestBuildManagerValidate(t *testing.T) {
-	m := NewBuildManager()
-
-	config := &BuildConfig{
-		Parameters: []BuildParameter{
-			{Name: "env", Type: "choice", Choices: []string{"dev", "prod"}, Required: true},
-			{Name: "count", Type: "string"},
-			{Name: "retries", Type: "number"},
-		},
-	}
-
-	// Missing required param
-	err := m.ValidateParameters(config.Parameters, map[string]interface{}{})
-	if err == nil {
-		t.Error("Validate() should fail for missing required param")
-	}
-
-	// Invalid choice
-	err = m.ValidateParameters(config.Parameters, map[string]interface{}{"env": "staging"})
-	if err == nil {
-		t.Error("Validate() should fail for invalid choice")
-	}
-
-	// Valid params
-	err = m.ValidateParameters(config.Parameters, map[string]interface{}{"env": "dev"})
-	if err != nil {
-		t.Errorf("Validate() error = %v", err)
-	}
-
-	err = m.ValidateParameters(config.Parameters, map[string]interface{}{"env": "dev", "retries": "3"})
-	if err == nil {
-		t.Error("Validate() should reject a string for a number parameter")
-	}
-}
-
 func TestResolveBuildParametersAppliesDefaultsAndCopiesInput(t *testing.T) {
-	supplied := map[string]interface{}{"environment": "production", "extension_value": "kept"}
+	supplied := map[string]interface{}{"environment": "production"}
 	resolved, err := ResolveBuildParameters([]BuildParameter{
 		{Name: "environment", Type: "choice", Choices: []string{"staging", "production"}, Required: true},
 		{Name: "release", Type: "boolean", Default: false},
@@ -196,9 +132,6 @@ func TestResolveBuildParametersAppliesDefaultsAndCopiesInput(t *testing.T) {
 	}
 	if retries, ok := resolved["retries"].(int); !ok || retries != 2 {
 		t.Fatalf("retries default = %#v, want int(2)", resolved["retries"])
-	}
-	if resolved["extension_value"] != "kept" {
-		t.Fatalf("unknown extension parameter was not preserved: %#v", resolved)
 	}
 	if _, exists := supplied["release"]; exists {
 		t.Fatal("ResolveBuildParameters mutated the supplied map")
@@ -246,6 +179,11 @@ func TestResolveBuildParametersRejectsInvalidDefinitionsAndValues(t *testing.T) 
 			supplied: map[string]interface{}{},
 		},
 		{
+			name:        "undeclared supplied value",
+			definitions: []BuildParameter{{Name: "target", Type: "string"}},
+			supplied:    map[string]interface{}{"target": "production", "extra": true},
+		},
+		{
 			name:        "unsupported type",
 			definitions: []BuildParameter{{Name: "target", Type: "arbitrary"}},
 			supplied:    map[string]interface{}{"target": "production"},
@@ -261,75 +199,20 @@ func TestResolveBuildParametersRejectsInvalidDefinitionsAndValues(t *testing.T) 
 	}
 }
 
-func TestBuildManagerGetBuilds(t *testing.T) {
-	m := NewBuildManager()
+func TestTypeScriptBuildConfigParse(t *testing.T) {
+	source := `import { definePipeline, parameter } from "@buildworld/pipeline"
+export default definePipeline({
+  name: "test-build",
+  parameters: [
+    parameter("env", "choice", { choices: ["dev", "prod"], required: true }),
+    parameter("debug", "boolean", { default: false }),
+  ],
+  stages: [],
+})`
 
-	config := &BuildConfig{
-		Name: "test-build",
-		Parameters: []BuildParameter{
-			{Name: "env", Type: "string"},
-		},
-	}
-
-	m.CreateBuild(1, config, map[string]interface{}{"env": "dev"})
-	m.CreateBuild(1, config, map[string]interface{}{"env": "prod"})
-	m.CreateBuild(2, config, map[string]interface{}{"env": "dev"})
-
-	builds := m.GetBuilds(1)
-	if len(builds) != 2 {
-		t.Errorf("GetBuilds(1) length = %d, want 2", len(builds))
-	}
-
-	builds = m.GetBuilds(2)
-	if len(builds) != 1 {
-		t.Errorf("GetBuilds(2) length = %d, want 1", len(builds))
-	}
-}
-
-func TestBuildManagerGetBuild(t *testing.T) {
-	m := NewBuildManager()
-
-	config := &BuildConfig{
-		Name: "test-build",
-		Parameters: []BuildParameter{
-			{Name: "env", Type: "string"},
-		},
-	}
-
-	m.CreateBuild(1, config, map[string]interface{}{"env": "dev"})
-	m.CreateBuild(1, config, map[string]interface{}{"env": "prod"})
-
-	build := m.GetBuild(1, 1)
-	if build == nil {
-		t.Fatal("GetBuild(1, 1) returned nil")
-	}
-
-	if build.Number != 1 {
-		t.Errorf("Number = %d, want 1", build.Number)
-	}
-
-	build = m.GetBuild(1, 2)
-	if build == nil {
-		t.Fatal("GetBuild(1, 2) returned nil")
-	}
-
-	if build.Number != 2 {
-		t.Errorf("Number = %d, want 2", build.Number)
-	}
-}
-
-func TestBuildConfigParse(t *testing.T) {
-	jsonStr := `{
-		"name": "test-build",
-		"parameters": [
-			{"name": "env", "type": "choice", "choices": ["dev", "prod"], "required": true},
-			{"name": "debug", "type": "boolean", "default": false}
-		]
-	}`
-
-	config, err := ParseBuildConfig(jsonStr)
+	config, err := ParsePipelineConfig(source)
 	if err != nil {
-		t.Fatalf("ParseBuildConfig() error = %v", err)
+		t.Fatalf("ParsePipelineConfig() error = %v", err)
 	}
 
 	if config.Name != "test-build" {
@@ -341,7 +224,7 @@ func TestBuildConfigParse(t *testing.T) {
 	}
 }
 
-func TestYAMLBuildConfigParsesParametersAndLinearStages(t *testing.T) {
+func TestYAMLBuildConfigParsesParametersAndJobs(t *testing.T) {
 	config, err := ParseYAMLConfig(`
 name: yaml-parameters
 parameters:
@@ -353,12 +236,12 @@ parameters:
   - name: api_token
     type: password
     is_secret: true
-stages:
-  - name: Build
+jobs:
+  build:
+    name: Build
     steps:
       - name: Package
-        type: shell
-        command: echo package
+        run: echo package
 artifacts:
   - dist/**
 agent_requirements:

@@ -4,14 +4,16 @@ sidebar_position: 1
 
 # buildworld
 
-现代化 CI/CD 服务器 - Jenkins 替代方案，支持 YAML/JSON 流水线、插件系统和分布式 Agent。
+现代化 CI/CD 服务器 - Jenkins 替代方案，支持受限 TypeScript 与 GitHub
+Actions 风格 YAML 流水线、插件系统和分布式 Agent。
 
 ## 功能特性
 
-- **YAML/JSON 流水线** - 支持 GitHub Actions 风格的 YAML 和 JSON 流水线定义
-- **插件系统** - 基于 goja JS 运行时的热重载插件
+- **TypeScript 流水线** - 类型化、支持注释和语法诊断，并在受限运行时解析
+- **YAML 流水线** - 保留 GitHub Actions 风格的声明式 YAML 配置
+- **插件系统** - 经过校验、进程外运行的 Go 二进制插件，支持完整生命周期管理
 - **Agent 优先架构** - 分布式构建执行，支持 Agent 池和需求匹配
-- **VCS 集成** - Git、SVN、Mercurial 支持，带 VCS Roots
+- **Git 集成** - 使用 VCS 仓库模板复用 Git 地址、账号、分支、轮询与检出配置
 - **SSH 认证** - 密钥和密码 SSH 认证，带凭证管理
 - **环境变量** - 全局和项目级变量
 - **参数化构建** - 带验证的构建参数
@@ -23,11 +25,14 @@ sidebar_position: 1
 - **国际化** - 中英文支持，自动检测浏览器语言
 - **现代化 UI** - React 仪表盘，实时更新
 
+仓库 SSH 密钥统一导入并保存在 VCS 凭证中。BuildWorld 不生成、也不维护独立的用户级
+SSH 身份密钥表。
+
 ## 快速开始
 
 ```bash
 # 安装
-curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | bash
+gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld233/contents/scripts/install.sh | sh
 
 # 启动服务器
 buildworld start
@@ -54,9 +59,9 @@ open http://localhost:8700
 │  │   器     │ │ 执行器   │ │ 管理器   │ │ 管理器       │  │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │
 ├─────────────────────────────────────────────────────────────┤
-│                   插件系统 (goja)                            │
+│                   Go 二进制插件系统                          │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
-│  │ 插件加载 │ │ 插件注册 │ │ 插件沙箱 │ │ 插件热重载   │  │
+│  │ 插件加载 │ │ 插件注册 │ │ 哈希校验 │ │ 生命周期管理 │  │
 │  │   器     │ │   表     │ │          │ │              │  │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │
 ├─────────────────────────────────────────────────────────────┤
@@ -69,7 +74,7 @@ open http://localhost:8700
 
 ## 下一步
 
-- [安装指南](/installation) - 安装 buildworld
-- [配置指南](/configuration) - 配置你的实例
-- [流水线指南](/pipelines) - 创建构建流水线
-- [插件开发](/plugins) - 编写自定义插件
+- [安装指南](./installation) - 安装 buildworld
+- [配置指南](./configuration) - 配置你的实例
+- [流水线指南](./pipelines) - 创建构建流水线
+- [Go 二进制插件](./plugins) - 扩展流水线步骤类型

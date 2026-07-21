@@ -39,7 +39,7 @@ func createFinishedStatisticsBuild(t *testing.T, data *store.Store, projectID in
 
 func TestRecordBuildCompletionIsIdempotent(t *testing.T) {
 	data := newStatisticsTestStore(t)
-	project, err := data.CreateProject("idempotent-stats", "", "", "git", "main", "{}", 0, nil, nil)
+	project, err := data.CreateProject("idempotent-stats", "", "", "git", "main", testEmptyPipelineSource, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestRecordBuildCompletionIsIdempotent(t *testing.T) {
 
 func TestBigScreenTrendUsesLiveBuilds(t *testing.T) {
 	data := newStatisticsTestStore(t)
-	project, err := data.CreateProject("live-dashboard", "", "", "git", "main", "{}", 0, nil, nil)
+	project, err := data.CreateProject("live-dashboard", "", "", "git", "main", testEmptyPipelineSource, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,10 +9,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/neko233-com/buildworld/internal/processtree"
 )
 
 const BinaryAPIVersion = "buildworld.plugin/v1"
@@ -38,11 +39,8 @@ func (l *Loader) loadBinary(name, pluginPath string) error {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return fmt.Errorf("parse plugin-buildworld.json: %w", err)
 	}
-	if manifest.APIVersion != BinaryAPIVersion {
-		return fmt.Errorf("unsupported binary plugin API %q", manifest.APIVersion)
-	}
-	if manifest.Name == "" || manifest.Entrypoint == "" || len(manifest.Steps) == 0 {
-		return fmt.Errorf("binary plugin requires name, entrypoint, and steps")
+	if err := validateBinaryManifest(&manifest, name); err != nil {
+		return err
 	}
 	entry, err := resolveEntrypoint(pluginPath, manifest.Entrypoint)
 	if err != nil {
@@ -54,21 +52,108 @@ func (l *Loader) loadBinary(name, pluginPath string) error {
 			return fmt.Errorf("binary plugin checksum mismatch")
 		}
 	}
-	p := &Plugin{PluginMeta: PluginMeta{Name: manifest.Name, Version: manifest.Version, Description: manifest.Description}, Path: pluginPath, binary: &manifest, stepTypes: map[string]StepHandler{}, triggerTypes: map[string]TriggerHandler{}}
+	p := &Plugin{PluginMeta: PluginMeta{Name: manifest.Name, Version: manifest.Version, Description: manifest.Description, Author: manifest.Author}, Path: pluginPath, binary: &manifest, stepTypes: map[string]StepHandler{}}
 	for _, stepType := range manifest.Steps {
 		typ := stepType
 		p.stepTypes[typ] = func(ctx context.Context, sc *StepContext) error { return invokeBinary(ctx, entry, typ, sc) }
 	}
 	l.mu.Lock()
+	for installedName, installed := range l.plugins {
+		if installedName == name {
+			continue
+		}
+		for _, stepType := range manifest.Steps {
+			if installed.stepTypes[stepType] != nil {
+				l.mu.Unlock()
+				return fmt.Errorf("plugin step type %q is already registered by %q", stepType, installedName)
+			}
+		}
+	}
 	l.plugins[name] = p
 	l.enabledPlugins[name] = true
 	l.mu.Unlock()
 	return nil
 }
 
+func validateBinaryManifest(manifest *BinaryManifest, expectedName string) error {
+	if manifest.APIVersion != BinaryAPIVersion {
+		return fmt.Errorf("unsupported binary plugin API %q", manifest.APIVersion)
+	}
+	if err := validatePluginName(manifest.Name); err != nil {
+		return err
+	}
+	if expectedName != "" && manifest.Name != expectedName {
+		return fmt.Errorf("plugin manifest name %q does not match directory %q", manifest.Name, expectedName)
+	}
+	if strings.TrimSpace(manifest.Version) == "" || strings.TrimSpace(manifest.Entrypoint) == "" || len(manifest.Steps) == 0 {
+		return fmt.Errorf("binary plugin requires name, version, entrypoint, and steps")
+	}
+	seenSteps := make(map[string]struct{}, len(manifest.Steps))
+	for _, step := range manifest.Steps {
+		step = strings.TrimSpace(step)
+		if step == "" {
+			return fmt.Errorf("binary plugin step names cannot be empty")
+		}
+		if _, duplicate := seenSteps[step]; duplicate {
+			return fmt.Errorf("binary plugin step %q is duplicated", step)
+		}
+		seenSteps[step] = struct{}{}
+	}
+	if manifest.Source != "" {
+		if _, err := normalizeGitHubSource(manifest.Source); err != nil {
+			return err
+		}
+	}
+	if manifest.ChecksumSHA256 != "" && !isSHA256(manifest.ChecksumSHA256) {
+		return fmt.Errorf("binary plugin checksum_sha256 must be a 64-character hexadecimal digest")
+	}
+	releaseTargets := make(map[string]struct{}, len(manifest.Releases))
+	for _, release := range manifest.Releases {
+		target := release.GOOS + "/" + release.GOARCH
+		if release.GOOS == "" || release.GOARCH == "" || release.URL == "" || !isSHA256(release.ChecksumSHA256) {
+			return fmt.Errorf("binary plugin release %q requires goos, goarch, url, and checksum_sha256", target)
+		}
+		assetURL, err := url.Parse(release.URL)
+		if err != nil || assetURL.Scheme != "https" || assetURL.Host == "" || assetURL.User != nil {
+			return fmt.Errorf("binary plugin release %q requires an https URL", target)
+		}
+		if _, duplicate := releaseTargets[target]; duplicate {
+			return fmt.Errorf("binary plugin release %q is duplicated", target)
+		}
+		releaseTargets[target] = struct{}{}
+	}
+	return nil
+}
+
+func normalizeGitHubSource(source string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(source))
+	if err != nil || parsed.Scheme != "https" || !strings.EqualFold(parsed.Hostname(), "github.com") || parsed.Port() != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("plugin source must be an https GitHub repository URL")
+	}
+	parts := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", fmt.Errorf("plugin source must identify one GitHub owner and repository")
+	}
+	parsed.Path = strings.TrimSuffix(strings.TrimSuffix(parsed.Path, "/"), ".git")
+	parsed.RawPath = ""
+	return parsed.String(), nil
+}
+
+func isSHA256(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	for _, char := range value {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') && (char < 'A' || char > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
 func invokeBinary(ctx context.Context, entry, step string, sc *StepContext) error {
 	input, _ := json.Marshal(binaryRequest{Operation: "execute", Step: step, Context: *sc})
-	cmd := exec.CommandContext(ctx, entry, "execute")
+	cmd := processtree.CommandContext(ctx, entry, "execute")
 	cmd.Stdin = strings.NewReader(string(input))
 	output, err := cmd.Output()
 	if err != nil {
@@ -100,15 +185,19 @@ func invokeBinary(ctx context.Context, entry, step string, sc *StepContext) erro
 // InstallGitHub builds a Go plugin from a public GitHub repository. The repo
 // must contain plugin-buildworld.json at its root; no JavaScript is executed.
 func (l *Loader) InstallGitHub(ctx context.Context, source string) (*BinaryManifest, error) {
-	if !strings.HasPrefix(source, "https://github.com/") {
-		return nil, fmt.Errorf("plugin source must be an https GitHub URL")
+	normalizedSource, err := normalizeGitHubSource(source)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(l.path, 0o755); err != nil {
+		return nil, fmt.Errorf("create plugin root: %w", err)
 	}
 	tmp, err := os.MkdirTemp("", "buildworld-plugin-*")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(tmp)
-	if out, err := exec.CommandContext(ctx, "git", "clone", "--depth", "1", source, tmp).CombinedOutput(); err != nil {
+	if out, err := processtree.CommandContext(ctx, "git", "clone", "--depth", "1", normalizedSource, tmp).CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("clone plugin: %w: %s", err, out)
 	}
 	data, err := os.ReadFile(filepath.Join(tmp, "plugin-buildworld.json"))
@@ -119,18 +208,23 @@ func (l *Loader) InstallGitHub(ctx context.Context, source string) (*BinaryManif
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, err
 	}
-	if manifest.APIVersion != BinaryAPIVersion || manifest.Name == "" || manifest.Entrypoint == "" || len(manifest.Steps) == 0 {
-		return nil, fmt.Errorf("invalid binary plugin manifest")
+	if err := validateBinaryManifest(&manifest, ""); err != nil {
+		return nil, err
 	}
-	manifest.Source = strings.TrimSuffix(source, "/")
-	dest := filepath.Join(l.path, manifest.Name)
+	manifest.Source = normalizedSource
+	dest, err := l.pluginPath(manifest.Name)
+	if err != nil {
+		return nil, err
+	}
 	// Shared GitHub URLs are idempotent: an installed matching name/version is
 	// reused instead of compiling or downloading it again.
 	if existingData, err := os.ReadFile(filepath.Join(dest, "plugin-buildworld.json")); err == nil {
 		var existing BinaryManifest
 		if json.Unmarshal(existingData, &existing) == nil && existing.Name == manifest.Name && existing.Version == manifest.Version && existing.Source == manifest.Source {
-			if l.Get(manifest.Name) == nil {
-				_ = l.Load(manifest.Name)
+			if l.getLoaded(manifest.Name) == nil {
+				if err := l.Load(manifest.Name); err != nil {
+					return nil, err
+				}
 			}
 			return &existing, nil
 		}
@@ -157,7 +251,7 @@ func (l *Loader) InstallGitHub(ctx context.Context, source string) (*BinaryManif
 		if pkg == "" {
 			pkg = "."
 		}
-		build := exec.CommandContext(ctx, "go", "build", "-o", entry, pkg)
+		build := processtree.CommandContext(ctx, "go", "build", "-o", entry, pkg)
 		build.Dir = tmp
 		if out, err := build.CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("build Go plugin: %w: %s", err, out)
@@ -204,9 +298,8 @@ func isRemoteBuiltinStep(stepType string) bool {
 	}
 }
 
-// BinaryReferencesForStepTypes returns only Go binary plugins that the worker
-// may resolve independently. Legacy in-process JavaScript plugins intentionally
-// cannot be dispatched remotely because their execution model is not portable.
+// BinaryReferencesForStepTypes returns the Go binary plugins that a worker must
+// resolve independently for the requested custom step types.
 func (l *Loader) BinaryReferencesForStepTypes(stepTypes []string) ([]BinaryReference, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -225,9 +318,6 @@ func (l *Loader) BinaryReferencesForStepTypes(stepTypes []string) ([]BinaryRefer
 		}
 		if matched == nil {
 			return nil, fmt.Errorf("remote worker cannot resolve plugin step type %q", stepType)
-		}
-		if matched.binary == nil {
-			return nil, fmt.Errorf("plugin step type %q is legacy JavaScript and cannot run on a remote worker", stepType)
 		}
 		if matched.binary.Source == "" {
 			return nil, fmt.Errorf("plugin %q must be installed from a GitHub source before remote execution", matched.binary.Name)
@@ -249,23 +339,24 @@ func (l *Loader) BinaryReferencesForStepTypes(stepTypes []string) ([]BinaryRefer
 // a worker cache and proves that the resolved manifest is exactly the expected
 // version and digest before it is eligible to execute build steps.
 func (l *Loader) EnsureBinaryReference(ctx context.Context, ref BinaryReference) error {
-	if ref.Name == "" || ref.Version == "" || ref.ManifestSHA256 == "" {
+	if validatePluginName(ref.Name) != nil || strings.TrimSpace(ref.Version) == "" || !isSHA256(ref.ManifestSHA256) {
 		return fmt.Errorf("invalid remote plugin reference")
 	}
-	if !strings.HasPrefix(ref.Source, "https://github.com/") {
-		return fmt.Errorf("remote plugin %q source must be an https GitHub URL", ref.Name)
+	normalizedSource, err := normalizeGitHubSource(ref.Source)
+	if err != nil {
+		return fmt.Errorf("remote plugin %q: %w", ref.Name, err)
 	}
 	l.mu.RLock()
 	current := l.plugins[ref.Name]
 	if current != nil && l.enabledPlugins[ref.Name] && current.binary != nil {
 		digest, err := manifestDigest(current.binary)
-		if err == nil && current.binary.Name == ref.Name && current.binary.Version == ref.Version && current.binary.Source == strings.TrimSuffix(ref.Source, "/") && strings.EqualFold(digest, ref.ManifestSHA256) {
+		if err == nil && current.binary.Name == ref.Name && current.binary.Version == ref.Version && current.binary.Source == normalizedSource && strings.EqualFold(digest, ref.ManifestSHA256) {
 			l.mu.RUnlock()
 			return nil
 		}
 	}
 	l.mu.RUnlock()
-	manifest, err := l.InstallGitHub(ctx, ref.Source)
+	manifest, err := l.InstallGitHub(ctx, normalizedSource)
 	if err != nil {
 		return err
 	}
@@ -282,7 +373,7 @@ func (l *Loader) EnsureBinaryReference(ctx context.Context, ref BinaryReference)
 func selectRelease(manifest BinaryManifest, goos, goarch string) (BinaryRelease, bool, error) {
 	for _, release := range manifest.Releases {
 		if release.GOOS == goos && release.GOARCH == goarch {
-			if release.URL == "" || release.ChecksumSHA256 == "" {
+			if release.URL == "" || !isSHA256(release.ChecksumSHA256) {
 				return BinaryRelease{}, false, fmt.Errorf("prebuilt plugin release for %s/%s requires url and checksum_sha256", goos, goarch)
 			}
 			return release, true, nil
@@ -295,8 +386,16 @@ func selectRelease(manifest BinaryManifest, goos, goarch string) (BinaryRelease,
 }
 
 func targetEntrypoint(pluginPath, entrypoint string) (string, error) {
-	entry := filepath.Clean(filepath.Join(pluginPath, entrypoint))
-	if !strings.HasPrefix(entry, filepath.Clean(pluginPath)+string(os.PathSeparator)) {
+	root, err := filepath.Abs(pluginPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve plugin directory: %w", err)
+	}
+	entry, err := filepath.Abs(filepath.Join(root, entrypoint))
+	if err != nil {
+		return "", fmt.Errorf("resolve plugin entrypoint: %w", err)
+	}
+	relative, err := filepath.Rel(root, entry)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
 		return "", fmt.Errorf("plugin entrypoint escapes plugin directory")
 	}
 	return entry, nil

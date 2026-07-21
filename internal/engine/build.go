@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 )
 
 type BuildParameter struct {
@@ -20,20 +19,21 @@ type BuildParameter struct {
 type BuildConfig struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
-	Parameters  []BuildParameter  `json:"parameters"`
+	Parameters  []BuildParameter  `json:"parameters,omitempty"`
 	Approval    *ApprovalPolicy   `json:"approval,omitempty"`
 	Stages      []Stage           `json:"stages"`
-	Triggers    []Trigger         `json:"triggers"`
-	Environment map[string]string `json:"environment"`
-	Artifacts   []string          `json:"artifacts"`
+	Triggers    []Trigger         `json:"triggers,omitempty"`
+	Environment map[string]string `json:"environment,omitempty"`
+	Artifacts   []string          `json:"artifacts,omitempty"`
 	// Post contains Jenkins-style lifecycle steps keyed by always, success,
 	// failure, or cleanup. They run after the normal stages on every worker.
 	Post               map[string][]Step `json:"post,omitempty"`
-	AgentRequirements  []string          `json:"agent_requirements"`
+	AgentRequirements  []string          `json:"agent_requirements,omitempty"`
 	RetentionCompleted int               `json:"retention_completed"`
 	TimeoutSec         int               `json:"timeout_sec,omitempty"`
-	// AllowLongRunning keeps an intentional service observer alive instead of
-	// applying the default finite build timeout.
+	// AllowLongRunning is derived during semantic validation for an
+	// unconditional terminal service observer. A source flag alone cannot
+	// suppress the default finite build timeout.
 	AllowLongRunning  bool                `json:"allow_long_running,omitempty"`
 	DisableConcurrent bool                `json:"disable_concurrent,omitempty"`
 	AbortPrevious     bool                `json:"abort_previous,omitempty"`
@@ -41,11 +41,16 @@ type BuildConfig struct {
 }
 
 type Stage struct {
-	Name      string   `json:"name" yaml:"name"`
-	Steps     []Step   `json:"steps" yaml:"steps"`
-	Parallel  bool     `json:"parallel,omitempty" yaml:"parallel,omitempty"`
-	DependsOn []string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
-	Branches  []string `json:"branches,omitempty" yaml:"branches,omitempty"`
+	ID               string            `json:"id,omitempty" yaml:"id,omitempty"`
+	Name             string            `json:"name" yaml:"name"`
+	Steps            []Step            `json:"steps" yaml:"steps"`
+	Parallel         bool              `json:"parallel,omitempty" yaml:"parallel,omitempty"`
+	DependsOn        []string          `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	Branches         []string          `json:"branches,omitempty" yaml:"branches,omitempty"`
+	If               string            `json:"if,omitempty" yaml:"if,omitempty"`
+	Environment      map[string]string `json:"environment,omitempty" yaml:"env,omitempty"`
+	WorkingDirectory string            `json:"working_directory,omitempty" yaml:"working-directory,omitempty"`
+	TimeoutSec       int               `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
 }
 
 type Step struct {
@@ -58,6 +63,7 @@ type Step struct {
 	// This keeps a default pipeline readable and removes imperative platform branches.
 	PlatformAdditions map[string]string `json:"platform_additions,omitempty" yaml:"platform_additions,omitempty"`
 	Runtime           string            `json:"runtime,omitempty" yaml:"runtime,omitempty"`
+	If                string            `json:"if,omitempty" yaml:"if,omitempty"`
 }
 
 type Trigger struct {
@@ -65,60 +71,9 @@ type Trigger struct {
 	Config map[string]string `json:"config"`
 }
 
-type Build struct {
-	ID         int64                  `json:"id"`
-	ProjectID  int64                  `json:"project_id"`
-	Number     int                    `json:"number"`
-	Status     string                 `json:"status"`
-	Trigger    string                 `json:"trigger"`
-	Branch     string                 `json:"branch,omitempty"`
-	CommitSHA  string                 `json:"commit_sha,omitempty"`
-	Parameters map[string]interface{} `json:"parameters,omitempty"`
-	StartedAt  *time.Time             `json:"started_at,omitempty"`
-	FinishedAt *time.Time             `json:"finished_at,omitempty"`
-	DurationMs *int64                 `json:"duration_ms,omitempty"`
-	Log        string                 `json:"log,omitempty"`
-	CreatedAt  time.Time              `json:"created_at"`
-}
-
-type BuildManager struct {
-	builds map[int64][]*Build
-}
-
-func NewBuildManager() *BuildManager {
-	return &BuildManager{
-		builds: make(map[int64][]*Build),
-	}
-}
-
-func (m *BuildManager) CreateBuild(projectID int64, config *BuildConfig, params map[string]interface{}) *Build {
-	if err := m.ValidateParameters(config.Parameters, params); err != nil {
-		return nil
-	}
-
-	number := len(m.builds[projectID]) + 1
-
-	build := &Build{
-		ProjectID:  projectID,
-		Number:     number,
-		Status:     "pending",
-		Trigger:    "manual",
-		Parameters: params,
-		CreatedAt:  time.Now(),
-	}
-
-	m.builds[projectID] = append(m.builds[projectID], build)
-	return build
-}
-
-func (m *BuildManager) ValidateParameters(parameters []BuildParameter, params map[string]interface{}) error {
-	return ValidateBuildParameters(parameters, params)
-}
-
 // ResolveBuildParameters copies supplied values, applies declared defaults and
-// validates the result. Unknown values are kept for backwards-compatible API
-// automation, while every declared value is checked consistently across UI,
-// token-triggered and internal callers.
+// validates the result. Every value must be declared so UI, token-triggered,
+// and internal callers all use the same explicit contract.
 func ResolveBuildParameters(parameters []BuildParameter, supplied map[string]interface{}) (map[string]interface{}, error) {
 	resolved := make(map[string]interface{}, len(supplied)+len(parameters))
 	for key, value := range supplied {
@@ -144,6 +99,11 @@ func ResolveBuildParameters(parameters []BuildParameter, supplied map[string]int
 			case parameterType == "choice" && len(parameter.Choices) > 0:
 				resolved[name] = parameter.Choices[0]
 			}
+		}
+	}
+	for name := range supplied {
+		if _, declared := seen[name]; !declared {
+			return nil, fmt.Errorf("build parameter %s is not declared", name)
 		}
 	}
 
@@ -219,20 +179,10 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-func (m *BuildManager) GetBuilds(projectID int64) []*Build {
-	return m.builds[projectID]
-}
-
-func (m *BuildManager) GetBuild(projectID, buildNumber int64) *Build {
-	for _, b := range m.builds[projectID] {
-		if b.Number == int(buildNumber) {
-			return b
-		}
-	}
-	return nil
-}
-
-func ParseBuildConfig(jsonStr string) (*BuildConfig, error) {
+// decodeTypeScriptPipelineData maps the already allowlisted AST value into the
+// execution model. JSON is only an internal serialization bridge; callers must
+// enter through ParsePipelineConfig.
+func decodeTypeScriptPipelineData(jsonStr string) (*BuildConfig, error) {
 	config := &BuildConfig{}
 	if err := json.Unmarshal([]byte(jsonStr), config); err != nil {
 		return nil, err
@@ -245,18 +195,26 @@ func ParseBuildConfig(jsonStr string) (*BuildConfig, error) {
 
 func ParsePipelineConfig(raw string) (*BuildConfig, error) {
 	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, fmt.Errorf("pipeline config cannot be empty")
+	}
 	var config *BuildConfig
 	var err error
 	if IsTypeScriptPipeline(trimmed) {
 		config, err = ParseTypeScriptPipeline(raw)
-	} else if strings.HasPrefix(trimmed, "#") {
-		config, err = ParseMarkdownConfig(raw)
-	} else if strings.HasPrefix(trimmed, "{") {
-		config, err = ParseBuildConfig(raw)
 	} else {
+		if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+			return nil, fmt.Errorf("JSON pipeline configs are not supported; use TypeScript or jobs-based YAML")
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			return nil, fmt.Errorf("Markdown pipeline configs are not supported; use TypeScript or jobs-based YAML")
+		}
 		config, err = ParseYAMLConfig(raw)
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := ValidatePipelineSemantics(config); err != nil {
 		return nil, err
 	}
 	if _, err := ResolveApprovalPolicy(config); err != nil {

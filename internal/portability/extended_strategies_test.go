@@ -35,11 +35,10 @@ func TestDefaultRegistryRoundTripsConfigurationGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parentGroup, err := source.CreateProjectGroup("products", "product-owned projects", nil)
-	if err != nil {
+	if _, err := source.CreateProjectGroup("products", "product-owned projects"); err != nil {
 		t.Fatal(err)
 	}
-	projectGroup, err := source.CreateProjectGroup("release", "release automation", &parentGroup.ID)
+	projectGroup, err := source.CreateProjectGroupWithColor("release", "release automation", "blue")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,16 +52,10 @@ func TestDefaultRegistryRoundTripsConfigurationGraph(t *testing.T) {
 	if _, err := source.CreateNotificationChannel("release-alerts", store.NotificationChannelWebhook, "{\n  \"url\": \"https://example.test/hook\"\n}", "{\n  \"statuses\": [\n    \"failed\"\n  ]\n}", "release notifications", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.CreateDeploymentEnv(project.ID, "production", "primary", "{\n  \"type\": \"production\"\n}"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := source.CreateGitHook(project.ID, "push-main", store.GitHookPush, "main", "hook-secret", true, "{\n  \"release\": true\n}", "main branch"); err != nil {
-		t.Fatal(err)
-	}
 	if err := source.SetEnvVar("system", nil, "build_timeout", "900", false, "portable setting"); err != nil {
 		t.Fatal(err)
 	}
-	sourcePlugin, err := source.CreatePlugin("portable-plugin", "1.0.0", "activation preference", "buildworld", "", "js", "", "", "builtin")
+	sourcePlugin, err := source.CreatePlugin("portable-plugin", "1.0.0", "activation preference", "buildworld", "", "/plugins/portable-plugin", "https://github.com/acme/portable-plugin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +68,7 @@ func TestDefaultRegistryRoundTripsConfigurationGraph(t *testing.T) {
 		t.Fatal(err)
 	}
 	sections := []string{
-		"credentials", "deployment_environments", "git_hooks", "notification_channels",
+		"credentials", "notification_channels",
 		"plugin_settings", "project_groups", "projects", "settings", "templates", "vcs_roots",
 	}
 	bundle, err := sourceRegistry.Export(context.Background(), ExportOptions{Sections: sections, IncludeSecrets: true})
@@ -87,7 +80,7 @@ func TestDefaultRegistryRoundTripsConfigurationGraph(t *testing.T) {
 	}
 
 	target := openPortabilityStore(t, "target")
-	targetPlugin, err := target.CreatePlugin("portable-plugin", "1.0.0", "activation preference", "buildworld", "", "js", "", "", "builtin")
+	targetPlugin, err := target.CreatePlugin("portable-plugin", "1.0.0", "activation preference", "buildworld", "", "/plugins/portable-plugin", "https://github.com/acme/portable-plugin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,29 +110,21 @@ func TestDefaultRegistryRoundTripsConfigurationGraph(t *testing.T) {
 	}
 	importedProject, err := target.GetProjectByName("portable-project")
 	importedGroup, groupErr := target.GetProjectGroupByName("release")
-	importedParent, parentErr := target.GetProjectGroupByName("products")
+	_, parentErr := target.GetProjectGroupByName("products")
 	if err != nil || groupErr != nil || parentErr != nil ||
 		importedProject.VCSRootID == nil || *importedProject.VCSRootID != importedRoot.ID ||
 		importedProject.TemplateID == nil || *importedProject.TemplateID != importedTemplate.ID ||
 		importedProject.GroupID == nil || *importedProject.GroupID != importedGroup.ID ||
-		importedGroup.ParentID == nil || *importedGroup.ParentID != importedParent.ID {
+		importedGroup.Color != "blue" {
 		t.Fatalf("project references = %#v, err=%v", importedProject, err)
 	}
 	if _, err := target.GetNotificationChannelByName("release-alerts"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := target.GetDeploymentEnvByProjectAndName(importedProject.ID, "production"); err != nil {
 		t.Fatal(err)
 	}
 	importedPlugin, err := target.GetPlugin(targetPlugin.ID)
 	if err != nil || importedPlugin.Enabled {
 		t.Fatalf("plugin activation preference = %#v, err=%v", importedPlugin, err)
 	}
-	importedHook, err := target.GetGitHookByProjectAndName(importedProject.ID, "push-main")
-	if err != nil || importedHook.Secret != "hook-secret" {
-		t.Fatalf("Git hook = %#v, err=%v", importedHook, err)
-	}
-
 	second, err := targetRegistry.Import(context.Background(), bundle, ImportOptions{Mode: "skip"})
 	if err != nil {
 		t.Fatalf("second Import(skip) error = %v", err)
@@ -148,6 +133,34 @@ func TestDefaultRegistryRoundTripsConfigurationGraph(t *testing.T) {
 		if section.Count > 0 && section.Skipped != section.Count {
 			t.Fatalf("second import section = %#v, want all existing records skipped", section)
 		}
+	}
+}
+
+func TestProjectGroupImportDefaultsMissingColorToNeutral(t *testing.T) {
+	target := openPortabilityStore(t, "missing-group-color")
+	strategy := projectGroupStrategy{store: target}
+	withoutColor := json.RawMessage(`[
+		{"name":"game servers","description":"backup without explicit color"}
+	]`)
+
+	result, err := strategy.Import(context.Background(), withoutColor, ImportOptions{Mode: "overwrite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Created != 1 {
+		t.Fatalf("import result = %#v, want one group", result)
+	}
+	group, err := target.GetProjectGroupByName("game servers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group.Color != store.ProjectGroupColorNeutral {
+		t.Fatalf("default group color = %q, want %q", group.Color, store.ProjectGroupColorNeutral)
+	}
+
+	invalid := json.RawMessage(`[{"name":"unsafe color","color":"#ff0000"}]`)
+	if _, err := strategy.Import(context.Background(), invalid, ImportOptions{Mode: "overwrite"}); !errors.Is(err, store.ErrInvalidProjectGroupColor) {
+		t.Fatalf("invalid color import error = %v, want ErrInvalidProjectGroupColor", err)
 	}
 }
 

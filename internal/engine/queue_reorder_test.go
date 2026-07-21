@@ -27,7 +27,7 @@ func TestBuildQueueReorderRegistryIsExtensible(t *testing.T) {
 func TestBuildQueueReorderServiceReturnsVersionedQueue(t *testing.T) {
 	data, cleanup := newBuildChainStore(t)
 	defer cleanup()
-	project, err := data.CreateProject("queue-service", "", "", "git", "main", `{"stages":[]}`, 0, nil, nil)
+	project, err := data.CreateProject("queue-service", "", "", "git", "main", testEmptyPipelineSource, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

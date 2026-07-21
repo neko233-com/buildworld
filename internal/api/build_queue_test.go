@@ -67,3 +67,23 @@ func TestReorderBuildQueueRejectsUnknownOperation(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
+
+func TestReorderBuildQueueRequiresNamedOperation(t *testing.T) {
+	data, err := store.New(filepath.Join(t.TempDir(), "queue-api.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	handler := &handlers{d: Deps{Store: data}}
+
+	for _, body := range []string{`{}`, `{"priority":42}`} {
+		response := httptest.NewRecorder()
+		handler.reorderBuildQueue(
+			response,
+			requestWithRouteID(http.MethodPut, "/api/build-queue/1", strings.NewReader(body), 1),
+		)
+		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "operation is required") {
+			t.Fatalf("body %s: status = %d, response = %s", body, response.Code, response.Body.String())
+		}
+	}
+}

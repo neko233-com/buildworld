@@ -30,18 +30,18 @@ type SettingsMap = Record<string, string>
 type AgentPlatform = 'linux' | 'windows'
 
 const editableKeys = [
-  'host', 'port', 'tls', 'build_timeout', 'build_concurrency', 'local_agent_concurrency',
+  'host', 'port', 'build_timeout', 'build_concurrency', 'local_agent_concurrency',
   'cpu_limit_percent', 'background_mode',
-  'retry_policy', 'artifacts_path', 'logs_path', 'build_temp_path',
+  'retry_policy', 'artifacts_path', 'build_temp_path',
   'go_validation_enabled', 'go_version', 'go_checks', 'node_validation_enabled',
   'node_version', 'node_package_manager', 'node_checks', 'validation_fail_fast',
 ]
 
 const defaults: SettingsMap = {
-  host: '0.0.0.0', port: '8700', tls: 'false', build_timeout: '1800',
+  host: '0.0.0.0', port: '8700', build_timeout: '1800',
   build_concurrency: '2', local_agent_concurrency: '1', cpu_limit_percent: '25',
   background_mode: 'true', retry_policy: 'failed_once',
-  artifacts_path: './artifacts', logs_path: './logs', build_temp_path: './build_temp',
+  artifacts_path: './artifacts', build_temp_path: './build_temp',
   go_validation_enabled: 'true', go_version: '1.26', go_checks: 'fmt,vet,test,build',
   node_validation_enabled: 'true', node_version: '24', node_package_manager: 'npm',
   node_checks: 'install,lint,typecheck,test,build', validation_fail_fast: 'true',
@@ -227,7 +227,7 @@ export default function Settings() {
     setSaved(false)
   }
   const dirty = editableKeys.some(key => draft[key] !== baseline[key])
-  const restartKeys = ['host', 'port', 'tls', 'artifacts_path', 'logs_path', 'build_temp_path']
+  const restartKeys = ['host', 'port', 'artifacts_path', 'build_temp_path']
   const restartRequired = restartKeys.some(key => draft[key] !== baseline[key])
   const sys = metrics?.system || metrics || {}
   const agentList = agents || []
@@ -454,15 +454,10 @@ export default function Settings() {
   }, [agentConfig, agentPlatform, agentToken, draft.build_temp_path, t])
 
   const validationPipeline = useMemo(() => {
-    const lines = [
-      '# Production validation', '', '## Variables', '', '- CI: true', '', '## Toolchains',
-    ]
-    if (draft.go_validation_enabled === 'true') lines.push(`- go: ${draft.go_version}`)
-    if (draft.node_validation_enabled === 'true') lines.push(`- node: ${draft.node_version}`)
-    lines.push('', '## Agents', '', `- pool: ${agentConfig.pool}`, `- labels: ${draft.go_validation_enabled === 'true' && draft.node_validation_enabled === 'true' ? 'go, nodejs, typescript' : draft.go_validation_enabled === 'true' ? 'go' : 'nodejs, typescript'}`, '', '## Pipeline', '')
+    const steps: string[] = []
     const goChecks = parseChecks(draft.go_checks)
     const nodeChecks = parseChecks(draft.node_checks)
-    const step = (name: string, runtime: string, command: string) => lines.push(`### ${name}`, '', '```default shell ' + runtime, command, '```', '')
+    const step = (name: string, runtime: string, command: string) => steps.push(`    shell(${JSON.stringify(name)}, ${JSON.stringify(command)}, { runtime: ${JSON.stringify(runtime)} })`)
     if (draft.go_validation_enabled === 'true') {
       step('Go dependencies', `go@${draft.go_version}`, 'go mod download && go mod verify')
       if (goChecks.includes('fmt')) step('Go format', `go@${draft.go_version}`, 'gofmt -w . && git diff --exit-code -- .')
@@ -480,8 +475,25 @@ export default function Settings() {
       if (nodeChecks.includes('test')) step('TypeScript test', `node@${draft.node_version}`, run('test'))
       if (nodeChecks.includes('build')) step('TypeScript build', `node@${draft.node_version}`, run('build'))
     }
-    lines.push('## Artifacts', '', '- coverage.out', '- coverage/*', '- dist/*', '', '## Retention', '', '- completed: 30')
-    return lines.join('\n')
+    const toolchains = [
+      draft.go_validation_enabled === 'true' ? `go: [${JSON.stringify(draft.go_version)}]` : '',
+      draft.node_validation_enabled === 'true' ? `node: [${JSON.stringify(draft.node_version)}]` : '',
+    ].filter(Boolean).join(', ')
+    const labels = draft.go_validation_enabled === 'true' && draft.node_validation_enabled === 'true' ? ['go', 'nodejs', 'typescript'] : draft.go_validation_enabled === 'true' ? ['go'] : ['nodejs', 'typescript']
+    return `import { definePipeline, shell, stage } from '@buildworld/pipeline'
+
+export default definePipeline({
+  name: 'Production validation',
+  environment: { CI: 'true' },
+  toolchains: { ${toolchains} },
+  agentRequirements: [${[`pool=${agentConfig.pool}`, ...labels].map(value => JSON.stringify(value)).join(', ')}],
+  stages: [stage('Validation', [
+${steps.join(',\n')}
+  ])],
+  artifacts: ['coverage.out', 'coverage/*', 'dist/*'],
+  retentionCompleted: 30,
+})
+`
   }, [agentConfig.pool, draft])
 
   const navigation: Array<{ id: SettingsSection; label: string; icon: typeof Settings2 }> = [
@@ -530,8 +542,8 @@ export default function Settings() {
 
         {section === 'runtime' && <div className="settings-pane">
           <SectionHeading icon={Server} title={t('settings.runtimeStorage')} description={t('settings.runtimeStorageDescription')} />
-          <section className="settings-form-section"><header><Network size={15} /><div><h3>{t('settings.serverConfig')}</h3><p>{t('settings.serverConfigHelp')}</p></div></header><div className="settings-form-grid three"><SettingField label={t('settings.host')} value={draft.host} onChange={value => set('host', value)} /><SettingField label={t('settings.port')} type="number" min={1} max={65535} value={draft.port} onChange={value => set('port', value)} /><Toggle label={t('settings.tls')} description={t('settings.tlsHelp')} checked={draft.tls === 'true'} onChange={value => set('tls', String(value))} /></div></section>
-          <section className="settings-form-section"><header><Database size={15} /><div><h3>{t('settings.storagePaths')}</h3><p>{t('settings.storageHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.artifactsPath')} value={draft.artifacts_path} onChange={value => set('artifacts_path', value)} /><SettingField label={t('settings.logsPath')} value={draft.logs_path} onChange={value => set('logs_path', value)} /><SettingField label={t('settings.buildTempPath')} hint={t('settings.buildTempHint')} value={draft.build_temp_path} onChange={value => set('build_temp_path', value)} /></div><div className="settings-inline-note"><Info size={14} /><span>{t('settings.buildTempNote')}</span></div></section>
+          <section className="settings-form-section"><header><Network size={15} /><div><h3>{t('settings.serverConfig')}</h3><p>{t('settings.serverConfigHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.host')} value={draft.host} onChange={value => set('host', value)} /><SettingField label={t('settings.port')} type="number" min={1} max={65535} value={draft.port} onChange={value => set('port', value)} /></div></section>
+          <section className="settings-form-section"><header><Database size={15} /><div><h3>{t('settings.storagePaths')}</h3><p>{t('settings.storageHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.artifactsPath')} value={draft.artifacts_path} onChange={value => set('artifacts_path', value)} /><SettingField label={t('settings.buildTempPath')} hint={t('settings.buildTempHint')} value={draft.build_temp_path} onChange={value => set('build_temp_path', value)} /></div><div className="settings-inline-note"><Info size={14} /><span>{t('settings.buildTempNote')}</span></div></section>
           <section className="settings-form-section"><header><Activity size={15} /><div><h3>{t('settings.resourceControl')}</h3><p>{t('settings.resourceControlHelp')}</p></div></header><div className="settings-form-grid three"><SettingField label={t('settings.cpuLimit')} hint={t('settings.cpuLimitHelp')} type="number" min={5} max={100} suffix="%" value={draft.cpu_limit_percent} onChange={value => set('cpu_limit_percent', value)} /><SettingField label={t('settings.localConcurrency')} type="number" min={1} max={256} value={draft.local_agent_concurrency} onChange={value => set('local_agent_concurrency', value)} /><Toggle label={t('settings.backgroundMode')} description={t('settings.backgroundModeHelp')} checked={draft.background_mode === 'true'} onChange={value => set('background_mode', String(value))} /></div><div className="settings-inline-note"><Info size={14} /><span>{t('settings.resourceHotReloadHelp')}</span></div></section>
         </div>}
 
@@ -558,7 +570,7 @@ export default function Settings() {
           <SectionHeading icon={TestTube2} title={t('settings.validation')} description={t('settings.validationDescription')} action={<button type="button" className="secondary-command" onClick={() => copyText('pipeline', validationPipeline)}><Clipboard size={14} />{copied === 'pipeline' ? t('settings.copied') : t('settings.copyPipeline')}</button>} />
           <section className={`validation-policy ${draft.go_validation_enabled === 'true' ? 'enabled' : ''}`}><header><div className="validation-language-icon go">Go</div><div><h3>Go</h3><p>{t('settings.detectGoMod')}</p></div><Toggle label={t('settings.enabled')} checked={draft.go_validation_enabled === 'true'} onChange={value => set('go_validation_enabled', String(value))} /></header><div className="validation-policy-body"><label><span>{t('settings.toolchainVersion')}</span><select value={draft.go_version} onChange={event => set('go_version', event.target.value)}><option>1.21</option><option>1.22</option><option>1.26</option></select></label><div><span>{t('settings.validationSteps')}</span><CheckSelector options={[{ id: 'fmt', label: 'gofmt' }, { id: 'vet', label: 'go vet' }, { id: 'test', label: 'go test' }, { id: 'build', label: 'go build' }]} selected={parseChecks(draft.go_checks)} onChange={value => set('go_checks', value.join(','))} /></div><small><HardDrive size={13} />GOCACHE / GOMODCACHE → {draft.build_temp_path}/cache/go</small></div></section>
           <section className={`validation-policy ${draft.node_validation_enabled === 'true' ? 'enabled' : ''}`}><header><div className="validation-language-icon node">TS</div><div><h3>TypeScript / Node.js</h3><p>{t('settings.detectPackageJson')}</p></div><Toggle label={t('settings.enabled')} checked={draft.node_validation_enabled === 'true'} onChange={value => set('node_validation_enabled', String(value))} /></header><div className="validation-policy-body"><label><span>{t('settings.toolchainVersion')}</span><select value={draft.node_version} onChange={event => set('node_version', event.target.value)}><option>20</option><option>22</option><option>24</option></select></label><label><span>{t('settings.packageManager')}</span><select value={draft.node_package_manager} onChange={event => set('node_package_manager', event.target.value)}><option value="npm">npm</option><option value="pnpm">pnpm</option><option value="yarn">Yarn</option></select></label><div className="wide"><span>{t('settings.validationSteps')}</span><CheckSelector options={[{ id: 'install', label: 'lockfile install' }, { id: 'lint', label: 'lint' }, { id: 'typecheck', label: 'tsc --noEmit' }, { id: 'test', label: 'test' }, { id: 'build', label: 'build' }]} selected={parseChecks(draft.node_checks)} onChange={value => set('node_checks', value.join(','))} /></div><small><HardDrive size={13} />npm / Corepack / pnpm → {draft.build_temp_path}/cache/node</small></div></section>
-          <section className="settings-form-section pipeline-generator"><header><FileCode2 size={15} /><div><h3>{t('settings.pipelinePreview')}</h3><p>{t('settings.pipelinePreviewHelp')}</p></div></header><CodePanel title="pipeline.buildworld.md" value={validationPipeline} copyLabel={t('settings.copy')} onCopy={() => copyText('pipeline-code', validationPipeline)} copied={copied === 'pipeline-code'} /></section>
+          <section className="settings-form-section pipeline-generator"><header><FileCode2 size={15} /><div><h3>{t('settings.pipelinePreview')}</h3><p>{t('settings.pipelinePreviewHelp')}</p></div></header><CodePanel title="pipeline.buildworld.ts" value={validationPipeline} copyLabel={t('settings.copy')} onCopy={() => copyText('pipeline-code', validationPipeline)} copied={copied === 'pipeline-code'} /></section>
         </div>}
 
         {section === 'security' && <div className="settings-pane">

@@ -7,7 +7,7 @@ import { api } from '../api'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { visibleBuildLog } from '../lib/buildTimeline'
-import { isNearLogBottom, mergeLiveLog } from '../lib/logFollow'
+import { appendLiveLog, isNearLogBottom, mergeLiveLog } from '../lib/logFollow'
 import { PageState } from '../components/PageState'
 
 function lineTone(line: string) {
@@ -59,7 +59,7 @@ export default function BuildLogViewer() {
     [buildID, canLoad],
   )
   const { data: logs, loading: logsLoading, error: logsError, reload: reloadLogs } = useApi(
-    () => canLoad ? api.getBuildLogs(buildID) : Promise.resolve({ log: '' }),
+    () => canLoad ? api.getBuildLogs(buildID) : Promise.resolve<{ log: string; truncated?: boolean; retention_characters?: number }>({ log: '' }),
     [buildID, canLoad],
   )
   const [query, setQuery] = useState('')
@@ -125,7 +125,7 @@ export default function BuildLogViewer() {
           const message = JSON.parse(String(event.data)) as { type?: string, payload?: unknown }
           if (message.type === 'build:log') {
             const entry = formatStreamLog(message.payload)
-            if (entry) setStreamLog(current => current + entry)
+            if (entry) setStreamLog(current => appendLiveLog(current, entry))
           } else if (message.type === 'build:status') {
             reloadBuild()
           }
@@ -233,7 +233,10 @@ export default function BuildLogViewer() {
         <button type="button" onClick={() => download('json')} disabled={!!downloading}>{downloading === 'json' ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}JSON</button>
       </div>
     </header>
-    <div className="plain-log-message" aria-live="polite">{downloadError && <span role="alert">{downloadError}</span>}</div>
+    <div className="plain-log-message" aria-live="polite">
+      {logs?.truncated && <span className="retention-warning" role="status">{t('builds.logTruncated').replace('{count}', String(logs.retention_characters || 1_000_000))}</span>}
+      {downloadError && <span role="alert">{downloadError}</span>}
+    </div>
 
     <section className="plain-log-toolbar" aria-label={t('builds.logTools')}>
       <label><Search size={15} /><input ref={searchRef} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('builds.searchLogs')} aria-label={t('builds.searchLogs')} /><kbd>/</kbd></label>

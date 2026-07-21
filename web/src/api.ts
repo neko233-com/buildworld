@@ -30,6 +30,39 @@ export type PipelineMigrationResult = {
   hints: { repository_url?: string; default_branch?: string }
 }
 
+export type TestReportSummary = {
+  id: number
+  build_id: number
+  total: number
+  passed: number
+  failed: number
+  skipped: number
+  duration_ms: number
+  created_at: string
+}
+
+export type TestCaseResult = {
+  name: string
+  classname?: string
+  suite_name?: string
+  status: 'passed' | 'failed' | 'skipped'
+  duration_ms: number
+  message?: string
+  type?: string
+  details?: string
+}
+
+export type BuildTestResultsResponse = {
+  summary: TestReportSummary | null
+  cases: TestCaseResult[]
+  results: TestReportSummary[]
+}
+
+type RequestOptions = {
+  contentType?: string
+  rawBody?: boolean
+}
+
 export class ApiError extends Error {
   readonly status: number
   readonly code: string
@@ -178,11 +211,12 @@ async function retryDelay(attempt: number) {
   await new Promise(resolve => window.setTimeout(resolve, RETRY_DELAYS[attempt]))
 }
 
-export async function request<T = any>(method: string, path: string, body?: any): Promise<T> {
+export async function request<T = any>(method: string, path: string, body?: any, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {}
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
-  if (body) headers['Content-Type'] = 'application/json'
+  const hasBody = body !== undefined && body !== null
+  if (hasBody) headers['Content-Type'] = options.contentType || 'application/json'
 
   const retryableMethod = method === 'GET' || method === 'HEAD'
   const operationId = shouldReportMutation(method, path) ? beginOperation() : undefined
@@ -192,7 +226,7 @@ export async function request<T = any>(method: string, path: string, body?: any)
       resp = await fetch(`${API_BASE}${path}`, {
         method,
         headers,
-        body: body ? JSON.stringify(body) : undefined,
+        body: hasBody ? (options.rawBody ? body : JSON.stringify(body)) : undefined,
       })
     } catch {
       if (retryableMethod && attempt < RETRY_DELAYS.length) {
@@ -244,13 +278,15 @@ export const api = {
   me: () => request<any>('GET', '/auth/me'),
 
   // projects
-  listProjects: () => request<any[]>('GET', '/projects/?view=summary'),
+  listProjects: () => request<any[]>('GET', '/projects/'),
   getProject: (id: number) => request<any>('GET', `/projects/${id}`),
   createProject: (data: any) => request('POST', '/projects/', data),
   updateProject: (id: number, data: any) => request('PUT', `/projects/${id}`, data),
   deleteProject: (id: number) => request('DELETE', `/projects/${id}`),
   triggerBuild: (id: number, data?: any) => request('POST', `/projects/${id}/builds`, data),
   listProjectBuilds: (id: number) => request<any[]>('GET', `/projects/${id}/builds`),
+  validatePipeline: (source: string) =>
+    request<{ valid: boolean; format: 'typescript' | 'yaml'; stages: number; steps: number; parameters: any[]; allow_long_running: boolean }>('POST', '/pipeline-validation', { source }),
   migratePipeline: (format: string, source: string, name?: string) =>
     request<PipelineMigrationResult>('POST', `/pipeline-migrations/${encodeURIComponent(format)}`, { source, name }),
 
@@ -259,7 +295,7 @@ export const api = {
   searchBuilds: (filters: BuildSearchFilters) =>
     request<BuildSearchResponse>('GET', `/builds/search?${buildSearchQuery(filters)}`),
   getBuild: (id: number) => request<any>('GET', `/builds/${id}`),
-  getBuildLogs: (id: number) => request<{ log: string }>('GET', `/builds/${id}/logs`),
+  getBuildLogs: (id: number) => request<{ log: string; truncated?: boolean; retention_characters?: number }>('GET', `/builds/${id}/logs`),
   getBuildTimeline: (id: number) => request<BuildTimeline>('GET', `/builds/${id}/timeline`),
   getBuildProblems: (id: number) => request<BuildProblemReport>('GET', `/builds/${id}/problems`),
   getBuildChain: (id: number) => request<BuildChain>('GET', `/builds/${id}/chain`),
@@ -273,19 +309,10 @@ export const api = {
 
   // plugins
   listPlugins: () => request<any[]>('GET', '/plugins/'),
-  installPlugin: (data: any) => request('POST', '/plugins/', data),
   installGitHubPlugin: (url: string) => request('POST', '/plugins/github', { url }),
   deletePlugin: (idOrName: number | string) => request('DELETE', `/plugins/${idOrName}`),
   togglePlugin: (idOrName: number | string, enabled: boolean) => request('PUT', `/plugins/${idOrName}/enable`, { enabled }),
   reloadPlugin: (name: string) => request('POST', `/plugins/${name}/reload`),
-  getPluginSource: (name: string) => request<any>('GET', `/plugins/${name}/source`),
-  updatePluginSource: (name: string, data: any) => request('PUT', `/plugins/${name}/source`, data),
-  getPluginUI: (name: string) =>
-    fetch(`${API_BASE}/plugins/${name}/ui.js`, { headers: authHeader() }).then(r => {
-      if (!r.ok) return ''
-      return r.text()
-    }),
-  listUIExtensions: () => request<any>('GET', '/plugins/ui-extensions'),
 
   // users
   listUsers: () => request<any[]>('GET', '/users/'),
@@ -297,8 +324,6 @@ export const api = {
   // env vars
   listEnvVars: (scope = 'global', projectId?: number) =>
     request<any[]>('GET', `/env-vars/?scope=${scope}${projectId ? `&project_id=${projectId}` : ''}`),
-  setEnvVar: (data: any) => request('POST', '/env-vars/', data),
-  deleteEnvVar: (id: number) => request('DELETE', `/env-vars/${id}`),
 
   // credentials
   listCredentials: (type?: string) =>
@@ -308,19 +333,15 @@ export const api = {
   createCredential: (data: any) => request('POST', '/credentials/', data),
   updateCredential: (id: number, data: any) => request('PUT', `/credentials/${id}`, data),
   deleteCredential: (id: number) => request('DELETE', `/credentials/${id}`),
-  lookupCredential: (host: string, type: string) =>
-    request<any>('GET', `/credentials/lookup?host=${encodeURIComponent(host)}&type=${type}`),
 
   // vcs roots
   listVCSRoots: () => request<any[]>('GET', '/vcs-roots/'),
-  getVCSRoot: (id: number) => request<any>('GET', `/vcs-roots/${id}`),
   createVCSRoot: (data: any) => request('POST', '/vcs-roots/', data),
   updateVCSRoot: (id: number, data: any) => request('PUT', `/vcs-roots/${id}`, data),
   deleteVCSRoot: (id: number) => request('DELETE', `/vcs-roots/${id}`),
 
   // build templates
   listTemplates: () => request<any[]>('GET', '/templates/'),
-  getTemplate: (id: number) => request<any>('GET', `/templates/${id}`),
   createTemplate: (data: any) => request('POST', '/templates/', data),
   updateTemplate: (id: number, data: any) => request('PUT', `/templates/${id}`, data),
   deleteTemplate: (id: number) => request('DELETE', `/templates/${id}`),
@@ -361,7 +382,6 @@ export const api = {
 
   // notifications
   listNotificationChannels: () => request<any[]>('GET', '/notifications/channels/'),
-  getNotificationChannel: (id: number) => request<any>('GET', `/notifications/channels/${id}`),
   createNotificationChannel: (data: any) => request('POST', '/notifications/channels/', data),
   updateNotificationChannel: (id: number, data: any) => request('PUT', `/notifications/channels/${id}`, data),
   deleteNotificationChannel: (id: number) => request('DELETE', `/notifications/channels/${id}`),
@@ -371,7 +391,6 @@ export const api = {
 
   // statistics
   getDashboardStats: () => request<any>('GET', '/stats/dashboard'),
-  getProjectStats: (id: number, days: number) => request<any>('GET', `/projects/${id}/stats?days=${days}`),
 
   // audit logs
   listAuditLogs: (page = 1, limit = 50) =>
@@ -390,18 +409,12 @@ export const api = {
   // build logs
   downloadBuildLogs: (id: number, format: 'txt' | 'json' = 'txt') =>
     downloadAuthenticated(`/builds/${id}/logs/download?format=${format}`, `build-${id}-logs.${format}`),
-  searchBuildLogs: (id: number, query: string) => request<any[]>('GET', `/builds/${id}/logs/search?q=${encodeURIComponent(query)}`),
 
   // test reports
-  getBuildTestResults: (id: number) => request<any>('GET', `/builds/${id}/test-results`),
-  uploadTestResults: (id: number, data: string) => request('POST', `/builds/${id}/test-results`, { xml: data }),
+  getBuildTestResults: (id: number) => request<BuildTestResultsResponse>('GET', `/builds/${id}/test-results`),
+  uploadTestResults: (id: number, data: string) =>
+    request<TestReportSummary>('POST', `/builds/${id}/test-results`, data, { contentType: 'application/xml', rawBody: true }),
 
-  // deployments
-  listDeploymentEnvs: (projectId: number) => request<any[]>('GET', `/deployment-envs/?project_id=${projectId}`),
-  createDeploymentEnv: (data: any) => request('POST', '/deployment-envs/', data),
-  updateDeploymentEnv: (id: number, data: any) => request('PUT', `/deployment-envs/${id}`, data),
-  deleteDeploymentEnv: (id: number) => request('DELETE', `/deployment-envs/${id}`),
-  deployBuild: (envId: number, buildId: number) => request('POST', `/deployment-envs/${envId}/deploy/${buildId}`),
 
   // project groups
   listProjectGroups: () => request<any[]>('GET', '/project-groups/'),
@@ -455,10 +468,4 @@ export const api = {
   // bigscreen
   getBigScreenData: () => request<any>('GET', '/bigscreen'),
 
-  // git hooks
-  listGitHooks: (projectId: number) => request<any[]>(`GET`, `/projects/${projectId}/hooks`),
-  createGitHook: (projectId: number, data: any) => request(`POST`, `/projects/${projectId}/hooks`, data),
-  getGitHook: (id: number) => request<any>(`GET`, `/hooks/${id}`),
-  updateGitHook: (id: number, data: any) => request(`PUT`, `/hooks/${id}`, data),
-  deleteGitHook: (id: number) => request(`DELETE`, `/hooks/${id}`),
 }

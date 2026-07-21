@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
+	"errors"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,14 +33,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
-
-	// Keep all mutable data in configured storage. A LaunchAgent has no stable
-	// shell working directory, so a relative ./artifacts root loses builds.
-	artifactsRoot := cfg.Storage.Artifacts
-	for _, dir := range []string{filepath.Dir(cfg.Database.Path), cfg.Storage.Workspace, cfg.Storage.BuildTemp, cfg.Storage.Logs, cfg.Plugins.Path, artifactsRoot} {
-		if dir != "" {
-			_ = os.MkdirAll(dir, 0o755)
-		}
+	if directory := filepath.Dir(cfg.Database.Path); directory != "" {
+		_ = os.MkdirAll(directory, 0o700)
 	}
 
 	db, err := store.New(cfg.Database.Path)
@@ -46,6 +44,20 @@ func main() {
 	defer db.Close()
 	if err := api.ApplyStoredSettings(cfg, db); err != nil {
 		log.Printf("Warning: failed to restore runtime settings: %v", err)
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.Server.Host, fmt.Sprint(cfg.Server.Port)))
+	if err != nil {
+		log.Fatalf("Failed to reserve HTTP listener: %v", err)
+	}
+	defer listener.Close()
+
+	// Keep all mutable data in configured storage. A LaunchAgent has no stable
+	// shell working directory, so relative roots otherwise lose build output.
+	artifactsRoot := cfg.Storage.Artifacts
+	for _, dir := range []string{cfg.Storage.BuildTemp, cfg.Plugins.Path, artifactsRoot} {
+		if dir != "" {
+			_ = os.MkdirAll(dir, 0o755)
+		}
 	}
 
 	if err := auth.SetupDefaultAdmin(db); err != nil {
@@ -72,26 +84,23 @@ func main() {
 		log.Printf("Warning: plugin load error: %v", err)
 	}
 
-	// Sync plugin state with DB.
-	dbPlugins, err := db.ListPlugins()
-	if err == nil {
-		for _, p := range dbPlugins {
-			if !p.Enabled {
-				loader.SetEnabled(p.Name, false)
-				loader.Unload(p.Name)
-			} else {
-				if p.Source == "upload" {
-					if err := loader.Load(p.Name); err != nil {
-						log.Printf("Warning: failed to load upload plugin %s: %v", p.Name, err)
-					}
-				}
-				if rp := loader.Get(p.Name); rp != nil {
-					stepsJSON, _ := json.Marshal(rp.StepTypes())
-					triggersJSON, _ := json.Marshal(nil)
-					uiExtJSON, _ := json.Marshal(rp.UIExtensions())
-					_ = db.UpdatePluginStatus(p.Name, p.Enabled, string(stepsJSON), string(triggersJSON), string(uiExtJSON))
-				}
+	// Reconcile only validated binary manifests. Existing activation choices are
+	// preserved; script plugin directories are ignored by Loader.LoadAll.
+	for _, loaded := range loader.ListAll() {
+		stored, storeErr := db.GetPluginByName(loaded.Name)
+		switch {
+		case storeErr == nil:
+			if err := db.UpdatePluginMetadata(stored.ID, loaded.Version, loaded.Description, loaded.Author, loaded.Path, loaded.InstallSource()); err != nil {
+				log.Printf("Warning: failed to sync binary plugin %s: %v", loaded.Name, err)
+				continue
 			}
+			loader.SetEnabled(loaded.Name, stored.Enabled)
+		case errors.Is(storeErr, sql.ErrNoRows):
+			if _, err := db.CreatePlugin(loaded.Name, loaded.Version, loaded.Description, loaded.Author, "", loaded.Path, loaded.InstallSource()); err != nil {
+				log.Printf("Warning: failed to register binary plugin %s: %v", loaded.Name, err)
+			}
+		default:
+			log.Printf("Warning: failed to inspect binary plugin %s: %v", loaded.Name, storeErr)
 		}
 	}
 
@@ -152,29 +161,25 @@ func main() {
 		BigScreen:  bigScreenService,
 	})
 
-	// Config hot-reload.
-	watcher, err := config.Watch(*configPath, func(newCfg *config.Config) {
-		log.Println("Config reloaded")
-		cfg = newCfg
-	})
-	if err != nil {
-		log.Printf("Failed to watch config: %v", err)
-	}
-	defer watcher.Stop()
-
 	// Graceful shutdown.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	cleanupPID, err := writeServerPID()
+	if err != nil {
+		log.Printf("Warning: failed to write server PID: %v", err)
+	} else {
+		defer cleanupPID()
+	}
+
 	serverErrCh := make(chan error, 1)
 	go func() {
-		serverErrCh <- server.Start()
+		serverErrCh <- server.Serve(listener)
 	}()
 
 	log.Println("buildworld server started")
 	log.Printf("Web UI: http://localhost:%d", cfg.Server.Port)
 	log.Printf("API:    http://localhost:%d/api", cfg.Server.Port)
-	log.Println("Default login: root / root")
 
 	select {
 	case <-sigCh:
@@ -199,4 +204,26 @@ func staticDirectories() []string {
 		directories = append(directories, filepath.Join(filepath.Dir(executable), "web", "dist"))
 	}
 	return directories
+}
+
+func writeServerPID() (func(), error) {
+	directory, err := os.UserConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	directory = filepath.Join(directory, "buildworld")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(directory, "server.pid")
+	pid := fmt.Sprint(os.Getpid())
+	if err := os.WriteFile(path, []byte(pid), 0o600); err != nil {
+		return nil, err
+	}
+	return func() {
+		current, err := os.ReadFile(path)
+		if err == nil && strings.TrimSpace(string(current)) == pid {
+			_ = os.Remove(path)
+		}
+	}, nil
 }

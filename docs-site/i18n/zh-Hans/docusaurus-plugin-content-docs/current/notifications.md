@@ -123,5 +123,5 @@ GET /api/notifications/channels/{id}/events
 
 ## 下一步
 
-- [流水线指南](/pipelines) - 创建流水线
-- [配置指南](/configuration) - 配置服务器
+- [流水线指南](./pipelines) - 创建流水线
+- [配置指南](./configuration) - 配置服务器

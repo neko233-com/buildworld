@@ -1,155 +1,111 @@
-# Buildworld Markdown Pipelines
+# BuildWorld Pipelines
 
-Buildworld uses a readable Markdown pipeline instead of a Groovy Jenkinsfile. The
-file is conventionally named `pipeline.buildworld.md` and is stored with the
-project. `###` headings become graph nodes. By default they run in document
-order; `- needs:` makes the graph explicit while keeping the document readable.
+BuildWorld v1 accepts exactly two pipeline source formats:
 
-~~~~md
-# Release pipeline
+- restricted TypeScript DSL (recommended);
+- GitHub Actions-style YAML with a non-empty `jobs` map and job-local `steps`.
 
-## Variables
+JSON, Markdown, and legacy top-level `stages` YAML are rejected. Validation runs
+before save, template use, scheduling, or queueing.
 
-- APP_NAME: portal
-- NODE_ENV: production
-- REGISTRY: registry.internal/portal
+## TypeScript DSL
 
-## Pipeline
+TypeScript gives people and AI agents comments, completion, diagnostics, and a
+single typed API from `sdk/pipeline/index.d.ts`.
 
-### Checkout
+```typescript
+import {
+  definePipeline,
+  parameter,
+  shell,
+  stage,
+  trigger,
+  watchService,
+} from '@buildworld/pipeline'
 
-```default shell
-git clone $REPOSITORY_URL .
-git checkout $GIT_REF
+export default definePipeline({
+  name: 'game-server',
+  environment: { NODE_ENV: 'production' },
+  parameters: [
+    parameter('environment', 'choice', {
+      choices: ['staging', 'production'],
+      default: 'staging',
+      required: true,
+    }),
+  ],
+  triggers: [trigger('vcs', { branch: 'main' })],
+  stages: [
+    stage('Build', [
+      shell('Install', 'npm ci'),
+      shell('Compile', 'npm run build'),
+    ]),
+    stage('Observe', [
+      watchService('Follow server log', {
+        targetDir: '/srv/game-server',
+        pidFile: 'server.pid',
+        logFile: 'server.log',
+        port: 8700,
+        heartbeatSeconds: 30,
+        pollSeconds: 5,
+        initialLines: 0,
+      }),
+    ], { dependsOn: ['Build'] }),
+  ],
+})
 ```
 
-### Build package
+Source is parsed into declarative data through an AST allowlist. BuildWorld does
+not run it as JavaScript. `eval`, `Function`, user-defined functions, loops,
+timers, promises, Node.js APIs, file access, and network access are rejected.
+Shell commands run only when explicitly declared in pipeline steps.
 
-- needs: Checkout
+`watchService` is the native Jenkins `tail -f` plus PID-monitoring equivalent.
+It keeps build running, streams appended bytes, emits heartbeats, and fails with
+final log lines when process exits. Canceling build stops observer only, not
+deployed service.
 
-```default shell
-npm ci
-npm run build
+## GitHub Actions-style YAML
+
+```yaml
+name: game-server
+
+env:
+  NODE_ENV: production
+
+jobs:
+  build:
+    runs-on: [linux, amd64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: npm ci
+      - name: Compile
+        run: npm run build
+
+  test:
+    needs: build
+    if: success()
+    timeout-minutes: 15
+    steps:
+      - name: Test
+        run: npm test
 ```
 
-```macos shell
-./scripts/sign-macos.sh
-```
+`needs` accepts one job or a list. BuildWorld validates unknown dependencies,
+duplicates, and cycles, then executes jobs in stable dependency order. Only
+controlled built-in `uses` actions are accepted; BuildWorld never downloads and
+executes an arbitrary third-party action.
 
-### Publish notification
+## Validation and migration
 
-- needs: Build package
+Web editors validate source continuously through `POST /api/pipeline-validation`.
+Save and run stay disabled until server validation succeeds. Response includes
+format, stage/step counts, parameters, and long-running status.
 
-```default notify
-channel: release-room
-event: build.completed
-```
-~~~~
+Jenkins import translates Jenkinsfiles directly to restricted TypeScript, then
+validates translated output. It does not create an intermediate JSON or Markdown
+pipeline.
 
-## Artifacts
-
-- dist/*.zip
-- reports/junit.xml
-
-## Agents
-
-- labels: macos, signing
-- pool: release
-
-## Retention
-
-- completed: 60
-
-## Toolchains
-
-- go: 1.26
-- node: 20, 22
-
-## Execution model
-
-- `default` runs on every worker, with its native shell (`cmd` on Windows and
-  `sh` on macOS/Linux) unless a fence specifies a shell such as `powershell` or
-  `bash`.
-- `macos` and `windows` fences are platform additions. Buildworld executes the
-  shared `default` script first and then the matching addition. There is no
-  platform `if/else` in the pipeline.
-- Global variables are managed by the server and injected for every project.
-  Project variables then override a global variable of the same name. Use them
-  as `${global.NAME}`, `${project.NAME}`, `${parameter.NAME}`, or `${env.NAME}`.
-- The visual graph uses document order for automatic layout. Changing a heading
-  or adding a code fence updates the graph immediately. Add `- needs: Checkout,
-  Test` directly below a `###` heading to declare one or more prerequisite
-  nodes. The parser rejects missing nodes, duplicate names, and dependency
-  cycles, then runs the graph in stable topological order. Graph editing writes
-  the same Markdown document rather than creating a second source of truth.
-- A fence header may select a runtime, for example `default shell go@1.26` or
-  `default shell node@22`. With exactly one configured version, `go` or `node`
-  selects it automatically. Buildworld injects the resolved value as
-  `BUILDWORLD_RUNTIME_GO`, `BUILDWORLD_RUNTIME_NODE`, and so on.
-- A node can pass a key/value output to following nodes with an explicit marker:
-  `echo "::buildworld:set IMAGE=registry.internal/app:42"`. Later scripts read
-  it as `${build.IMAGE}`. This keeps node dependencies declarative.
-- Use a `tail` node for a persistent development process. It is intentionally a
-  long-running build node: its process output remains in the live build log
-  until Buildworld stops the task or the server shuts down.
-- Declare files to retain in `## Artifacts`. Patterns are collected after a
-  successful build; a remote worker streams them back before its temporary
-  workspace is removed.
-- `## Agents` is optional. Without it, Buildworld uses the embedded local
-  executor. Add `- labels: macos, signing` to require labels, or `- pool:
-  release` to select a registered pool. These rules schedule the whole Markdown
-  pipeline without introducing platform conditionals into a script.
-
-## Retention and scheduling
-
-Completed builds use an LRU retention policy. The default is the newest 30
-completed builds per project. Pinned builds and anything still queued or running
-are excluded. Add a `## Retention` section with `- completed: 60` to override
-the project default; use a negative value to disable cleanup for a project.
-
-Schedules are just as readable. Add one cron trigger under `## Schedule`; the
-project schedule editor writes the same Markdown, retaining this document as the
-source of truth for the visual graph and execution:
-
-~~~~md
-## Schedule
-
-- cron: "0 2 * * *"
-~~~~
-
-The server is the default local executor and can also schedule registered remote
-workers by labels/pools. `buildworld-worker` registers itself and sends a
-heartbeat, so a macOS or Windows machine can execute the matching additions.
-Remote dispatch uses the versioned `bytemsg233/v3` protobuf binary contract. The
-server refuses an incompatible worker protocol rather than risking a partial
-decode. Artifacts configured in the pipeline are streamed back in checksummed
-512 KiB frames before the remote workspace is deleted (256 MiB maximum per
-file). Configure `workers.enrollment_token`, then start workers with distinct
-ports when sharing a computer: `buildworld-worker --listen :6051` and
-`buildworld-worker --listen :6052`. On another machine, set `--advertise
-10.0.0.24:6051` to the address reachable by `buildworld-server`.
-
-Every remote execution also carries a structured `bytemsg233` protocol envelope
-(name, major/minor version, and optional capabilities). Workers reject another
-major version before executing any node, and the server rejects a response that
-does not identify itself as the same contract. The same
-`workers.enrollment_token` is attached as gRPC dispatch metadata, so an exposed
-worker port cannot execute a pipeline without the server's shared enrollment
-credential. Keep this token non-empty in every remote-worker deployment.
-
-## Shared notifications
-
-Notification channels are global and reusable across projects. Supported channel
-types are `feishu`, `discord`, `wecom`, `telegram`, `email`, and generic
-`webhook`. Configure channel conditions for `running`, `success`, or `failed` to
-receive `build.started` and `build.completed` events. Feishu uses interactive
-cards, Discord uses embeds, WeCom uses its markdown renderer, and Telegram uses
-HTML-formatted messages.
-
-## GitHub Actions trigger
-
-Configure `automation.github_webhook_secret` and point a GitHub repository
-webhook to `/api/webhooks/github`. A push still starts the matched Buildworld
-project. When its commit message includes `[buildworld:restart]`, the server also
-starts the configured `automation.dev_restart_command`. The incoming commit only
-selects the marker; it cannot provide a command to execute.
+Complete helper reference is served by a running instance at
+`/script-api.html`. Public documentation continues at
+`docs-site/docs/pipelines.md` and `docs-site/docs/typescript-pipelines.md`.

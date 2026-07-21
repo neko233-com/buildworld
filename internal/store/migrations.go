@@ -1,24 +1,32 @@
 package store
 
-var migrations = []string{
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+)
+
+type schemaMigration struct {
+	version            int
+	name               string
+	disableForeignKeys bool
+	up                 func(*sql.Tx) error
+}
+
+var currentSchemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT UNIQUE NOT NULL,
 		email TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
 		role TEXT NOT NULL DEFAULT 'viewer',
+		session_version INTEGER NOT NULL DEFAULT 1,
 		avatar_url TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		last_login DATETIME
 	)`,
-	`CREATE TABLE IF NOT EXISTS ssh_keys (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER NOT NULL REFERENCES users(id),
-		name TEXT NOT NULL,
-		public_key TEXT NOT NULL,
-		fingerprint TEXT NOT NULL,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	)`,
+	`ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 1`,
 	`CREATE TABLE IF NOT EXISTS projects (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT UNIQUE NOT NULL,
@@ -74,9 +82,13 @@ var migrations = []string{
 		name TEXT UNIQUE NOT NULL,
 		version TEXT NOT NULL,
 		description TEXT,
+		author TEXT DEFAULT '',
 		enabled BOOLEAN DEFAULT TRUE,
 		config TEXT,
-		installed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		path TEXT DEFAULT '',
+		source TEXT DEFAULT '',
+		installed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`,
 	`CREATE TABLE IF NOT EXISTS env_vars (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -225,23 +237,13 @@ var migrations = []string{
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_test_results_build ON test_results(build_id)`,
-	`CREATE TABLE IF NOT EXISTS deployment_envs (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		project_id INTEGER NOT NULL REFERENCES projects(id),
-		name TEXT NOT NULL,
-		description TEXT,
-		config TEXT DEFAULT '{}',
-		last_build_id INTEGER,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	)`,
-	`CREATE INDEX IF NOT EXISTS idx_deployment_envs_project ON deployment_envs(project_id)`,
 	`CREATE TABLE IF NOT EXISTS project_groups (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT UNIQUE NOT NULL,
 		description TEXT,
-		parent_id INTEGER REFERENCES project_groups(id),
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		color TEXT NOT NULL DEFAULT 'neutral',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`,
 	`CREATE TABLE IF NOT EXISTS build_queue_items (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -264,31 +266,460 @@ var migrations = []string{
 	`ALTER TABLE builds ADD COLUMN test_result_id INTEGER`,
 	`ALTER TABLE projects ADD COLUMN group_id INTEGER REFERENCES project_groups(id)`,
 	`ALTER TABLE project_groups ADD COLUMN updated_at DATETIME`,
+	`ALTER TABLE project_groups ADD COLUMN color TEXT NOT NULL DEFAULT 'neutral'`,
 	`ALTER TABLE build_approvals ADD COLUMN resolved_by INTEGER`,
 	`ALTER TABLE build_approvals ADD COLUMN resolved_by_username TEXT DEFAULT ''`,
-	`CREATE TABLE IF NOT EXISTS git_hooks (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		project_id INTEGER NOT NULL REFERENCES projects(id),
-		name TEXT NOT NULL,
-		event TEXT NOT NULL,
-		branch TEXT DEFAULT '',
-		secret TEXT DEFAULT '',
-		enabled BOOLEAN DEFAULT TRUE,
-		build_params TEXT DEFAULT '{}',
-		description TEXT,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	)`,
-	`CREATE INDEX IF NOT EXISTS idx_git_hooks_project ON git_hooks(project_id)`,
-	`ALTER TABLE plugins ADD COLUMN author TEXT DEFAULT ''`,
-	`ALTER TABLE plugins ADD COLUMN path TEXT DEFAULT ''`,
-	`ALTER TABLE plugins ADD COLUMN source TEXT DEFAULT 'builtin'`,
-	`ALTER TABLE plugins ADD COLUMN steps TEXT DEFAULT '[]'`,
-	`ALTER TABLE plugins ADD COLUMN triggers TEXT DEFAULT '[]'`,
-	`ALTER TABLE plugins ADD COLUMN ui_extensions TEXT DEFAULT '[]'`,
-	`ALTER TABLE plugins ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`,
-	`ALTER TABLE plugins ADD COLUMN script_lang TEXT DEFAULT 'js'`,
-	`ALTER TABLE plugins ADD COLUMN source_script TEXT DEFAULT ''`,
-	`ALTER TABLE plugins ADD COLUMN source_ui_script TEXT DEFAULT ''`,
 	`ALTER TABLE workers ADD COLUMN active_builds INTEGER DEFAULT 0`,
+}
+
+var schemaMigrations = []schemaMigration{
+	{
+		version: 1,
+		name:    "reconcile-current-schema",
+		up:      reconcileCurrentSchema,
+	},
+	{
+		version:            2,
+		name:               "project-groups-single-level",
+		disableForeignKeys: true,
+		up:                 migrateProjectGroupsToSingleLevel,
+	},
+	{
+		version: 3,
+		name:    "binary-plugins-only",
+		up:      migratePluginsToBinaryOnly,
+	},
+	{
+		version: 4,
+		name:    "user-session-version",
+		up:      addUserSessionVersion,
+	},
+	{
+		version: 5,
+		name:    "remove-inert-deployment-and-project-hooks",
+		up:      removeInertDeploymentAndProjectHooks,
+	},
+	{
+		version: 6,
+		name:    "remove-dead-account-ssh-keys",
+		up:      removeDeadAccountSSHKeys,
+	},
+	{
+		version: 7,
+		name:    "repair-orphan-project-history-references",
+		up:      repairOrphanProjectHistoryReferences,
+	},
+}
+
+func runSchemaMigrations(db *sql.DB, migrations []schemaMigration) error {
+	if err := validateMigrationDefinitions(migrations); err != nil {
+		return err
+	}
+	if err := ensureMigrationLedger(db); err != nil {
+		return err
+	}
+
+	applied, err := appliedMigrationCount(db, migrations)
+	if err != nil {
+		return err
+	}
+	for _, migration := range migrations[applied:] {
+		if err := applySchemaMigration(db, migration); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateMigrationDefinitions(migrations []schemaMigration) error {
+	for index, migration := range migrations {
+		expectedVersion := index + 1
+		if migration.version != expectedVersion {
+			return fmt.Errorf("schema migration declaration %d has version %d; versions must be contiguous", index, migration.version)
+		}
+		if strings.TrimSpace(migration.name) == "" {
+			return fmt.Errorf("schema migration %d has an empty name", migration.version)
+		}
+		if migration.up == nil {
+			return fmt.Errorf("schema migration %d (%s) has no implementation", migration.version, migration.name)
+		}
+	}
+	return nil
+}
+
+func ensureMigrationLedger(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin schema migration ledger setup: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return rollbackMigration(tx, fmt.Errorf("create schema migration ledger: %w", err))
+	}
+	if err := tx.Commit(); err != nil {
+		return rollbackMigration(tx, fmt.Errorf("commit schema migration ledger setup: %w", err))
+	}
+	return nil
+}
+
+func appliedMigrationCount(db *sql.DB, migrations []schemaMigration) (int, error) {
+	rows, err := db.Query("SELECT version, name FROM schema_migrations ORDER BY version")
+	if err != nil {
+		return 0, fmt.Errorf("read schema migration ledger: %w", err)
+	}
+	defer rows.Close()
+
+	applied := 0
+	for rows.Next() {
+		var version int
+		var name string
+		if err := rows.Scan(&version, &name); err != nil {
+			return 0, fmt.Errorf("scan schema migration ledger: %w", err)
+		}
+		expectedVersion := applied + 1
+		if version != expectedVersion {
+			return 0, fmt.Errorf("schema migration ledger is not contiguous: expected version %d, found %d", expectedVersion, version)
+		}
+		if version > len(migrations) {
+			return 0, fmt.Errorf("database schema version %d is newer than this BuildWorld binary supports (%d)", version, len(migrations))
+		}
+		if name != migrations[version-1].name {
+			return 0, fmt.Errorf("schema migration %d name mismatch: database has %q, binary expects %q", version, name, migrations[version-1].name)
+		}
+		applied++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("iterate schema migration ledger: %w", err)
+	}
+	return applied, nil
+}
+
+func applySchemaMigration(db *sql.DB, migration schemaMigration) (returnErr error) {
+	if migration.disableForeignKeys {
+		var foreignKeysEnabled int
+		if err := db.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeysEnabled); err != nil {
+			return fmt.Errorf("inspect foreign-key mode for schema migration %d (%s): %w", migration.version, migration.name, err)
+		}
+		if foreignKeysEnabled != 0 {
+			if _, err := db.Exec("PRAGMA foreign_keys=OFF"); err != nil {
+				return fmt.Errorf("disable foreign keys for schema migration %d (%s): %w", migration.version, migration.name, err)
+			}
+			defer func() {
+				if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+					restoreErr := fmt.Errorf("restore foreign keys after schema migration %d (%s): %w", migration.version, migration.name, err)
+					if returnErr == nil {
+						returnErr = restoreErr
+					} else {
+						returnErr = errors.Join(returnErr, restoreErr)
+					}
+				}
+			}()
+		}
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin schema migration %d (%s): %w", migration.version, migration.name, err)
+	}
+	if err := migration.up(tx); err != nil {
+		return rollbackMigration(tx, fmt.Errorf("apply schema migration %d (%s): %w", migration.version, migration.name, err))
+	}
+	if _, err := tx.Exec(
+		"INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+		migration.version,
+		migration.name,
+	); err != nil {
+		return rollbackMigration(tx, fmt.Errorf("record schema migration %d (%s): %w", migration.version, migration.name, err))
+	}
+	if err := tx.Commit(); err != nil {
+		return rollbackMigration(tx, fmt.Errorf("commit schema migration %d (%s): %w", migration.version, migration.name, err))
+	}
+	return nil
+}
+
+func rollbackMigration(tx *sql.Tx, migrationErr error) error {
+	if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+		return errors.Join(migrationErr, fmt.Errorf("rollback schema migration: %w", rollbackErr))
+	}
+	return migrationErr
+}
+
+func reconcileCurrentSchema(tx *sql.Tx) error {
+	for _, statement := range currentSchemaStatements {
+		if err := applyCurrentSchemaStatement(tx, statement); err != nil {
+			preview := strings.Join(strings.Fields(statement), " ")
+			if len(preview) > 80 {
+				preview = preview[:80]
+			}
+			return fmt.Errorf("schema statement %q: %w", preview, err)
+		}
+	}
+	return nil
+}
+
+func applyCurrentSchemaStatement(tx *sql.Tx, statement string) error {
+	fields := strings.Fields(statement)
+	if len(fields) >= 6 &&
+		strings.EqualFold(fields[0], "ALTER") &&
+		strings.EqualFold(fields[1], "TABLE") &&
+		strings.EqualFold(fields[3], "ADD") &&
+		strings.EqualFold(fields[4], "COLUMN") {
+		exists, err := sqliteColumnExists(tx, fields[2], fields[5])
+		if err != nil {
+			return err
+		}
+		if exists {
+			return nil
+		}
+	}
+	_, err := tx.Exec(statement)
+	return err
+}
+
+type sqliteQueryer interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+func sqliteColumnExists(queryer sqliteQueryer, table, column string) (bool, error) {
+	if !isSQLiteIdentifier(table) || !isSQLiteIdentifier(column) {
+		return false, fmt.Errorf("invalid SQLite identifier %q.%q", table, column)
+	}
+	rows, err := queryer.Query(`PRAGMA table_info("` + table + `")`)
+	if err != nil {
+		return false, fmt.Errorf("inspect table %s: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return false, fmt.Errorf("scan table %s schema: %w", table, err)
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("iterate table %s schema: %w", table, err)
+	}
+	return false, nil
+}
+
+func isSQLiteIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, char := range value {
+		if (char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			char == '_' ||
+			(index > 0 && char >= '0' && char <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func addUserSessionVersion(tx *sql.Tx) error {
+	exists, err := sqliteColumnExists(tx, "users", "session_version")
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	if _, err := tx.Exec(`ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 1`); err != nil {
+		return fmt.Errorf("add users.session_version: %w", err)
+	}
+	return nil
+}
+
+func removeInertDeploymentAndProjectHooks(tx *sql.Tx) error {
+	statements := []string{
+		`DROP INDEX IF EXISTS idx_deployment_envs_project`,
+		`DROP TABLE IF EXISTS deployment_envs`,
+		`DROP INDEX IF EXISTS idx_git_hooks_project`,
+		`DROP TABLE IF EXISTS git_hooks`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("remove inert deployment/project-hook schema: %w", err)
+		}
+	}
+	return nil
+}
+
+// removeDeadAccountSSHKeys drops the unused per-user key registry. Repository
+// authentication remains in credentials, including its ssh_key type and
+// private/public key fields.
+func removeDeadAccountSSHKeys(tx *sql.Tx) error {
+	if _, err := tx.Exec(`DROP TABLE IF EXISTS ssh_keys`); err != nil {
+		return fmt.Errorf("remove dead account SSH-key schema: %w", err)
+	}
+	return nil
+}
+
+// repairOrphanProjectHistoryReferences repairs rows left by older project and
+// build deletion paths. Queue entries and aggregate statistics have no useful
+// meaning without their owners, while notification events remain valuable
+// history and therefore retain their payload with a NULL build reference.
+func repairOrphanProjectHistoryReferences(tx *sql.Tx) error {
+	statements := []struct {
+		name  string
+		query string
+	}{
+		{
+			name: "build queue items",
+			query: `DELETE FROM build_queue_items
+				WHERE NOT EXISTS (SELECT 1 FROM builds WHERE builds.id=build_queue_items.build_id)
+				   OR NOT EXISTS (SELECT 1 FROM projects WHERE projects.id=build_queue_items.project_id)`,
+		},
+		{
+			name:  "build statistics",
+			query: `DELETE FROM build_stats WHERE NOT EXISTS (SELECT 1 FROM projects WHERE projects.id=build_stats.project_id)`,
+		},
+		{
+			name: "notification event build references",
+			query: `UPDATE notification_events SET build_id=NULL
+				WHERE build_id IS NOT NULL
+				  AND NOT EXISTS (SELECT 1 FROM builds WHERE builds.id=notification_events.build_id)`,
+		},
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement.query); err != nil {
+			return fmt.Errorf("repair orphan %s: %w", statement.name, err)
+		}
+	}
+	return nil
+}
+
+// migrateProjectGroupsToSingleLevel removes the development-only hierarchy
+// column. Rebuilding inside the migration transaction preserves group IDs and
+// therefore every projects.group_id association.
+func migrateProjectGroupsToSingleLevel(tx *sql.Tx) error {
+	hasParentID, err := sqliteColumnExists(tx, "project_groups", "parent_id")
+	if err != nil {
+		return err
+	}
+	if !hasParentID {
+		return nil
+	}
+	if _, err := tx.Exec("PRAGMA defer_foreign_keys=ON"); err != nil {
+		return fmt.Errorf("defer project group foreign keys: %w", err)
+	}
+
+	statements := []string{
+		`DROP TABLE IF EXISTS project_groups_single_level_migration`,
+		`CREATE TABLE project_groups_single_level_migration (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT UNIQUE NOT NULL,
+			description TEXT,
+			color TEXT NOT NULL DEFAULT 'neutral',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO project_groups_single_level_migration (id, name, description, color, created_at, updated_at)
+			SELECT id, name, description, color, created_at, updated_at FROM project_groups`,
+		`DROP TABLE project_groups`,
+		`ALTER TABLE project_groups_single_level_migration RENAME TO project_groups`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("rebuild project_groups without parent_id: %w", err)
+		}
+	}
+	return nil
+}
+
+// migratePluginsToBinaryOnly removes all executable script/runtime columns.
+// Rows known to represent Go binary plugins are copied with stable IDs and
+// activation state; legacy JavaScript/TypeScript plugin records are discarded.
+func migratePluginsToBinaryOnly(tx *sql.Tx) error {
+	columns := make(map[string]bool)
+	for _, column := range []string{
+		"id", "name", "version", "description", "author", "enabled", "config", "path", "source", "installed_at", "updated_at",
+		"script_lang", "source_script", "source_ui_script", "steps", "triggers", "ui_extensions",
+	} {
+		exists, err := sqliteColumnExists(tx, "plugins", column)
+		if err != nil {
+			return err
+		}
+		columns[column] = exists
+	}
+	hasLegacyColumns := columns["script_lang"] || columns["source_script"] || columns["source_ui_script"] || columns["steps"] || columns["triggers"] || columns["ui_extensions"]
+	hasFinalColumns := true
+	for _, column := range []string{"id", "name", "version", "description", "author", "enabled", "config", "path", "source", "installed_at", "updated_at"} {
+		hasFinalColumns = hasFinalColumns && columns[column]
+	}
+	if !hasLegacyColumns && hasFinalColumns {
+		return nil
+	}
+
+	valueOr := func(column, fallback string) string {
+		if columns[column] {
+			return column
+		}
+		return fallback
+	}
+	binaryFilter := "0"
+	if columns["script_lang"] {
+		binaryFilter += " OR LOWER(COALESCE(script_lang, '')) = 'go'"
+	}
+	installedAt := "CURRENT_TIMESTAMP"
+	if columns["installed_at"] {
+		installedAt = "COALESCE(installed_at, CURRENT_TIMESTAMP)"
+	}
+	updatedAt := installedAt
+	if columns["updated_at"] {
+		updatedAt = "COALESCE(updated_at, " + installedAt + ")"
+	}
+	enabled := "1"
+	if columns["enabled"] {
+		enabled = "COALESCE(enabled, 1)"
+	}
+	copyBinaryRows := fmt.Sprintf(`INSERT INTO plugins_binary_v1_migration
+			(id, name, version, description, author, enabled, config, path, source, installed_at, updated_at)
+			SELECT id, name, version, %s, %s, %s, %s, %s, %s, %s, %s
+			FROM plugins WHERE %s`,
+		valueOr("description", "''"),
+		valueOr("author", "''"),
+		enabled,
+		valueOr("config", "''"),
+		valueOr("path", "''"),
+		valueOr("source", "''"),
+		installedAt,
+		updatedAt,
+		binaryFilter,
+	)
+
+	statements := []string{
+		`DROP TABLE IF EXISTS plugins_binary_v1_migration`,
+		`CREATE TABLE plugins_binary_v1_migration (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT UNIQUE NOT NULL,
+			version TEXT NOT NULL,
+			description TEXT,
+			author TEXT DEFAULT '',
+			enabled BOOLEAN DEFAULT TRUE,
+			config TEXT,
+			path TEXT DEFAULT '',
+			source TEXT DEFAULT '',
+			installed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		copyBinaryRows,
+		`DROP TABLE plugins`,
+		`ALTER TABLE plugins_binary_v1_migration RENAME TO plugins`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("rebuild binary-only plugins table: %w", err)
+		}
+	}
+	return nil
 }

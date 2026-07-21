@@ -1,50 +1,30 @@
 server:
   host: "0.0.0.0"
   port: 8700
-  tls: false
 
 database:
-  # v2 was checkpointed from the legacy WAL database before switching to the
-  # lower-overhead single-connection rollback journal.
-  path: "./data/v2/buildworld.db"
+  path: "./data/buildworld.db"
 
 auth:
   jwt_secret: ""
-  oauth:
-    github:
-      client_id: ""
-      client_secret: ""
 
 plugins:
   path: "./plugins"
-  hot_reload: true
 
 storage:
-  workspace: "./workspace"
   # Disposable workspaces and Go/Node caches are resolved beside the binary.
   build_temp: "./build_temp"
   artifacts: "./artifacts"
-  logs: "./logs"
-
-git:
-  ssh_key_path: ""
-  known_hosts: ""
 
 workers:
   # Required for remote worker auto-registration. Keep this secret in production.
   enrollment_token: ""
   local:
-    enabled: true
     # Low-resource development default. Change live under Settings > Runtime.
     max_concurrent_builds: 1
     workspace: "./workspace"
     labels: []
-  remote: []
-
-# GitHub Actions can deliver a signed push event here. When a commit contains
-# [buildworld:restart], only this configured command is started; the commit
-# never supplies a shell command itself.
+# GitHub, GitLab, and Gitea webhooks can deliver signed push events here.
+# Matching repository pushes create normal project builds.
 automation:
   github_webhook_secret: ""
-  commit_restart_marker: "[buildworld:restart]"
-  dev_restart_command: ""

@@ -2,128 +2,82 @@
 sidebar_position: 7
 ---
 
-# Templates
+# Build templates
 
-## Overview
+Build templates are reusable pipeline sources stored by BuildWorld. A template
+contains a name, description, and a validated TypeScript or GitHub Actions-style YAML
+pipeline configuration.
 
-Templates provide pre-built pipeline configurations for common workflows. Use templates to quickly set up builds for popular frameworks.
+Templates are instance data. The current release does not expose a
+`buildworld/templates` TypeScript module, built-in framework catalog, or
+`buildworld template …` CLI commands.
 
-## Built-in Templates
+## Create a template
 
-### Languages
+1. Open **Templates** in the BuildWorld navigation.
+2. Select **New template**.
+3. Enter a name and optional description.
+4. Write a TypeScript or GitHub Actions-style YAML pipeline.
+5. Validate and save it.
 
-| Template | Description | Difficulty |
-|----------|-------------|------------|
-| Node.js TypeScript | Build, test, deploy Node.js TS projects | Beginner |
-| Go CLI | Build Go CLI applications | Beginner |
-| Python Django | Build Python Django apps | Intermediate |
-
-### Platforms
-
-| Template | Description | Difficulty |
-|----------|-------------|------------|
-| Docker Build | Build and push Docker images | Intermediate |
-| Kubernetes Deploy | Deploy to K8s cluster | Advanced |
-
-### Game Dev
-
-| Template | Description | Difficulty |
-|----------|-------------|------------|
-| Unity Android | Build Unity games for Android | Advanced |
-
-### Frontend
-
-| Template | Description | Difficulty |
-|----------|-------------|------------|
-| React (Vercel) | Deploy React apps to Vercel | Beginner |
-
-## Using Templates
-
-### From UI
-
-1. Go to Projects → New Project
-2. Select "From Template"
-3. Choose a template
-4. Customize configuration
-5. Create project
-
-### From Code
+TypeScript templates use the same restricted, typed API as project pipelines:
 
 ```typescript
-// buildworld.config.ts
-import { nodeTypescript } from "buildworld/templates";
+import { definePipeline, shell, stage } from '@buildworld/pipeline'
 
-pipeline(nodeTypescript({
-  node_version: "20",
-  build_command: "npm run build",
-  test_command: "npm test",
-}));
+export default definePipeline({
+  name: 'Go validation',
+  agentRequirements: ['go'],
+  stages: [
+    stage('Verify', [
+      shell('Format', 'gofmt -w .'),
+      shell('Test', 'go test ./...'),
+      shell('Build', 'go build ./...'),
+    ]),
+  ],
+})
 ```
 
-## Template Configuration
+The Monaco editor provides comments, completion, syntax diagnostics, and live
+server validation. BuildWorld parses this source as declarative data; it does
+not execute it as JavaScript.
 
-Each template accepts parameters:
+## Use a template
 
-```typescript
-// Node.js TypeScript template parameters
+Select **Use** on the Templates page, or choose a template while creating a
+project. The project keeps a template reference and can provide its own
+pipeline values. At build time BuildWorld validates the template and project
+configuration before merging them.
+
+As a practical rule, put shared environment, parameters, triggers, policies,
+and default stages in the template. Keep repository-specific commands and
+deployment details in the project.
+
+## Authenticated API
+
+Template management is also available to administrators and developers:
+
+```text
+GET    /api/templates/
+POST   /api/templates/
+GET    /api/templates/{id}
+PUT    /api/templates/{id}
+DELETE /api/templates/{id}
+```
+
+Create and update requests use this shape:
+
+```json
 {
-  node_version: "20" | "22" | "24",
-  build_command: "npm run build",
-  test_command: "npm test",
-  lint_command: "npm run lint"
+  "name": "Go validation",
+  "description": "Shared Go checks",
+  "config": "import { definePipeline } from '@buildworld/pipeline'\n\nexport default definePipeline({ stages: [] })\n"
 }
 ```
 
-## Custom Templates
+Invalid pipeline source is rejected with HTTP `422`.
 
-### Create Template
+## Next steps
 
-```typescript
-// buildworld.config.ts
-const myTemplate = {
-  id: "my-template",
-  name: "My Custom Template",
-  description: "A custom build template",
-  category: "custom",
-  difficulty: "beginner",
-  tags: ["custom", "my-app"],
-  config: {
-    name: "my-build",
-    stages: [
-      {
-        name: "Build",
-        steps: [
-          { name: "build", type: "shell", command: "make build" }
-        ]
-      }
-    ]
-  }
-};
-
-pipeline(myTemplate);
-```
-
-### Export/Import
-
-```bash
-# Export template
-buildworld template export my-template
-
-# Import template
-buildworld template import template.json
-```
-
-## Template Search
-
-```bash
-# Search templates
-buildworld template search "docker"
-
-# List all templates
-buildworld template list
-```
-
-## Next Steps
-
-- [Pipeline Guide](/pipelines) - Use templates in pipelines
-- [Plugin Development](/plugins) - Create plugin-based templates
+- [Pipeline Guide](./pipelines.md) - Author TypeScript and YAML pipelines
+- [Go binary plugins](./plugins.md) - Add controlled pipeline step types

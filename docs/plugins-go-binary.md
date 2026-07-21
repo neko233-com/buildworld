@@ -6,6 +6,11 @@ copy, validates the manifest, and either builds the declared Go package or
 downloads the matching prebuilt release binary before launching only its
 declared step types.
 
+These plugins are trusted native programs and are not sandboxed. They run with
+the BuildWorld service account's operating-system permissions. A SHA-256 check
+proves artifact integrity, not safety; review and trust the source/release
+before installing and keep the service account least-privileged.
+
 The manifest uses `buildworld.plugin/v1`. It defines name, version, binary
 entrypoint, package, and capabilities. Installation is idempotent: sharing a
 GitHub URL will reuse an already installed matching plugin name and version.
@@ -33,8 +38,6 @@ matching `goos`/`goarch` asset, a release without SHA-256, or a binary above
 }
 ~~~~
 
-Official independent templates in this workspace:
-
-- `buildworld-plugin-lib-go/` - stable Go contract library.
-- `buildworld-plugin-echo/` - minimal executable step plugin.
-- `buildworld-plugin-notify-template/` - provider notification template.
+JavaScript and TypeScript plugin runtimes are not supported. TypeScript
+pipeline files are configuration parsed by the pipeline parser and are not a
+plugin execution mechanism.

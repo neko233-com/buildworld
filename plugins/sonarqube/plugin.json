@@ -1,7 +1,0 @@
-{
-  "name": "sonarqube",
-  "version": "1.0.0",
-  "description": "Code quality: scanner, quality gate, coverage via SonarQube API",
-  "author": "buildworld",
-  "steps": ["sonar-scanner", "sonar-quality-gate", "sonar-coverage"]
-}

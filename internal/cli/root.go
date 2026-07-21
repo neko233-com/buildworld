@@ -7,10 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	configFile string
-	version    = "dev"
-)
+var configFile string
 
 var rootCmd = &cobra.Command{
 	Use:   "buildworld",

@@ -1,16 +1,17 @@
 import { useMemo, useState } from 'react'
-import { Download, LoaderCircle, LockKeyhole, PackageOpen, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react'
+import { Download, LoaderCircle, PackageOpen, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react'
 import { api } from '../api'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { isAdmin } from '../authz'
+import { dialogs } from '../components/AppDialogs'
 import { ModalDialog } from '../components/ModalDialog'
 import { PageState } from '../components/PageState'
 
 type Filter = 'all' | 'enabled' | 'disabled'
 
 function stepNames(plugin: any): string[] {
-  const steps = plugin.steps || plugin.registered_steps || []
+  const steps = plugin.steps || []
   if (Array.isArray(steps)) return steps
   if (typeof steps === 'string') {
     try {
@@ -41,10 +42,16 @@ export default function Plugins() {
 
   const installFromGitHub = async (event: React.FormEvent) => {
     event.preventDefault()
+    const requestedSource = source.trim()
+    const confirmed = await dialogs.confirm(p('installConfirm'), {
+      title: p('installConfirmTitle'),
+      action: p('install'),
+    })
+    if (!confirmed) return
     setInstalling(true)
     setNotice('')
     try {
-      const manifest = await api.installGitHubPlugin(source)
+      const manifest = await api.installGitHubPlugin(requestedSource)
       setSource('')
       setNotice(`${manifest.name}@${manifest.version} ${p('installedNotice')}.`)
       reload()
@@ -129,14 +136,13 @@ export default function Plugins() {
             {visible.map(plugin => {
               const steps = stepNames(plugin)
               const isReloading = reloading === plugin.name
-              const isBuiltin = plugin.source === 'builtin'
               return <tr key={plugin.id ?? plugin.name}>
                 <td><strong>{plugin.name}</strong><small>{plugin.description || p('noDescription')}</small></td>
                 <td><code>{plugin.version || p('unversioned')}</code></td>
                 <td>{steps.length ? <div className="plugin-capabilities">{steps.map((step: string) => <code key={step}>{step}</code>)}</div> : <span className="muted">{p('noSteps')}</span>}</td>
-                <td><span className={isBuiltin ? 'integrity builtin' : 'integrity'}><ShieldCheck size={14} />{isBuiltin ? p('builtin') : p('checksum')}</span></td>
+                <td><span className="integrity"><ShieldCheck size={14} />{p('checksum')}</span></td>
                 <td><button type="button" disabled={!admin} aria-label={`${plugin.name}: ${plugin.enabled ? p('enabled') : p('disabled')}`} aria-pressed={Boolean(plugin.enabled)} className={`plugin-status ${plugin.enabled ? 'enabled' : ''}`} onClick={() => togglePlugin(plugin)}>{plugin.enabled ? p('enabled') : p('disabled')}</button></td>
-                <td><div className="plugin-actions">{admin && <><button type="button" title={`${p('reload')} ${plugin.name}`} aria-label={`${p('reload')} ${plugin.name}`} disabled={isReloading} onClick={() => reloadPlugin(plugin)}>{isReloading ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}</button>{isBuiltin ? <button type="button" className="protected" disabled title={p('builtinProtected')} aria-label={`${plugin.name}: ${p('builtinProtected')}`}><LockKeyhole size={15} /></button> : <button type="button" title={`${p('remove')} ${plugin.name}`} aria-label={`${p('remove')} ${plugin.name}`} className="remove" onClick={() => setPendingDelete(plugin)}><Trash2 size={16} /></button>}</>}</div></td>
+                <td><div className="plugin-actions">{admin && <><button type="button" title={`${p('reload')} ${plugin.name}`} aria-label={`${p('reload')} ${plugin.name}`} disabled={isReloading} onClick={() => reloadPlugin(plugin)}>{isReloading ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}</button><button type="button" title={`${p('remove')} ${plugin.name}`} aria-label={`${p('remove')} ${plugin.name}`} className="remove" onClick={() => setPendingDelete(plugin)}><Trash2 size={16} /></button></>}</div></td>
               </tr>
             })}
             {!visible.length && <tr><td className="plugin-empty" colSpan={6}>{p('noMatches')}</td></tr>}

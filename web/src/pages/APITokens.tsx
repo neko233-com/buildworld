@@ -155,7 +155,7 @@ export default function APITokens() {
           <header><div><KeyRound size={18} /><div><h2>{t('apiTokens.new')}</h2><p>{t('apiTokens.editorHelp')}</p></div></div><button type="button" onClick={() => setShowEditor(false)} title={t('common.close')}><X size={18} /></button></header>
           <form className="notification-editor-form" onSubmit={handleCreate}>
             <label className="wide">{t('apiTokens.name')}<input required autoFocus data-dialog-initial-focus value={name} onChange={event => setName(event.target.value)} placeholder={t('apiTokens.namePlaceholder')} /></label>
-            <label className="wide">{t('apiTokens.scopes')}<input value={scopes} onChange={event => setScopes(event.target.value)} placeholder="read, write" /><small>{t('apiTokens.scopesHelp')}</small></label>
+            <label className="wide">{t('apiTokens.scopes')}<input value={scopes} onChange={event => setScopes(event.target.value)} placeholder="build:trigger" /><small>{t('apiTokens.scopesHelp')}</small></label>
             <label className="wide">{t('apiTokens.expiresAt')}<input type="datetime-local" value={expires} onChange={event => setExpires(event.target.value)} /><small>{t('apiTokens.expiryHelp')}</small></label>
             {formError && <p className="form-error">{formError}</p>}
             <footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={creating || !name.trim()}>{creating ? t('common.loading') : t('apiTokens.create')}</button></footer>

@@ -13,12 +13,17 @@ buildworld-worker --server http://world.internal:8700 --token <enrollment-token>
 3. Start another worker on the same host with another port, for example `:6052`.
 
 Workers auto-register through the enrollment endpoint, receive an individual
-heartbeat token, and serve the versioned `bytemsg233/v3` protobuf RPC. The
+heartbeat token, and serve the structured `bytemsg233` major-1 protobuf RPC. The
 server dispatches streamed logs and chunked artifact frames to an eligible
 worker, so generated files return to the server before the worker removes its
 temporary workspace. Each artifact is checksummed and limited to 256 MiB per
 file. Buildworld falls back to the embedded local executor only when no remote
 requirement is declared.
+
+The v1 worker RPC authenticates requests but does not encrypt transport or use
+mTLS. Bind and firewall each worker port to the BuildWorld server on a trusted
+private network or VPN. Do not publish worker or control-plane ports directly
+to the Internet; use a trusted HTTPS reverse proxy for control-plane traffic.
 
 For a pipeline with `## Agents` requirements, the server reserves one worker
 slot atomically before it dispatches. `active_builds` is displayed beside
@@ -33,5 +38,5 @@ When a pipeline uses a Go binary plugin installed from a GitHub URL,
 name, version, and SHA-256 digest of the plugin manifest. The worker caches the
 plugin under its user cache directory, resolves the matching release (or builds
 the source) for its own OS and architecture, and verifies the manifest before
-executing it. Executable bytes are never embedded in a build message. Legacy
-JavaScript plugins remain local-only and are rejected before remote dispatch.
+executing it. Executable bytes are never embedded in a build message. Script
+plugins are not supported; workers execute only verified Go binaries.

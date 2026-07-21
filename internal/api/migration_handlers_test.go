@@ -17,7 +17,7 @@ func TestMigratePipelineEndpointReturnsVersionedNativeConfig(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/pipeline-migrations/jenkinsfile",
-		strings.NewReader(`{"name":"api-migration","source":"pipeline { agent any; stages { stage('Build') { steps { sh 'go build ./...' } } } }"}`),
+		strings.NewReader(`{"name":"api-migration","source":"pipeline { agent any; stages { stage('Build') { steps { sh 'cd /Users/buildworld/Desktop/app && go build ./...' } } } }"}`),
 	)
 	routeContext := chi.NewRouteContext()
 	routeContext.URLParams.Add("format", "jenkinsfile")
@@ -31,5 +31,8 @@ func TestMigratePipelineEndpointReturnsVersionedNativeConfig(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), migration.ResultVersion) || !strings.Contains(response.Body.String(), `"stage_count":1`) {
 		t.Fatalf("response = %s", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"code":"macos_protected_directory"`) {
+		t.Fatalf("response does not expose the protected-directory review warning: %s", response.Body.String())
 	}
 }

@@ -80,46 +80,51 @@ func (h *Hub) Run() {
 
 		case client := <-h.unregister:
 			h.mu.Lock()
-			if _, ok := h.clients[client]; ok {
-				delete(h.clients, client)
-				close(client.send)
-				if client.room != "" {
-					delete(h.rooms[client.room], client)
-				}
-			}
+			h.removeClientLocked(client)
 			h.mu.Unlock()
 			log.Printf("Client disconnected from room: %s", client.room)
 
 		case message := <-h.broadcast:
-			h.mu.RLock()
+			h.mu.Lock()
 			for client := range h.clients {
 				select {
 				case client.send <- message:
 				default:
-					close(client.send)
-					delete(h.clients, client)
+					h.removeClientLocked(client)
 				}
 			}
-			h.mu.RUnlock()
+			h.mu.Unlock()
 		}
 	}
 }
 
 func (h *Hub) BroadcastToRoom(room string, message []byte) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
 	if clients, ok := h.rooms[room]; ok {
 		for client := range clients {
 			select {
 			case client.send <- message:
 			default:
-				close(client.send)
-				delete(h.clients, client)
-				delete(clients, client)
+				h.removeClientLocked(client)
 			}
 		}
 	}
+}
+
+// removeClientLocked removes every route to a client before closing its queue.
+// All send/close operations use the same exclusive mutex, preventing a
+// high-volume broadcast from sending on a concurrently closed channel.
+func (h *Hub) removeClientLocked(client *Client) {
+	if _, exists := h.clients[client]; !exists {
+		return
+	}
+	delete(h.clients, client)
+	if client.room != "" {
+		delete(h.rooms[client.room], client)
+	}
+	close(client.send)
 }
 
 func HandleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request) {

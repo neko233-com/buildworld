@@ -29,7 +29,7 @@ func TestNotificationServiceDeliversAllMatchingChannels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := dataStore.CreateProject("parallel-project", "", "", "git", "main", "{}", 0, nil, nil)
+	project, err := dataStore.CreateProject("parallel-project", "", "", "git", "main", testEmptyPipelineSource, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,7 +13,6 @@ import { canEdit, isAdmin } from '../authz'
 interface VCSRoot {
   id: number
   name: string
-  type: string
   url: string
   branch: string
   credential_id?: number
@@ -24,7 +23,6 @@ interface VCSRoot {
 
 interface FormData {
   name: string
-  type: string
   url: string
   branch: string
   credential_id: number | ''
@@ -35,17 +33,12 @@ interface FormData {
 
 const emptyForm: FormData = {
   name: '',
-  type: 'git',
   url: '',
   branch: 'main',
   credential_id: '',
   poll_interval: 60,
   auto_checkout: true,
   config: '{}\n',
-}
-
-function rootTypeClass(type: string) {
-  return `vcs-type ${type}`
 }
 
 export default function VCSRoots() {
@@ -69,11 +62,10 @@ export default function VCSRoots() {
 
   const openEdit = (root: VCSRoot) => {
     let config = root.config || '{}\n'
-    try { config = prettyConfigSourceSync(config) } catch { /* Preserve invalid legacy source for repair. */ }
+    try { config = prettyConfigSourceSync(config) } catch { /* Preserve invalid source so the user can repair it. */ }
     setEditing(root)
     setForm({
       name: root.name,
-      type: root.type || 'git',
       url: root.url || '',
       branch: root.branch || 'main',
       credential_id: root.credential_id || '',
@@ -106,6 +98,7 @@ export default function VCSRoots() {
       const config = await prettyConfigSource(form.config)
       const data = {
         ...form,
+        type: 'git',
         config,
         credential_id: form.credential_id === '' ? null : Number(form.credential_id),
         poll_interval: Math.max(0, form.poll_interval),
@@ -163,7 +156,7 @@ export default function VCSRoots() {
             {list.map(root => (
               <tr key={root.id}>
                 <td><button className="entity-link" type="button" disabled={!editable} onClick={() => openEdit(root)}><FolderGit2 size={16} /><span><strong>{root.name}</strong><small>{root.auto_checkout ? t('vcsRoots.autoCheckout') : t('vcsRoots.manualCheckout')}</small></span></button></td>
-                <td><span className={rootTypeClass(root.type)}>{root.type}</span></td>
+                <td><span className="vcs-type git">Git</span></td>
                 <td><code className="repo-cell" title={root.url}>{root.url || '-'}</code></td>
                 <td><span className="branch-cell"><GitBranch size={13} />{root.branch || 'main'}</span></td>
                 <td>{root.credential_id ? <span className="vcs-credential"><KeyRound size={13} />{getCredentialName(root.credential_id)}</span> : <span className="muted-cell">{t('vcsRoots.none')}</span>}</td>
@@ -179,7 +172,7 @@ export default function VCSRoots() {
           <header><div><FolderGit2 size={18} /><div><h2>{editing ? t('vcsRoots.edit') : t('vcsRoots.new')}</h2><p>{t('vcsRoots.editorHelp')}</p></div></div><button type="button" onClick={() => setShowEditor(false)} title={t('common.close')}><X size={18} /></button></header>
           <form className="notification-editor-form" onSubmit={handleSubmit}>
             <label>{t('vcsRoots.name')}<input required autoFocus data-dialog-initial-focus value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
-            <label>{t('vcsRoots.type')}<select value={form.type} onChange={event => setForm({ ...form, type: event.target.value })}><option value="git">Git</option><option value="svn">Subversion</option><option value="hg">Mercurial</option></select></label>
+            <label>{t('vcsRoots.type')}<input value={t('vcsRoots.gitOnly')} readOnly aria-readonly="true" /></label>
             <label className="wide">{t('vcsRoots.url')}<input required placeholder="https://github.com/team/repository.git or git@github.com:team/repository.git" value={form.url} onChange={event => setForm({ ...form, url: event.target.value })} /></label>
             <label>{t('vcsRoots.branch')}<input value={form.branch} onChange={event => setForm({ ...form, branch: event.target.value })} /></label>
             <label>{t('vcsRoots.credential')}<select value={form.credential_id} onChange={event => setForm({ ...form, credential_id: event.target.value === '' ? '' : Number(event.target.value) })}><option value="">{t('vcsRoots.none')}</option>{(credentials || []).map(credential => <option key={credential.id} value={credential.id}>{credential.name}</option>)}</select></label>

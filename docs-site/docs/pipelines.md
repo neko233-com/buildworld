@@ -4,177 +4,168 @@ sidebar_position: 4
 
 # Pipeline Guide
 
-## Overview
+BuildWorld accepts a declarative TypeScript pipeline or GitHub Actions-style
+YAML. TypeScript is recommended for people and AI agents: Monaco provides
+comments, completion, syntax diagnostics, and live server validation before the
+configuration can be saved.
 
-buildworld uses TypeScript/JavaScript for pipeline definitions. Pipelines are written in `buildworld.config.ts` or `buildworld.config.js` files.
+The TypeScript file is parsed as data by an AST allowlist. It is not executed as
+JavaScript. Dynamic code (`eval`, `Function`, functions, loops, timers,
+promises, Node.js APIs, file access, and network access) is rejected.
 
-## Basic Pipeline
-
-```typescript
-// buildworld.config.ts
-pipeline({
-  name: "my-app-build",
-  stages: [
-    {
-      name: "Checkout",
-      steps: [
-        git.clone("https://github.com/user/repo", { depth: 1 }),
-      ],
-    },
-    {
-      name: "Build",
-      steps: [
-        shell("npm ci"),
-        shell("npm run build"),
-      ],
-    },
-    {
-      name: "Test",
-      steps: [
-        shell("npm test"),
-      ],
-    },
-  ],
-});
-```
-
-## Parameterized Builds
+## TypeScript pipeline
 
 ```typescript
-pipeline({
-  name: "deploy-app",
+import {
+  definePipeline,
+  parameter,
+  shell,
+  stage,
+  trigger,
+} from '@buildworld/pipeline'
+
+export default definePipeline({
+  name: 'my-app-build',
+  environment: {
+    NODE_ENV: 'production',
+  },
   parameters: [
-    {
-      name: "environment",
-      type: "choice",
-      description: "Target environment",
-      choices: ["development", "staging", "production"],
-      default: "staging",
+    parameter('environment', 'choice', {
+      choices: ['staging', 'production'],
+      default: 'staging',
       required: true,
-    },
-    {
-      name: "version",
-      type: "string",
-      description: "Version to deploy",
-      default: "latest",
-    },
-    {
-      name: "api_key",
-      type: "password",
-      description: "API key for deployment",
-      required: true,
-      is_secret: true,
-    },
+    }),
+  ],
+  triggers: [
+    trigger('vcs', { branch: 'main' }),
   ],
   stages: [
-    {
-      name: "Deploy",
-      steps: [
-        shell("deploy.sh --env ${parameter.environment} --version ${parameter.version}"),
-      ],
-    },
+    stage('Checkout', [
+      shell('Checkout', 'git clone "$GIT_REPO_URL" .'),
+    ]),
+    stage('Build', [
+      shell('Install', 'npm ci'),
+      shell('Compile', 'npm run build'),
+    ]),
+    stage('Test', [
+      shell('Test', 'npm test'),
+    ], { dependsOn: ['Build'] }),
   ],
-});
-```
-
-## Environment Variables
-
-```typescript
-pipeline({
-  name: "build-with-env",
-  stages: [
-    {
-      name: "Build",
-      steps: [
-        shell("echo ${global.REGISTRY}"),
-        shell("echo ${project.API_KEY}"),
-      ],
-    },
-  ],
-});
-```
-
-## Conditional Execution
-
-```typescript
-pipeline({
-  name: "conditional-build",
-  stages: [
-    {
-      name: "Deploy",
-      steps: [
-        shell("deploy.sh"),
-      ],
-      when: {
-        branch: "main",
-        condition: "success",
-      },
-    },
-  ],
-});
-```
-
-## Parallel Stages
-
-```typescript
-pipeline({
-  name: "parallel-build",
-  stages: [
-    {
-      name: "Test",
-      steps: [
-        shell("npm test"),
-      ],
-      parallel: true,
-    },
-    {
-      name: "Lint",
-      steps: [
-        shell("npm run lint"),
-      ],
-      parallel: true,
-    },
-  ],
-});
-```
-
-## Post Actions
-
-```typescript
-pipeline({
-  name: "build-with-notifications",
-  stages: [...],
   post: {
     always: [
-      shell("echo 'Build finished'"),
-    ],
-    failure: [
-      notify.slack("#builds", "Build failed!"),
-    ],
-    success: [
-      notify.slack("#builds", "Build succeeded!"),
+      shell('Finish', "echo 'Build finished'"),
     ],
   },
-});
+})
 ```
 
-## Templates
+Use the same `@buildworld/pipeline` declarations distributed in
+`sdk/pipeline/index.d.ts` for external editors and AI agents.
 
-Use pre-built templates for common workflows:
+## Long-running service logs
+
+`watchService` implements the Jenkins `tail -f` pattern without embedding an
+unbounded shell loop in the configuration parser. The build remains running,
+new log bytes stream continuously, a heartbeat is printed periodically, and
+the build fails with the final log lines if the PID exits. The watcher makes
+the pipeline long-running automatically; an explicit pipeline or stage
+`timeoutSec` still applies. It reconnects when the log is missing, truncated,
+or replaced. Use `initialLines: 0` to skip existing history and follow only new
+bytes.
+
+`pollSeconds` controls only PID liveness checks. Log following runs on an
+independent near-real-time cadence and immediately schedules catch-up reads
+while bytes remain, so a Jenkins monitor's `sleep 5` does not delay or throttle
+its former `tail -f` stream.
+
+Live output is sent over WebSocket before durable persistence. BuildWorld
+batches SQLite writes and retains the newest 1,000,000 characters per build so
+an intentional observer cannot grow the control database forever. If older
+history is removed, the viewer and downloaded file contain a visible
+`[buildworld]` truncation marker; download responses also set
+`X-BuildWorld-Log-Truncated` and
+`X-BuildWorld-Log-Retention-Characters`.
 
 ```typescript
-// Use a template
-import { nodeTypescript } from "buildworld/templates";
+import { definePipeline, shell, stage, watchService } from '@buildworld/pipeline'
 
-pipeline(nodeTypescript({
-  node_version: "20",
-  build_command: "npm run build",
-  test_command: "npm test",
-}));
+export default definePipeline({
+  name: 'Game server',
+  stages: [
+    stage('Start', [
+      shell('Start server', './start-server.sh'),
+    ]),
+    stage('Observe', [
+      watchService('Live server log', {
+        targetDir: '/srv/game-server',
+        pidFile: 'game-server.pid.txt',
+        logFile: 'logs/server.log',
+        port: 10101,
+        heartbeatSeconds: 30,
+        pollSeconds: 5,
+        initialLines: 30,
+      }),
+    ]),
+  ],
+})
 ```
 
-## Next Steps
+Canceling the build stops only the observer. It does not terminate the service
+process. The PID and log files must resolve inside `targetDir`.
 
-- [Configuration](/configuration) - Configure variables and settings
-- [Plugin Development](/plugins) - Write custom plugins
-- [Agents](/agents) - Configure build agents
+## YAML pipeline
+
+```yaml
+name: my-app-build
+
+env:
+  NODE_ENV: production
+
+jobs:
+  build:
+    runs-on: [linux, amd64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: npm ci
+      - name: Compile
+        run: npm run build
+
+  test:
+    needs: build
+    if: success()
+    timeout-minutes: 15
+    steps:
+      - name: Test
+        run: npm test
+        working-directory: .
+```
+
+`needs` accepts one job or a list. BuildWorld validates dependencies, rejects
+cycles, and runs jobs in dependency order. `actions/checkout` is the supported
+built-in `uses` action; unknown actions are rejected instead of downloading and
+executing third-party code.
+
+## Helper API
+
+| Helper | Purpose |
+| --- | --- |
+| `definePipeline(config)` | Define the pipeline and global policies. |
+| `stage(name, steps, options?)` | Create a stage; `steps` can be one step or an array. |
+| `step(name, type, command, options?)` | Create an explicit step. |
+| `shell`, `script`, `tail` | Create command steps. |
+| `git(name, options?)` | Create the controlled Git step. |
+| `notify(name, options?)` | Create the native notification step. |
+| `watchService(name, options)` | Follow a service PID and log continuously. |
+| `trigger(type, config?)` | Declare a build trigger. |
+| `parameter(name, type, options?)` | Declare a typed build parameter. |
+
+The complete human/agent reference is served by a running BuildWorld instance
+at `/script-api.html`. It is intentionally omitted from application navigation
+and marked `noindex`.
+
+## Next steps
+
+- [Configuration](./configuration.md) - Configure variables and settings
+- [Jenkins migration on macOS](./jenkins-migration-macos.md) - Translate and verify Jenkins jobs
+- [Agents](./agents.md) - Configure build agents

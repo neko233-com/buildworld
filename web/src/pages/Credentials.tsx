@@ -8,7 +8,7 @@ import { ModalDialog } from '../components/ModalDialog'
 import { PageState } from '../components/PageState'
 import { useI18n } from '../i18n'
 
-type CredentialType = 'ssh_key' | 'git' | 'svn' | 'hg'
+type CredentialType = 'ssh_key' | 'git'
 interface Credential {
   id: number
   name: string
@@ -39,8 +39,6 @@ interface FormData {
 const credentialTypes: Array<{ value: CredentialType; label: string }> = [
   { value: 'ssh_key', label: 'SSH Key' },
   { value: 'git', label: 'Git' },
-  { value: 'svn', label: 'Subversion' },
-  { value: 'hg', label: 'Mercurial' },
 ]
 const emptyForm: FormData = {
   name: '', type: 'ssh_key', host: '', username: '',

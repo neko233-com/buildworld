@@ -26,8 +26,7 @@ func SetupDefaultAdmin(db *store.Store) error {
 		return err
 	}
 
-	log.Println("Default admin account created: root / root")
-	log.Println("Please change the default password after first login!")
+	log.Println("Default administrator account created; change its password immediately after first login")
 	return nil
 }
 

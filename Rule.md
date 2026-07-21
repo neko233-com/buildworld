@@ -24,8 +24,16 @@
 
 ## Release and installation contract
 
-- Publish documentation with GitHub Pages after its workflow succeeds. Build
-  release binaries locally; do not use GitHub Actions for binary packaging.
+- GitHub Actions is not used for CI, notifications, documentation, packaging,
+  or uploads. Run every verification, build, and publication step locally; do
+  not add or enable cost-triggering workflow files.
+- Build documentation locally and publish the verified static output from the
+  repository's `gh-pages` branch with `scripts/publish-docs-local.ps1`. The
+  script must remain dry-run by default and require an explicit, confirmed
+  `-Publish` before any remote write. The publish path must rerun
+  `scripts/verify-local.ps1` and verify the exact Pages build commit.
+- Build and upload release binaries locally. Documentation and release uploads
+  are forbidden while applicable local verification is incomplete or failing.
 - A release bundle must include the CLI, server, worker, and `web/dist` for
   Windows amd64/arm64, Linux amd64/arm64, and macOS amd64/arm64.
 - One-click PowerShell and shell installers verify SHA-256 checksums, install

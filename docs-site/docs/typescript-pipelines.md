@@ -33,7 +33,8 @@ heartbeat loop:
 
 - the build remains `running` and the log viewer receives appended lines in
   real time;
-- BuildWorld checks the PID and emits a heartbeat every 30 seconds;
+- BuildWorld follows logs independently from PID polling, checks the PID, and
+  emits a heartbeat every 30 seconds;
 - if the service exits, the build fails and includes the final 50 log lines;
 - stopping the build stops observation only; it never kills the deployed
   service.

@@ -19,7 +19,7 @@ func main() {
 	labels := flag.String("labels", "go,nodejs,typescript", "Comma-separated worker labels")
 	pool := flag.String("pool", "validation", "Worker pool")
 	maxBuilds := flag.Int("max-builds", 4, "Maximum concurrent builds")
-	buildTemp := flag.String("build-temp", "./build_temp", "Disposable workspace and language-cache root beside the binary")
+	buildTemp := flag.String("build-temp", "./build_temp", "Disposable workspace and language-cache root; relative paths use the process working directory")
 	flag.Parse()
 
 	parsedLabels := make([]string, 0)
@@ -32,7 +32,6 @@ func main() {
 		Storage: config.StorageConfig{BuildTemp: *buildTemp},
 		Workers: config.WorkersConfig{
 			Local: config.LocalWorkerConfig{
-				Enabled:             true,
 				Workspace:           *name,
 				Pool:                *pool,
 				MaxConcurrentBuilds: *maxBuilds,

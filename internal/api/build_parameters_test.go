@@ -37,14 +37,16 @@ func TestTriggerBuildValidatesDefaultsAndRedactsSecrets(t *testing.T) {
 		"",
 		"git",
 		"main",
-		`{
-			"parameters": [
-				{"name":"target","type":"choice","choices":["staging","production"],"default":"staging","required":true},
-				{"name":"release","type":"boolean","default":false},
-				{"name":"api_token","type":"password","required":true,"is_secret":true}
-			],
-			"stages":[{"name":"Build","steps":[{"name":"Package","type":"shell","command":"echo package"}]}]
-		}`,
+		`parameters:
+  - {name: target, type: choice, choices: [staging, production], default: staging, required: true}
+  - {name: release, type: boolean, default: false}
+  - {name: api_token, type: password, required: true, is_secret: true}
+jobs:
+  build:
+    name: Build
+    steps:
+      - {name: Package, run: echo package}
+`,
 		0,
 		nil,
 		nil,
@@ -130,7 +132,13 @@ func TestTriggerBuildRejectsMalformedBodyAndInvalidChoice(t *testing.T) {
 		"",
 		"git",
 		"main",
-		`{"parameters":[{"name":"target","type":"choice","choices":["staging","production"],"required":true}]}`,
+		`parameters:
+  - {name: target, type: choice, choices: [staging, production], required: true}
+jobs:
+  build:
+    steps:
+      - {name: Package, run: echo package}
+`,
 		0,
 		nil,
 		nil,

@@ -21,9 +21,10 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// ProtocolInfo is the extensible bytemsg233 contract carried by every remote
-// execution request and response. A new major means incompatible wire or
-// execution semantics; a newer minor may add optional capabilities.
+// ProtocolInfo is the mandatory bytemsg233 contract carried by every remote
+// execution request and response. Major 1 is BuildWorld's first public worker
+// protocol. Each peer must declare every capability required by the current
+// execution formats; a new major means incompatible semantics.
 type ProtocolInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -349,19 +350,19 @@ func (x *HeartbeatResponse) GetAcknowledged() bool {
 }
 
 type BuildRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	BuildId         string                 `protobuf:"bytes,1,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
-	ProjectName     string                 `protobuf:"bytes,2,opt,name=project_name,json=projectName,proto3" json:"project_name,omitempty"`
-	RepoUrl         string                 `protobuf:"bytes,3,opt,name=repo_url,json=repoUrl,proto3" json:"repo_url,omitempty"`
-	Branch          string                 `protobuf:"bytes,4,opt,name=branch,proto3" json:"branch,omitempty"`
-	CommitSha       string                 `protobuf:"bytes,5,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
-	PipelineConfig  string                 `protobuf:"bytes,6,opt,name=pipeline_config,json=pipelineConfig,proto3" json:"pipeline_config,omitempty"`
-	Environment     map[string]string      `protobuf:"bytes,7,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	ProtocolVersion string                 `protobuf:"bytes,8,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	Plugins         []*PluginReference     `protobuf:"bytes,9,rep,name=plugins,proto3" json:"plugins,omitempty"`
-	Protocol        *ProtocolInfo          `protobuf:"bytes,10,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	BuildId        string                 `protobuf:"bytes,1,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
+	ProjectName    string                 `protobuf:"bytes,2,opt,name=project_name,json=projectName,proto3" json:"project_name,omitempty"`
+	RepoUrl        string                 `protobuf:"bytes,3,opt,name=repo_url,json=repoUrl,proto3" json:"repo_url,omitempty"`
+	Branch         string                 `protobuf:"bytes,4,opt,name=branch,proto3" json:"branch,omitempty"`
+	CommitSha      string                 `protobuf:"bytes,5,opt,name=commit_sha,json=commitSha,proto3" json:"commit_sha,omitempty"`
+	PipelineConfig string                 `protobuf:"bytes,6,opt,name=pipeline_config,json=pipelineConfig,proto3" json:"pipeline_config,omitempty"`
+	Environment    map[string]string      `protobuf:"bytes,7,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Plugins        []*PluginReference     `protobuf:"bytes,9,rep,name=plugins,proto3" json:"plugins,omitempty"`
+	// Required. Missing or incompatible protocol information rejects execution.
+	Protocol      *ProtocolInfo `protobuf:"bytes,10,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BuildRequest) Reset() {
@@ -441,13 +442,6 @@ func (x *BuildRequest) GetEnvironment() map[string]string {
 		return x.Environment
 	}
 	return nil
-}
-
-func (x *BuildRequest) GetProtocolVersion() string {
-	if x != nil {
-		return x.ProtocolVersion
-	}
-	return ""
 }
 
 func (x *BuildRequest) GetPlugins() []*PluginReference {
@@ -544,7 +538,8 @@ type BuildResponse struct {
 	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
 	IsError       bool                   `protobuf:"varint,6,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
 	ArtifactChunk *ArtifactChunk         `protobuf:"bytes,7,opt,name=artifact_chunk,json=artifactChunk,proto3" json:"artifact_chunk,omitempty"`
-	Protocol      *ProtocolInfo          `protobuf:"bytes,8,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// Required on every streamed response.
+	Protocol      *ProtocolInfo `protobuf:"bytes,8,opt,name=protocol,proto3" json:"protocol,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -846,7 +841,7 @@ const file_proto_worker_proto_rawDesc = "" +
 	"disk_usage\x18\x04 \x01(\x02R\tdiskUsage\x12#\n" +
 	"\ractive_builds\x18\x05 \x01(\x05R\factiveBuilds\"7\n" +
 	"\x11HeartbeatResponse\x12\"\n" +
-	"\facknowledged\x18\x01 \x01(\bR\facknowledged\"\xe0\x03\n" +
+	"\facknowledged\x18\x01 \x01(\bR\facknowledged\"\xcd\x03\n" +
 	"\fBuildRequest\x12\x19\n" +
 	"\bbuild_id\x18\x01 \x01(\tR\abuildId\x12!\n" +
 	"\fproject_name\x18\x02 \x01(\tR\vprojectName\x12\x19\n" +
@@ -855,14 +850,13 @@ const file_proto_worker_proto_rawDesc = "" +
 	"\n" +
 	"commit_sha\x18\x05 \x01(\tR\tcommitSha\x12'\n" +
 	"\x0fpipeline_config\x18\x06 \x01(\tR\x0epipelineConfig\x12G\n" +
-	"\venvironment\x18\a \x03(\v2%.worker.BuildRequest.EnvironmentEntryR\venvironment\x12)\n" +
-	"\x10protocol_version\x18\b \x01(\tR\x0fprotocolVersion\x121\n" +
+	"\venvironment\x18\a \x03(\v2%.worker.BuildRequest.EnvironmentEntryR\venvironment\x121\n" +
 	"\aplugins\x18\t \x03(\v2\x17.worker.PluginReferenceR\aplugins\x120\n" +
 	"\bprotocol\x18\n" +
 	" \x01(\v2\x14.worker.ProtocolInfoR\bprotocol\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x80\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\b\x10\tR\x10protocol_version\"\x80\x01\n" +
 	"\x0fPluginReference\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x16\n" +

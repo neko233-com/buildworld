@@ -32,7 +32,7 @@
       <p>用于项目构建配置的 TypeScript 声明式 API。此页不在默认导航中，但可通过 <code>/script-api.html</code> 直接打开。</p>
 
       <div class="notice">
-        <strong>设计目标：</strong>获得 Jenkinsfile 的编排表达力，同时保持可校验、可审计的配置边界。脚本只构造 Pipeline 数据；BuildWorld 不提供 Node.js、文件系统、网络、进程或任意代码执行能力。
+        <strong>设计目标：</strong>获得 Jenkinsfile 的编排表达力，同时保持可校验、可审计的配置边界。源码由 TypeScript AST 白名单解析器读取，只构造 Pipeline 数据；配置解析阶段不执行 JavaScript，也不提供 Node.js、文件系统、网络或进程能力。
       </div>
 
       <h2>最小示例</h2>
@@ -47,12 +47,11 @@ export default definePipeline({
 })</code></pre>
 
       <h2>Jenkins tail -f 的安全替代</h2>
-      <p><code>watchService</code> 只观察服务，不拥有或终止服务进程。构建保持运行并持续输出日志；PID 消失时构建失败；取消构建只停止观察。</p>
+      <p><code>watchService</code> 只观察服务，不拥有或终止服务进程。它会自动把 Pipeline 视为长期运行；显式 <code>timeoutSec</code> 仍然生效。日志使用独立的近实时节奏持续跟随并在积压时立即追赶，不受 PID 轮询间隔限制；日志缺失、截断或轮转后会按路径恢复，默认每 30 秒输出心跳。PID 消失时输出最后 50 行并使构建失败；取消构建只停止观察。WebSocket 实时输出先发送，SQLite 持久日志按批写入并保留每个构建最新 1,000,000 字符；发生截断时页面和下载内容会显示明确标记。</p>
       <pre><code>import { definePipeline, shell, stage, watchService } from '@buildworld/pipeline'
 
 export default definePipeline({
   name: 'Game server',
-  allowLongRunning: true,
   stages: [
     stage('Start', shell('Start server', './start-server.sh')),
     stage('Observe', watchService('Live server log', {
@@ -70,22 +69,61 @@ export default definePipeline({
       <table>
         <thead><tr><th>函数</th><th>用途</th></tr></thead>
         <tbody>
-          <tr><td><code>definePipeline(config)</code></td><td>定义 Pipeline。支持 <code>name</code>、<code>stages</code>、<code>env</code>、<code>parameters</code>、<code>triggers</code>、<code>allowLongRunning</code>。</td></tr>
+          <tr><td><code>definePipeline(config)</code></td><td>定义 Pipeline。支持 <code>name</code>、<code>stages</code>、<code>environment</code>、<code>parameters</code>、<code>triggers</code>、<code>allowLongRunning</code>。</td></tr>
           <tr><td><code>stage(name, steps, options?)</code></td><td>创建阶段；<code>steps</code> 可传一个步骤或步骤数组。</td></tr>
+          <tr><td><code>step(name, type, command, options?)</code></td><td>创建显式类型步骤；用于插件或内置步骤的低层声明。</td></tr>
           <tr><td><code>shell(name, command, options?)</code></td><td>在受控构建执行器中执行 shell 命令。</td></tr>
+          <tr><td><code>script(name, command, options?)</code></td><td>将多行 POSIX shell 作为临时脚本执行。</td></tr>
+          <tr><td><code>tail(name, command, options?)</code></td><td>运行普通 tail 类命令；长期服务监控应使用 <code>watchService</code>。</td></tr>
           <tr><td><code>git(name, options?)</code></td><td>声明 Git 步骤。</td></tr>
-          <tr><td><code>notify(name, options?)</code></td><td>声明通知步骤。</td></tr>
-          <tr><td><code>watchService(name, options)</code></td><td>持续追踪 PID 和日志。选项：<code>targetDir</code>、<code>pidFile</code>、<code>logFile</code>、<code>port</code>、<code>heartbeatSeconds</code>、<code>initialLines</code>。</td></tr>
+          <tr><td><code>notify(name, options?)</code></td><td>调用 BuildWorld 原生通知服务；远端 Worker 不持有通知凭据时会明确跳过。</td></tr>
+          <tr><td><code>watchService(name, options)</code></td><td>持续追踪 PID 和日志。<code>pidFile</code>、<code>logFile</code> 必填；<code>initialLines: 0</code> 跳过已有历史。其余选项：<code>targetDir</code>、<code>port</code>、<code>heartbeatSeconds</code>（5–86400）、<code>pollSeconds</code>（1–3600，仅控制 PID 存活检查）、<code>initialLines</code>（0–10000）。日志始终使用独立的近实时跟随与积压追赶。</td></tr>
+          <tr><td><code>trigger(type, config?)</code></td><td>声明 VCS、定时等构建触发器。</td></tr>
+          <tr><td><code>parameter(name, type, options?)</code></td><td>声明 string、text、password、choice、boolean 或 number 构建参数。</td></tr>
         </tbody>
       </table>
 
+      <h2>配置对象</h2>
+      <table>
+        <thead><tr><th>类型</th><th>字段</th></tr></thead>
+        <tbody>
+          <tr><td><code>Pipeline</code></td><td><code>name</code>、<code>description</code>、<code>environment</code>、<code>parameters</code>、<code>approval</code>、<code>stages</code>、<code>on</code>/<code>triggers</code>、<code>artifacts</code>、<code>post</code>、<code>agentRequirements</code>、<code>retentionCompleted</code>、<code>timeoutSec</code>、<code>allowLongRunning</code>、<code>disableConcurrent</code>、<code>abortPrevious</code>、<code>toolchains</code>。</td></tr>
+          <tr><td><code>Stage</code></td><td><code>id</code>、<code>name</code>、<code>steps</code>、<code>parallel</code>、<code>dependsOn</code>、<code>branches</code>、<code>if</code>、<code>environment</code>、<code>workingDirectory</code>、<code>timeoutSec</code>。</td></tr>
+          <tr><td><code>Step</code></td><td><code>name</code>、<code>type</code>、<code>command</code>、<code>shell</code>、<code>config</code>、<code>platformAdditions</code>、<code>runtime</code>、<code>if</code>。</td></tr>
+          <tr><td><code>ApprovalPolicy</code></td><td><code>version</code>、<code>strategy</code>、<code>requiredRoles</code>、<code>allowRequester</code>、<code>prompt</code>。</td></tr>
+        </tbody>
+      </table>
+      <p>所有 camelCase 字段均由 SDK 归一化到服务端格式；类型文件也保留对应 snake_case 字段，便于无损读取迁移配置。条件支持 <code>true</code>、<code>false</code>、<code>success()</code>、<code>failure()</code>、<code>always()</code>、<code>!</code>、<code>&amp;&amp;</code>、<code>||</code> 与括号。</p>
+
+      <h2>GitHub Actions 风格 YAML</h2>
+      <pre><code>name: verify
+jobs:
+  build:
+    runs-on: [linux, amd64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile
+        run: npm run build
+  test:
+    needs: build
+    if: success()
+    timeout-minutes: 15
+    steps:
+      - name: Test
+        run: npm test</code></pre>
+      <p><code>needs</code> 可为单值或数组；依赖按拓扑顺序执行，循环依赖、未知 job、未知 <code>uses</code> action 和不匹配的 <code>runs-on</code> 会在运行前明确失败。</p>
+
       <h2>安全边界</h2>
       <ul>
-        <li class="safe">支持：注释、字符串、对象字面量、数组、声明式 API 调用和 <code>as const</code>。</li>
-        <li class="unsafe">禁止：<code>eval</code>、<code>Function</code>、<code>require</code>、<code>process</code>、循环、函数/类、定时器、Promise 和箭头函数。</li>
+        <li class="safe">支持：注释、字符串/静态模板字符串、数字、布尔值、对象、数组、声明式 helper 调用、<code>as const</code> 和 <code>satisfies Pipeline</code>。</li>
+        <li class="unsafe">禁止：<code>eval</code>、<code>Function</code>、动态属性、函数/类、循环、条件表达式、模板插值、定时器、Promise、<code>require</code> 和 <code>process</code>。</li>
         <li>只允许从 <code>@buildworld/pipeline</code> 导入。构建命令由步骤执行器处理，不在配置求值时运行。</li>
+        <li>解析器限制源码大小、AST 节点数、嵌套深度和输出大小；不会因无限循环阻塞控制面。</li>
         <li><code>pidFile</code> 与 <code>logFile</code> 必须位于 <code>targetDir</code> 内，防止借日志追踪读取任意路径。</li>
       </ul>
+
+      <h2>编辑器与 SDK</h2>
+      <p>项目、模板和可视化 Pipeline 页面均使用内置 Monaco TypeScript 编辑器，支持注释、补全、语法/类型诊断和实时服务端 AST 校验。发布包内的 <code>sdk/pipeline/index.d.ts</code> 是人类编辑器与 AI Agent 共用的类型契约。</p>
     </main>
   </body>
 </html>

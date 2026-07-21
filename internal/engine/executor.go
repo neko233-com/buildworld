@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/neko233-com/buildworld/internal/processtree"
 )
 
 type Executor struct {
@@ -20,7 +22,7 @@ func NewExecutor() *Executor {
 }
 
 func (e *Executor) Run(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := processtree.CommandContext(ctx, name, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -37,7 +39,7 @@ func (e *Executor) RunWithOutput(ctx context.Context, name string, onOutput func
 	if name == "" {
 		return fmt.Errorf("empty command")
 	}
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := processtree.CommandContext(ctx, name, args...)
 
 	cmd.Stdout = &lineWriter{callback: onOutput}
 	cmd.Stderr = &lineWriter{callback: onOutput}
@@ -59,7 +61,7 @@ func (e *Executor) RunShell(ctx context.Context, command, dir string, env []stri
 		name = "sh"
 		args = []string{"-c", command}
 	}
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := processtree.CommandContext(ctx, name, args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -97,7 +99,7 @@ func (e *Executor) RunMultiShell(ctx context.Context, shell, command, dir string
 
 func (e *Executor) runPowerShell(ctx context.Context, command, dir string, env []string, onOutput func(string)) error {
 	isMultiLine := strings.Contains(command, "\n")
-	var cmd *exec.Cmd
+	var cmd *processtree.Cmd
 	if runtime.GOOS == "windows" {
 		if isMultiLine {
 			scriptPath, err := e.writeTempScript(dir, command, ".ps1")
@@ -105,9 +107,9 @@ func (e *Executor) runPowerShell(ctx context.Context, command, dir string, env [
 				return err
 			}
 			defer os.Remove(scriptPath)
-			cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
+			cmd = processtree.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
 		} else {
-			cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command)
+			cmd = processtree.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command)
 		}
 	} else {
 		if isMultiLine {
@@ -116,9 +118,9 @@ func (e *Executor) runPowerShell(ctx context.Context, command, dir string, env [
 				return err
 			}
 			defer os.Remove(scriptPath)
-			cmd = exec.CommandContext(ctx, "pwsh", "-NoProfile", "-NonInteractive", "-File", scriptPath)
+			cmd = processtree.CommandContext(ctx, "pwsh", "-NoProfile", "-NonInteractive", "-File", scriptPath)
 		} else {
-			cmd = exec.CommandContext(ctx, "pwsh", "-NoProfile", "-NonInteractive", "-Command", command)
+			cmd = processtree.CommandContext(ctx, "pwsh", "-NoProfile", "-NonInteractive", "-Command", command)
 		}
 	}
 	if dir != "" {
@@ -136,7 +138,7 @@ func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env 
 	if runtime.GOOS == "windows" {
 		_, err := exec.LookPath("bash")
 		if err == nil {
-			cmd := exec.CommandContext(ctx, "bash", "-c", command)
+			cmd := processtree.CommandContext(ctx, "bash", "-c", command)
 			if dir != "" {
 				cmd.Dir = dir
 			}
@@ -152,7 +154,7 @@ func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env 
 			return err
 		}
 		defer os.Remove(scriptPath)
-		cmd := exec.CommandContext(ctx, "sh", scriptPath)
+		cmd := processtree.CommandContext(ctx, "sh", scriptPath)
 		if dir != "" {
 			cmd.Dir = dir
 		}
@@ -167,7 +169,7 @@ func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env 
 	if name == "" {
 		name = "sh"
 	}
-	cmd := exec.CommandContext(ctx, name, "-c", command)
+	cmd := processtree.CommandContext(ctx, name, "-c", command)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -181,7 +183,7 @@ func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env 
 
 func (e *Executor) runCmd(ctx context.Context, command, dir string, env []string, onOutput func(string)) error {
 	if runtime.GOOS == "windows" {
-		cmd := exec.CommandContext(ctx, "cmd", "/c", command)
+		cmd := processtree.CommandContext(ctx, "cmd", "/c", command)
 		if dir != "" {
 			cmd.Dir = dir
 		}
@@ -205,7 +207,7 @@ func (e *Executor) runPython(ctx context.Context, shell, command, dir string, en
 	if py == "" {
 		py = "python"
 	}
-	cmd := exec.CommandContext(ctx, py, scriptPath)
+	cmd := processtree.CommandContext(ctx, py, scriptPath)
 	if dir != "" {
 		cmd.Dir = dir
 	}

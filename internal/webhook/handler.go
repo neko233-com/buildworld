@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -41,77 +42,71 @@ func (h *WebhookHandler) OnPush(handler func(payload WebhookPayload) error) {
 	h.onPush = handler
 }
 
-func (h *WebhookHandler) HandleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
+func (h *WebhookHandler) validateRequest(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return false
+	}
+	if strings.TrimSpace(h.secret) == "" {
+		http.Error(w, "Webhook secret not configured", http.StatusServiceUnavailable)
+		return false
+	}
+	return true
+}
+
+func (h *WebhookHandler) HandleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
+	if !h.validateRequest(w, r) {
 		return
 	}
 
-	// Verify signature
-	if h.secret != "" {
-		sig := r.Header.Get("X-Hub-Signature-256")
-		if sig == "" {
-			http.Error(w, "Missing signature", http.StatusUnauthorized)
-			return
-		}
-
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "Failed to read body", http.StatusInternalServerError)
-			return
-		}
-
-		if !h.verifySignature(body, sig) {
-			http.Error(w, "Invalid signature", http.StatusUnauthorized)
-			return
-		}
-
-		r.Body = io.NopCloser(strings.NewReader(string(body)))
-	}
-
-	// Parse payload
-	var payload WebhookPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Failed to parse payload", http.StatusBadRequest)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusInternalServerError)
 		return
 	}
-
-	// Handle push event
-	if h.onPush != nil {
-		if err := h.onPush(payload); err != nil {
-			log.Printf("Failed to handle push: %v", err)
-			http.Error(w, "Failed to process webhook", http.StatusInternalServerError)
-			return
-		}
+	if !h.verifyGitHubSignature(body, r.Header.Get("X-Hub-Signature-256")) {
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
+		return
 	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	h.handlePayload(w, bytes.NewReader(body))
 }
 
 func (h *WebhookHandler) HandleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !h.validateRequest(w, r) {
 		return
 	}
-
-	// Verify token
-	if h.secret != "" {
-		token := r.Header.Get("X-Gitlab-Token")
-		if token != h.secret {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
-			return
-		}
+	if !hmac.Equal([]byte(r.Header.Get("X-Gitlab-Token")), []byte(h.secret)) {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
 	}
+	h.handlePayload(w, r.Body)
+}
 
-	// Parse payload
+// HandleGiteaWebhook verifies Gitea's hex-encoded SHA-256 HMAC from the
+// X-Gitea-Signature header.
+func (h *WebhookHandler) HandleGiteaWebhook(w http.ResponseWriter, r *http.Request) {
+	if !h.validateRequest(w, r) {
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusInternalServerError)
+		return
+	}
+	if !h.verifyGiteaSignature(body, r.Header.Get("X-Gitea-Signature")) {
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
+		return
+	}
+	h.handlePayload(w, bytes.NewReader(body))
+}
+
+func (h *WebhookHandler) handlePayload(w http.ResponseWriter, body io.Reader) {
 	var payload WebhookPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(body).Decode(&payload); err != nil {
 		http.Error(w, "Failed to parse payload", http.StatusBadRequest)
 		return
 	}
 
-	// Handle push event
 	if h.onPush != nil {
 		if err := h.onPush(payload); err != nil {
 			log.Printf("Failed to handle push: %v", err)
@@ -120,13 +115,25 @@ func (h *WebhookHandler) HandleGitLabWebhook(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-func (h *WebhookHandler) verifySignature(payload []byte, signature string) bool {
+func (h *WebhookHandler) verifyGitHubSignature(payload []byte, signature string) bool {
+	if signature == "" {
+		return false
+	}
 	expectedSignature := "sha256=" + hex.EncodeToString(h.computeHMAC(payload))
 	return hmac.Equal([]byte(signature), []byte(expectedSignature))
+}
+
+func (h *WebhookHandler) verifyGiteaSignature(payload []byte, signature string) bool {
+	provided, err := hex.DecodeString(strings.TrimSpace(signature))
+	if err != nil || len(provided) == 0 {
+		return false
+	}
+	return hmac.Equal(provided, h.computeHMAC(payload))
 }
 
 func (h *WebhookHandler) computeHMAC(payload []byte) []byte {

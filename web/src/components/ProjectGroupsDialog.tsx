@@ -2,7 +2,7 @@ import { FolderPlus, FolderTree, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import { api } from '../api'
 import { useI18n } from '../i18n'
-import { descendantProjectGroupIDs, flattenProjectGroups, type ProjectGroup } from '../lib/projectGroups'
+import { PROJECT_GROUP_COLORS, normalizeProjectGroupColor, sortProjectGroups, type ProjectGroup, type ProjectGroupColor } from '../lib/projectGroups'
 import { dialogs } from './AppDialogs'
 import { ModalDialog } from './ModalDialog'
 
@@ -17,21 +17,20 @@ type GroupForm = {
   id?: number
   name: string
   description: string
-  parent_id: number | ''
+  color: ProjectGroupColor
 }
 
-const emptyForm: GroupForm = { name: '', description: '', parent_id: '' }
+const emptyForm: GroupForm = { name: '', description: '', color: 'neutral' }
 
 export default function ProjectGroupsDialog({ groups, projects, onReload, onClose }: Props) {
   const { t } = useI18n()
   const [form, setForm] = useState<GroupForm>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const flattened = flattenProjectGroups(groups)
-  const unavailableParents = form.id ? descendantProjectGroupIDs(groups, form.id) : new Set<number>()
+  const orderedGroups = sortProjectGroups(groups)
 
   const edit = (group: ProjectGroup) => {
-    setForm({ id: group.id, name: group.name, description: group.description || '', parent_id: group.parent_id ?? '' })
+    setForm({ id: group.id, name: group.name, description: group.description || '', color: normalizeProjectGroupColor(group.color) })
     setError('')
   }
 
@@ -44,7 +43,7 @@ export default function ProjectGroupsDialog({ groups, projects, onReload, onClos
       const payload = {
         name: form.name.trim(),
         description: form.description.trim(),
-        parent_id: form.parent_id === '' ? null : Number(form.parent_id),
+        color: form.color,
       }
       if (form.id) await api.updateProjectGroup(form.id, payload)
       else await api.createProjectGroup(payload)
@@ -82,15 +81,15 @@ export default function ProjectGroupsDialog({ groups, projects, onReload, onClos
     </header>
     <div className="project-groups-dialog-body">
       <section className="project-groups-list">
-        <header><strong>{t('projectGroups.hierarchy')}</strong><span>{groups.length}</span></header>
-        {!flattened.length && <div className="project-groups-empty"><FolderPlus size={20} /><strong>{t('projectGroups.empty')}</strong><small>{t('projectGroups.emptyHelp')}</small></div>}
-        {flattened.map(group => {
+        <header><strong>{t('projectGroups.directoryList')}</strong><span>{groups.length}</span></header>
+        {!orderedGroups.length && <div className="project-groups-empty"><FolderPlus size={20} /><strong>{t('projectGroups.empty')}</strong><small>{t('projectGroups.emptyHelp')}</small></div>}
+        {orderedGroups.map(group => {
           const count = projects.filter(project => project.group_id === group.id).length
-          return <article key={group.id} className={form.id === group.id ? 'selected' : ''} style={{ '--group-depth': group.depth } as React.CSSProperties}>
+          return <article key={group.id} className={form.id === group.id ? 'selected' : ''} data-group-color={normalizeProjectGroupColor(group.color)}>
             <button type="button" className="project-group-main" onClick={() => edit(group)}>
-              <span className="project-group-indent" aria-hidden="true" />
+              <span className="project-group-color-mark" aria-hidden="true" />
               <FolderTree size={16} />
-              <span><strong>{group.name}</strong><small>{group.description || group.path}</small></span>
+              <span><strong>{group.name}</strong><small>{group.description || t('projectGroups.folderHelp')}</small></span>
               <em>{t('projectGroups.projectCount').replace('{count}', String(count))}</em>
             </button>
             <div>
@@ -103,7 +102,17 @@ export default function ProjectGroupsDialog({ groups, projects, onReload, onClos
       <form className="project-group-editor" onSubmit={save}>
         <header><div>{form.id ? <Pencil size={16} /> : <Plus size={16} />}<strong>{form.id ? t('projectGroups.edit') : t('projectGroups.create')}</strong></div>{form.id && <button type="button" onClick={() => { setForm(emptyForm); setError('') }}>{t('projectGroups.newGroup')}</button>}</header>
         <label><span>{t('projectGroups.name')}</span><input data-dialog-initial-focus required value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder={t('projectGroups.namePlaceholder')} /></label>
-        <label><span>{t('projectGroups.parent')}</span><select value={form.parent_id} onChange={event => setForm({ ...form, parent_id: event.target.value === '' ? '' : Number(event.target.value) })}><option value="">{t('projectGroups.root')}</option>{flattened.filter(group => !unavailableParents.has(group.id)).map(group => <option key={group.id} value={group.id}>{'\u00a0\u00a0'.repeat(group.depth)}{group.path}</option>)}</select></label>
+        <fieldset className="project-group-palette">
+          <legend>{t('projectGroups.color')}</legend>
+          <div>
+            {PROJECT_GROUP_COLORS.map(color => <label key={color} className={form.color === color ? 'selected' : ''} data-group-color={color}>
+              <input type="radio" name="project-group-color" value={color} checked={form.color === color} onChange={() => setForm({ ...form, color })} />
+              <span aria-hidden="true" />
+              <em>{t(`projectGroups.colors.${color}`)}</em>
+            </label>)}
+          </div>
+          <small>{t('projectGroups.colorHelp')}</small>
+        </fieldset>
         <label><span>{t('projectGroups.description')}</span><textarea rows={4} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder={t('projectGroups.descriptionPlaceholder')} /></label>
         <p className="project-group-delete-help">{t('projectGroups.deleteHelp')}</p>
         {error && <p className="form-error">{error}</p>}

@@ -1,6 +1,0 @@
-{
-  "name": "gitea",
-  "version": "1.0.0",
-  "description": "Gitea integration: commit status and release creation",
-  "author": "buildworld"
-}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/neko233-com/buildworld/internal/auth"
+	"github.com/neko233-com/buildworld/internal/buildinfo"
 	"github.com/neko233-com/buildworld/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -139,7 +140,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version",
 	Run: func(cmd *cobra.Command, _ []string) {
-		fmt.Fprintf(cmd.OutOrStdout(), "buildworld %s\n", version)
+		fmt.Fprintf(cmd.OutOrStdout(), "buildworld %s\n", buildinfo.Version)
 	},
 }
 
