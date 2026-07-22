@@ -283,6 +283,99 @@
   font-size: 11px;
 }
 
+[data-skin="jenkins"] .app-main:has(.jenkins-home),
+[data-skin="jenkins"] .jenkins-home,
+[data-skin="jenkins"] .jenkins-home-main,
+[data-skin="jenkins"] .jenkins-job-table-wrap {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-item {
+  display: grid;
+  min-width: 0;
+  min-height: 48px;
+  grid-template-columns: 14px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 7px;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-status {
+  display: grid;
+  width: 11px;
+  height: 11px;
+  place-items: center;
+  color: #98a2ac;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-status::after {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-status:has(svg)::after {
+  display: none;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-status svg {
+  width: 12px;
+  height: 12px;
+  animation: timeline-spin .8s linear infinite;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-status.success,
+[data-skin="jenkins"] .jenkins-rail-history-status.running {
+  color: #287bd5;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-status.failed {
+  color: #d64545;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-status.pending {
+  color: #d7920b;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-meta {
+  min-width: 0;
+  font-size: 10px;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-meta span,
+[data-skin="jenkins"] .jenkins-rail-history-meta time {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-rebuild {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  color: #56636f;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-rebuild:hover:not(:disabled),
+[data-skin="jenkins"] .jenkins-rail-history-rebuild:focus-visible {
+  color: var(--jenkins-link);
+  border-color: #c7d9eb;
+  outline: 0;
+  background: #eef5fc;
+}
+
+[data-skin="jenkins"] .jenkins-rail-history-rebuild:disabled {
+  opacity: .42;
+}
+
 [data-skin="jenkins"] .jenkins-view-tabs {
   min-height: 38px;
   padding: 2px;
@@ -734,7 +827,7 @@
 @media (max-width: 800px) {
   [data-skin="jenkins"] .jenkins-home {
     display: flex;
-    flex-direction: column-reverse;
+    flex-direction: column;
     gap: 0;
   }
 

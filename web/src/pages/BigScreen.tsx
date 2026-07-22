@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { motion } from 'motion/react'
 import { Activity, Boxes, CheckCircle2, Clock3, Cpu, Gauge, RefreshCw, ServerCog, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
@@ -84,7 +83,7 @@ export default function BigScreen() {
   if (loading) return <>{breadcrumb}<section className="jenkins-management-page"><PageState /></section></>
   if (error && !lastUpdate) return <>{breadcrumb}<section className="jenkins-management-page"><PageState error={error} onRetry={() => fetchData()} /></section></>
 
-  return <>{breadcrumb}<motion.section className="operations-page data-dashboard-page jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+  return <>{breadcrumb}<section className="operations-page data-dashboard-page jenkins-management-page">
     <header className="operations-heading data-dashboard-heading">
       <div><p>{t('bigScreen.operationsOverview')}</p><h1>{t('bigScreen.title')}</h1><small>{t('bigScreen.description')}</small></div>
       <div><span>{t('bigScreen.lastUpdate')}: {lastUpdate?.toLocaleTimeString() || '-'}</span><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
@@ -136,5 +135,5 @@ export default function BigScreen() {
         <dl><div><dt>{t('bigScreen.runtime')}</dt><dd>{data.system_metrics.go_version}</dd></div><div><dt>{t('bigScreen.platform')}</dt><dd>{data.system_metrics.os}/{data.system_metrics.arch}</dd></div><div><dt>CPU</dt><dd>{data.system_metrics.cpus}</dd></div><div><dt>Goroutines</dt><dd>{data.system_metrics.goroutines}</dd></div><div><dt>{t('bigScreen.uptime')}</dt><dd>{data.system_metrics.uptime}</dd></div><div><dt><Clock3 size={13} />{t('bigScreen.serverTime')}</dt><dd>{data.current_time || '-'}</dd></div></dl>
       </section>
     </div>
-  </motion.section></>
+  </section></>
 }

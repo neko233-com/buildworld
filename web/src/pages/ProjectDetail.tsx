@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { motion } from 'motion/react'
 import {
   CircleCheckBig,
   CircleDashed,
@@ -180,7 +179,7 @@ export default function ProjectDetail() {
     ? <li><Link to={`/builds/${build.id}`}>{label} (#{build.number})</Link><small>{buildDateLabel(build.started_at, locale)}</small></li>
     : <li><span>{label}</span><small>{t('projectDetail.none')}</small></li>
 
-  return <motion.section className="jenkins-job-page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+  return <section className="jenkins-job-page">
     <JenkinsHeaderBreadcrumb ariaLabel={t('projectDetail.breadcrumb')} breadcrumbs={[{ label: groupName, to: '/projects' }, { label: project.name }]} />
 
     <div className="jenkins-job-layout">
@@ -254,5 +253,5 @@ export default function ProjectDetail() {
         </section>
       </div>
     </div>
-  </motion.section>
+  </section>
 }

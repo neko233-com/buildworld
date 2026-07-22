@@ -1,16 +1,12 @@
 // @vitest-environment jsdom
 
-import { act, type ReactNode } from 'react'
+import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api'
 import { dialogs } from '../components/AppDialogs'
 import Templates from './Templates'
-
-vi.mock('motion/react', () => ({
-  motion: { section: ({ children, initial: _initial, animate: _animate, transition: _transition, ...props }: { children: ReactNode } & Record<string, unknown>) => <section {...props}>{children}</section> },
-}))
 
 vi.mock('../authz', () => ({ canEdit: () => true }))
 vi.mock('../components/AppDialogs', () => ({ dialogs: { confirm: vi.fn(), notify: vi.fn() } }))

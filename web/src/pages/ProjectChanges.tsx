@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { motion } from 'motion/react'
 import {
   CircleCheckBig,
   CircleDashed,
@@ -161,7 +160,7 @@ export default function ProjectChanges() {
     }
   }
 
-  return <motion.section className="jenkins-job-page jenkins-changes-page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+  return <section className="jenkins-job-page jenkins-changes-page">
     <JenkinsHeaderBreadcrumb ariaLabel={t('projectDetail.breadcrumb')} breadcrumbs={[
       { label: groupName, to: '/projects' },
       { label: project.name, to: `/projects/${projectId}` },
@@ -233,5 +232,5 @@ export default function ProjectChanges() {
         </div>}
       </div>
     </div>
-  </motion.section>
+  </section>
 }

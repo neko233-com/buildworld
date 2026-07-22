@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { motion } from 'motion/react'
 import { Braces, FolderGit2, GitBranch, KeyRound, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { api } from '../api'
 import { useApi } from '../hooks'
@@ -146,7 +145,7 @@ export default function VCSRoots() {
   const polling = list.filter(root => root.poll_interval > 0).length
 
   return <>{breadcrumb}
-    <motion.section className="operations-page vcs-workbench jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <section className="operations-page vcs-workbench jenkins-management-page">
       <header className="operations-heading">
         <div><p>{list.length} {t('vcsRoots.registered')}</p><h1>{t('vcsRoots.title')}</h1></div>
         {editable && <button className="primary-command" type="button" disabled={deletingID !== null} onClick={openCreate}><Plus size={16} />{t('vcsRoots.new')}</button>}
@@ -194,6 +193,6 @@ export default function VCSRoots() {
             <footer><button type="button" disabled={saving} onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}>{saving ? <><LoaderCircle className="timeline-spinner" size={14} />{t('common.loading')}</> : t('common.save')}</button></footer>
           </form>
       </ModalDialog>}
-    </motion.section>
+    </section>
   </>
 }

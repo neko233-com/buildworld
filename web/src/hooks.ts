@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { api } from './api'
 
 // useApi: simple data fetching hook with loading/error state
 export function useApi<T>(fetcher: () => Promise<T>, deps: any[] = []) {
@@ -35,15 +34,3 @@ export function useApi<T>(fetcher: () => Promise<T>, deps: any[] = []) {
 
   return { data, loading, error, reload, setData }
 }
-
-// useRequireAuth: redirects to /login if no token
-export function useRequireAuth() {
-  const token = localStorage.getItem('token')
-  if (!token) {
-    window.location.href = '/login'
-    return null
-  }
-  return token
-}
-
-export { api }

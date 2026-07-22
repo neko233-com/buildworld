@@ -1,5 +1,4 @@
 import { useRef, useState } from 'react'
-import { motion } from 'motion/react'
 import { BookTemplate, Braces, LoaderCircle, Pencil, Play, Plus, Trash2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -160,7 +159,7 @@ export default function Templates() {
   const projects = data?.[1] || []
   const references = projects.filter((project: any) => project.template_id).length
 
-  return <>{breadcrumb}<motion.section className="operations-page templates-workbench jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+  return <>{breadcrumb}<section className="operations-page templates-workbench jenkins-management-page">
     <header className="operations-heading">
       <div><p>{list.length} {t('templates.registered')} · {references} {t('templates.projectsUsing')}</p><h1>{t('templates.title')}</h1></div>
       {editable && <button className="primary-command" type="button" onClick={openCreate}><Plus size={16} />{t('templates.new')}</button>}
@@ -203,5 +202,5 @@ export default function Templates() {
         <footer><button type="button" disabled={saving || formatting} onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving || formatting || !pipelineReady} aria-describedby={!pipelineReady ? 'template-pipeline-status' : undefined} title={!pipelineReady ? pipelineBlockedMessage : undefined}>{saving ? <><LoaderCircle className="timeline-spinner" size={14} />{t('common.loading')}</> : t('common.save')}</button></footer>
       </form>
     </ModalDialog>}
-  </motion.section></>
+  </section></>
 }

@@ -79,19 +79,6 @@ export function parseBuildParameterDefinitions(source = ''): BuildParameterDefin
   }
 }
 
-export function requiresBuildParameterDefinitionsInput(definitions: BuildParameterDefinition[]): boolean {
-  return definitions.some(parameter => {
-    if (!parameter.required || parameter.type === 'boolean') return false
-    if (parameter.type === 'choice' && parameter.choices.length > 0) return false
-    if (parameter.defaultValue === undefined || parameter.defaultValue === null) return true
-    return typeof parameter.defaultValue === 'string' && !parameter.defaultValue.trim()
-  })
-}
-
-export function requiresBuildParameterInput(source = ''): boolean {
-  return requiresBuildParameterDefinitionsInput(parseBuildParameterDefinitions(source))
-}
-
 function initialParameterValues(definitions: BuildParameterDefinition[]): Record<string, string | boolean> {
   return Object.fromEntries(definitions.map(parameter => {
     if (parameter.defaultValue !== undefined && parameter.defaultValue !== null) {

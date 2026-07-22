@@ -1,20 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
-import { motion } from 'motion/react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Activity, Ban, Check, Circle, CircleDot, Download, ExternalLink, FileText, FlaskConical, GitBranch, GitCommitHorizontal, LoaderCircle, Pause, Pin, PinOff, Play, RotateCcw, Settings2, SlidersHorizontal, Square, Upload, UserRound, Workflow, X } from 'lucide-react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Activity, AlertTriangle, Ban, Check, Circle, CircleDot, Download, ExternalLink, FileText, FlaskConical, GitBranch, GitCommitHorizontal, LoaderCircle, Package, Palette, Pause, Pin, PinOff, Play, RotateCcw, Settings2, SlidersHorizontal, Square, Upload, UserRound, Workflow, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
+import { useBuildLogStream } from '../useBuildLogStream'
 import { dialogs } from '../components/AppDialogs'
 import { PageState } from '../components/PageState'
 import { timelineProgress, visibleBuildLog, type BuildTimelineStep } from '../lib/buildTimeline'
 import { isNearLogBottom } from '../lib/logFollow'
+import { logTone, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
 import { buildTriggerLabel } from '../lib/buildPresentation'
 import { canEdit } from '../authz'
 import { formatDuration } from '../lib/durationPresentation'
 import BuildApprovalPanel from '../components/BuildApprovalPanel'
 import BuildProblemsPanel from '../components/BuildProblemsPanel'
-import BuildChainPanel from '../components/BuildChainPanel'
 import { BuildStatusBadge } from '../components/BuildStatusBadge'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import ReplayBuildDialog from '../components/ReplayBuildDialog'
@@ -55,20 +55,24 @@ function TimelineStatusIcon({ status }: { status: BuildTimelineStep['status'] })
   return <Circle size={12} />
 }
 
+type BuildDetailTab = 'current' | 'problems' | 'artifacts'
+
 export default function BuildDetail() {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
   const editable = canEdit()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const buildId = Number(id)
   const validBuildId = Number.isSafeInteger(buildId) && buildId > 0
+  const requestedTab = searchParams.get('tab')
+  const activeTab: BuildDetailTab = requestedTab === 'problems' || requestedTab === 'artifacts' ? requestedTab : 'current'
   const { data: build, loading, error, reload: reloadBuild } = useApi(() => validBuildId ? api.getBuild(buildId) : Promise.resolve(null), [buildId, validBuildId])
   const projectId = Number(build?.project_id)
   const { data: buildProject } = useApi(() => Number.isSafeInteger(projectId) && projectId > 0 ? api.getProject(projectId) : Promise.resolve(null), [projectId])
-  const { data: logsResp, error: logsError, reload: reloadLogs } = useApi(() => validBuildId ? api.getBuildLogs(buildId) : Promise.resolve({ log: '' }), [buildId, validBuildId])
+  const { data: logsResp, error: logsError, reload: reloadLogs } = useApi<{ log: string, truncated?: boolean, retention_characters?: number }>(() => validBuildId ? api.getBuildLogs(buildId) : Promise.resolve({ log: '' }), [buildId, validBuildId])
   const { data: timeline, error: timelineError, reload: reloadTimeline } = useApi(() => validBuildId ? api.getBuildTimeline(buildId) : Promise.resolve(null), [buildId, validBuildId])
-  const { data: problems, error: problemsError, reload: reloadProblems } = useApi(() => validBuildId ? api.getBuildProblems(buildId) : Promise.resolve(null), [buildId, validBuildId])
-  const { data: chain, error: chainError, reload: reloadChain } = useApi(() => validBuildId ? api.getBuildChain(buildId) : Promise.resolve(null), [buildId, validBuildId])
+  const { data: problems, loading: problemsLoading, error: problemsError, reload: reloadProblems } = useApi(() => validBuildId && build ? api.getBuildProblems(buildId) : Promise.resolve(null), [build?.id, buildId, validBuildId])
   const { data: artifacts, error: artifactsError, reload: reloadArtifacts } = useApi(() => validBuildId ? api.listArtifacts(buildId) : Promise.resolve([]), [buildId, validBuildId])
   const [retrying, setRetrying] = useState(false)
   const [replayOpen, setReplayOpen] = useState(false)
@@ -79,22 +83,34 @@ export default function BuildDetail() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const consoleRef = useRef<HTMLPreElement>(null)
   const followConsoleRef = useRef(true)
+  const activeBuildRef = useRef<number | null>(null)
   const [followConsole, setFollowConsole] = useState(true)
-  const displayedLog = visibleBuildLog(logsResp?.log)
+  const [colorizeLogs, setColorizeLogs] = useState(readLogTonePreference)
 
   const isExecuting = build?.status === 'running'
   const isActive = isExecuting || build?.status === 'pending' || build?.status === 'queued' || build?.status === 'pending_approval'
   const isFinished = !!build?.status && !isActive
+  const { log: liveLog, state: liveLogState } = useBuildLogStream({
+    buildID: buildId,
+    enabled: validBuildId && isActive,
+    snapshot: logsResp?.log,
+    reloadSnapshot: reloadLogs,
+    onBuildStatus: reloadBuild,
+  })
+  const displayedLog = useMemo(() => visibleBuildLog(liveLog), [liveLog])
+  const consoleLines = useMemo(() => displayedLog ? displayedLog.split(/\r?\n/) : [], [displayedLog])
+  const logLines = useMemo(() => consoleLines.filter(Boolean), [consoleLines])
+  const liveLogStatus = t(`builds.${liveLogState}`)
+  const problemsPending = problemsLoading || (!!build && !problems && !problemsError)
 
   useEffect(() => {
     if (!isActive) return
     const refreshActiveBuild = () => {
       if (document.visibilityState !== 'visible') return
       reloadBuild()
-      reloadLogs()
+      if (liveLogState !== 'live') reloadLogs()
       reloadTimeline()
-      reloadProblems()
-      reloadChain()
+      if (activeTab === 'problems') reloadProblems()
       reloadArtifacts()
     }
     const timer = setInterval(refreshActiveBuild, 2000)
@@ -103,34 +119,80 @@ export default function BuildDetail() {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', refreshActiveBuild)
     }
-  }, [isActive, reloadArtifacts, reloadBuild, reloadChain, reloadLogs, reloadProblems, reloadTimeline])
+  }, [activeTab, isActive, liveLogState, reloadArtifacts, reloadBuild, reloadLogs, reloadProblems, reloadTimeline])
 
   useEffect(() => {
-    if (isFinished) reloadArtifacts()
-  }, [isFinished, reloadArtifacts])
+    const wasActive = activeBuildRef.current === buildId
+    if (isActive) activeBuildRef.current = buildId
+    if (!wasActive || !isFinished) return
+    activeBuildRef.current = null
+    reloadLogs()
+    reloadTimeline()
+    reloadArtifacts()
+    if (activeTab === 'problems') reloadProblems()
+  }, [activeTab, buildId, isActive, isFinished, reloadArtifacts, reloadLogs, reloadProblems, reloadTimeline])
 
   useEffect(() => {
     followConsoleRef.current = true
     setFollowConsole(true)
   }, [buildId])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (activeTab !== 'current') return
     if (!followConsoleRef.current) return
-    const frame = window.requestAnimationFrame(() => {
+    const scrollToLatest = () => {
+      if (!followConsoleRef.current) return
       const consoleOutput = consoleRef.current
       if (consoleOutput) consoleOutput.scrollTop = consoleOutput.scrollHeight
-    })
+    }
+    scrollToLatest()
+    const frame = window.requestAnimationFrame(scrollToLatest)
     return () => window.cancelAnimationFrame(frame)
-  }, [displayedLog])
+  }, [activeTab, displayedLog])
+
+  useEffect(() => {
+    if (activeTab !== 'current') return
+    const consoleOutput = consoleRef.current
+    if (!consoleOutput) return
+    const pauseFollowing = () => {
+      if (!followConsoleRef.current) return
+      followConsoleRef.current = false
+      setFollowConsole(false)
+    }
+    consoleOutput.addEventListener('wheel', pauseFollowing, { passive: true })
+    return () => consoleOutput.removeEventListener('wheel', pauseFollowing)
+  }, [activeTab, build?.id])
 
   const setConsoleFollowing = (next: boolean) => {
     followConsoleRef.current = next
     setFollowConsole(next)
     if (!next) return
-    window.requestAnimationFrame(() => {
+    const scrollToLatest = () => {
+      if (!followConsoleRef.current) return
       const consoleOutput = consoleRef.current
       if (consoleOutput) consoleOutput.scrollTop = consoleOutput.scrollHeight
-    })
+    }
+    scrollToLatest()
+    window.requestAnimationFrame(scrollToLatest)
+  }
+
+  const selectTab = (tab: BuildDetailTab) => {
+    const next = new URLSearchParams(searchParams)
+    if (tab === 'current') next.delete('tab')
+    else next.set('tab', tab)
+    setSearchParams(next, { replace: true })
+  }
+
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+    const current = Math.max(0, tabs.indexOf(document.activeElement as HTMLButtonElement))
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : event.key === 'ArrowRight' ? (current + 1) % tabs.length : (current - 1 + tabs.length) % tabs.length
+    const tabOrder: BuildDetailTab[] = ['current', 'problems', 'artifacts']
+    const tab = tabOrder[next] || 'current'
+    selectTab(tab)
+    tabs[next]?.focus()
   }
 
   const handleStop = async () => {
@@ -140,7 +202,6 @@ export default function BuildDetail() {
       await api.stopBuild(buildId)
       reloadBuild()
       reloadTimeline()
-      reloadProblems()
       dialogs.notify(t('builds.stopRequested'), 'success')
     } catch (reason: any) {
       dialogs.notify(reason.message || t('common.error'))
@@ -189,7 +250,6 @@ export default function BuildDetail() {
   if (error) return <PageState error={error} onRetry={reloadBuild} />
   if (!build) return null
 
-  const logLines = displayedLog.split('\n').filter(Boolean)
   const timelineSteps = timeline?.steps || []
   const activeTimelineStep = timelineSteps.find(step => step.status === 'running' || step.status === 'failed' || step.status === 'cancelled')
   const lastStage = activeTimelineStep?.stage || [...logLines].reverse().map(line => line.match(/^\[[^\]]+\] \[([^\]]*)\]/)?.[1]).find(Boolean) || t('builds.waiting')
@@ -200,24 +260,24 @@ export default function BuildDetail() {
     .replace('{percent}', String(progress))
   const parameters = parseParameters(build.parameters)
   const projectName = buildProject?.name || build.project_name || `${t('builds.project')} #${build.project_id}`
-  const retriedFromBuild = build.retried_from ? chain?.nodes.find(node => node.id === build.retried_from) : null
-  const dependencyBuild = build.wait_dependency_on ? chain?.nodes.find(node => node.id === build.wait_dependency_on) : null
-  const supplementalErrors = [logsError, timelineError, problemsError, chainError, artifactsError].filter(Boolean)
-  const reloadSupplementalData = () => {
+  const currentBuildLabel = locale === 'zh-CN'
+    ? `${t('builds.currentBuild')}${t('builds.build')}`
+    : `${t('builds.currentBuild')} ${t('builds.build')}`
+  const currentBuildErrors = [logsError, timelineError].filter(Boolean)
+  const reloadCurrentBuildData = () => {
     reloadLogs()
     reloadTimeline()
-    reloadProblems()
-    reloadChain()
-    reloadArtifacts()
   }
 
   return <>
     <JenkinsHeaderBreadcrumb breadcrumbs={[{ label: projectName, to: `/projects/${build.project_id}` }, { label: `#${build.number}` }]} />
-    <motion.section className="jenkins-run-page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+    <section className="jenkins-run-page">
     <div className="jenkins-run-layout">
       <aside className="jenkins-run-side-panel" aria-label={t('builds.build')}>
         <nav className="jenkins-run-tasks">
-          <a className="active" href="#overview"><Activity />{t('projectDetail.status')}</a>
+          <button type="button" className={activeTab === 'current' ? 'active' : ''} onClick={() => selectTab('current')}><Activity />{currentBuildLabel}</button>
+          <button type="button" className={activeTab === 'problems' ? 'active' : ''} onClick={() => selectTab('problems')}><AlertTriangle />{t('builds.problems')}</button>
+          <button type="button" className={activeTab === 'artifacts' ? 'active' : ''} onClick={() => selectTab('artifacts')}><Package />{t('builds.artifacts')}</button>
           <Link to={`/projects/${build.project_id}/changes?build=${buildId}`}><GitCommitHorizontal />{t('projectDetail.changes')}</Link>
           <Link to={`/builds/${buildId}/logs`}><FileText />{t('builds.logs')}</Link>
           <Link to={`/builds/${buildId}/tests`}><FlaskConical />{t('builds.testReports')}</Link>
@@ -251,11 +311,18 @@ export default function BuildDetail() {
           </div>
         </header>
 
-        <p className="jenkins-run-description"><strong>{t(`builds.${build.status}`)}</strong>{isExecuting ? ` · ${t('builds.followingOutput')}` : ` · ${t('builds.outputComplete')}`}</p>
+        <p className="jenkins-run-description"><strong>{t(`builds.${build.status}`)}</strong>{isExecuting ? ` · ${liveLogStatus}` : ` · ${t('builds.outputComplete')}`}</p>
 
-        {supplementalErrors.length > 0 && <div className="jenkins-run-data-warning" role="alert">
-          <span>{supplementalErrors[0]}</span>
-          <button type="button" onClick={reloadSupplementalData}>{t('common.retry')}</button>
+        <div className="jenkins-run-tabs" role="tablist" aria-label={t('builds.build')} onKeyDown={handleTabKeyDown}>
+          <button type="button" role="tab" id="build-tab-current" aria-controls="build-panel-current" aria-selected={activeTab === 'current'} tabIndex={activeTab === 'current' ? 0 : -1} className={activeTab === 'current' ? 'active' : ''} onClick={() => selectTab('current')}><Activity size={15} />{currentBuildLabel}</button>
+          <button type="button" role="tab" id="build-tab-problems" aria-controls="build-panel-problems" aria-selected={activeTab === 'problems'} tabIndex={activeTab === 'problems' ? 0 : -1} className={activeTab === 'problems' ? 'active' : ''} onClick={() => selectTab('problems')}><AlertTriangle size={15} />{t('builds.problems')}{problems && <span>{problems.problems.length}</span>}</button>
+          <button type="button" role="tab" id="build-tab-artifacts" aria-controls="build-panel-artifacts" aria-selected={activeTab === 'artifacts'} tabIndex={activeTab === 'artifacts' ? 0 : -1} className={activeTab === 'artifacts' ? 'active' : ''} onClick={() => selectTab('artifacts')}><Package size={15} />{t('builds.artifacts')}<span>{(artifacts || []).length}</span></button>
+        </div>
+
+        <div className="jenkins-run-tab-panel" id="build-panel-current" role="tabpanel" aria-labelledby="build-tab-current" hidden={activeTab !== 'current'}>
+        {currentBuildErrors.length > 0 && <div className="jenkins-run-data-warning" role="alert">
+          <span>{currentBuildErrors[0]}</span>
+          <button type="button" onClick={reloadCurrentBuildData}>{t('common.retry')}</button>
         </div>}
 
         <section className="jenkins-run-facts" aria-label={t('builds.build')}>
@@ -266,15 +333,11 @@ export default function BuildDetail() {
           <article><span>{t('builds.started')}</span><strong>{formatTime(build.started_at)}</strong></article>
           <article><span>{t('builds.finished')}</span><strong>{formatTime(build.finished_at)}</strong></article>
           {(build.agent_id || build.agent_requirements) && <article><span>{t('builds.agent')}</span><strong><UserRound size={14} />{build.agent_id ? `#${build.agent_id}` : t('builds.ruleBased')}</strong></article>}
-          {build.retried_from && <article><span>{t('builds.retriedFrom')}</span><strong><Link to={`/builds/${build.retried_from}`}>{retriedFromBuild ? `#${retriedFromBuild.number}` : `ID ${build.retried_from}`}</Link></strong></article>}
-          {build.wait_dependency_on && <article><span>{t('builds.waitingForBuild')}</span><strong><Link to={`/builds/${build.wait_dependency_on}`}>{dependencyBuild ? `${dependencyBuild.project_name} #${dependencyBuild.number}` : `ID ${build.wait_dependency_on}`}</Link></strong></article>}
+          {build.retried_from && <article><span>{t('builds.retriedFrom')}</span><strong><Link to={`/builds/${build.retried_from}`}>ID {build.retried_from}</Link></strong></article>}
+          {build.wait_dependency_on && <article><span>{t('builds.waitingForBuild')}</span><strong><Link to={`/builds/${build.wait_dependency_on}`}>ID {build.wait_dependency_on}</Link></strong></article>}
         </section>
 
         {build.status === 'pending_approval' && build.approval && <BuildApprovalPanel buildId={buildId} approval={build.approval} onResolved={() => { reloadBuild(); reloadTimeline(); reloadLogs() }} />}
-
-        {problems && <BuildProblemsPanel buildId={buildId} projectId={build.project_id} report={problems} editable={editable} retrying={retrying} onRetry={handleRetry} />}
-
-        {chain && <BuildChainPanel chain={chain} />}
 
         {parameters.length > 0 && <section className="detail-panel build-parameters-panel jenkins-run-section">
           <header><div><SlidersHorizontal size={17} /><h2>{t('builds.parameters')}</h2><span>{parameters.length}</span></div></header>
@@ -298,30 +361,47 @@ export default function BuildDetail() {
             : <div className="timeline-empty"><CircleDot size={15} />{t('builds.waitingForPlan')}</div>}
         </section>
 
-        <section className="jenkins-run-section" id="console">
+        <section className="jenkins-run-section jenkins-console-section" id="console">
           <header className="jenkins-run-section-heading">
             <h2><FileText size={20} />{t('builds.logs')}</h2>
             <div className="jenkins-console-controls">
               {isActive && <button type="button" className={followConsole ? 'selected' : ''} aria-pressed={followConsole} onClick={() => setConsoleFollowing(!followConsole)}>{followConsole ? <Pause size={14} /> : <Play size={14} />}{followConsole ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>}
+              <button type="button" className={colorizeLogs ? 'selected' : ''} aria-label={t('builds.colorizeLogs')} title={t('builds.colorizeLogs')} aria-pressed={colorizeLogs} onClick={() => setColorizeLogs(current => { const next = !current; writeLogTonePreference(next); return next })}><Palette size={14} />{t('builds.colorizeLogs')}</button>
               <button type="button" onClick={() => handleLogDownload('txt')} disabled={downloading !== null} aria-busy={downloading === 'logs-txt'}>{downloading === 'logs-txt' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Download size={15} />}{downloading === 'logs-txt' ? t('builds.downloading') : t('builds.downloadText')}</button>
               <Link to={`/builds/${buildId}/logs`} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} />{t('builds.openStandaloneLogs')}</Link>
             </div>
           </header>
-          <pre ref={consoleRef} className="jenkins-console-output" id="out" onScroll={() => {
+          {logsResp?.truncated && <div className="jenkins-console-retention-warning" role="status">{t('builds.logTruncated').replace('{count}', String(logsResp.retention_characters || 1_000_000))}</div>}
+          <pre ref={consoleRef} className={`jenkins-console-output ${colorizeLogs ? 'log-tones-enabled' : ''}`} id="out" role="region" aria-label={t('builds.logs')} tabIndex={0} onScroll={() => {
             const consoleOutput = consoleRef.current
             if (!consoleOutput) return
-            const next = isNearLogBottom(consoleOutput)
-            if (followConsoleRef.current !== next) setConsoleFollowing(next)
-          }}>{displayedLog || t('builds.noLogs')}</pre>
-          {isExecuting && <div className="jenkins-console-progress" role="status" aria-live="polite">{followConsole ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pause size={16} />}{followConsole ? t('builds.followingOutput') : t('builds.followPaused')}</div>}
+            if (followConsoleRef.current && !isNearLogBottom(consoleOutput)) setConsoleFollowing(false)
+          }}>{consoleLines.length ? consoleLines.map((line, index) => <span className={`jenkins-console-line ${colorizeLogs ? logTone(line) : ''}`} key={index}>{line || '\u00a0'}</span>) : t('builds.noLogs')}</pre>
+          {isExecuting && <div className="jenkins-console-progress" role="status" aria-live="polite">{followConsole ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pause size={16} />}{followConsole ? liveLogStatus : t('builds.followPaused')}</div>}
         </section>
-
-        <section className="detail-panel artifacts-panel jenkins-run-section" id="artifacts"><header><div><FileText size={17} /><h2>{t('builds.artifacts')}</h2><span>{(artifacts || []).length}</span></div>{editable && <><input ref={fileInputRef} type="file" onChange={handleUpload} disabled={uploading} className="visually-hidden" id="artifact-upload" /><label htmlFor="artifact-upload" className={`jenkins-artifact-upload ${uploading ? 'is-disabled' : ''}`}><Upload size={15} />{uploading ? t('builds.uploading') : t('builds.uploadArtifact')}</label></>}</header>
+        </div>
+        <div className="jenkins-run-tab-panel jenkins-problems-tab-panel" id="build-panel-problems" role="tabpanel" aria-labelledby="build-tab-problems" hidden={activeTab !== 'problems'}>
+          <BuildProblemsPanel
+            buildId={buildId}
+            projectId={build.project_id}
+            report={problems}
+            loading={problemsPending}
+            error={problemsError}
+            editable={editable}
+            retrying={retrying}
+            onRetry={handleRetry}
+            onReload={reloadProblems}
+          />
+        </div>
+        <div className="jenkins-run-tab-panel jenkins-artifact-tab-panel" id="build-panel-artifacts" role="tabpanel" aria-labelledby="build-tab-artifacts" hidden={activeTab !== 'artifacts'}>
+        {artifactsError && <div className="jenkins-run-data-warning" role="alert"><span>{artifactsError}</span><button type="button" onClick={reloadArtifacts}>{t('common.retry')}</button></div>}
+        <section className="detail-panel artifacts-panel jenkins-run-section" id="artifacts"><header><div><Package size={17} /><h2>{t('builds.artifacts')}</h2><span>{(artifacts || []).length}</span></div>{editable && <><input ref={fileInputRef} type="file" onChange={handleUpload} disabled={uploading} className="visually-hidden" id="artifact-upload" /><label htmlFor="artifact-upload" className={`jenkins-artifact-upload ${uploading ? 'is-disabled' : ''}`}><Upload size={15} />{uploading ? t('builds.uploading') : t('builds.uploadArtifact')}</label></>}</header>
           {(artifacts || []).length === 0 ? <p className="detail-empty">{t('builds.noArtifacts')}</p> : <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>{t('builds.name')}</th><th>{t('builds.size')}</th><th>{t('builds.downloads')}</th><th aria-label={t('builds.download')} /></tr></thead><tbody>{(artifacts || []).map((artifact: any) => <tr key={artifact.id}><td><strong>{artifact.name}</strong></td><td className="muted-cell">{formatSize(artifact.size)}</td><td className="muted-cell">{artifact.download_count || artifact.downloads || 0}</td><td><button type="button" onClick={() => handleArtifactDownload(artifact)} disabled={downloading !== null} aria-busy={downloading === `artifact-${artifact.id}`} className="table-link">{downloading === `artifact-${artifact.id}` ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}{downloading === `artifact-${artifact.id}` ? t('builds.downloading') : t('builds.download')}</button></td></tr>)}</tbody></table></div>}
         </section>
+        </div>
       </div>
     </div>
-    </motion.section>
+    </section>
     {replayOpen && <ReplayBuildDialog
       target={{ id: buildId, number: build.number, projectId: build.project_id, projectName, branch: build.branch, parameters: build.parameters }}
       onBusyChange={setRetrying}

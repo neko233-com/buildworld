@@ -2,23 +2,27 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api'
 import { canEdit } from '../authz'
+import { dialogs } from './AppDialogs'
 import JenkinsHomeRail from './JenkinsHomeRail'
 
 vi.mock('../api', () => ({
   api: {
     listBuildQueue: vi.fn(),
     listAgents: vi.fn(),
+    retryBuild: vi.fn(),
   },
 }))
 
 vi.mock('../authz', () => ({ canEdit: vi.fn() }))
+vi.mock('./AppDialogs', () => ({ dialogs: { confirm: vi.fn(), notify: vi.fn() } }))
 
 const listBuildQueue = vi.mocked(api.listBuildQueue)
 const listAgents = vi.mocked(api.listAgents)
+const retryBuild = vi.mocked(api.retryBuild)
 const mockedCanEdit = vi.mocked(canEdit)
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 
@@ -36,6 +40,17 @@ const agents = [
   { id: 'd', name: 'Worker D', status: 'online', active_builds: 0, max_concurrent_builds: 1 },
 ]
 
+const recentBuilds = [
+  { id: 201, project_id: 1, project_name: 'Alpha', number: 12, status: 'success', branch: 'main', started_at: '2026-07-21T10:12:00Z' },
+  { id: 199, project_id: 1, project_name: 'Alpha', number: 11, status: 'failed', branch: 'main', started_at: '2026-07-21T10:10:00Z' },
+  { id: 202, project_id: 2, project_name: 'Beta', number: 8, status: 'running', branch: 'develop', started_at: '2026-07-21T10:11:00Z' },
+  { id: 198, project_id: 3, project_name: 'Gamma', number: 4, status: 'failed', started_at: '2026-07-21T10:09:00Z' },
+]
+
+function LocationProbe() {
+  return <output aria-label="current-location">{useLocation().pathname}</output>
+}
+
 describe('JenkinsHomeRail', () => {
   let container: HTMLDivElement
   let root: Root
@@ -46,6 +61,9 @@ describe('JenkinsHomeRail', () => {
     mockedCanEdit.mockReset().mockReturnValue(false)
     listBuildQueue.mockReset().mockResolvedValue(queue)
     listAgents.mockReset().mockResolvedValue(agents)
+    retryBuild.mockReset().mockResolvedValue({ id: 301 })
+    vi.mocked(dialogs.confirm).mockReset().mockResolvedValue(false)
+    vi.mocked(dialogs.notify).mockReset()
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -59,9 +77,9 @@ describe('JenkinsHomeRail', () => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
   })
 
-  async function render(editable?: boolean) {
+  async function render(editable?: boolean, builds = recentBuilds) {
     await act(async () => {
-      root.render(<MemoryRouter><JenkinsHomeRail editable={editable} /></MemoryRouter>)
+      root.render(<MemoryRouter><JenkinsHomeRail editable={editable} recentBuilds={builds} /><LocationProbe /></MemoryRouter>)
     })
   }
 
@@ -83,18 +101,21 @@ describe('JenkinsHomeRail', () => {
       '/projects',
       '/vcs-roots',
     ])
-    expect(container.querySelectorAll('.jenkins-rail-queue-item')).toHaveLength(4)
+    expect(container.querySelectorAll('#buildQueue .jenkins-rail-queue-item')).toHaveLength(4)
     expect(container.querySelector('a[href="/builds/101"]')).not.toBeNull()
     expect(container.textContent).toContain('Delta')
     expect(container.querySelector('#buildQueue .jenkins-rail-panel-title')?.textContent).toMatch(/\(4\)$/)
     expect(container.querySelectorAll('.jenkins-rail-agent-item')).toHaveLength(0)
     expect(container.querySelector('.jenkins-rail-panel-count')).toBeNull()
     expect(container.querySelector('progress')).toBeNull()
+    expect(container.querySelectorAll('.jenkins-rail-history-item')).toHaveLength(3)
+    expect(container.querySelector('.jenkins-rail-history-link')?.getAttribute('href')).toBe('/builds/201')
+    expect(container.querySelectorAll('.jenkins-rail-history-rebuild')).toHaveLength(0)
 
     const queueToggle = container.querySelector<HTMLButtonElement>('.jenkins-rail-panel-toggle')!
     act(() => queueToggle.click())
     expect(queueToggle.getAttribute('aria-expanded')).toBe('false')
-    expect(container.querySelector('.jenkins-rail-queue-list')).toBeNull()
+    expect(container.querySelector('#buildQueue .jenkins-rail-queue-list')).toBeNull()
     expect(localStorage.getItem('buildworld.jenkins.pane.buildQueue.collapsed')).toBe('true')
 
     await act(async () => {
@@ -159,5 +180,48 @@ describe('JenkinsHomeRail', () => {
     expect(listAgents).not.toHaveBeenCalled()
     expect(container.querySelector('[role="alert"]')).toBeNull()
     expect(container.querySelector('.jenkins-rail-empty')).not.toBeNull()
+  })
+
+  it('rebuilds a recent project only after confirmation and opens the queued build', async () => {
+    let resolveRetry!: (build: { id: number }) => void
+    const retryRequest = new Promise<{ id: number }>(resolve => { resolveRetry = resolve })
+    retryBuild.mockReturnValue(retryRequest)
+    await render(true)
+
+    const alphaRebuild = container.querySelector<HTMLButtonElement>('[data-build-id="201"]')!
+    const betaRebuild = container.querySelector<HTMLButtonElement>('[data-build-id="202"]')!
+    expect(alphaRebuild.disabled).toBe(false)
+    expect(betaRebuild.disabled).toBe(true)
+
+    await act(async () => alphaRebuild.click())
+    expect(dialogs.confirm).toHaveBeenCalledOnce()
+    expect(retryBuild).not.toHaveBeenCalled()
+
+    vi.mocked(dialogs.confirm).mockResolvedValueOnce(true)
+    await act(async () => {
+      alphaRebuild.click()
+      await Promise.resolve()
+    })
+    expect(retryBuild).toHaveBeenCalledWith(201)
+    expect(alphaRebuild.getAttribute('aria-busy')).toBe('true')
+    expect(container.querySelector('output[aria-label="current-location"]')?.textContent).toBe('/')
+
+    await act(async () => {
+      resolveRetry({ id: 301 })
+      await retryRequest
+    })
+    expect(dialogs.notify).toHaveBeenCalledWith(expect.stringContaining('Alpha #12'), 'success')
+    expect(container.querySelector('output[aria-label="current-location"]')?.textContent).toBe('/builds/301')
+  })
+
+  it('reports a quick rebuild failure without leaving the dashboard', async () => {
+    vi.mocked(dialogs.confirm).mockResolvedValueOnce(true)
+    retryBuild.mockRejectedValueOnce(new Error('queue offline'))
+    await render(true)
+
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-build-id="201"]')!.click())
+
+    expect(dialogs.notify).toHaveBeenCalledWith('queue offline')
+    expect(container.querySelector('output[aria-label="current-location"]')?.textContent).toBe('/')
   })
 })

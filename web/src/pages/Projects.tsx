@@ -1,4 +1,3 @@
-import { motion } from 'motion/react'
 import { useState } from 'react'
 import { Check, ChevronRight, CirclePlay, Folder, FolderGit2, FolderOpen, FolderTree, GitBranch, History, LayoutDashboard, LoaderCircle, Pin, Plus, Settings2, SlidersHorizontal, Star, Tag, Trash2, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -177,7 +176,7 @@ export default function Projects() {
   }
   const toggleTag = (tag: string) => setSelectedTags(current => current.some(value => value.toLowerCase() === tag.toLowerCase()) ? current.filter(value => value.toLowerCase() !== tag.toLowerCase()) : [...current, tag])
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+    <div>
       <JenkinsPageShell
         className="jenkins-projects-page"
         breadcrumbs={[{ label: t('projects.title') }]}
@@ -241,6 +240,6 @@ export default function Projects() {
       </div>
       </JenkinsPageShell>
       {showGroups && <ProjectGroupsDialog groups={groups} projects={list} onReload={() => { reloadGroups(); reloadProjects() }} onClose={() => setShowGroups(false)} />}
-    </motion.div>
+    </div>
   )
 }

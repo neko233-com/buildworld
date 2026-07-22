@@ -265,6 +265,11 @@
   background: color-mix(in srgb, var(--run-secondary) 12.5%, transparent);
 }
 
+[data-skin="jenkins"] #artifact-upload:focus-visible + .jenkins-artifact-upload {
+  outline: 2px solid var(--run-link);
+  outline-offset: 3px;
+}
+
 [data-skin="jenkins"] .jenkins-run-controls .danger {
   color: #fff;
   background: #c4001d;
@@ -311,6 +316,315 @@
 [data-skin="jenkins"] .jenkins-run-description strong {
   color: var(--run-text);
   font-weight: 450;
+}
+
+[data-skin="jenkins"] .jenkins-run-tabs {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 2px;
+  margin: 0 0 26px;
+  padding: 2px;
+  overflow-x: auto;
+  border: 1.5px solid var(--run-border);
+  border-radius: 19px;
+  background: var(--run-muted-surface);
+  scrollbar-width: none;
+}
+
+[data-skin="jenkins"] .jenkins-run-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+[data-skin="jenkins"] .jenkins-run-tabs button {
+  display: inline-flex;
+  min-width: 72px;
+  min-height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 19px;
+  border: 0;
+  border-radius: 17px;
+  color: var(--run-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+[data-skin="jenkins"] .jenkins-run-tabs button:hover {
+  color: var(--run-text);
+  background: color-mix(in srgb, var(--run-secondary) 8%, transparent);
+}
+
+[data-skin="jenkins"] .jenkins-run-tabs button:focus-visible {
+  outline: 2px solid var(--run-link);
+  outline-offset: 1px;
+}
+
+[data-skin="jenkins"] .jenkins-run-tabs button.active {
+  color: var(--run-text);
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--run-border), 0 1px 2px color-mix(in srgb, #20262d 8%, transparent);
+  font-weight: 450;
+}
+
+[data-skin="jenkins"] .jenkins-run-tabs button span {
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--run-secondary) 10%, transparent);
+  font-size: 11px;
+}
+
+[data-skin="jenkins"] .jenkins-run-tab-panel {
+  min-width: 0;
+}
+
+[data-skin="jenkins"] .jenkins-problems-tab-panel {
+  min-height: calc(100dvh - 238px);
+}
+
+[data-skin="jenkins"] .build-problems-panel {
+  overflow: hidden;
+  border: 1.5px solid var(--run-border);
+  border-left: 4px solid #cf3e49;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 2px color-mix(in srgb, #20262d 5%, transparent);
+}
+
+[data-skin="jenkins"] .build-problems-panel.warning {
+  border-left-color: #d6a21d;
+}
+
+[data-skin="jenkins"] .build-problems-panel > header {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--run-border-subtle);
+  background: #fffafa;
+}
+
+[data-skin="jenkins"] .build-problems-panel.warning > header {
+  background: #fffdf7;
+}
+
+[data-skin="jenkins"] .build-problems-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+}
+
+[data-skin="jenkins"] .build-problems-heading > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  color: #a8323c;
+  background: #fff0f1;
+}
+
+[data-skin="jenkins"] .build-problems-panel.warning .build-problems-heading > span {
+  color: #7a5b08;
+  background: #fff6dd;
+}
+
+[data-skin="jenkins"] .build-problems-heading h2,
+[data-skin="jenkins"] .build-problems-heading p {
+  margin: 0;
+}
+
+[data-skin="jenkins"] .build-problems-heading h2 {
+  color: var(--run-text);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+[data-skin="jenkins"] .build-problems-heading p {
+  margin-top: 4px;
+  color: var(--run-secondary);
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .build-problem-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+[data-skin="jenkins"] .build-problem-actions a,
+[data-skin="jenkins"] .build-problem-actions button,
+[data-skin="jenkins"] .build-problems-state button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid var(--run-border);
+  border-radius: 8px;
+  color: var(--run-text);
+  background: #fff;
+  font-size: 12px;
+  font-weight: 550;
+  text-decoration: none;
+}
+
+[data-skin="jenkins"] .build-problem-actions a:hover,
+[data-skin="jenkins"] .build-problem-actions button:hover:not(:disabled),
+[data-skin="jenkins"] .build-problems-state button:hover {
+  border-color: #a9c9e8;
+  color: var(--run-link);
+  background: #f5faff;
+}
+
+[data-skin="jenkins"] .build-problem-actions a:focus-visible,
+[data-skin="jenkins"] .build-problem-actions button:focus-visible,
+[data-skin="jenkins"] .build-problems-state button:focus-visible {
+  outline: 2px solid var(--run-link);
+  outline-offset: 2px;
+}
+
+[data-skin="jenkins"] .build-problem-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+[data-skin="jenkins"] .build-problems-panel ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-skin="jenkins"] .build-problems-panel li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--run-border-subtle);
+}
+
+[data-skin="jenkins"] .build-problems-panel .problem-index {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  color: #a8323c;
+  background: #fff0f1;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+[data-skin="jenkins"] .build-problems-panel li.warning .problem-index {
+  color: #7a5b08;
+  background: #fff6dd;
+}
+
+[data-skin="jenkins"] .problem-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+[data-skin="jenkins"] .problem-title-row strong {
+  color: var(--run-text);
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .problem-title-row small {
+  color: var(--run-secondary);
+  font-size: 11px;
+}
+
+[data-skin="jenkins"] .problem-title-row code {
+  padding: 2px 6px;
+  border-radius: 5px;
+  color: #91303a;
+  background: #fff2f3;
+  font-size: 10px;
+}
+
+[data-skin="jenkins"] .build-problems-panel li p {
+  margin: 6px 0 0;
+  color: var(--run-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+[data-skin="jenkins"] .build-problems-panel li pre {
+  margin: 10px 0 0;
+  padding: 11px 13px;
+  overflow: auto;
+  border-radius: 8px;
+  color: #f6d7da;
+  background: #231b1d;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+[data-skin="jenkins"] .build-problems-panel > footer {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 16px;
+  color: var(--run-secondary);
+  background: var(--run-muted-surface);
+  font-size: 11px;
+}
+
+[data-skin="jenkins"] .build-problems-state {
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px;
+  color: var(--run-secondary);
+  text-align: center;
+}
+
+[data-skin="jenkins"] .build-problems-state.error {
+  color: #982c35;
+}
+
+[data-skin="jenkins"] .build-problems-state.error > div {
+  max-width: 620px;
+  text-align: left;
+}
+
+[data-skin="jenkins"] .build-problems-state.error strong,
+[data-skin="jenkins"] .build-problems-state.error p {
+  display: block;
+  margin: 0;
+}
+
+[data-skin="jenkins"] .build-problems-state.error p {
+  margin-top: 4px;
+  color: var(--run-secondary);
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .build-problems-state.empty {
+  color: #31795a;
 }
 
 [data-skin="jenkins"] .jenkins-run-facts {
@@ -396,11 +710,15 @@
 }
 
 [data-skin="jenkins"] .jenkins-console-output {
-  min-height: 240px;
-  max-height: 520px;
+  width: 100%;
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 0;
   margin: 0;
   padding: 13px 16px;
   overflow: auto;
+  overscroll-behavior: auto;
+  scrollbar-gutter: stable;
   border: 1.5px solid var(--run-border);
   border-radius: 10px;
   color: var(--run-text);
@@ -410,6 +728,55 @@
   line-height: 1.66;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+[data-skin="jenkins"] .jenkins-console-line {
+  display: block;
+  min-height: 1.66em;
+  margin: 0 -16px;
+  padding: 0 16px;
+  border-left: 3px solid transparent;
+  color: inherit;
+}
+
+[data-skin="jenkins"] .jenkins-console-output.log-tones-enabled .jenkins-console-line.info {
+  color: #33404c;
+}
+
+[data-skin="jenkins"] .jenkins-console-output.log-tones-enabled .jenkins-console-line.warning {
+  border-left-color: #d6a21d;
+  color: #715408;
+  background: #fffaf0;
+}
+
+[data-skin="jenkins"] .jenkins-console-output.log-tones-enabled .jenkins-console-line.error {
+  border-left-color: #cf3e49;
+  color: #982c35;
+  background: #fff4f4;
+}
+
+[data-skin="jenkins"] .jenkins-console-section {
+  display: flex;
+  height: calc(100dvh - 92px);
+  min-height: calc(100dvh - 92px);
+  max-height: calc(100dvh - 92px);
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+[data-skin="jenkins"] .jenkins-console-retention-warning {
+  padding: 9px 13px;
+  border: 1.5px solid #d4ae4f;
+  border-bottom: 0;
+  border-radius: 9px 9px 0 0;
+  color: #6f5310;
+  background: #fff8df;
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .jenkins-console-retention-warning + .jenkins-console-output {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 [data-skin="jenkins"] .jenkins-console-progress {
@@ -425,7 +792,6 @@
 [data-skin="jenkins"] .jenkins-run-page .build-timeline,
 [data-skin="jenkins"] .jenkins-run-page .detail-panel,
 [data-skin="jenkins"] .jenkins-run-page .build-chain-panel,
-[data-skin="jenkins"] .jenkins-run-page .build-problems-panel,
 [data-skin="jenkins"] .jenkins-run-page .build-approval-panel {
   border-color: var(--run-border);
   border-radius: 12px;
@@ -453,6 +819,10 @@
   margin-bottom: 0;
   overflow: hidden;
   background: #fff;
+}
+
+[data-skin="jenkins"] .jenkins-artifact-tab-panel {
+  min-height: calc(100dvh - 238px);
 }
 
 [data-skin="jenkins"] .jenkins-run-page .artifacts-panel > header {
@@ -545,6 +915,10 @@
     margin-left: 0;
   }
 
+  [data-skin="jenkins"] .jenkins-run-tabs {
+    width: 100%;
+  }
+
   [data-skin="jenkins"] .jenkins-run-facts {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -556,6 +930,32 @@
   [data-skin="jenkins"] .jenkins-run-section-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  [data-skin="jenkins"] .jenkins-console-section {
+    height: calc(100dvh - 70px);
+    min-height: calc(100dvh - 70px);
+    max-height: calc(100dvh - 70px);
+  }
+
+  [data-skin="jenkins"] .build-problems-panel > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  [data-skin="jenkins"] .build-problem-actions {
+    justify-content: flex-start;
+  }
+
+  [data-skin="jenkins"] .build-problem-actions a,
+  [data-skin="jenkins"] .build-problem-actions button {
+    flex: 1 1 auto;
+  }
+
+  [data-skin="jenkins"] .build-problems-state.error {
+    align-items: flex-start;
+    flex-direction: column;
+    text-align: left;
   }
 }
 

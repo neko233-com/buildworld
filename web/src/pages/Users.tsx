@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { motion } from 'motion/react'
 import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserRound, UsersRound, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
@@ -91,7 +90,7 @@ export default function Users() {
   const active = list.filter(user => hasLoggedIn(user.last_login)).length
 
   return (
-    <>{breadcrumb}<motion.section className="operations-page users-workbench jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <>{breadcrumb}<section className="operations-page users-workbench jenkins-management-page">
       <header className="operations-heading">
         <div><p>{list.length} {t('users.accounts')}</p><h1>{t('users.title')}</h1></div>
         <button className="primary-command" type="button" onClick={openCreate}><Plus size={16} />{t('users.addUser')}</button>
@@ -131,6 +130,6 @@ export default function Users() {
             <footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}><KeyRound size={14} />{saving ? t('common.loading') : t('common.save')}</button></footer>
           </form>
       </ModalDialog>}
-    </motion.section></>
+    </section></>
   )
 }

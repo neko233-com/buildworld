@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'motion/react'
 import { Activity, ChevronLeft, ChevronRight, FileClock, FileText, FolderTree, LayoutDashboard, LoaderCircle, Pin, PinOff, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useI18n } from '../i18n'
@@ -99,7 +98,7 @@ export default function Builds() {
   const firstItem = result?.total ? result.offset + 1 : 0
   const lastItem = result ? Math.min(result.offset + result.items.length, result.total) : 0
 
-  return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+  return <div>
     <JenkinsPageShell
       className="jenkins-build-history-page"
       breadcrumbs={[{ label: t('builds.title') }]}
@@ -170,5 +169,5 @@ export default function Builds() {
       onClose={() => setReplayTarget(null)}
       onReplayed={replayedID => { setReplayTarget(null); navigate(`/builds/${replayedID}`) }}
     />}
-  </motion.div>
+  </div>
 }
