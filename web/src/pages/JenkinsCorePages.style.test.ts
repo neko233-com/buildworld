@@ -22,7 +22,7 @@ describe('Jenkins 2.563 core page geometry', () => {
 
   it('compacts project directory rows without shrinking action targets', () => {
     expect(styles).toMatch(/\.jenkins-projects-page \.projects-table thead th\s*\{[^}]*height:\s*36px[^}]*padding-block:\s*3px[^}]*white-space:\s*nowrap/s)
-    expect(styles).toMatch(/\.jenkins-projects-page \.projects-table tbody td\s*\{[^}]*height:\s*44px[^}]*padding-block:\s*3px/s)
+    expect(styles).toMatch(/\.jenkins-projects-page \.projects-table tbody td\s*\{[^}]*height:\s*52px[^}]*padding-block:\s*6px/s)
     expect(styles).toMatch(/\.jenkins-projects-page \.projects-table td\.muted-cell\s*\{[^}]*white-space:\s*nowrap/s)
     expect(styles).toMatch(/\.jenkins-projects-page \.projects-table \.entity-link strong\s*\{[^}]*line-height:\s*16px[^}]*white-space:\s*nowrap/s)
     expect(styles).toMatch(/\.jenkins-projects-page \.projects-table \.entity-link small\s*\{[^}]*margin-top:\s*1px[^}]*font-size:\s*12px[^}]*line-height:\s*15px[^}]*white-space:\s*nowrap/s)
