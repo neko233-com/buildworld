@@ -7,6 +7,7 @@ import { ModalDialog } from '../components/ModalDialog'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { PageState } from '../components/PageState'
 import { useI18n } from '../i18n'
+import { formatDateTime } from '../lib/dateTime'
 import './ManagementPages.jenkins.css'
 
 type CredentialType = 'ssh_key' | 'git'
@@ -190,7 +191,7 @@ export default function Credentials() {
                 <td><code className="credential-host">{credential.host || '*'}</code></td>
                 <td className="muted-cell">{credential.username || '-'}</td>
                 <td>{!hasSecret ? <span className="muted-cell">{t('credentials.noSecret')}</span> : <div className="credential-secret">{secret !== undefined ? <code>{secret || t('credentials.emptySecret')}</code> : <span>••••••••</span>}<button className="row-icon" type="button" disabled={revealingID !== null || deletingID !== null} aria-busy={revealing || undefined} title={secret !== undefined ? t('credentials.hide') : t('credentials.reveal')} aria-label={`${secret !== undefined ? t('credentials.hide') : t('credentials.reveal')}: ${credential.name}`} onClick={() => void toggleReveal(credential)}>{revealing ? <LoaderCircle className="timeline-spinner" size={14} /> : secret !== undefined ? <EyeOff size={14} /> : <Eye size={14} />}</button>{secret !== undefined && secret && <button className="row-icon" type="button" disabled={deletingID !== null} title={t('common.copy')} aria-label={`${t('common.copy')}: ${credential.name}`} onClick={() => void copySecret(secret)}><Copy size={14} /></button>}</div>}</td>
-                <td className="muted-cell">{credential.updated_at ? new Date(credential.updated_at).toLocaleString() : '-'}</td>
+                <td className="muted-cell">{formatDateTime(credential.updated_at)}</td>
                 <td><div className="row-actions"><button className="row-icon" type="button" disabled={deletingID !== null} title={t('credentials.edit')} aria-label={`${t('credentials.edit')}: ${credential.name}`} onClick={() => openEdit(credential)}><Pencil size={15} /></button><button className="row-icon danger" type="button" disabled={deletingID !== null || revealingID !== null} aria-busy={deleting || undefined} title={t('common.delete')} aria-label={`${t('common.delete')}: ${credential.name}`} onClick={() => void handleDelete(credential)}>{deleting ? <LoaderCircle className="timeline-spinner" size={15} /> : <Trash2 size={15} />}</button></div></td>
               </tr>
             })}

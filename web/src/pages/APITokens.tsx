@@ -7,6 +7,7 @@ import { dialogs } from '../components/AppDialogs'
 import { ModalDialog } from '../components/ModalDialog'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { PageState } from '../components/PageState'
+import { formatDate, formatDateTime } from '../lib/dateTime'
 import './ManagementPages.jenkins.css'
 
 interface APIToken {
@@ -150,9 +151,9 @@ export default function APITokens() {
                 <td><span className="api-token-name"><KeyRound size={15} /><strong>{token.name}</strong></span></td>
                 <td><code className="api-token-prefix">{token.token_prefix || '-'}{token.token_prefix ? '…' : ''}</code></td>
                 <td><span className="api-token-scopes">{parsedScopes.length ? parsedScopes.map(scope => <span key={scope}>{scope}</span>) : <span>{t('apiTokens.allScopes')}</span>}</span></td>
-                <td><span className={`api-token-status ${expired ? 'expired' : 'active'}`}>{expired ? t('apiTokens.expired') : token.expires_at ? `${t('apiTokens.activeUntil')} ${new Date(token.expires_at).toLocaleDateString()}` : t('apiTokens.noExpiry')}</span></td>
-                <td className="muted-cell">{token.last_used_at ? new Date(token.last_used_at).toLocaleString() : t('apiTokens.neverUsed')}</td>
-                <td className="muted-cell">{token.created_at ? new Date(token.created_at).toLocaleString() : '-'}</td>
+                <td><span className={`api-token-status ${expired ? 'expired' : 'active'}`}>{expired ? t('apiTokens.expired') : token.expires_at ? `${t('apiTokens.activeUntil')} ${formatDate(token.expires_at)}` : t('apiTokens.noExpiry')}</span></td>
+                <td className="muted-cell">{token.last_used_at ? formatDateTime(token.last_used_at) : t('apiTokens.neverUsed')}</td>
+                <td className="muted-cell">{formatDateTime(token.created_at)}</td>
                 <td><button className="row-icon danger" type="button" disabled={deletingID !== null} aria-busy={deleting || undefined} onClick={() => void handleDelete(token)} title={t('apiTokens.remove')} aria-label={`${t('apiTokens.remove')}: ${token.name}`}>{deleting ? <LoaderCircle className="timeline-spinner" size={15} /> : <Trash2 size={15} />}</button></td>
               </tr>
             })}

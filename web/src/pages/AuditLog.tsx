@@ -5,6 +5,7 @@ import { PageState } from '../components/PageState'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { api } from '../api'
 import { useApi } from '../hooks'
+import { formatDateTime } from '../lib/dateTime'
 import './ManagementPages.jenkins.css'
 
 interface AuditEntry {
@@ -70,7 +71,7 @@ export default function AuditLog() {
           <tbody>
             {!rows.length && <tr><td colSpan={7} className="operations-empty"><ClipboardList size={18} />{t('auditLog.empty')}</td></tr>}
             {rows.map(entry => <tr key={entry.id}>
-              <td className="muted-cell audit-time">{entry.created_at ? new Date(entry.created_at).toLocaleString() : '-'}</td>
+              <td className="muted-cell audit-time">{formatDateTime(entry.created_at)}</td>
               <td><span className="audit-actor"><UserRound size={13} /><span>{entry.username || entry.user || `#${entry.user_id || '-'}`}</span></span></td>
               <td><span className={`audit-action ${entry.action}`}>{entry.action}</span></td>
               <td className="muted-cell">{entry.resource_type || '-'}</td>

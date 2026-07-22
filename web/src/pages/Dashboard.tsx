@@ -10,6 +10,7 @@ import ProjectGroupsDialog from '../components/ProjectGroupsDialog'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
+import { formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { sortProjectGroups } from '../lib/projectGroups'
 import { useJenkinsBuildFlow } from './projectBuildFlow'
@@ -26,11 +27,11 @@ function initialIconSize(): IconSize {
   return stored === 'small' || stored === 'large' ? stored : 'medium'
 }
 
-function BuildReference({ build, locale, emptyLabel }: { build?: any; locale: string; emptyLabel: string }) {
+function BuildReference({ build, emptyLabel }: { build?: any; emptyLabel: string }) {
   if (!build) return <span className="jenkins-empty-value">{emptyLabel}</span>
   return <span className="jenkins-build-reference">
     <Link to={`/builds/${build.id}`}>#{build.number}</Link>
-    <small>{build.started_at ? new Date(build.started_at).toLocaleString(locale) : '-'}</small>
+    <small>{formatDateTime(build.started_at)}</small>
   </span>
 }
 
@@ -166,8 +167,8 @@ export default function Dashboard() {
                 <td><span className={`jenkins-status-orb ${status}`} role="img" aria-label={statusLabel} title={statusLabel} /></td>
                 <td><Health builds={recentStatuses} label={`${project.name} ${t('statistics.successRate')}`} /></td>
                 <td><Link className="jenkins-job-name" to={`/projects/${project.id}`}><span><strong>{project.name}</strong>{project.default_branch && <small>{project.default_branch}</small>}</span></Link></td>
-                <td><BuildReference build={lastSuccess} locale={locale} emptyLabel={t('projectDetail.none')} /></td>
-                <td><BuildReference build={lastFailure} locale={locale} emptyLabel={t('projectDetail.none')} /></td>
+                <td><BuildReference build={lastSuccess} emptyLabel={t('projectDetail.none')} /></td>
+                <td><BuildReference build={lastFailure} emptyLabel={t('projectDetail.none')} /></td>
                 <td className="jenkins-duration">{formatDuration(latest?.duration_ms)}</td>
                 <td><div className="jenkins-job-actions">
                   <button type="button" className={project.favorite ? 'active' : ''} disabled={flagBusy !== null} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'favorite'} aria-label={`${project.favorite ? t('projects.unfavorite') : t('projects.favorite')} ${project.name}`} title={project.favorite ? t('projects.unfavorite') : t('projects.favorite')} onClick={() => toggleFlag(project, 'favorite')}>{flagBusy?.id === project.id && flagBusy?.flag === 'favorite' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Star size={15} />}</button>

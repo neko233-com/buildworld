@@ -5,6 +5,7 @@ import { api } from '../api'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { PageState } from '../components/PageState'
+import { formatDate, formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { currentRole, isAdmin } from '../authz'
 import JenkinsHomeRail from '../components/JenkinsHomeRail'
@@ -37,7 +38,7 @@ function Metric({ icon: Icon, label, value, detail, tone = '' }: { icon: typeof 
 }
 
 export default function MyDashboard() {
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const [data, setData] = useState<DashboardData>(emptyData)
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -80,8 +81,6 @@ export default function MyDashboard() {
 
   const maxTrend = useMemo(() => Math.max(1, ...data.trend_data.map(point => point.success + point.failed + point.running)), [data.trend_data])
   const visibleRecentBuilds = data.recent_builds.slice(0, 8)
-  const formatDate = (value: string) => value ? new Date(value.replace(' ', 'T')).toLocaleString(locale === 'en' ? 'en-US' : locale) : '-'
-
   if (loading) return <PageState />
 
   return <section className="jenkins-home jenkins-user-dashboard">
@@ -90,7 +89,7 @@ export default function MyDashboard() {
     <div className="operations-page data-dashboard-page">
     <header className="jenkins-page-heading data-dashboard-heading">
       <div><p>{t('nav.myDashboard')}</p><h1>{t('myDashboard.title')}</h1><small>{t('myDashboard.subtitle')}</small></div>
-      <div><span>{t('bigScreen.lastUpdate')}: {lastUpdate?.toLocaleTimeString(locale === 'en' ? 'en-US' : locale) || '-'}</span><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
+      <div><span>{t('bigScreen.lastUpdate')}: {formatDateTime(lastUpdate)}</span><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
     </header>
 
     {error && !lastUpdate && <PageState error={error} onRetry={() => fetchData()} />}
@@ -107,7 +106,7 @@ export default function MyDashboard() {
     <div className="data-dashboard-grid">
       <section className="data-panel recent-build-panel">
         <header><div><Activity size={16} /><h2>{t('bigScreen.recentBuilds')}</h2></div><div className="data-panel-actions"><span>{visibleRecentBuilds.length}/{data.recent_builds.length}</span><Link to="/builds">{t('dashboard.viewAllBuilds')}</Link></div></header>
-        <div className="operations-table-wrap"><table className="operations-table data-build-table"><caption className="sr-only">{t('bigScreen.recentBuilds')}</caption><thead><tr><th>{t('projects.name')}</th><th>{t('builds.status')}</th><th>{t('builds.branch')}</th><th>{t('builds.duration')}</th><th>{t('projectDetail.started')}</th></tr></thead><tbody>{!visibleRecentBuilds.length && <tr><td colSpan={5} className="operations-empty">{t('common.noData')}</td></tr>}{visibleRecentBuilds.map(build => { const tone = buildStatusTone(build.status); return <tr key={build.id}><td><Link className="data-build-link" to={`/builds/${build.id}`}><strong>{build.project}</strong><small>#{build.number}</small></Link></td><td><span className={`jenkins-build-state ${tone}`}>{tone === 'running' ? <LoaderCircle className="timeline-spinner" size={20} aria-hidden="true" /> : <i aria-hidden="true" />}<span>{buildStatusLabel(t, build.status)}</span></span></td><td><code>{build.branch || '-'}</code></td><td className="muted-cell">{formatDuration(build.duration_ms)}</td><td className="muted-cell">{formatDate(build.started_at)}</td></tr>})}</tbody></table></div>
+        <div className="operations-table-wrap"><table className="operations-table data-build-table"><caption className="sr-only">{t('bigScreen.recentBuilds')}</caption><thead><tr><th>{t('projects.name')}</th><th>{t('builds.status')}</th><th>{t('builds.branch')}</th><th>{t('builds.duration')}</th><th>{t('projectDetail.started')}</th></tr></thead><tbody>{!visibleRecentBuilds.length && <tr><td colSpan={5} className="operations-empty">{t('common.noData')}</td></tr>}{visibleRecentBuilds.map(build => { const tone = buildStatusTone(build.status); return <tr key={build.id}><td><Link className="data-build-link" to={`/builds/${build.id}`}><strong>{build.project}</strong><small>#{build.number}</small></Link></td><td><span className={`jenkins-build-state ${tone}`}>{tone === 'running' ? <LoaderCircle className="timeline-spinner" size={20} aria-hidden="true" /> : <i aria-hidden="true" />}<span>{buildStatusLabel(t, build.status)}</span></span></td><td><code>{build.branch || '-'}</code></td><td className="muted-cell">{formatDuration(build.duration_ms)}</td><td className="muted-cell">{formatDateTime(build.started_at)}</td></tr>})}</tbody></table></div>
       </section>
 
       <section className="data-panel trend-panel">
@@ -116,8 +115,8 @@ export default function MyDashboard() {
           const success = point.success / maxTrend * 100
           const failed = point.failed / maxTrend * 100
           const running = point.running / maxTrend * 100
-          const pointLabel = `${point.date}: ${t('status.success')} ${point.success}, ${t('status.failed')} ${point.failed}, ${t('status.running')} ${point.running}`
-          return <div className="trend-column" key={point.date} role="img" aria-label={pointLabel}><div className="trend-values" aria-hidden="true"><span>{point.success + point.failed + point.running}</span><i className="running" style={{ height: `${running}%` }} /><i className="failed" style={{ height: `${failed}%` }} /><i className="success" style={{ height: `${success}%` }} /></div><small aria-hidden="true">{point.date.slice(5)}</small></div>
+          const pointLabel = `${formatDate(point.date)}: ${t('status.success')} ${point.success}, ${t('status.failed')} ${point.failed}, ${t('status.running')} ${point.running}`
+          return <div className="trend-column" key={point.date} role="img" aria-label={pointLabel}><div className="trend-values" aria-hidden="true"><span>{point.success + point.failed + point.running}</span><i className="running" style={{ height: `${running}%` }} /><i className="failed" style={{ height: `${failed}%` }} /><i className="success" style={{ height: `${success}%` }} /></div><small aria-hidden="true">{formatDate(point.date)}</small></div>
         })}</div> : <p className="data-panel-empty">{t('common.noData')}</p>}
         <footer className="trend-legend"><span><i className="success" />{t('status.success')}</span><span><i className="failed" />{t('status.failed')}</span><span><i className="running" />{t('status.running')}</span></footer>
       </section>

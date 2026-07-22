@@ -13,6 +13,21 @@ Before creating or uploading any release bundle, complete all applicable test
 suites and required production checks. Packaging and upload are forbidden while
 verification is incomplete or failing.
 
+## Date and time presentation
+
+- Human-visible calendar dates use exactly `yyyy-MM-dd`. Human-visible
+  timestamps use exactly `yyyy-MM-dd HH:mm:ss,SSS`. Timezone-aware source
+  timestamps are rendered in the user's local timezone; offset-less source
+  timestamps retain their supplied wall-clock value.
+- Web UI code must use `web/src/lib/dateTime.ts` (`formatDate` or
+  `formatDateTime`). Do not render user-visible dates with locale-dependent
+  `toLocaleString`, `toLocaleDateString`, `toLocaleTimeString`, ad hoc slicing,
+  or abbreviated month/day formats.
+- Keep machine-facing API and storage values in their documented ISO 8601 or
+  RFC 3339 form. Native date input values, semantic `dateTime` attributes,
+  comparisons, and original build-log timestamps are not presentation strings
+  and must not be rewritten.
+
 ## Distributed Worker scope
 
 - BuildWorld's default and primary executor is the embedded `builtin` executor.

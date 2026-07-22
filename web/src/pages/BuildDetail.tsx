@@ -12,6 +12,7 @@ import { isNearLogBottom } from '../lib/logFollow'
 import { logTone, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
 import { buildTriggerLabel } from '../lib/buildPresentation'
 import { canEdit } from '../authz'
+import { formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import BuildApprovalPanel from '../components/BuildApprovalPanel'
 import BuildProblemsPanel from '../components/BuildProblemsPanel'
@@ -19,10 +20,6 @@ import { BuildStatusBadge } from '../components/BuildStatusBadge'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import ReplayBuildDialog from '../components/ReplayBuildDialog'
 import './BuildDetail.jenkins.css'
-
-function formatTime(value?: string): string {
-  return value ? new Date(value).toLocaleString() : '-'
-}
 
 function formatSize(bytes?: number): string {
   if (!bytes) return '0 B'
@@ -302,7 +299,7 @@ export default function BuildDetail() {
         <header className="jenkins-run-caption">
           <div className="jenkins-run-caption-identity">
             <BuildStatusBadge status={build.status} label={t(`builds.${build.status}`)} />
-            <h1>{build.pinned && <Pin size={17} aria-label={t('builds.pinned')} />}{t('builds.build')} #{build.number}<small>({formatTime(build.started_at)})</small></h1>
+            <h1>{build.pinned && <Pin size={17} aria-label={t('builds.pinned')} />}{t('builds.build')} #{build.number}<small>({formatDateTime(build.started_at)})</small></h1>
           </div>
           <div className="jenkins-run-controls">
             <Link to={`/builds/${buildId}/tests`}><FlaskConical size={15} />{t('builds.testReports')}</Link>
@@ -330,8 +327,8 @@ export default function BuildDetail() {
           <article><span>{t('builds.branch')}</span><strong><GitBranch size={14} />{build.branch || '-'}</strong></article>
           <article><span>{t('builds.commit')}</span><strong className="mono"><GitCommitHorizontal size={14} />{build.commit_sha?.slice(0, 8) || '-'}</strong></article>
           <article><span>{t('builds.trigger')}</span><strong>{buildTriggerLabel(t, build.trigger)}</strong></article>
-          <article><span>{t('builds.started')}</span><strong>{formatTime(build.started_at)}</strong></article>
-          <article><span>{t('builds.finished')}</span><strong>{formatTime(build.finished_at)}</strong></article>
+          <article><span>{t('builds.started')}</span><strong>{formatDateTime(build.started_at)}</strong></article>
+          <article><span>{t('builds.finished')}</span><strong>{formatDateTime(build.finished_at)}</strong></article>
           {(build.agent_id || build.agent_requirements) && <article><span>{t('builds.agent')}</span><strong><UserRound size={14} />{build.agent_id ? `#${build.agent_id}` : t('builds.ruleBased')}</strong></article>}
           {build.retried_from && <article><span>{t('builds.retriedFrom')}</span><strong><Link to={`/builds/${build.retried_from}`}>ID {build.retried_from}</Link></strong></article>}
           {build.wait_dependency_on && <article><span>{t('builds.waitingForBuild')}</span><strong><Link to={`/builds/${build.wait_dependency_on}`}>ID {build.wait_dependency_on}</Link></strong></article>}

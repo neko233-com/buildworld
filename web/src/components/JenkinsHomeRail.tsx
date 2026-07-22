@@ -16,6 +16,7 @@ import { dialogs } from './AppDialogs'
 import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
+import { formatDateTime } from '../lib/dateTime'
 
 type JenkinsHomeRailProps = {
   editable?: boolean
@@ -74,7 +75,7 @@ function errorMessage(reason: unknown, fallback: string): string {
 }
 
 export default function JenkinsHomeRail({ editable: editableOverride, recentBuilds = EMPTY_RECENT_BUILDS }: JenkinsHomeRailProps) {
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const navigate = useNavigate()
   const authorizedToEdit = useMemo(() => canEdit(), [])
   const editable = editableOverride ?? authorizedToEdit
@@ -314,7 +315,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                       const active = ACTIVE_BUILD_STATUSES.has(build.status)
                       const retrying = rebuilding === build.id
                       const statusLabel = buildStatusLabel(t, build.status)
-                      const startedAt = build.started_at ? new Date(build.started_at) : null
+                      const startedAtLabel = formatDateTime(build.started_at)
                       return (
                         <li className="jenkins-rail-queue-item jenkins-rail-history-item" key={build.id}>
                           <span
@@ -329,8 +330,8 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                             <span className="jenkins-rail-queue-name jenkins-rail-history-name">{build.project_name}</span>
                             <small className="jenkins-rail-queue-meta jenkins-rail-history-meta">
                               <span>#{build.number}{build.branch ? ` · ${build.branch}` : ''}</span>
-                              {startedAt && !Number.isNaN(startedAt.valueOf()) && (
-                                <time dateTime={build.started_at || undefined}>{startedAt.toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>
+                              {build.started_at && startedAtLabel !== '-' && (
+                                <time dateTime={build.started_at}>{startedAtLabel}</time>
                               )}
                             </small>
                           </Link>

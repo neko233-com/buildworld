@@ -17,6 +17,7 @@ import { PageState } from '../components/PageState'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
+import { formatDate, formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { projectGroupPath } from '../lib/projectGroups'
 import ProjectJobActions from './ProjectJobActions'
@@ -33,36 +34,13 @@ function JobStatusIcon({ status, size = 24 }: { status?: string; size?: number }
   return <CircleDashed size={size} aria-hidden="true" />
 }
 
-function buildDateLabel(value: string | undefined, locale: string): string {
-  if (!value) return '-'
-  return new Date(value).toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function localDateKey(date: Date): string {
-  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
-}
-
-function buildDayGroup(value: string | undefined, locale: string): { key: string; label: string } {
-  const date = value ? new Date(value) : new Date(Number.NaN)
-  if (Number.isNaN(date.getTime())) return { key: 'unknown', label: '-' }
-
-  const key = localDateKey(date)
-  if (key === localDateKey(new Date())) {
-    const today = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(0, 'day')
-    return { key, label: today.charAt(0).toLocaleUpperCase(locale) + today.slice(1) }
-  }
-  return { key, label: date.toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' }) }
-}
-
-function buildTimeLabel(value: string | undefined, locale: string): string {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '-'
-  return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+function buildDayGroup(value: string | undefined): { key: string; label: string } {
+  const label = formatDate(value)
+  return { key: label === '-' ? 'unknown' : label, label }
 }
 
 export default function ProjectDetail() {
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const projectId = Number(id)
@@ -95,13 +73,13 @@ export default function ProjectDetail() {
   const groupedBuilds = useMemo(() => {
     const groups: Array<{ key: string; label: string; builds: typeof pagedBuilds }> = []
     for (const build of pagedBuilds) {
-      const day = buildDayGroup(build.started_at, locale)
+      const day = buildDayGroup(build.started_at)
       const previous = groups[groups.length - 1]
       if (previous?.key === day.key) previous.builds.push(build)
       else groups.push({ ...day, builds: [build] })
     }
     return groups
-  }, [locale, pagedBuilds])
+  }, [pagedBuilds])
   const hasActiveBuild = buildList.some(build => activeStatuses.has(build.status))
 
   useEffect(() => {
@@ -176,7 +154,7 @@ export default function ProjectDetail() {
   }
 
   const relatedBuild = (label: string, build: any) => build
-    ? <li><Link to={`/builds/${build.id}`}>{label} (#{build.number})</Link><small>{buildDateLabel(build.started_at, locale)}</small></li>
+    ? <li><Link to={`/builds/${build.id}`}>{label} (#{build.number})</Link><small>{formatDateTime(build.started_at)}</small></li>
     : <li><span>{label}</span><small>{t('projectDetail.none')}</small></li>
 
   return <section className="jenkins-job-page">
@@ -211,7 +189,7 @@ export default function ProjectDetail() {
                 <Link to={`/builds/${build.id}`} aria-label={`#${build.number} ${buildStatusLabel(t, build.status)}`}>
                   <JobStatusIcon status={build.status} size={15} />
                   <strong>#{build.number}</strong>
-                  <time>{buildTimeLabel(build.started_at, locale)}</time>
+                  <time>{formatDateTime(build.started_at)}</time>
                   <small>{formatDuration(build.duration_ms)}</small>
                 </Link>
                 {editable && activeStatuses.has(build.status) && <button type="button" className="jenkins-job-stop" disabled={stopping !== null} onClick={() => handleStop(build)} aria-label={`${t('builds.stopBuild')} #${build.number}`} title={t('builds.stopBuild')}>{stopping === build.id ? <LoaderCircle className="timeline-spinner" size={13} /> : <Square size={12} />}</button>}
