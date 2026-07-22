@@ -934,7 +934,7 @@
   }
 }
 
-/* Keep project rows information-dense without shrinking their action targets. */
+/* Keep project rows efficient while preserving comfortable two-line spacing. */
 [data-skin="jenkins"] .jenkins-projects-page .projects-table thead th {
   height: 36px;
   padding-block: 3px;
@@ -943,8 +943,8 @@
 }
 
 [data-skin="jenkins"] .jenkins-projects-page .projects-table tbody td {
-  height: 44px;
-  padding-block: 3px;
+  height: 52px;
+  padding-block: 6px;
 }
 
 [data-skin="jenkins"] .jenkins-projects-page .projects-table td.muted-cell {
