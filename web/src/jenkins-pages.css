@@ -244,12 +244,12 @@
 }
 
 [data-skin="jenkins"] .jenkins-home {
-  grid-template-columns: 340px minmax(0, 1fr);
-  gap: 26px;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
 }
 
 [data-skin="jenkins"] .jenkins-rail-root {
-  width: 340px;
+  width: 300px;
 }
 
 /* Jenkins 2.563 dashboard geometry: 2.375rem controls, 3rem rows, 1rem cards. */
@@ -262,7 +262,7 @@
 
 [data-skin="jenkins"] .jenkins-rail-panel {
   border-color: #d9dfe6;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 [data-skin="jenkins"] .jenkins-rail-panel-header,
@@ -729,8 +729,12 @@
     padding: 20px 4px 50px;
   }
 
+}
+
+@media (max-width: 800px) {
   [data-skin="jenkins"] .jenkins-home {
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
+    flex-direction: column-reverse;
     gap: 0;
   }
 

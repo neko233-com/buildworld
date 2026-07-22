@@ -12,6 +12,7 @@ import { PageState } from '../components/PageState'
 import BuildApprovalPanel from '../components/BuildApprovalPanel'
 import { canMoveQueueItem, moveQueueItem, queueWaitReasonKey, type QueueMoveOperation } from '../lib/queuePresentation'
 import JenkinsPageShell from '../components/JenkinsPageShell'
+import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 
 export default function BuildQueue() {
   const { t } = useI18n()
@@ -97,7 +98,7 @@ export default function BuildQueue() {
           <Link to="/projects"><FolderTree size={20} />{t('nav.projects')}</Link>
           <Link to="/builds"><History size={20} />{t('nav.builds')}</Link>
           <Link to="/build-queue" className="active" aria-current="page"><FileClock size={20} />{t('nav.buildQueue')}</Link>
-          <Link to="/agents"><ServerCog size={20} />{t('nav.agents')}</Link>
+          {DISTRIBUTED_WORKERS_ENABLED && <Link to="/agents"><ServerCog size={20} />{t('nav.agents')}</Link>}
           <button type="button" onClick={refresh} disabled={refreshing} aria-busy={refreshing}><RotateCw className={refreshing ? 'timeline-spinner' : ''} size={20} />{t('buildQueue.refresh')}</button>
         </nav>}
       >

@@ -866,7 +866,7 @@
     "restartRequired": "Service restart required",
     "restartDescription": "Network, storage, and local executor changes apply on the next start.",
     "systemOverview": "System overview",
-    "systemOverviewDescription": "Confirm that the control plane, execution nodes, and validation environments are ready.",
+    "systemOverviewDescription": "Confirm that the control plane, builtin executor, and validation environments are ready.",
     "serviceStatus": "Control plane",
     "healthy": "Healthy",
     "serviceStatusHelp": "API and scheduler available",

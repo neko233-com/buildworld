@@ -27,6 +27,7 @@ import {
   type SettingsSection,
 } from '../lib/portabilitySelection'
 import './ManagementPages.jenkins.css'
+import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 
 type SettingsMap = Record<string, string>
 type AgentPlatform = 'linux' | 'windows'
@@ -39,6 +40,7 @@ const SETTINGS_VIEWS = new Set<SettingsView>([
 const HIDDEN_PORTABILITY_CAPABILITIES = new Set(['build_templates', 'templates'])
 
 function resolveSettingsView(value: string | null): SettingsView {
+  if (!DISTRIBUTED_WORKERS_ENABLED && value === 'agents') return 'overview'
   if (value && SETTINGS_VIEWS.has(value as SettingsView)) return value as SettingsView
   return resolveSettingsSection(value)
 }
@@ -165,7 +167,7 @@ export default function Settings() {
   const section = resolveSettingsView(requestedSection)
   const { data: settings, loading, error, reload } = useApi(() => api.getGlobalSettings(), [])
   const { data: metrics } = useApi(() => api.getServerMetrics(), [])
-  const { data: agents } = useApi(() => api.listAgents(), [])
+  const { data: agents } = useApi(() => DISTRIBUTED_WORKERS_ENABLED ? api.listAgents() : Promise.resolve([]), [])
   const { data: packageProxies, error: packageProxiesError, reload: reloadPackageProxies } = useApi(() => api.listPackageProxies(), [])
   const { data: portabilityCapabilities, error: portabilityError } = useApi<PortabilityCapability[]>(() => api.listPortabilityCapabilities(), [])
   const [draft, setDraft] = useState<SettingsMap>(defaults)
@@ -504,14 +506,16 @@ export default function Settings() {
       draft.node_validation_enabled === 'true' ? `node: [${JSON.stringify(draft.node_version)}]` : '',
     ].filter(Boolean).join(', ')
     const labels = draft.go_validation_enabled === 'true' && draft.node_validation_enabled === 'true' ? ['go', 'nodejs', 'typescript'] : draft.go_validation_enabled === 'true' ? ['go'] : ['nodejs', 'typescript']
+    const agentRequirements = DISTRIBUTED_WORKERS_ENABLED
+      ? `  agentRequirements: [${[`pool=${agentConfig.pool}`, ...labels].map(value => JSON.stringify(value)).join(', ')}],\n`
+      : ''
     return `import { definePipeline, shell, stage } from '@buildworld/pipeline'
 
 export default definePipeline({
   name: 'Production validation',
   environment: { CI: 'true' },
   toolchains: { ${toolchains} },
-  agentRequirements: [${[`pool=${agentConfig.pool}`, ...labels].map(value => JSON.stringify(value)).join(', ')}],
-  stages: [stage('Validation', [
+${agentRequirements}  stages: [stage('Validation', [
 ${steps.join(',\n')}
   ])],
   artifacts: ['coverage.out', 'coverage/*', 'dist/*'],
@@ -546,7 +550,7 @@ ${steps.join(',\n')}
   }> = [
     { id: 'runtime', label: t('settings.runtimeStorage'), description: t('settings.runtimeStorageDescription'), icon: Server },
     { id: 'builds', label: t('settings.buildPolicy'), description: t('settings.buildPolicyDescription'), icon: Workflow },
-    { id: 'agents', label: t('settings.agentAutomation'), description: t('settings.agentAutomationDescription'), icon: Bot },
+    ...(DISTRIBUTED_WORKERS_ENABLED ? [{ id: 'agents' as const, label: t('settings.agentAutomation'), description: t('settings.agentAutomationDescription'), icon: Bot }] : []),
     { id: 'security', label: t('settings.security'), description: t('settings.securityDescription'), icon: ShieldCheck },
     { id: 'status', label: t('settings.systemOverview'), description: t('settings.systemOverviewDescription'), icon: CircleGauge },
     { id: 'proxies', label: t('settings.packageProxies'), description: t('settings.packageProxiesDescription'), icon: Network },
@@ -612,12 +616,12 @@ ${steps.join(',\n')}
           <SectionHeading icon={CircleGauge} title={t('settings.systemOverview')} description={t('settings.systemOverviewDescription')} />
           <div className="settings-health-grid">
             <article><span><Activity size={15} />{t('settings.serviceStatus')}</span><strong className="positive"><i />{t('settings.healthy')}</strong><small>{t('settings.serviceStatusHelp')}</small></article>
-            <article><span><Network size={15} />{t('settings.onlineAgents')}</span><strong>{onlineAgents} <small>/ {agentList.length}</small></strong><small>{t('settings.agentCapacityHelp')}</small></article>
+            {DISTRIBUTED_WORKERS_ENABLED && <article><span><Network size={15} />{t('settings.onlineAgents')}</span><strong>{onlineAgents} <small>/ {agentList.length}</small></strong><small>{t('settings.agentCapacityHelp')}</small></article>}
             <article><span><Clock3 size={15} />{t('settings.uptime')}</span><strong>{formatUptime(sys.uptime_seconds ?? sys.uptime)}</strong><small>{sys.go_version || t('settings.runtimeUnknown')}</small></article>
             <article><span><HardDrive size={15} />{t('settings.buildIsolation')}</span><strong className="mono-value">{draft.build_temp_path}</strong><small>{t('settings.buildIsolationHelp')}</small></article>
           </div>
           <section className="settings-overview-list">
-            <button type="button" onClick={() => changeSection('agents')}><span className="overview-list-icon agent"><Bot size={17} /></span><span><strong>{t('settings.agentAutomation')}</strong><small>{draft.agent_enrollment_token_configured === 'true' ? t('settings.tokenReady') : t('settings.tokenNotConfigured')}</small></span><em className={draft.agent_enrollment_token_configured === 'true' ? 'ready' : 'warning'}>{draft.agent_enrollment_token_configured === 'true' ? t('settings.ready') : t('settings.actionRequired')}</em><ChevronRight size={15} /></button>
+            {DISTRIBUTED_WORKERS_ENABLED && <button type="button" onClick={() => changeSection('agents')}><span className="overview-list-icon agent"><Bot size={17} /></span><span><strong>{t('settings.agentAutomation')}</strong><small>{draft.agent_enrollment_token_configured === 'true' ? t('settings.tokenReady') : t('settings.tokenNotConfigured')}</small></span><em className={draft.agent_enrollment_token_configured === 'true' ? 'ready' : 'warning'}>{draft.agent_enrollment_token_configured === 'true' ? t('settings.ready') : t('settings.actionRequired')}</em><ChevronRight size={15} /></button>}
             <button type="button" onClick={() => changeSection('validation')}><span className="overview-list-icon go"><Code2 size={17} /></span><span><strong>Go {t('settings.validation')}</strong><small>{t('settings.detectGoMod')} · {parseChecks(draft.go_checks).length} {t('settings.checksEnabled')}</small></span><em className="ready">{draft.go_validation_enabled === 'true' ? t('settings.enabled') : t('settings.disabled')}</em><ChevronRight size={15} /></button>
             <button type="button" onClick={() => changeSection('validation')}><span className="overview-list-icon node"><PackageCheck size={17} /></span><span><strong>TypeScript / Node.js</strong><small>{t('settings.detectPackageJson')} · {draft.node_package_manager}</small></span><em className="ready">{draft.node_validation_enabled === 'true' ? t('settings.enabled') : t('settings.disabled')}</em><ChevronRight size={15} /></button>
           </section>
@@ -636,7 +640,7 @@ ${steps.join(',\n')}
           <section className="settings-form-section"><header><ShieldCheck size={15} /><div><h3>{t('settings.failureBehavior')}</h3><p>{t('settings.failureBehaviorHelp')}</p></div></header><Toggle label={t('settings.failFast')} description={t('settings.failFastHelp')} checked={draft.validation_fail_fast === 'true'} onChange={value => set('validation_fail_fast', String(value))} /></section>
         </div>}
 
-        {section === 'agents' && <div className="settings-pane">
+        {DISTRIBUTED_WORKERS_ENABLED && section === 'agents' && <div className="settings-pane">
           <SectionHeading icon={Bot} title={t('settings.agentAutomation')} description={t('settings.agentAutomationDescription')} action={<span className={`settings-status-label ${onlineAgents ? 'ready' : ''}`}><i />{onlineAgents} {t('settings.online')}</span>} />
           <section className="settings-form-section agent-enrollment-section"><header><KeyRound size={15} /><div><h3>{t('settings.enrollmentCredential')}</h3><p>{t('settings.enrollmentCredentialHelp')}</p></div><button type="button" className="secondary-command" onClick={rotateAgentToken} disabled={generatingToken}>{generatingToken ? <RefreshCw className="spin" size={14} /> : <RotateCw size={14} />}{generatingToken ? t('settings.generating') : draft.agent_enrollment_token_configured === 'true' ? t('settings.rotateToken') : t('settings.generateToken')}</button></header>{agentToken ? <div className="agent-token-result"><span><CheckCircle2 size={15} /><strong>{t('settings.tokenGenerated')}</strong>{t('settings.tokenGeneratedHelp')}</span><code>{agentToken}</code><button type="button" onClick={() => copyText('token', agentToken)}>{copied === 'token' ? <Check size={14} /> : <Copy size={14} />}</button></div> : <div className="settings-inline-note"><Info size={14} /><span>{draft.agent_enrollment_token_configured === 'true' ? t('settings.tokenConfiguredHelp') : t('settings.tokenMissingHelp')}</span></div>}</section>
           <section className="settings-form-section"><header><Settings2 size={15} /><div><h3>{t('settings.agentProfile')}</h3><p>{t('settings.agentProfileHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.serverUrl')} value={agentConfig.server} onChange={value => setAgentConfig(current => ({ ...current, server: value }))} /><SettingField label={t('settings.agentName')} value={agentConfig.name} onChange={value => setAgentConfig(current => ({ ...current, name: value }))} /><SettingField label={t('agents.pool')} value={agentConfig.pool} onChange={value => setAgentConfig(current => ({ ...current, pool: value }))} /><SettingField label={t('agents.labels')} hint={t('settings.labelsHelp')} value={agentConfig.labels} onChange={value => setAgentConfig(current => ({ ...current, labels: value }))} /><SettingField label={t('agents.maxBuilds')} type="number" min={1} max={256} value={agentConfig.maxBuilds} onChange={value => setAgentConfig(current => ({ ...current, maxBuilds: value }))} /></div></section>
@@ -658,7 +662,7 @@ ${steps.join(',\n')}
 
         {section === 'security' && <div className="settings-pane">
           <SectionHeading icon={ShieldCheck} title={t('settings.security')} description={t('settings.securityDescription')} />
-          <section className="security-audit-list"><article><span><KeyRound size={16} /></span><div><h3>{t('settings.agentCredentialSecurity')}</h3><p>{t('settings.agentCredentialSecurityHelp')}</p></div><em className={draft.agent_enrollment_token_configured === 'true' ? 'ready' : 'warning'}>{draft.agent_enrollment_token_configured === 'true' ? t('settings.configured') : t('settings.notConfigured')}</em></article><article><span><HardDrive size={16} /></span><div><h3>{t('settings.workspaceBoundary')}</h3><p>{t('settings.workspaceBoundaryHelp')}</p></div><em className="ready">{t('settings.enforced')}</em></article><article><span><ShieldCheck size={16} /></span><div><h3>{t('settings.secretMasking')}</h3><p>{t('settings.secretMaskingHelp')}</p></div><em className="ready">{t('settings.enforced')}</em></article></section>
+          <section className="security-audit-list">{DISTRIBUTED_WORKERS_ENABLED && <article><span><KeyRound size={16} /></span><div><h3>{t('settings.agentCredentialSecurity')}</h3><p>{t('settings.agentCredentialSecurityHelp')}</p></div><em className={draft.agent_enrollment_token_configured === 'true' ? 'ready' : 'warning'}>{draft.agent_enrollment_token_configured === 'true' ? t('settings.configured') : t('settings.notConfigured')}</em></article>}<article><span><HardDrive size={16} /></span><div><h3>{t('settings.workspaceBoundary')}</h3><p>{t('settings.workspaceBoundaryHelp')}</p></div><em className="ready">{t('settings.enforced')}</em></article><article><span><ShieldCheck size={16} /></span><div><h3>{t('settings.secretMasking')}</h3><p>{t('settings.secretMaskingHelp')}</p></div><em className="ready">{t('settings.enforced')}</em></article></section>
         </div>}
 
         {section === 'portability' && <div className="settings-pane portability-pane">

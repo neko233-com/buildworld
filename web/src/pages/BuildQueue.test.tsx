@@ -92,6 +92,7 @@ describe('BuildQueue active refresh', () => {
     expect(container.querySelectorAll('.build-queue-table tbody tr')).toHaveLength(2)
     expect(container.querySelectorAll('.build-queue-table .jenkins-build-state.pending > i')).toHaveLength(2)
     expect(container.querySelector('.build-queue-table .build-status')).toBeNull()
+    expect(container.querySelector('a[href="/agents"]')).toBeNull()
   })
 
   it('keeps refresh feedback visible until the replacement queue arrives', async () => {

@@ -866,7 +866,7 @@
     "restartRequired": "需要重启服务",
     "restartDescription": "网络监听、存储路径或本地执行器变更会在下次启动时生效。",
     "systemOverview": "系统概览",
-    "systemOverviewDescription": "确认控制面、分布式子 Worker 与验证环境是否已准备就绪。",
+    "systemOverviewDescription": "确认控制面、builtin 执行器与验证环境是否已准备就绪。",
     "serviceStatus": "控制面状态",
     "healthy": "运行正常",
     "serviceStatusHelp": "API 与调度器可用",

@@ -139,6 +139,8 @@ describe('application motion accessibility', () => {
     expect(appSource).toContain('<Route path="/templates" element={<Templates />} />')
     expect(appSource).toContain("t('nav.templates')")
     expect(appSource).toContain("const Templates = lazy(() => import('./pages/Templates'))")
+    expect(appSource).toContain('...(DISTRIBUTED_WORKERS_ENABLED ?')
+    expect(appSource).toContain('<Route path="/agents" element={<Agents />} />')
     expect(appSource).not.toContain('app-sidebar')
     expect(shellStyles).toMatch(/\.app-topbar \.topbar-actions \.topbar-settings-link\s*\{[^}]*display:\s*inline-grid[^}]*width:\s*38px[^}]*height:\s*38px/s)
     expect(shellStyles).not.toMatch(/\.topbar-settings-link[^}]*display:\s*none/s)
