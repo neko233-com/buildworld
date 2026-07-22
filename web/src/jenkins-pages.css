@@ -934,6 +934,48 @@
   }
 }
 
+/* Keep project rows information-dense without shrinking their action targets. */
+[data-skin="jenkins"] .jenkins-projects-page .projects-table thead th {
+  height: 36px;
+  padding-block: 3px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-projects-page .projects-table tbody td {
+  height: 44px;
+  padding-block: 3px;
+}
+
+[data-skin="jenkins"] .jenkins-projects-page .projects-table td.muted-cell {
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-projects-page .projects-table .entity-link strong {
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-projects-page .projects-table .entity-link small {
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-projects-page .projects-table .row-actions {
+  flex-wrap: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-projects-page .projects-table .project-row-tags {
+  flex-wrap: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-projects-page .projects-table .project-tag {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-skin="jenkins"] .jenkins-view-tabs button,
   [data-skin="jenkins"] .project-folder-chevron,
