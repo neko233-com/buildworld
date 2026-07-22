@@ -851,6 +851,7 @@ func (e *typeScriptPipelineEvaluator) callHelper(name string, arguments []interf
 			typeScriptAlias(approval, "allowRequester", "allow_requester")
 			pipeline["approval"] = approval
 		}
+		normalizeTypeScriptPipelineLiterals(pipeline)
 		return pipeline, nil
 	case "step":
 		if err := typeScriptArgumentCount(name, arguments, 3, 4); err != nil {
@@ -998,6 +999,56 @@ func (e *typeScriptPipelineEvaluator) callHelper(name string, arguments []interf
 		return options, nil
 	}
 	return nil, fmt.Errorf("TypeScript pipeline helper %q is not supported", name)
+}
+
+// normalizeTypeScriptPipelineLiterals keeps directly-authored Stage and Step
+// objects consistent with the stage()/step() helpers. The public TypeScript
+// types permit both forms, so camelCase aliases must not silently lose runtime
+// behavior such as a stage timeout.
+func normalizeTypeScriptPipelineLiterals(pipeline map[string]interface{}) {
+	if stages, ok := pipeline["stages"].([]interface{}); ok {
+		normalized := make([]interface{}, len(stages))
+		for index, value := range stages {
+			stage, ok := value.(map[string]interface{})
+			if !ok {
+				normalized[index] = value
+				continue
+			}
+			stage = cloneTypeScriptObject(stage)
+			typeScriptAlias(stage, "dependsOn", "depends_on")
+			typeScriptAlias(stage, "workingDirectory", "working_directory")
+			typeScriptAlias(stage, "timeoutSec", "timeout_sec")
+			if steps, ok := stage["steps"].([]interface{}); ok {
+				stage["steps"] = normalizeTypeScriptStepLiterals(steps)
+			}
+			normalized[index] = stage
+		}
+		pipeline["stages"] = normalized
+	}
+	if post, ok := pipeline["post"].(map[string]interface{}); ok {
+		post = cloneTypeScriptObject(post)
+		for condition, value := range post {
+			if steps, ok := value.([]interface{}); ok {
+				post[condition] = normalizeTypeScriptStepLiterals(steps)
+			}
+		}
+		pipeline["post"] = post
+	}
+}
+
+func normalizeTypeScriptStepLiterals(steps []interface{}) []interface{} {
+	normalized := make([]interface{}, len(steps))
+	for index, value := range steps {
+		step, ok := value.(map[string]interface{})
+		if !ok {
+			normalized[index] = value
+			continue
+		}
+		step = cloneTypeScriptObject(step)
+		typeScriptAlias(step, "platformAdditions", "platform_additions")
+		normalized[index] = step
+	}
+	return normalized
 }
 
 func typeScriptArgumentCount(name string, arguments []interface{}, minimum, maximum int) error {

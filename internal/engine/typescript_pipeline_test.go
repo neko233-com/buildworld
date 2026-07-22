@@ -199,6 +199,75 @@ export default definePipeline({
 	}
 }
 
+func TestParseTypeScriptPipelineNormalizesLiteralStageAndStepAliases(t *testing.T) {
+	config, err := ParsePipelineConfig(`import { definePipeline } from "@buildworld/pipeline"
+export default definePipeline({
+  stages: [{
+    name: "Checkout",
+    steps: [],
+  }, {
+    name: "Literal",
+    dependsOn: ["Checkout"],
+    workingDirectory: "services/api",
+    timeoutSec: 30,
+    steps: [{
+      name: "Compile",
+      type: "shell",
+      command: "go build ./...",
+      platformAdditions: { macos: "./sign.sh" },
+    }],
+  }, {
+    name: "Canonical",
+    dependsOn: ["Literal"],
+    depends_on: ["Checkout"],
+    workingDirectory: "camel",
+    working_directory: "canonical",
+    timeoutSec: 30,
+    timeout_sec: 90,
+    steps: [],
+  }],
+  post: {
+    failure: [{
+      name: "Notify",
+      type: "shell",
+      command: "echo failed",
+      platformAdditions: { macos: "./camel.sh" },
+    }, {
+      name: "Cleanup",
+      type: "shell",
+      command: "echo cleanup",
+      platformAdditions: { macos: "./camel-cleanup.sh" },
+      platform_additions: { macos: "./canonical-cleanup.sh" },
+    }],
+  },
+})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := config.Stages[1]
+	if len(stage.DependsOn) != 1 || stage.DependsOn[0] != "Checkout" || stage.WorkingDirectory != "services/api" {
+		t.Fatalf("literal stage aliases = %#v", stage)
+	}
+	if stage.TimeoutSec != 30 {
+		t.Fatalf("literal stage timeout = %d, want camelCase timeoutSec 30", stage.TimeoutSec)
+	}
+	if stage.Steps[0].PlatformAdditions["macos"] != "./sign.sh" {
+		t.Fatalf("literal step aliases = %#v", stage.Steps[0])
+	}
+	if config.Stages[2].TimeoutSec != 90 {
+		t.Fatalf("canonical literal timeout = %d, want timeout_sec 90", config.Stages[2].TimeoutSec)
+	}
+	if config.Stages[2].DependsOn[0] != "Checkout" || config.Stages[2].WorkingDirectory != "canonical" {
+		t.Fatalf("canonical literal aliases = %#v", config.Stages[2])
+	}
+	if config.Post["failure"][0].PlatformAdditions["macos"] != "./camel.sh" {
+		t.Fatalf("literal post step alias = %#v", config.Post["failure"][0])
+	}
+	if config.Post["failure"][1].PlatformAdditions["macos"] != "./canonical-cleanup.sh" {
+		t.Fatalf("canonical post step alias = %#v", config.Post["failure"][1])
+	}
+}
+
 func TestParseTypeScriptPipelineRejectsExecutableAST(t *testing.T) {
 	cases := map[string]string{
 		"this":                   `export default definePipeline({ stages: [], description: this })`,

@@ -104,3 +104,58 @@ test('canonical snake_case options are preserved and camel aliases never overrid
   assert.equal(watch.config.initial_lines, '100')
   assert.deepEqual(trigger('manual', null).config, {})
 })
+
+test('definePipeline canonicalizes literal stages and steps without mutating source', () => {
+  const source = {
+    stages: [{
+      name: 'Literal',
+      steps: [{
+        name: 'run',
+        type: 'shell',
+        command: 'npm test',
+        platformAdditions: { macos: './sign.sh' },
+      }],
+      dependsOn: ['Checkout'],
+      workingDirectory: '/camel',
+      timeoutSec: 30,
+    }, {
+      name: 'Canonical',
+      steps: [],
+      dependsOn: ['Literal'],
+      depends_on: ['Checkout'],
+      workingDirectory: '/camel',
+      working_directory: '/canonical',
+      timeoutSec: 30,
+      timeout_sec: 90,
+    }],
+    post: {
+      failure: [{
+        name: 'notify',
+        type: 'shell',
+        command: 'echo failed',
+        platformAdditions: { macos: './camel.sh' },
+      }, {
+        name: 'cleanup',
+        type: 'shell',
+        command: 'echo cleanup',
+        platformAdditions: { macos: './camel-cleanup.sh' },
+        platform_additions: { macos: './canonical-cleanup.sh' },
+      }],
+    },
+  }
+
+  const pipeline = definePipeline(source)
+  const literal = pipeline.stages[0]
+  assert.deepEqual(literal.depends_on, ['Checkout'])
+  assert.equal(literal.working_directory, '/camel')
+  assert.equal(literal.timeout_sec, 30)
+  assert.deepEqual(literal.steps[0].platform_additions, { macos: './sign.sh' })
+  assert.equal(pipeline.stages[1].timeout_sec, 90)
+  assert.deepEqual(pipeline.stages[1].depends_on, ['Checkout'])
+  assert.equal(pipeline.stages[1].working_directory, '/canonical')
+  assert.deepEqual(pipeline.post.failure[0].platform_additions, { macos: './camel.sh' })
+  assert.deepEqual(pipeline.post.failure[1].platform_additions, { macos: './canonical-cleanup.sh' })
+  assert.equal('depends_on' in source.stages[0], false)
+  assert.equal('platform_additions' in source.stages[0].steps[0], false)
+  assert.equal('platform_additions' in source.post.failure[0], false)
+})
