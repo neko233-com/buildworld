@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { motion } from 'motion/react'
 import { Activity, ClipboardList, RefreshCw, Search, UserRound } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { PageState } from '../components/PageState'
@@ -48,7 +47,7 @@ export default function AuditLog() {
   const actors = new Set(list.map(entry => entry.username || entry.user || entry.user_id).filter(Boolean)).size
 
   return (
-    <>{breadcrumb}<motion.section className="operations-page audit-workbench jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <>{breadcrumb}<section className="operations-page audit-workbench jenkins-management-page">
       <header className="operations-heading">
         <div><p>{rows.length} / {list.length} {t('auditLog.events')}</p><h1>{t('auditLog.title')}</h1></div>
         <button className="secondary-command" type="button" onClick={reload}><RefreshCw size={14} />{t('auditLog.refresh')}</button>
@@ -82,6 +81,6 @@ export default function AuditLog() {
           </tbody>
         </table>
       </section>
-    </motion.section></>
+    </section></>
   )
 }

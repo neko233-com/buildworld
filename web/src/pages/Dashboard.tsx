@@ -1,4 +1,3 @@
-import { motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { Cloud, CloudRain, CloudSun, Folder, LoaderCircle, MoreHorizontal, Pin, Play, Plus, Star, Sun } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -19,6 +18,8 @@ type IconSize = 'small' | 'medium' | 'large'
 
 const ICON_SIZE_KEY = 'buildworld.jenkins.icon-size'
 const ACTIVE_BUILD_STATUSES = new Set(['running', 'pending', 'pending_approval', 'queued'])
+const ACTIVE_REFRESH_INTERVAL_MS = 2_000
+const IDLE_REFRESH_INTERVAL_MS = 15_000
 
 function initialIconSize(): IconSize {
   const stored = typeof localStorage === 'undefined' ? null : localStorage.getItem(ICON_SIZE_KEY)
@@ -66,10 +67,10 @@ export default function Dashboard() {
   const hasActiveBuilds = (data?.overviews || []).some(overview => ACTIVE_BUILD_STATUSES.has(overview.latest?.status || ''))
 
   useEffect(() => {
-    if (!hasActiveBuilds) return
+    const refreshInterval = hasActiveBuilds ? ACTIVE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') reload()
-    }, 2000)
+    }, refreshInterval)
     return () => window.clearInterval(timer)
   }, [hasActiveBuilds, reload])
 
@@ -79,6 +80,13 @@ export default function Dashboard() {
   const projects = data?.projects || []
   const groups = sortProjectGroups(data?.groups || [])
   const overviewsByProject = new Map((data?.overviews || []).map(overview => [overview.project_id, overview]))
+  const projectsByID = new Map(projects.map(project => [project.id, project]))
+  const recentProjectBuilds = (data?.overviews || [])
+    .flatMap(overview => overview.latest ? [{
+      ...overview.latest,
+      project_id: overview.project_id,
+      project_name: projectsByID.get(overview.project_id)?.name || `#${overview.project_id}`,
+    }] : [])
 
   const views = [
     { id: 'all', label: t('common.all'), matches: () => true },
@@ -123,9 +131,9 @@ export default function Dashboard() {
     }
   }
 
-  return <motion.section className="jenkins-home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+  return <section className="jenkins-home">
     <h1 className="sr-only">{t('nav.dashboard')}</h1>
-    <JenkinsHomeRail />
+    <JenkinsHomeRail recentBuilds={recentProjectBuilds} />
     <div className="jenkins-home-main">
       <nav className="jenkins-view-tabs" aria-label={t('nav.dashboard')}>
         {views.map(view => <button key={view.id} type="button" className={view.id === selectedView.id ? 'active' : ''} aria-pressed={view.id === selectedView.id} onClick={() => setActiveView(view.id)}>{view.label}</button>)}
@@ -150,13 +158,13 @@ export default function Dashboard() {
               const latest = overview?.latest
               const lastSuccess = overview?.last_success
               const lastFailure = overview?.last_failure
-              const recentBuilds = (overview?.recent_statuses || []).map(status => ({ status }))
+              const recentStatuses = (overview?.recent_statuses || []).map(status => ({ status }))
               const status = latest ? buildStatusTone(latest.status) : 'cancelled'
               const statusLabel = latest ? buildStatusLabel(t, latest.status) : t('dashboard.noBuilds')
               const buildLabel = t(isParameterized(project) ? 'builds.buildWithParameters' : 'projects.build')
               return <tr key={project.id}>
                 <td><span className={`jenkins-status-orb ${status}`} role="img" aria-label={statusLabel} title={statusLabel} /></td>
-                <td><Health builds={recentBuilds} label={`${project.name} ${t('statistics.successRate')}`} /></td>
+                <td><Health builds={recentStatuses} label={`${project.name} ${t('statistics.successRate')}`} /></td>
                 <td><Link className="jenkins-job-name" to={`/projects/${project.id}`}><span><strong>{project.name}</strong>{project.default_branch && <small>{project.default_branch}</small>}</span></Link></td>
                 <td><BuildReference build={lastSuccess} locale={locale} emptyLabel={t('projectDetail.none')} /></td>
                 <td><BuildReference build={lastFailure} locale={locale} emptyLabel={t('projectDetail.none')} /></td>
@@ -178,5 +186,5 @@ export default function Dashboard() {
       </footer>
     </div>
     {groupsOpen && <ProjectGroupsDialog groups={groups} projects={projects} onReload={reload} onClose={() => setGroupsOpen(false)} />}
-  </motion.section>
+  </section>
 }

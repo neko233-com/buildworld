@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { motion } from 'motion/react'
 import { Check, Clock3, Copy, KeyRound, LoaderCircle, Plus, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
@@ -117,7 +116,7 @@ export default function APITokens() {
   const used = list.filter(token => token.last_used_at).length
 
   return <>{breadcrumb}
-    <motion.section className="operations-page api-token-workbench jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <section className="operations-page api-token-workbench jenkins-management-page">
       <header className="operations-heading">
         <div><p>{list.length} {t('apiTokens.registered')}</p><h1>{t('apiTokens.title')}</h1></div>
         <button className="primary-command" type="button" disabled={deletingID !== null} onClick={openCreate}><Plus size={16} />{t('apiTokens.new')}</button>
@@ -171,6 +170,6 @@ export default function APITokens() {
             <footer><button type="button" disabled={creating} onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={creating || !name.trim()}>{creating ? <><LoaderCircle className="timeline-spinner" size={14} />{t('common.loading')}</> : t('apiTokens.create')}</button></footer>
           </form>
       </ModalDialog>}
-    </motion.section>
+    </section>
   </>
 }

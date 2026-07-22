@@ -1,5 +1,5 @@
 import type { BuildTimeline } from './lib/buildTimeline'
-import type { BuildProblemReport } from './lib/buildProblems'
+import { normalizeBuildProblemReport, type BuildProblemReport } from './lib/buildProblems'
 import { buildSearchQuery, type BuildSearchFilters, type BuildSearchResponse } from './lib/buildSearch'
 import type { BuildChain } from './lib/buildChain'
 import type { QueueMoveOperation } from './lib/queuePresentation'
@@ -99,49 +99,6 @@ export class ApiError extends Error {
     this.status = status
     this.code = code
   }
-}
-
-function missingProjectOverviewRoute(reason: unknown): boolean {
-  return reason instanceof ApiError
-    && reason.status === 400
-    && reason.code === 'api_error'
-    && reason.message.trim().toLowerCase() === 'invalid id'
-}
-
-function buildOverview(build: any): BuildOverview {
-  return {
-    id: build.id,
-    number: build.number,
-    status: build.status,
-    started_at: build.started_at,
-    finished_at: build.finished_at,
-    duration_ms: build.duration_ms,
-  }
-}
-
-function summarizeProjectBuilds(projectID: number, builds: any[]): ProjectBuildOverview {
-  const ordered = [...builds].sort((left, right) => (right.number - left.number) || (right.id - left.id))
-  const latest = ordered[0]
-  const lastSuccess = ordered.find(build => build.status === 'success')
-  const lastFailure = ordered.find(build => build.status === 'failed')
-  return {
-    project_id: projectID,
-    latest: latest ? buildOverview(latest) : null,
-    last_success: lastSuccess ? buildOverview(lastSuccess) : null,
-    last_failure: lastFailure ? buildOverview(lastFailure) : null,
-    recent_statuses: ordered.slice(0, 5).map(build => build.status),
-  }
-}
-
-function summarizeProjectBuildList(builds: any[]): ProjectBuildOverview[] {
-  const grouped = new Map<number, any[]>()
-  for (const build of builds) {
-    if (!Number.isFinite(build?.project_id)) continue
-    const projectBuilds = grouped.get(build.project_id) || []
-    projectBuilds.push(build)
-    grouped.set(build.project_id, projectBuilds)
-  }
-  return Array.from(grouped, ([projectID, projectBuilds]) => summarizeProjectBuilds(projectID, projectBuilds))
 }
 
 function getToken(): string | null {
@@ -343,30 +300,15 @@ export async function request<T = any>(method: string, path: string, body?: any,
   }
 }
 
-async function listProjectBuildOverviews(): Promise<ProjectBuildOverview[]> {
-  try {
-    return await request<ProjectBuildOverview[]>('GET', '/projects/job-overview')
-  } catch (reason) {
-    if (!missingProjectOverviewRoute(reason)) throw reason
-  }
-
-  // Older BuildWorld servers route `job-overview` through `/projects/{id}`.
-  // Keep rolling upgrades usable with one bounded legacy request.
-  const builds = await request<any[]>('GET', '/builds/?limit=500')
-  return summarizeProjectBuildList(builds)
-}
-
 export const api = {
   // auth
   login: (username: string, password: string) =>
     request<{ token: string; user: any }>('POST', '/auth/login', { username, password }),
-  register: (username: string, email: string, password: string) =>
-    request('POST', '/auth/register', { username, email, password }),
   me: () => request<any>('GET', '/auth/me'),
 
   // projects
   listProjects: () => request<any[]>('GET', '/projects/'),
-  listProjectBuildOverviews,
+  listProjectBuildOverviews: () => request<ProjectBuildOverview[]>('GET', '/projects/job-overview'),
   listQuickAccess: () => request<any[]>('GET', '/projects/?quick_access=1'),
   setProjectFlags: (id: number, favorite: boolean, quickAccess: boolean) =>
     request<any>('POST', `/projects/${id}/flags`, { favorite, quick_access: quickAccess }),
@@ -375,7 +317,6 @@ export const api = {
   updateProject: (id: number, data: any) => request('PUT', `/projects/${id}`, data),
   deleteProject: (id: number) => request('DELETE', `/projects/${id}`),
   triggerBuild: (id: number, data?: any) => request('POST', `/projects/${id}/builds`, data),
-  listProjectBuilds: (id: number) => request<any[]>('GET', `/projects/${id}/builds`),
   listProjectChanges: (id: number) => request<ProjectChange[]>('GET', `/projects/${id}/changes`),
   validatePipeline: (source: string) =>
     request<{ valid: boolean; format: 'typescript' | 'yaml' | 'jenkinsfile' | 'auto'; stages: number; steps: number; parameters: any[]; allow_long_running: boolean }>('POST', '/pipeline-validation', { source }),
@@ -391,7 +332,8 @@ export const api = {
   getBuild: (id: number) => request<any>('GET', `/builds/${id}`),
   getBuildLogs: (id: number) => request<{ log: string; truncated?: boolean; retention_characters?: number }>('GET', `/builds/${id}/logs`),
   getBuildTimeline: (id: number) => request<BuildTimeline>('GET', `/builds/${id}/timeline`),
-  getBuildProblems: (id: number) => request<BuildProblemReport>('GET', `/builds/${id}/problems`),
+  getBuildProblems: async (id: number): Promise<BuildProblemReport> =>
+    normalizeBuildProblemReport(await request<unknown>('GET', `/builds/${id}/problems`)),
   getBuildChain: (id: number) => request<BuildChain>('GET', `/builds/${id}/chain`),
   stopBuild: (id: number) => request('POST', `/builds/${id}/stop`),
 
@@ -414,10 +356,6 @@ export const api = {
   deleteUser: (id: number) => request('DELETE', `/users/${id}`),
   updateUserRole: (id: number, role: string) => request('PUT', `/users/${id}/role`, { role }),
   updateUserPassword: (id: number, password: string) => request('PUT', `/users/${id}/password`, { password }),
-
-  // env vars
-  listEnvVars: (scope = 'global', projectId?: number) =>
-    request<any[]>('GET', `/env-vars/?scope=${scope}${projectId ? `&project_id=${projectId}` : ''}`),
 
   // credentials
   listCredentials: (type?: string) =>

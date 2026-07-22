@@ -9,15 +9,27 @@ import {
   Plus,
   RotateCw,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { canEdit } from '../authz'
+import { dialogs } from './AppDialogs'
 import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 import { useI18n } from '../i18n'
-import { buildStatusLabel } from '../lib/buildPresentation'
+import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 
 type JenkinsHomeRailProps = {
   editable?: boolean
+  recentBuilds?: JenkinsRecentBuild[]
+}
+
+export type JenkinsRecentBuild = {
+  id: number
+  project_id: number
+  project_name: string
+  number: number
+  status: string
+  branch?: string | null
+  started_at?: string | null
 }
 
 type QueueItem = {
@@ -38,10 +50,18 @@ type Agent = {
 }
 
 const BUILD_QUEUE_COLLAPSED_KEY = 'buildworld.jenkins.pane.buildQueue.collapsed'
+const RECENT_BUILDS_COLLAPSED_KEY = 'buildworld.jenkins.pane.recentBuilds.collapsed'
+const ACTIVE_BUILD_STATUSES = new Set(['running', 'pending', 'pending_approval', 'queued'])
+const EMPTY_RECENT_BUILDS: JenkinsRecentBuild[] = []
 
 function initialQueueOpen(): boolean {
   if (typeof localStorage === 'undefined') return true
   return localStorage.getItem(BUILD_QUEUE_COLLAPSED_KEY) !== 'true'
+}
+
+function initialRecentBuildsOpen(): boolean {
+  if (typeof localStorage === 'undefined') return true
+  return localStorage.getItem(RECENT_BUILDS_COLLAPSED_KEY) !== 'true'
 }
 
 function count(value: unknown): number {
@@ -53,18 +73,22 @@ function errorMessage(reason: unknown, fallback: string): string {
   return reason instanceof Error && reason.message ? reason.message : fallback
 }
 
-export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsHomeRailProps) {
-  const { t } = useI18n()
+export default function JenkinsHomeRail({ editable: editableOverride, recentBuilds = EMPTY_RECENT_BUILDS }: JenkinsHomeRailProps) {
+  const { t, locale } = useI18n()
+  const navigate = useNavigate()
   const authorizedToEdit = useMemo(() => canEdit(), [])
   const editable = editableOverride ?? authorizedToEdit
   const agentsPanelId = useId()
+  const recentBuildsPanelId = useId()
   const [queue, setQueue] = useState<QueueItem[] | null>(null)
   const [agents, setAgents] = useState<Agent[] | null>(DISTRIBUTED_WORKERS_ENABLED ? null : [])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [reloadVersion, setReloadVersion] = useState(0)
   const [queueOpen, setQueueOpen] = useState(initialQueueOpen)
+  const [recentBuildsOpen, setRecentBuildsOpen] = useState(initialRecentBuildsOpen)
   const [agentsOpen, setAgentsOpen] = useState(true)
+  const [rebuilding, setRebuilding] = useState<number | null>(null)
 
   useEffect(() => {
     let active = true
@@ -137,6 +161,54 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
     })
   }
 
+  const toggleRecentBuilds = () => {
+    setRecentBuildsOpen(open => {
+      const next = !open
+      localStorage.setItem(RECENT_BUILDS_COLLAPSED_KEY, String(!next))
+      return next
+    })
+  }
+
+  const recentProjectBuilds = useMemo(() => {
+    const seenProjects = new Set<number>()
+    return [...recentBuilds]
+      .sort((left, right) => {
+        const leftStarted = left.started_at ? Date.parse(left.started_at) : 0
+        const rightStarted = right.started_at ? Date.parse(right.started_at) : 0
+        return (rightStarted || right.id) - (leftStarted || left.id)
+      })
+      .filter(build => {
+        if (seenProjects.has(build.project_id)) return false
+        seenProjects.add(build.project_id)
+        return true
+      })
+      .slice(0, 8)
+  }, [recentBuilds])
+
+  const rebuild = async (build: JenkinsRecentBuild) => {
+    if (ACTIVE_BUILD_STATUSES.has(build.status) || rebuilding !== null) return
+    const confirmed = await dialogs.confirm(
+      t('dashboard.rebuildConfirm')
+        .replace('{project}', build.project_name)
+        .replace('{number}', String(build.number)),
+      { title: t('dashboard.rebuildTitle'), action: t('dashboard.rebuild') },
+    )
+    if (!confirmed) return
+    setRebuilding(build.id)
+    try {
+      const replayed = await api.retryBuild(build.id)
+      dialogs.notify(
+        t('builds.replayQueued').replace('{build}', `${build.project_name} #${build.number}`),
+        'success',
+      )
+      navigate(`/builds/${replayed.id}`)
+    } catch (reason) {
+      dialogs.notify(errorMessage(reason, t('dashboard.rebuildFailed')))
+    } finally {
+      setRebuilding(null)
+    }
+  }
+
   const quickLinks = [
     { to: '/projects/new', label: t('projects.newProject'), Icon: Plus, editOnly: true },
     { to: '/builds', label: t('nav.builds'), Icon: History, editOnly: false },
@@ -177,7 +249,7 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
         </div>
       )}
 
-      {(queue !== null || (DISTRIBUTED_WORKERS_ENABLED && agents !== null)) && (
+      {(queue !== null || recentProjectBuilds.length > 0 || (DISTRIBUTED_WORKERS_ENABLED && agents !== null)) && (
         <div className="jenkins-rail-panels">
           <section className={`jenkins-rail-panel ${queueOpen ? 'expanded' : 'collapsed'}`} id="buildQueue">
             <header className="jenkins-rail-panel-header">
@@ -213,6 +285,77 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
                   </ul>
                 ) : (
                   <p className="jenkins-rail-empty">{t('buildQueue.emptyTitle')}</p>
+                )}
+              </div>
+            )}
+          </section>
+
+          <section className={`jenkins-rail-panel jenkins-rail-history ${recentBuildsOpen ? 'expanded' : 'collapsed'}`}>
+            <header className="jenkins-rail-panel-header">
+              <Link className="jenkins-rail-panel-link" to="/builds">
+                <span className="jenkins-rail-panel-title">{t('dashboard.recentProjects')} ({recentProjectBuilds.length})</span>
+              </Link>
+              <button
+                className="jenkins-rail-panel-toggle"
+                type="button"
+                aria-label={t('dashboard.recentProjects')}
+                aria-controls={recentBuildsPanelId}
+                aria-expanded={recentBuildsOpen}
+                onClick={toggleRecentBuilds}
+              >
+                <ChevronDown size={15} aria-hidden="true" />
+              </button>
+            </header>
+            {recentBuildsOpen && (
+              <div className="jenkins-rail-panel-body" id={recentBuildsPanelId}>
+                {recentProjectBuilds.length ? (
+                  <ul className="jenkins-rail-queue-list jenkins-rail-history-list">
+                    {recentProjectBuilds.map(build => {
+                      const active = ACTIVE_BUILD_STATUSES.has(build.status)
+                      const retrying = rebuilding === build.id
+                      const statusLabel = buildStatusLabel(t, build.status)
+                      const startedAt = build.started_at ? new Date(build.started_at) : null
+                      return (
+                        <li className="jenkins-rail-queue-item jenkins-rail-history-item" key={build.id}>
+                          <span
+                            className={`jenkins-rail-history-status ${buildStatusTone(build.status)}`}
+                            role="img"
+                            aria-label={statusLabel}
+                            title={statusLabel}
+                          >
+                            {active && <LoaderCircle aria-hidden="true" />}
+                          </span>
+                          <Link className="jenkins-rail-queue-link jenkins-rail-history-link" to={`/builds/${build.id}`}>
+                            <span className="jenkins-rail-queue-name jenkins-rail-history-name">{build.project_name}</span>
+                            <small className="jenkins-rail-queue-meta jenkins-rail-history-meta">
+                              <span>#{build.number}{build.branch ? ` · ${build.branch}` : ''}</span>
+                              {startedAt && !Number.isNaN(startedAt.valueOf()) && (
+                                <time dateTime={build.started_at || undefined}>{startedAt.toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>
+                              )}
+                            </small>
+                          </Link>
+                          {editable && (
+                            <button
+                              className="jenkins-rail-history-rebuild"
+                              type="button"
+                              data-build-id={build.id}
+                              disabled={active || rebuilding !== null}
+                              aria-busy={retrying}
+                              aria-label={`${t('dashboard.rebuild')} ${build.project_name}`}
+                              title={active ? t('dashboard.rebuildUnavailable') : t('dashboard.rebuild')}
+                              onClick={() => rebuild(build)}
+                            >
+                              {retrying
+                                ? <LoaderCircle className="timeline-spinner" size={14} aria-hidden="true" />
+                                : <RotateCw size={14} aria-hidden="true" />}
+                            </button>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : (
+                  <p className="jenkins-rail-empty">{t('dashboard.noRecentProjects')}</p>
                 )}
               </div>
             )}

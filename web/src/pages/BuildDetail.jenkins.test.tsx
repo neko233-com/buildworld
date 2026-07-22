@@ -14,7 +14,6 @@ vi.mock('../api', () => ({
     getBuildLogs: vi.fn(),
     getBuildTimeline: vi.fn(),
     getBuildProblems: vi.fn(),
-    getBuildChain: vi.fn(),
     listArtifacts: vi.fn(),
     retryBuild: vi.fn(),
     pinBuild: vi.fn(),
@@ -27,8 +26,6 @@ vi.mock('../api', () => ({
 
 vi.mock('../authz', () => ({ canEdit: () => true }))
 vi.mock('../components/BuildApprovalPanel', () => ({ default: () => <div data-testid="approval" /> }))
-vi.mock('../components/BuildProblemsPanel', () => ({ default: () => <div data-testid="problems" /> }))
-vi.mock('../components/BuildChainPanel', () => ({ default: () => <div data-testid="chain" /> }))
 
 const build = {
   id: 57,
@@ -56,8 +53,7 @@ describe('BuildDetail Jenkins Run layout', () => {
     vi.mocked(api.getProject).mockResolvedValue({ id: 4, name: 'Weather' })
     vi.mocked(api.getBuildLogs).mockResolvedValue({ log: '[07:00:36] [Build] hello\n' })
     vi.mocked(api.getBuildTimeline).mockResolvedValue({ total_steps: 1, completed_steps: 0, steps: [{ index: 0, stage: 'Build', name: 'Compile', status: 'failed' }] })
-    vi.mocked(api.getBuildProblems).mockResolvedValue(null)
-    vi.mocked(api.getBuildChain).mockResolvedValue(null)
+    vi.mocked(api.getBuildProblems).mockResolvedValue({ version: 1, build_status: 'failed', summary: 'Compile failed', failed_step_count: 1, problems: [{ id: 'compile', code: 'step_failed', severity: 'error', step: 'Compile', message: 'Compiler exited with code 1', suggested_action: 'inspect_logs' }] })
     vi.mocked(api.listArtifacts).mockResolvedValue([])
     vi.mocked(api.retryBuild).mockResolvedValue({ id: 58 })
     vi.mocked(api.pinBuild).mockResolvedValue({})
@@ -92,22 +88,72 @@ describe('BuildDetail Jenkins Run layout', () => {
     })
   }
 
-  it('renders Jenkins header breadcrumbs, Run tasks, summary, console, and artifacts', async () => {
+  it('keeps current build, problems, and artifacts separate while omitting the build chain', async () => {
     await renderPage()
 
     expect(breadcrumbHost.textContent).toContain('Weather')
     expect(breadcrumbHost.textContent).toContain('#4')
     expect(container.querySelector('.jenkins-run-layout')).not.toBeNull()
     expect(container.querySelector('.jenkins-run-side-panel')).not.toBeNull()
-    expect(container.querySelector('a.active[href="#overview"]')?.textContent).toContain('Status')
+    expect(container.querySelector('.jenkins-run-tasks button.active')?.textContent).toContain('Current Build')
     expect(container.querySelector('a[href="/projects/4/changes?build=57"]')?.textContent).toContain('Changes')
     expect(container.querySelector('a[href="/builds/57/logs"]')?.textContent).toContain('Logs')
     expect(container.querySelector('a[href="/builds/57/tests"]')?.textContent).toContain('Test Reports')
     expect(container.querySelector('.jenkins-run-caption')?.textContent).toContain('Build #4')
-    expect(container.querySelector('#out')?.textContent).toContain('hello')
+    expect(container.querySelectorAll('.jenkins-run-tabs [role="tab"]')).toHaveLength(3)
+    expect(container.querySelector('#build-tab-current')?.getAttribute('aria-selected')).toBe('true')
+    const currentPanel = container.querySelector<HTMLElement>('#build-panel-current')!
+    const problemsPanel = container.querySelector<HTMLElement>('#build-panel-problems')!
+    const artifactsPanel = container.querySelector<HTMLElement>('#build-panel-artifacts')!
+    const consoleOutput = container.querySelector<HTMLElement>('#out')!
+    expect(currentPanel.hidden).toBe(false)
+    expect(problemsPanel.hidden).toBe(true)
+    expect(artifactsPanel.hidden).toBe(true)
+    expect(container.querySelector('.build-chain-panel')).toBeNull()
+    expect(consoleOutput.textContent).toContain('hello')
+    expect(consoleOutput.getAttribute('role')).toBe('region')
+    expect(consoleOutput.getAttribute('aria-label')).toBe('Logs')
+    expect(consoleOutput.tabIndex).toBe(0)
+    expect(consoleOutput.hasAttribute('aria-live')).toBe(false)
     expect(container.querySelector('#artifacts')).not.toBeNull()
     expect(container.querySelector('.build-parameters-panel')?.textContent).toContain('••••••••')
     expect(container.querySelector('.build-parameters-panel')?.textContent).not.toContain('do-not-render')
+
+    const uploadInput = container.querySelector<HTMLInputElement>('#artifact-upload')!
+    const uploadLabel = container.querySelector<HTMLLabelElement>('label[for="artifact-upload"]')!
+    uploadInput.focus()
+    expect(document.activeElement).toBe(uploadInput)
+    expect(uploadLabel.htmlFor).toBe(uploadInput.id)
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('#build-tab-problems')?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(container.querySelector('#build-tab-problems')?.getAttribute('aria-selected')).toBe('true')
+    expect(currentPanel.hidden).toBe(true)
+    expect(problemsPanel.hidden).toBe(false)
+    expect(problemsPanel.textContent).toContain('Compiler exited with code 1')
+    expect(api.getBuildProblems).toHaveBeenCalledWith(57)
+
+    await act(async () => container.querySelector<HTMLButtonElement>('#build-tab-artifacts')?.click())
+    expect(container.querySelector('#build-tab-artifacts')?.getAttribute('aria-selected')).toBe('true')
+    expect(currentPanel.hidden).toBe(true)
+    expect(problemsPanel.hidden).toBe(true)
+    expect(artifactsPanel.hidden).toBe(false)
+    expect(container.querySelector('#out')).toBe(consoleOutput)
+
+    const artifactsTab = container.querySelector<HTMLButtonElement>('#build-tab-artifacts')!
+    artifactsTab.focus()
+    await act(async () => artifactsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })))
+    expect(container.querySelector('#build-tab-problems')?.getAttribute('aria-selected')).toBe('true')
+    expect(problemsPanel.hidden).toBe(false)
+    const problemsTab = container.querySelector<HTMLButtonElement>('#build-tab-problems')!
+    await act(async () => problemsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })))
+    expect(container.querySelector('#build-tab-current')?.getAttribute('aria-selected')).toBe('true')
+    expect(currentPanel.hidden).toBe(false)
+    expect(problemsPanel.hidden).toBe(true)
+    expect(artifactsPanel.hidden).toBe(true)
   })
 
   it('keeps Jenkins-visible loading feedback while a build is running', async () => {
@@ -117,17 +163,29 @@ describe('BuildDetail Jenkins Run layout', () => {
     expect(container.querySelector('.jenkins-console-progress[role="status"]')).not.toBeNull()
     expect(container.querySelector('.jenkins-run-tasks button.danger')?.getAttribute('aria-busy')).toBe('false')
 
-    const consoleOutput = container.querySelector<HTMLPreElement>('.jenkins-console-output')!
+    let consoleOutput = container.querySelector<HTMLPreElement>('.jenkins-console-output')!
     Object.defineProperties(consoleOutput, {
       scrollHeight: { configurable: true, value: 1000 },
       clientHeight: { configurable: true, value: 200 },
-      scrollTop: { configurable: true, value: 100, writable: true },
+      scrollTop: { configurable: true, value: 800, writable: true },
     })
-    await act(async () => consoleOutput.dispatchEvent(new Event('scroll', { bubbles: true })))
-    const follow = Array.from(container.querySelectorAll<HTMLButtonElement>('.jenkins-console-controls button'))
+    await act(async () => consoleOutput.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -1 })))
+    let follow = Array.from(container.querySelectorAll<HTMLButtonElement>('.jenkins-console-controls button'))
       .find(button => button.getAttribute('aria-pressed') !== null)!
     expect(follow.getAttribute('aria-pressed')).toBe('false')
     expect(follow.textContent).toContain('Resume follow')
+
+    await act(async () => container.querySelector<HTMLButtonElement>('#build-tab-artifacts')?.click())
+    await act(async () => container.querySelector<HTMLButtonElement>('#build-tab-current')?.click())
+    consoleOutput = container.querySelector<HTMLPreElement>('.jenkins-console-output')!
+    Object.defineProperties(consoleOutput, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 800, writable: true },
+    })
+    follow = Array.from(container.querySelectorAll<HTMLButtonElement>('.jenkins-console-controls button'))
+      .find(button => button.getAttribute('aria-pressed') !== null)!
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
 
     const animationFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
       callback(0)
@@ -137,6 +195,41 @@ describe('BuildDetail Jenkins Run layout', () => {
     expect(consoleOutput.scrollTop).toBe(1000)
     expect(follow.getAttribute('aria-pressed')).toBe('true')
     animationFrame.mockRestore()
+  })
+
+  it('renders every console line with default-on level colors and can disable them without filtering output', async () => {
+    vi.mocked(api.getBuildLogs).mockResolvedValueOnce({
+      log: ['plain server output', '[WARN] retrying request', 'level=ERROR request failed'].join('\n'),
+    })
+    await renderPage()
+
+    const consoleOutput = container.querySelector<HTMLElement>('.jenkins-console-output')!
+    const toneToggle = container.querySelector<HTMLButtonElement>('button[aria-label="Log level colors"]')!
+    expect(consoleOutput.querySelectorAll('.jenkins-console-line')).toHaveLength(3)
+    expect(consoleOutput.querySelectorAll('.jenkins-console-line.info')).toHaveLength(1)
+    expect(consoleOutput.querySelectorAll('.jenkins-console-line.warning')).toHaveLength(1)
+    expect(consoleOutput.querySelectorAll('.jenkins-console-line.error')).toHaveLength(1)
+    expect(toneToggle.getAttribute('aria-pressed')).toBe('true')
+
+    await act(async () => toneToggle.click())
+    expect(toneToggle.getAttribute('aria-pressed')).toBe('false')
+    expect(consoleOutput.querySelectorAll('.jenkins-console-line')).toHaveLength(3)
+    expect(consoleOutput.querySelectorAll('.jenkins-console-line.info, .jenkins-console-line.warning, .jenkins-console-line.error')).toHaveLength(0)
+    expect(consoleOutput.textContent).toContain('plain server output')
+    expect(consoleOutput.textContent).toContain('[WARN] retrying request')
+    expect(consoleOutput.textContent).toContain('level=ERROR request failed')
+    expect(localStorage.getItem('buildworld.logs.colorize')).toBe('false')
+  })
+
+  it('shows the durable log retention limit in the embedded console', async () => {
+    vi.mocked(api.getBuildLogs).mockResolvedValueOnce({
+      log: '[buildworld] Earlier persisted log output was truncated\nnewest',
+      truncated: true,
+      retention_characters: 1_000_000,
+    })
+    await renderPage()
+
+    expect(container.querySelector('.jenkins-console-retention-warning')?.textContent).toContain('1000000-character limit')
   })
 
   it('opens Jenkins Replay summary before creating and navigating to the replacement build', async () => {

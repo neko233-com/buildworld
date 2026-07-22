@@ -20,6 +20,7 @@ vi.mock('../api', () => ({
     getProject: vi.fn(),
     validateProject: vi.fn(),
     triggerBuild: vi.fn(),
+    retryBuild: vi.fn(),
   },
 }))
 
@@ -38,6 +39,7 @@ const setProjectFlags = vi.mocked(api.setProjectFlags)
 const getProject = vi.mocked(api.getProject)
 const validateProject = vi.mocked(api.validateProject)
 const triggerBuild = vi.mocked(api.triggerBuild)
+const retryBuild = vi.mocked(api.retryBuild)
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 
 const projects = [
@@ -105,6 +107,7 @@ describe('Dashboard Jenkins job view', () => {
       allow_long_running: false,
     })
     triggerBuild.mockReset().mockResolvedValue({ id: 901 })
+    retryBuild.mockReset().mockResolvedValue({ id: 902 })
     vi.mocked(dialogs.confirm).mockReset()
     vi.mocked(dialogs.notify).mockReset()
     container = document.createElement('div')
@@ -164,6 +167,12 @@ describe('Dashboard Jenkins job view', () => {
     expect(listBuildQueue).toHaveBeenCalledOnce()
     expect(listAgents).not.toHaveBeenCalled()
     expect(container.querySelector('a[href="/agents"]')).toBeNull()
+    expect(container.querySelectorAll('.jenkins-rail-history-item')).toHaveLength(2)
+    expect(Array.from(container.querySelectorAll<HTMLAnchorElement>('.jenkins-rail-history-link')).map(link => link.getAttribute('href'))).toEqual([
+      '/builds/112',
+      '/builds/204',
+    ])
+    expect(retryBuild).not.toHaveBeenCalled()
 
     const table = container.querySelector('table')
     expect(table).not.toBeNull()
@@ -285,7 +294,7 @@ describe('Dashboard Jenkins job view', () => {
     expect(triggerBuild).not.toHaveBeenCalledWith(2)
   })
 
-  it('refreshes active jobs every two seconds and stops at a terminal state', async () => {
+  it('refreshes active jobs every two seconds and switches to idle frequency at a terminal state', async () => {
     vi.useFakeTimers()
     const terminalOverviews = overviews.map(overview => overview.project_id === 1
       ? { ...overview, latest: { ...overview.latest!, status: 'success' }, recent_statuses: ['success'] }
@@ -306,6 +315,41 @@ describe('Dashboard Jenkins job view', () => {
       await vi.advanceTimersByTimeAsync(4000)
     })
     expect(listProjectBuildOverviews).toHaveBeenCalledTimes(2)
+  })
+
+  it('polls an idle visible dashboard at low frequency and discovers an external build without an immediate duplicate request', async () => {
+    vi.useFakeTimers()
+    const idleOverviews = overviews.map(overview => overview.project_id === 1
+      ? { ...overview, latest: { ...overview.last_success! }, recent_statuses: ['success'] }
+      : overview)
+    listProjectBuildOverviews.mockReset()
+      .mockResolvedValueOnce(idleOverviews)
+      .mockResolvedValue(overviews)
+
+    await renderDashboard()
+    expect(listProjectBuildOverviews).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('a[href="/builds/112"]')).toBeNull()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(14_999)
+    })
+    expect(listProjectBuildOverviews).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(listProjectBuildOverviews).toHaveBeenCalledTimes(2)
+    expect(container.querySelector('a[href="/builds/112"]')).not.toBeNull()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_999)
+    })
+    expect(listProjectBuildOverviews).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(listProjectBuildOverviews).toHaveBeenCalledTimes(3)
   })
 
   it('clears active refresh when the dashboard unmounts', async () => {

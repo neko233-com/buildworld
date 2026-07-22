@@ -1,5 +1,4 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { motion } from 'motion/react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Activity, AlertTriangle, Bot, Check, CheckCircle2, ChevronRight, CircleGauge, Clipboard,
@@ -578,7 +577,7 @@ ${steps.join(',\n')}
   if (loading || !initialized) return <><JenkinsHeaderBreadcrumb breadcrumbs={breadcrumbs} /><section className="jenkins-management-page"><PageState /></section></>
   if (error) return <><JenkinsHeaderBreadcrumb breadcrumbs={breadcrumbs} /><section className="jenkins-management-page"><PageState error={error} onRetry={reload} /></section></>
 
-  return <><JenkinsHeaderBreadcrumb breadcrumbs={breadcrumbs} /><motion.section className="settings-center jenkins-management-page" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+  return <><JenkinsHeaderBreadcrumb breadcrumbs={breadcrumbs} /><section className="settings-center jenkins-management-page">
 
     {section === 'overview' ? <header className="settings-page-heading">
       <div><h1>{t('settings.title')}</h1><p>{t('settings.description')}</p></div>
@@ -700,5 +699,5 @@ ${steps.join(',\n')}
         </div>}
       </div>
     </div>}
-  </motion.section></>
+  </section></>
 }

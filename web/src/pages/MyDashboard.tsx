@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { motion } from 'motion/react'
 import { Activity, Boxes, CheckCircle2, Gauge, LoaderCircle, RefreshCw, ServerCog, UserRound, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
@@ -85,7 +84,7 @@ export default function MyDashboard() {
 
   if (loading) return <PageState />
 
-  return <motion.section className="jenkins-home jenkins-user-dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+  return <section className="jenkins-home jenkins-user-dashboard">
     <JenkinsHomeRail />
     <div className="jenkins-home-main jenkins-user-dashboard-main">
     <div className="operations-page data-dashboard-page">
@@ -141,5 +140,5 @@ export default function MyDashboard() {
     </div>
     </div>
     </div>
-  </motion.section>
+  </section>
 }

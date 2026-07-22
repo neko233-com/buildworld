@@ -1,5 +1,4 @@
 import { useRef, useState } from 'react'
-import { motion } from 'motion/react'
 import { Activity, ArrowLeft, CheckCircle2, CircleSlash2, FileCheck2, FileText, FlaskConical, GitCommitHorizontal, LoaderCircle, Upload, XCircle } from 'lucide-react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { useI18n } from '../i18n'
@@ -79,7 +78,7 @@ export default function TestReports() {
 
   const buildStatus = data?.build.status || 'pending'
 
-  return <>{breadcrumb}<motion.section className="jenkins-run-page test-report-page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+  return <>{breadcrumb}<section className="jenkins-run-page test-report-page">
     <div className="jenkins-run-layout">
       <aside className="jenkins-run-side-panel" aria-label={t('builds.build')}>
         <nav className="jenkins-run-tasks">
@@ -140,5 +139,5 @@ export default function TestReports() {
         </section>
       </div>
     </div>
-  </motion.section></>
+  </section></>
 }

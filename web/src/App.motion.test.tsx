@@ -19,7 +19,7 @@ vi.mock('./components/InAppNotifications', () => ({
   default: () => <button type="button" className="notification-bell">Notifications</button>,
 }))
 
-import { AppMotionBoundary, focusRouteContent, Layout, WORKSPACE_NAV_ITEMS } from './App'
+import { AppMotionBoundary, focusRouteContent, Layout } from './App'
 
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 const appSource = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
@@ -71,23 +71,7 @@ describe('application motion accessibility', () => {
     expect(container.querySelector('[data-motion-policy="user"]')?.textContent).toBe('content')
   })
 
-  it('keeps the workspace navigation names and requested order', () => {
-    expect(WORKSPACE_NAV_ITEMS.map(item => item.href)).toEqual([
-      '/',
-      '/projects',
-      '/build-queue',
-      '/builds',
-      '/templates',
-      '/vcs-roots',
-    ])
-    expect(WORKSPACE_NAV_ITEMS.map(item => item.labelKey)).toEqual([
-      'nav.dashboard',
-      'nav.projects',
-      'nav.buildQueue',
-      'nav.builds',
-      'nav.templates',
-      'nav.vcsRoots',
-    ])
+  it('keeps current workspace navigation translations', () => {
     expect([zhCN.nav.buildQueue, zhCN.nav.builds, zhCN.nav.templates, zhCN.nav.vcsRoots]).toEqual([
       '构建进行中',
       '构建历史',

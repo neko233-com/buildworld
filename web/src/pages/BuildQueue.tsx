@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'motion/react'
 import { Activity, ArrowDown, ArrowUp, ChevronsDown, ChevronsUp, Clock3, FileClock, FolderTree, GitBranch, History, Hourglass, LayoutDashboard, LoaderCircle, RotateCw, ServerCog, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../i18n'
@@ -88,7 +87,7 @@ export default function BuildQueue() {
   if (error) return <PageState error={error} onRetry={reload} />
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+    <div>
       <JenkinsPageShell
         className="jenkins-build-queue-page"
         breadcrumbs={[{ label: t('buildQueue.title') }]}
@@ -172,6 +171,6 @@ export default function BuildQueue() {
       </div>
       </div>
       </JenkinsPageShell>
-    </motion.div>
+    </div>
   )
 }

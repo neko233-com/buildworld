@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { motion } from 'motion/react'
 import { Activity, CheckCircle2, Clock3, Hash, XCircle } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
@@ -44,7 +43,7 @@ export default function Statistics() {
   const maxCount = Math.max(1, ...view.map(point => point.total_builds))
 
   return (
-    <>{breadcrumb}<motion.section className="operations-page statistics-page jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <>{breadcrumb}<section className="operations-page statistics-page jenkins-management-page">
       <header className="operations-heading">
         <div>
           <p>{view.length} {t('statistics.daysWithData')}</p>
@@ -115,6 +114,6 @@ export default function Statistics() {
           <footer className="statistics-scale"><span>{t('statistics.less')}</span><i /><i /><i /><i /><span>{t('statistics.more')}</span></footer>
         </section>
       </div>
-    </motion.section></>
+    </section></>
   )
 }

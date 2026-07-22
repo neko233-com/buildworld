@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { motion } from 'motion/react'
 import { Copy, Eye, EyeOff, KeyRound, LoaderCircle, Pencil, Plus, Server, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useApi } from '../hooks'
 import { api } from '../api'
@@ -163,7 +162,7 @@ export default function Credentials() {
   const sshKeys = list.filter(credential => credential.type === 'ssh_key').length
 
   return <>{breadcrumb}
-    <motion.section className="operations-page credential-workbench jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <section className="operations-page credential-workbench jenkins-management-page">
       <header className="operations-heading">
         <div><p>{list.length} {t('credentials.registered')}</p><h1>{t('credentials.title')}</h1></div>
         <div className="credential-heading-actions"><select className="operations-filter" disabled={deletingID !== null} aria-label={t('credentials.filter')} value={filterType} onChange={event => setFilterType(event.target.value)}><option value="">{t('credentials.allTypes')}</option>{credentialTypes.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select><button className="primary-command" type="button" disabled={deletingID !== null} onClick={openCreate}><Plus size={16} />{t('credentials.new')}</button></div>
@@ -218,6 +217,6 @@ export default function Credentials() {
             <footer><button type="button" disabled={saving} onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}>{saving ? <><LoaderCircle className="timeline-spinner" size={14} />{t('common.loading')}</> : t('common.save')}</button></footer>
           </form>
       </ModalDialog>}
-    </motion.section>
+    </section>
   </>
 }

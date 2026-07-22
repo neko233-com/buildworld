@@ -43,15 +43,6 @@ const Login = lazy(() => import('./pages/Login'))
 const BigScreen = lazy(() => import('./pages/BigScreen'))
 const MyDashboard = lazy(() => import('./pages/MyDashboard'))
 
-export const WORKSPACE_NAV_ITEMS = [
-  { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard },
-  { href: '/projects', labelKey: 'nav.projects', icon: Boxes },
-  { href: '/build-queue', labelKey: 'nav.buildQueue', icon: FileClock },
-  { href: '/builds', labelKey: 'nav.builds', icon: Activity },
-  { href: '/templates', labelKey: 'nav.templates', icon: BookTemplate },
-  { href: '/vcs-roots', labelKey: 'nav.vcsRoots', icon: GitBranch },
-] as const
-
 const ACCOUNT_MENU_FOCUSABLE = [
   'select:not(:disabled)',
   'a[href]',

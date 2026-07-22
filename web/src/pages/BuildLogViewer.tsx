@@ -1,22 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { motion } from 'motion/react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import { ArrowDown, ArrowLeft, ArrowUp, Download, FileText, LoaderCircle, Pause, Play, Search, WrapText } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Download, FileText, LoaderCircle, Palette, Pause, Play, Search, WrapText } from 'lucide-react'
 import { api } from '../api'
 import { useApi } from '../hooks'
+import { useBuildLogStream } from '../useBuildLogStream'
 import { useI18n } from '../i18n'
 import { visibleBuildLog } from '../lib/buildTimeline'
-import { appendLiveLog, isNearLogBottom, mergeLiveLog } from '../lib/logFollow'
+import { isNearLogBottom } from '../lib/logFollow'
+import { logTone, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
 import { PageState } from '../components/PageState'
-
-function lineTone(line: string) {
-  if (/BUILD FAILED|ERROR:|FAILED/i.test(line)) return 'error'
-  if (/WARN|CANCELLED|timed out/i.test(line)) return 'warning'
-  if (/=== Stage:|--- Step:/i.test(line)) return 'boundary'
-  if (/succeeded|complete/i.test(line)) return 'success'
-  return ''
-}
 
 function highlightLine(line: string, query: string) {
   if (!query) return line
@@ -33,18 +26,6 @@ function highlightLine(line: string, query: string) {
   }
   if (cursor < line.length) fragments.push(line.slice(cursor))
   return fragments
-}
-
-type StreamState = 'connecting' | 'live' | 'reconnecting' | 'fallback'
-
-function formatStreamLog(payload: unknown): string {
-  if (!payload || typeof payload !== 'object') return ''
-  const entry = payload as Record<string, unknown>
-  const timestamp = typeof entry.timestamp === 'string' ? entry.timestamp : ''
-  const stage = typeof entry.stage === 'string' ? entry.stage : ''
-  const line = typeof entry.line === 'string' ? entry.line : ''
-  if (!line) return ''
-  return `[${timestamp}] [${stage}] ${line}\n`
 }
 
 export default function BuildLogViewer() {
@@ -66,15 +47,25 @@ export default function BuildLogViewer() {
   const [activeMatch, setActiveMatch] = useState(0)
   const [follow, setFollow] = useState(true)
   const [wrap, setWrap] = useState(false)
-  const [streamState, setStreamState] = useState<StreamState>('fallback')
-  const [streamLog, setStreamLog] = useState('')
+  const [colorizeLogs, setColorizeLogs] = useState(readLogTonePreference)
   const [downloading, setDownloading] = useState<'' | 'txt' | 'json'>('')
   const [downloadError, setDownloadError] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const logViewportRef = useRef<HTMLDivElement>(null)
   const lineRefs = useRef(new Map<number, HTMLDivElement>())
   const followRef = useRef(true)
-  const running = build?.status === 'running' || build?.status === 'pending'
+  const wasRunningRef = useRef(false)
+  const running = build?.status === 'running'
+    || build?.status === 'pending'
+    || build?.status === 'queued'
+    || build?.status === 'pending_approval'
+  const { log: streamLog, state: streamState } = useBuildLogStream({
+    buildID,
+    enabled: canLoad && running,
+    snapshot: logs?.log,
+    reloadSnapshot: reloadLogs,
+    onBuildStatus: reloadBuild,
+  })
   const source = visibleBuildLog(streamLog)
   const lines = useMemo(() => source ? source.split('\n') : [], [source])
   const normalizedQuery = query.trim().toLocaleLowerCase()
@@ -83,6 +74,7 @@ export default function BuildLogViewer() {
     : [], [lines, normalizedQuery])
 
   const scrollToLatest = useCallback(() => {
+    if (!followRef.current) return
     const viewport = logViewportRef.current
     if (!viewport) return
     viewport.scrollTop = viewport.scrollHeight
@@ -92,72 +84,26 @@ export default function BuildLogViewer() {
     const changed = followRef.current !== next
     followRef.current = next
     if (changed) setFollow(next)
-    if (changed && next && !query.trim()) requestAnimationFrame(scrollToLatest)
+    if (changed && next) {
+      if (query.trim()) setQuery('')
+      requestAnimationFrame(scrollToLatest)
+    }
   }, [query, scrollToLatest])
 
   useEffect(() => {
-    setStreamLog(current => mergeLiveLog(current, logs?.log || ''))
-  }, [logs?.log])
-
-  useEffect(() => {
-    if (!validBuildID || typeof WebSocket === 'undefined') {
-      setStreamState('fallback')
-      return
-    }
-    let disposed = false
-    let socket: WebSocket | undefined
-    let retryTimer: number | undefined
-    let attempts = 0
-    const connect = () => {
-      if (disposed) return
-      setStreamState(attempts ? 'reconnecting' : 'connecting')
-      const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const connection = new WebSocket(`${scheme}//${window.location.host}/ws?room=build:${buildID}`)
-      socket = connection
-      connection.onopen = () => {
-        attempts = 0
-        setStreamState('live')
-        // The REST snapshot closes the short connection race before the socket opened.
-        reloadLogs()
-      }
-      connection.onmessage = event => {
-        try {
-          const message = JSON.parse(String(event.data)) as { type?: string, payload?: unknown }
-          if (message.type === 'build:log') {
-            const entry = formatStreamLog(message.payload)
-            if (entry) setStreamLog(current => appendLiveLog(current, entry))
-          } else if (message.type === 'build:status') {
-            reloadBuild()
-          }
-        } catch {
-          // Ignore malformed socket messages; polling remains the safe fallback.
-        }
-      }
-      connection.onerror = () => connection.close()
-      connection.onclose = () => {
-        if (disposed) return
-        setStreamState('fallback')
-        const delay = Math.min(5000, 1000 * 2 ** attempts)
-        attempts += 1
-        retryTimer = window.setTimeout(connect, delay)
-      }
-    }
-    connect()
-    return () => {
-      disposed = true
-      if (retryTimer) window.clearTimeout(retryTimer)
-      socket?.close()
-    }
-  }, [buildID, reloadBuild, reloadLogs, validBuildID])
-
-  useEffect(() => {
-    if (!running || streamState === 'live') return
+    if (!running) return
     const timer = window.setInterval(() => {
       reloadBuild()
-      reloadLogs()
-    }, 3000)
+      if (streamState !== 'live') reloadLogs()
+    }, streamState === 'live' ? 5000 : 3000)
     return () => window.clearInterval(timer)
   }, [reloadBuild, reloadLogs, running, streamState])
+
+  useEffect(() => {
+    const wasRunning = wasRunningRef.current
+    wasRunningRef.current = running
+    if (wasRunning && !running && build?.status) reloadLogs()
+  }, [build?.status, reloadLogs, running])
 
   useEffect(() => {
     document.title = build ? `${t('builds.logs')} · #${build.number} · buildworld` : `buildworld · ${t('builds.logs')}`
@@ -177,6 +123,14 @@ export default function BuildLogViewer() {
       scrollToLatest()
     }
   }, [activeMatch, matches, normalizedQuery, scrollToLatest, source])
+
+  useEffect(() => {
+    const viewport = logViewportRef.current
+    if (!viewport) return
+    const pauseFollowing = () => setFollowing(false)
+    viewport.addEventListener('wheel', pauseFollowing, { passive: true })
+    return () => viewport.removeEventListener('wheel', pauseFollowing)
+  }, [build?.id, setFollowing])
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
@@ -218,7 +172,7 @@ export default function BuildLogViewer() {
     }
   }
 
-  return <motion.main className={`plain-log-page ${wrap ? 'wrap-lines' : ''}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+  return <main className={`plain-log-page ${wrap ? 'wrap-lines' : ''}`}>
     <header className="plain-log-header">
       <div className="plain-log-identity">
         <Link to={`/builds/${buildID}`} aria-label={t('builds.backToBuild')}><ArrowLeft size={17} /></Link>
@@ -229,31 +183,32 @@ export default function BuildLogViewer() {
       <div className="plain-log-actions">
         <button type="button" className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollowing(!follow)}>{follow ? <Pause size={14} /> : <Play size={14} />}{follow ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>
         <button type="button" className={wrap ? 'selected' : ''} aria-pressed={wrap} onClick={() => setWrap(value => !value)}><WrapText size={14} />{t('builds.wrapLines')}</button>
+        <button type="button" className={colorizeLogs ? 'selected' : ''} aria-label={t('builds.colorizeLogs')} title={t('builds.colorizeLogs')} aria-pressed={colorizeLogs} onClick={() => setColorizeLogs(current => { const next = !current; writeLogTonePreference(next); return next })}><Palette size={14} />{t('builds.colorizeLogs')}</button>
         <button type="button" onClick={() => download('txt')} disabled={!!downloading}>{downloading === 'txt' ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}.txt</button>
         <button type="button" onClick={() => download('json')} disabled={!!downloading}>{downloading === 'json' ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}JSON</button>
       </div>
     </header>
-    <div className="plain-log-message" aria-live="polite">
+    <div className="plain-log-message">
       {logs?.truncated && <span className="retention-warning" role="status">{t('builds.logTruncated').replace('{count}', String(logs.retention_characters || 1_000_000))}</span>}
       {downloadError && <span role="alert">{downloadError}</span>}
     </div>
 
     <section className="plain-log-toolbar" aria-label={t('builds.logTools')}>
-      <label><Search size={15} /><input ref={searchRef} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('builds.searchLogs')} aria-label={t('builds.searchLogs')} /><kbd>/</kbd></label>
+      <label><Search size={15} /><input ref={searchRef} value={query} onChange={event => { setQuery(event.target.value); if (event.target.value.trim()) setFollowing(false) }} placeholder={t('builds.searchLogs')} aria-label={t('builds.searchLogs')} /><kbd>/</kbd></label>
       <span>{normalizedQuery ? t('builds.matchProgress').replace('{current}', matches.length ? String(activeMatch + 1) : '0').replace('{total}', String(matches.length)) : t('builds.lineCount').replace('{count}', String(lines.length))}</span>
       <button type="button" aria-label={t('builds.previousMatch')} title={t('builds.previousMatch')} disabled={!matches.length} onClick={() => moveMatch(-1)}><ArrowUp size={14} /></button>
       <button type="button" aria-label={t('builds.nextMatch')} title={t('builds.nextMatch')} disabled={!matches.length} onClick={() => moveMatch(1)}><ArrowDown size={14} /></button>
-      {running && <strong><i />{t(`builds.${streamState}`)}</strong>}
+      {running && <strong role="status" aria-live="polite" aria-atomic="true"><i />{t(`builds.${streamState}`)}</strong>}
     </section>
 
-    <div className="plain-log-viewport" ref={logViewportRef} onScroll={() => {
+    <div className="plain-log-viewport" ref={logViewportRef} role="region" aria-label={t('builds.logs')} tabIndex={0} onScroll={() => {
       const viewport = logViewportRef.current
-      if (viewport) setFollowing(isNearLogBottom(viewport))
+      if (viewport && followRef.current && !isNearLogBottom(viewport)) setFollowing(false)
     }}>
-      {lines.length ? <div className="plain-log-lines" role="log" aria-live={running ? 'polite' : 'off'}>
-        {lines.map((line, index) => <div key={index} ref={element => { if (element) lineRefs.current.set(index, element); else lineRefs.current.delete(index) }} className={`${lineTone(line)} ${matches[activeMatch] === index ? 'active-match' : ''}`}><span>{index + 1}</span><code>{highlightLine(line, normalizedQuery)}</code></div>)}
+      {lines.length ? <div className="plain-log-lines">
+        {lines.map((line, index) => <div key={index} ref={element => { if (element) lineRefs.current.set(index, element); else lineRefs.current.delete(index) }} className={`${colorizeLogs ? logTone(line) : ''} ${matches[activeMatch] === index ? 'active-match' : ''}`}><span>{index + 1}</span><code>{highlightLine(line, normalizedQuery)}</code></div>)}
       </div> : <div className="plain-log-empty"><FileText size={22} /><span>{running ? t('builds.waitingForLogs') : t('builds.noLogs')}</span></div>}
     </div>
     <footer className="plain-log-footer"><span>{t('builds.outputLines')}: {lines.length}</span><span>{follow ? t('builds.followingOutput') : t('builds.followPaused')}</span><span>UTF-8</span></footer>
-  </motion.main>
+  </main>
 }

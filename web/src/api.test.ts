@@ -139,67 +139,42 @@ describe('API request resilience', () => {
     })
   })
 
-  it('falls back to a bounded build list when an older server treats job-overview as an id', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'invalid id' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([
-        { id: 31, project_id: 7, number: 2, status: 'failed', started_at: '2026-07-22T10:02:00Z', duration_ms: 2_000, log: 'not copied' },
-        { id: 30, project_id: 7, number: 1, status: 'success', started_at: '2026-07-22T10:01:00Z', duration_ms: 1_000 },
-        { id: 92, project_id: 9, number: 2, status: 'success', started_at: '2026-07-22T10:04:00Z' },
-        { id: 91, project_id: 9, number: 1, status: 'success', started_at: '2026-07-22T10:03:00Z' },
-        { id: 90, project_id: 9, number: 0, status: 'failed', started_at: '2026-07-22T10:02:00Z' },
-        { id: 89, project_id: 9, number: -1, status: 'cancelled', started_at: '2026-07-22T10:01:00Z' },
-        { id: 88, project_id: 9, number: -2, status: 'running', started_at: '2026-07-22T10:00:00Z' },
-        { id: 87, project_id: 9, number: -3, status: 'pending', started_at: '2026-07-22T09:59:00Z' },
-        { id: 'invalid', project_id: 'invalid', number: 1, status: 'success' },
-      ]), { status: 200 }))
-
-    await expect(api.listProjectBuildOverviews()).resolves.toEqual([
-      {
-        project_id: 7,
-        latest: { id: 31, number: 2, status: 'failed', started_at: '2026-07-22T10:02:00Z', duration_ms: 2_000 },
-        last_success: { id: 30, number: 1, status: 'success', started_at: '2026-07-22T10:01:00Z', duration_ms: 1_000 },
-        last_failure: { id: 31, number: 2, status: 'failed', started_at: '2026-07-22T10:02:00Z', duration_ms: 2_000 },
-        recent_statuses: ['failed', 'success'],
-      },
-      {
-        project_id: 9,
-        latest: { id: 92, number: 2, status: 'success', started_at: '2026-07-22T10:04:00Z' },
-        last_success: { id: 92, number: 2, status: 'success', started_at: '2026-07-22T10:04:00Z' },
-        last_failure: { id: 90, number: 0, status: 'failed', started_at: '2026-07-22T10:02:00Z' },
-        recent_statuses: ['success', 'success', 'failed', 'cancelled', 'running'],
-      },
-    ])
-    expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
-      '/api/projects/job-overview',
-      '/api/builds/?limit=500',
-    ])
-  })
-
-  it.each([
-    [403, { error: 'forbidden' }],
-    [500, { error: 'database unavailable' }],
-    [400, { error: 'invalid project' }],
-    [400, { error: 'invalid id', code: 'invalid_project_id' }],
-  ])('does not hide a real project overview HTTP %s error behind the legacy fallback', async (status, payload) => {
+  it('loads project build overviews from the dedicated endpoint', async () => {
+    const payload = [{ project_id: 7, latest: null, last_success: null, last_failure: null, recent_statuses: [] }]
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(payload), {
-      status,
+      status: 200,
       headers: { 'Content-Type': 'application/json' },
     }))
 
-    await expect(api.listProjectBuildOverviews()).rejects.toMatchObject({ status, message: payload.error })
+    await expect(api.listProjectBuildOverviews()).resolves.toEqual(payload)
     expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/projects/job-overview')
   })
 
-  it('surfaces a legacy fallback request failure', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'invalid id' }), { status: 400 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'build history unavailable' }), { status: 500 }))
+  it('loads and normalizes build problems from the dedicated endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      version: 1,
+      build_status: 'failed',
+      summary: 'Compile failed',
+      failed_step_count: 1,
+      problems: [{
+        id: 'problem-1',
+        code: 'compile_failed',
+        severity: 'unexpected',
+        message: 'compiler failed',
+        suggested_action: 'unexpected',
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
 
-    await expect(api.listProjectBuildOverviews()).rejects.toMatchObject({ status: 500, message: 'build history unavailable' })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await expect(api.getBuildProblems(57)).resolves.toMatchObject({
+      build_status: 'failed',
+      failed_step_count: 1,
+      problems: [{ severity: 'error', suggested_action: 'inspect_logs' }],
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/builds/57/problems')
   })
 })

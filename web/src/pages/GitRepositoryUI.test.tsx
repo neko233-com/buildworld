@@ -47,8 +47,6 @@ vi.mock('../api', () => ({
     createProjectGroup: vi.fn(),
     listCredentials: vi.fn(),
     getProject: vi.fn(),
-    listProjectBuilds: vi.fn(),
-    listEnvVars: vi.fn(),
     updateProject: vi.fn(),
     validatePipeline: vi.fn(),
   },
@@ -84,8 +82,6 @@ describe('Git-only repository UI', () => {
     vi.mocked(api.listProjectGroups).mockResolvedValue([])
     vi.mocked(api.createProject).mockResolvedValue({ id: 9 })
     vi.mocked(api.listCredentials).mockResolvedValue([])
-    vi.mocked(api.listProjectBuilds).mockResolvedValue([])
-    vi.mocked(api.listEnvVars).mockResolvedValue([])
     vi.mocked(api.validatePipeline).mockResolvedValue({ valid: true, format: 'yaml', stages: 1, steps: 1, parameters: [], allow_long_running: false })
     vi.mocked(api.updateProject).mockResolvedValue({})
   })

@@ -113,7 +113,7 @@ describe('requested UI contracts', () => {
     expect(mobileStyles).toMatch(/\.jenkins-rail-links\s*\{[^}]*display:\s*flex[^}]*overflow-x:\s*auto/)
     expect(mobileStyles).toMatch(/\.app-topbar,\s*\[data-skin="jenkins"\] \.app-topbar\s*\{[^}]*height:\s*50px/)
     expect(jenkinsPageStyles).toMatch(/@media \(max-width: 900px\)[\s\S]*\.jenkins-context-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/)
-    expect(jenkinsPageStyles).toMatch(/@media \(max-width: 800px\)[\s\S]*\.jenkins-home\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column-reverse/)
+    expect(jenkinsPageStyles).toMatch(/@media \(max-width: 800px\)[\s\S]*\.jenkins-home\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column\s*;/)
     expect(jenkinsPageStyles).toMatch(/@media \(max-width: 760px\)[\s\S]*\.jenkins-context-page\s*\{[^}]*min-height:\s*calc\(100vh - 50px\)/)
   })
 
