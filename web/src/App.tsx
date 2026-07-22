@@ -11,6 +11,7 @@ import { CommandPalette, type CommandPaletteGroup } from './components/CommandPa
 import { RouteErrorBoundary } from './components/RouteErrorBoundary'
 import InAppNotifications from './components/InAppNotifications'
 import { PageState } from './components/PageState'
+import { DISTRIBUTED_WORKERS_ENABLED } from './featureFlags'
 import { Activity, Bell, BookTemplate, Boxes, CircleUserRound, ClipboardList, CloudOff, Cog, FileClock, Gauge, GitBranch, KeyRound, LayoutDashboard, LogOut, Network, Search, Settings2, ShieldCheck, SlidersHorizontal, TerminalSquare, UsersRound } from 'lucide-react'
 import { buildStatusLabel } from './lib/buildPresentation'
 import './jenkins-shell.css'
@@ -253,7 +254,7 @@ export function Layout() {
     { label: t('nav.builds'), detail: t('shell.navigationDetail'), href: '/builds', icon: Activity },
     { label: t('nav.templates'), detail: t('shell.navigationDetail'), href: '/templates', icon: BookTemplate },
     { label: t('nav.vcsRoots'), detail: t('shell.navigationDetail'), href: '/vcs-roots', icon: GitBranch },
-    { label: t('dashboard.workers'), detail: t('shell.workersDetail'), href: '/agents', icon: Network },
+    ...(DISTRIBUTED_WORKERS_ENABLED ? [{ label: t('dashboard.workers'), detail: t('shell.workersDetail'), href: '/agents', icon: Network }] : []),
     { label: t('nav.plugins'), detail: t('shell.pluginsDetail'), href: '/plugins', icon: TerminalSquare },
     { label: t('nav.apiTokens'), detail: t('shell.navigationDetail'), href: '/api-tokens', icon: KeyRound },
     { label: t('nav.statistics'), detail: t('shell.navigationDetail'), href: '/statistics', icon: SlidersHorizontal },

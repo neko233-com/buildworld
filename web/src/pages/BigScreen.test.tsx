@@ -75,6 +75,9 @@ describe('BigScreen', () => {
     expect(container.querySelector('a[href="/builds"]')).not.toBeNull()
     expect(container.querySelector('tr[tabindex]')).toBeNull()
     expect(container.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('2026-07-19')
+    expect(container.querySelectorAll('.data-metric-grid article')).toHaveLength(4)
+    expect(container.querySelector('.worker-panel')).toBeNull()
+    expect(container.textContent).not.toContain('分布式容量')
   })
 
   it('shows a retryable full-page error when the initial request fails', async () => {

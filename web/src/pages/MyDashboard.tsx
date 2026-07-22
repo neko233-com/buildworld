@@ -9,6 +9,7 @@ import { PageState } from '../components/PageState'
 import { formatDuration } from '../lib/durationPresentation'
 import { currentRole, isAdmin } from '../authz'
 import JenkinsHomeRail from '../components/JenkinsHomeRail'
+import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 
 interface DashboardData {
   summary: {
@@ -100,7 +101,7 @@ export default function MyDashboard() {
       <Metric icon={Activity} label={t('bigScreen.totalBuilds')} value={data.summary.total_builds} detail={`${data.summary.running_builds} ${t('bigScreen.running')} · ${data.summary.queued_builds} ${t('bigScreen.queued')}`} />
       <Metric icon={CheckCircle2} label={t('bigScreen.successToday')} value={data.summary.success_today} detail={`${data.summary.success_rate.toFixed(1)}% ${t('bigScreen.successRate')}`} tone="success" />
       <Metric icon={XCircle} label={t('bigScreen.failedToday')} value={data.summary.failed_today} detail={t('bigScreen.today')} tone={data.summary.failed_today ? 'failed' : ''} />
-      <Metric icon={ServerCog} label={t('bigScreen.activeAgents')} value={`${data.summary.active_agents} / ${data.summary.total_agents}`} detail={t('bigScreen.distributedCapacity')} />
+      {DISTRIBUTED_WORKERS_ENABLED && <Metric icon={ServerCog} label={t('bigScreen.activeAgents')} value={`${data.summary.active_agents} / ${data.summary.total_agents}`} detail={t('bigScreen.distributedCapacity')} />}
       <Metric icon={Boxes} label={t('nav.projects')} value={data.summary.total_projects} detail={`${projects.length} ${t('myDashboard.quickAccess')}`} />
     </section>
 
@@ -133,7 +134,7 @@ export default function MyDashboard() {
           <div><dt>{t('myDashboard.role')}</dt><dd>{t(`users.role_${role}`)}</dd></div>
           <div><dt>{t('myDashboard.quickAccess')}</dt><dd>{projects.length}</dd></div>
           <div><dt>{t('nav.projects')}</dt><dd>{data.summary.total_projects}</dd></div>
-          <div><dt>{t('bigScreen.activeAgents')}</dt><dd>{`${data.summary.active_agents} / ${data.summary.total_agents}`}</dd></div>
+          {DISTRIBUTED_WORKERS_ENABLED && <div><dt>{t('bigScreen.activeAgents')}</dt><dd>{`${data.summary.active_agents} / ${data.summary.total_agents}`}</dd></div>}
         </dl>
         {admin && <Link className="dashboard-panel-link" to="/settings">{t('nav.settings')}</Link>}
       </section>

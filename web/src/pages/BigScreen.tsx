@@ -6,6 +6,7 @@ import { api } from '../api'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { PageState } from '../components/PageState'
+import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { formatDuration } from '../lib/durationPresentation'
 import './ManagementPages.jenkins.css'
@@ -95,7 +96,7 @@ export default function BigScreen() {
       <Metric icon={Activity} label={t('bigScreen.totalBuilds')} value={data.summary.total_builds} detail={`${data.summary.running_builds} ${t('bigScreen.running')} · ${data.summary.queued_builds} ${t('bigScreen.queued')}`} />
       <Metric icon={CheckCircle2} label={t('bigScreen.successToday')} value={data.summary.success_today} detail={`${data.summary.success_rate.toFixed(1)}% ${t('bigScreen.successRate')}`} tone="success" />
       <Metric icon={XCircle} label={t('bigScreen.failedToday')} value={data.summary.failed_today} detail={t('bigScreen.today')} tone={data.summary.failed_today ? 'failed' : ''} />
-      <Metric icon={ServerCog} label={t('bigScreen.activeAgents')} value={`${data.summary.active_agents} / ${data.summary.total_agents}`} detail={t('bigScreen.distributedCapacity')} />
+      {DISTRIBUTED_WORKERS_ENABLED && <Metric icon={ServerCog} label={t('bigScreen.activeAgents')} value={`${data.summary.active_agents} / ${data.summary.total_agents}`} detail={t('bigScreen.distributedCapacity')} />}
       <Metric icon={Boxes} label={t('bigScreen.projects')} value={data.summary.total_projects} detail={t('bigScreen.configuredProjects')} />
     </section>
 
@@ -117,13 +118,13 @@ export default function BigScreen() {
         <footer className="trend-legend"><span><i className="success" />{t('status.success')}</span><span><i className="failed" />{t('status.failed')}</span><span><i className="running" />{t('status.running')}</span></footer>
       </section>
 
-      <section className="data-panel worker-panel">
+      {DISTRIBUTED_WORKERS_ENABLED && <section className="data-panel worker-panel">
         <header><div><ServerCog size={16} /><h2>{t('bigScreen.agentStatus')}</h2></div><span>{data.agent_status.length}</span></header>
         <div className="worker-overview-list">{!data.agent_status.length && <p className="data-panel-empty">{t('common.noData')}</p>}{data.agent_status.map(worker => {
           const capacity = worker.max_builds ? Math.min(100, worker.active_builds / worker.max_builds * 100) : 0
           return <article key={worker.name}><div><span className={`worker-state ${worker.status}`}><i />{worker.status === 'online' ? t('agents.online') : t('agents.offline')}</span><strong>{worker.name}</strong><small>{worker.pool || t('agents.defaultPool')}</small></div><div><span>{worker.active_builds} / {worker.max_builds || '-'}</span><i><b style={{ width: `${capacity}%` }} /></i></div></article>
         })}</div>
-      </section>
+      </section>}
 
       <section className="data-panel project-ranking-panel">
         <header><div><Boxes size={16} /><h2>{t('bigScreen.projectRanking')}</h2></div></header>

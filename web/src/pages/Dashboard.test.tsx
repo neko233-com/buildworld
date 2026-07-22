@@ -162,7 +162,8 @@ describe('Dashboard Jenkins job view', () => {
     expect(listProjectBuildOverviews).toHaveBeenCalledOnce()
     expect(listProjectGroups).toHaveBeenCalledOnce()
     expect(listBuildQueue).toHaveBeenCalledOnce()
-    expect(listAgents).toHaveBeenCalledOnce()
+    expect(listAgents).not.toHaveBeenCalled()
+    expect(container.querySelector('a[href="/agents"]')).toBeNull()
 
     const table = container.querySelector('table')
     expect(table).not.toBeNull()

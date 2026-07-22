@@ -12,6 +12,7 @@ import {
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { canEdit } from '../authz'
+import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 import { useI18n } from '../i18n'
 import { buildStatusLabel } from '../lib/buildPresentation'
 
@@ -36,14 +37,16 @@ type Agent = {
   max_concurrent_builds?: number
 }
 
+const BUILD_QUEUE_COLLAPSED_KEY = 'buildworld.jenkins.pane.buildQueue.collapsed'
+
+function initialQueueOpen(): boolean {
+  if (typeof localStorage === 'undefined') return true
+  return localStorage.getItem(BUILD_QUEUE_COLLAPSED_KEY) !== 'true'
+}
+
 function count(value: unknown): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
-}
-
-function hasActivity(queue: QueueItem[], agents: Agent[]): boolean {
-  return queue.some(item => ['pending_approval', 'queued', 'running'].includes(item.status || ''))
-    || agents.some(agent => count(agent.active_builds) > 0)
 }
 
 function errorMessage(reason: unknown, fallback: string): string {
@@ -54,14 +57,13 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
   const { t } = useI18n()
   const authorizedToEdit = useMemo(() => canEdit(), [])
   const editable = editableOverride ?? authorizedToEdit
-  const queuePanelId = useId()
   const agentsPanelId = useId()
   const [queue, setQueue] = useState<QueueItem[] | null>(null)
-  const [agents, setAgents] = useState<Agent[] | null>(null)
+  const [agents, setAgents] = useState<Agent[] | null>(DISTRIBUTED_WORKERS_ENABLED ? null : [])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [reloadVersion, setReloadVersion] = useState(0)
-  const [queueOpen, setQueueOpen] = useState(true)
+  const [queueOpen, setQueueOpen] = useState(initialQueueOpen)
   const [agentsOpen, setAgentsOpen] = useState(true)
 
   useEffect(() => {
@@ -74,10 +76,10 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
       timer = undefined
     }
 
-    const schedule = (busy: boolean) => {
+    const schedule = () => {
       clearTimer()
       if (!active || document.visibilityState !== 'visible') return
-      timer = window.setTimeout(load, busy ? 3000 : 5000)
+      timer = window.setTimeout(load, 5000)
     }
 
     const load = async () => {
@@ -85,19 +87,22 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
       inFlight = true
       setError('')
       try {
-        const [nextQueue, nextAgents] = await Promise.all([api.listBuildQueue(), api.listAgents()])
+        const [nextQueue, nextAgents] = await Promise.all([
+          api.listBuildQueue(),
+          DISTRIBUTED_WORKERS_ENABLED ? api.listAgents() : Promise.resolve([]),
+        ])
         if (!active) return
         const normalizedQueue = Array.isArray(nextQueue) ? nextQueue : []
         const normalizedAgents = Array.isArray(nextAgents) ? nextAgents : []
         setQueue(normalizedQueue)
         setAgents(normalizedAgents)
         setLoading(false)
-        schedule(hasActivity(normalizedQueue, normalizedAgents))
+        schedule()
       } catch (reason) {
         if (!active) return
         setError(errorMessage(reason, t('common.loadFailed')))
         setLoading(false)
-        schedule(false)
+        schedule()
       } finally {
         inFlight = false
       }
@@ -124,6 +129,14 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
     setReloadVersion(version => version + 1)
   }
 
+  const toggleQueue = () => {
+    setQueueOpen(open => {
+      const next = !open
+      localStorage.setItem(BUILD_QUEUE_COLLAPSED_KEY, String(!next))
+      return next
+    })
+  }
+
   const quickLinks = [
     { to: '/projects/new', label: t('projects.newProject'), Icon: Plus, editOnly: true },
     { to: '/builds', label: t('nav.builds'), Icon: History, editOnly: false },
@@ -131,7 +144,7 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
     { to: '/projects', label: t('nav.projects'), Icon: FolderKanban, editOnly: false },
     { to: '/vcs-roots', label: t('nav.vcsRoots'), Icon: GitBranch, editOnly: false },
   ]
-  const queueList = (queue || []).filter(item => item.build_id !== undefined && item.build_id !== null).slice(0, 3)
+  const queueList = (queue || []).filter(item => item.build_id !== undefined && item.build_id !== null)
   const activeCapacity = (agents || []).reduce((total, agent) => total + count(agent.active_builds), 0)
   const totalCapacity = (agents || []).reduce((total, agent) => total + count(agent.max_concurrent_builds), 0)
   const agentList = (agents || []).filter(agent => count(agent.active_builds) > 0).slice(0, 3)
@@ -147,7 +160,7 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
         ))}
       </nav>
 
-      {loading && queue === null && agents === null && (
+      {loading && queue === null && (
         <div className="jenkins-rail-loading" role="status" aria-live="polite">
           <LoaderCircle size={16} aria-hidden="true" />
           <span className="jenkins-rail-loading-label">{t('common.loading')}</span>
@@ -164,26 +177,26 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
         </div>
       )}
 
-      {(queue !== null || agents !== null) && (
+      {(queue !== null || (DISTRIBUTED_WORKERS_ENABLED && agents !== null)) && (
         <div className="jenkins-rail-panels">
-          <section className="jenkins-rail-panel">
+          <section className={`jenkins-rail-panel ${queueOpen ? 'expanded' : 'collapsed'}`} id="buildQueue">
             <header className="jenkins-rail-panel-header">
               <Link className="jenkins-rail-panel-link" to="/build-queue">
-                <span className="jenkins-rail-panel-title">{t('nav.buildQueue')}</span>
+                <span className="jenkins-rail-panel-title">{t('nav.buildQueue')} ({queueList.length})</span>
               </Link>
               <button
                 className="jenkins-rail-panel-toggle"
                 type="button"
                 aria-label={t('nav.buildQueue')}
-                aria-controls={queuePanelId}
+                aria-controls="buildQueue-content"
                 aria-expanded={queueOpen}
-                onClick={() => setQueueOpen(open => !open)}
+                onClick={toggleQueue}
               >
                 <ChevronDown size={15} aria-hidden="true" />
               </button>
             </header>
             {queueOpen && (
-              <div className="jenkins-rail-panel-body" id={queuePanelId}>
+              <div className="jenkins-rail-panel-body" id="buildQueue-content">
                 {queueList.length ? (
                   <ul className="jenkins-rail-queue-list">
                     {queueList.map((item, index) => (
@@ -205,7 +218,7 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
             )}
           </section>
 
-          <section className="jenkins-rail-panel">
+          {DISTRIBUTED_WORKERS_ENABLED && <section className="jenkins-rail-panel">
             <header className="jenkins-rail-panel-header">
               <Link className="jenkins-rail-panel-link" to="/agents">
                 <span className="jenkins-rail-panel-title">{t('agents.title')}</span>
@@ -256,7 +269,7 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
                 )}
               </div>
             )}
-          </section>
+          </section>}
         </div>
       )}
     </aside>

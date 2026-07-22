@@ -195,15 +195,15 @@
   right: 0;
 }
 
-/* Home and context pages use Jenkins' zero-gap 340px sidebar contract. */
+/* Jenkins core dashboard uses a 300px widget rail with a 1rem content gap. */
 [data-skin="jenkins"] .app-main:has(.jenkins-home) .jenkins-home {
-  grid-template-columns: 340px minmax(0, 1fr);
-  gap: 0;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
 }
 [data-skin="jenkins"] .app-main .jenkins-home .jenkins-rail-link { border-radius: 10px; }
 [data-skin="jenkins"] .app-main .jenkins-home .jenkins-rail-panel {
   border-color: #e4e9f1;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 [data-skin="jenkins"] .app-main .jenkins-home .jenkins-rail-panel-header,
 [data-skin="jenkins"] .app-main .jenkins-home .jenkins-rail-panel-link {
@@ -245,10 +245,6 @@
 }
 
 @media (max-width: 900px) {
-  [data-skin="jenkins"] .app-main:has(.jenkins-home) .jenkins-home {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0;
-  }
   [data-skin="jenkins"] .app-main .jenkins-context-sidepanel { padding: 10px 0 6px; }
   [data-skin="jenkins"] .app-main .jenkins-context-task-list {
     display: flex;

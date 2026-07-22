@@ -1,6 +1,7 @@
 import { AlertTriangle, FileSearch, RotateCcw, Settings2, UsersRound, Wrench } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../i18n'
+import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 import type { BuildProblem, BuildProblemReport } from '../lib/buildProblems'
 
 type BuildProblemsPanelProps = {
@@ -44,8 +45,8 @@ export default function BuildProblemsPanel({
       </div>
       <div className="build-problem-actions">
         <Link to={`/builds/${buildId}/logs`} target="_blank" rel="noopener noreferrer"><FileSearch size={14} />{t('builds.inspectFullLog')}</Link>
-        {editable && first.suggested_action === 'worker' && <Link to="/agents"><UsersRound size={14} />{t('builds.inspectWorkers')}</Link>}
-        {editable && first.suggested_action !== 'worker' && <Link to={`/projects/${projectId}?view=settings`}><Settings2 size={14} />{t('builds.fixProjectSettings')}</Link>}
+        {editable && first.suggested_action === 'worker' && DISTRIBUTED_WORKERS_ENABLED && <Link to="/agents"><UsersRound size={14} />{t('builds.inspectWorkers')}</Link>}
+        {editable && (first.suggested_action !== 'worker' || !DISTRIBUTED_WORKERS_ENABLED) && <Link to={`/projects/${projectId}?view=settings`}><Settings2 size={14} />{t('builds.fixProjectSettings')}</Link>}
         {editable && <button type="button" onClick={onRetry} disabled={retrying}><RotateCcw size={14} />{retrying ? t('builds.retrying') : t('builds.retryBuild')}</button>}
       </div>
     </header>

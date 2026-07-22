@@ -65,37 +65,37 @@ describe('JenkinsHomeRail', () => {
     })
   }
 
-  it('matches Jenkins shortcuts, limits live rows, and supports collapsing panels', async () => {
+  it('matches the Jenkins queue pane, keeps Worker dormant, and persists collapse state', async () => {
     await render()
 
     expect(mockedCanEdit).toHaveBeenCalledOnce()
     expect(container.querySelector('a[href="/projects/new"]')).toBeNull()
     expect(container.querySelector('a[href="/templates"]')).not.toBeNull()
     expect(container.querySelector('a[href="/settings"]')).toBeNull()
-    for (const href of ['/builds', '/templates', '/projects', '/vcs-roots', '/build-queue', '/agents']) {
+    for (const href of ['/builds', '/templates', '/projects', '/vcs-roots', '/build-queue']) {
       expect(container.querySelector(`a[href="${href}"]`)).not.toBeNull()
     }
+    expect(container.querySelector('a[href="/agents"]')).toBeNull()
+    expect(listAgents).not.toHaveBeenCalled()
     expect(Array.from(container.querySelectorAll<HTMLAnchorElement>('.jenkins-rail-links a')).map(link => link.getAttribute('href'))).toEqual([
       '/builds',
       '/templates',
       '/projects',
       '/vcs-roots',
     ])
-    expect(container.querySelectorAll('.jenkins-rail-queue-item')).toHaveLength(3)
+    expect(container.querySelectorAll('.jenkins-rail-queue-item')).toHaveLength(4)
     expect(container.querySelector('a[href="/builds/101"]')).not.toBeNull()
-    expect(container.textContent).not.toContain('Delta')
-    expect(container.querySelectorAll('.jenkins-rail-agent-item')).toHaveLength(2)
-    expect(container.textContent).not.toContain('Worker C')
-    expect(container.textContent).not.toContain('Worker D')
-    expect(container.querySelectorAll('.jenkins-rail-panel-count')).toHaveLength(1)
-    expect(container.querySelector('.jenkins-rail-panel-count')?.textContent).toBe('3 / 10')
-    expect(container.querySelector('.jenkins-rail-capacity-value')?.textContent).toBe('3 / 10')
-    expect(container.querySelector('progress')?.getAttribute('value')).toBe('3')
+    expect(container.textContent).toContain('Delta')
+    expect(container.querySelector('#buildQueue .jenkins-rail-panel-title')?.textContent).toMatch(/\(4\)$/)
+    expect(container.querySelectorAll('.jenkins-rail-agent-item')).toHaveLength(0)
+    expect(container.querySelector('.jenkins-rail-panel-count')).toBeNull()
+    expect(container.querySelector('progress')).toBeNull()
 
     const queueToggle = container.querySelector<HTMLButtonElement>('.jenkins-rail-panel-toggle')!
     act(() => queueToggle.click())
     expect(queueToggle.getAttribute('aria-expanded')).toBe('false')
     expect(container.querySelector('.jenkins-rail-queue-list')).toBeNull()
+    expect(localStorage.getItem('buildworld.jenkins.pane.buildQueue.collapsed')).toBe('true')
 
     await act(async () => {
       root.render(<MemoryRouter><JenkinsHomeRail editable /></MemoryRouter>)
@@ -110,29 +110,26 @@ describe('JenkinsHomeRail', () => {
     expect(container.querySelector('a[href="/templates"]')).not.toBeNull()
   })
 
-  it('adapts between active and idle polling and pauses while hidden', async () => {
+  it('refreshes every five seconds like Jenkins and pauses while hidden', async () => {
     vi.useFakeTimers()
     listBuildQueue.mockReset().mockResolvedValueOnce(queue).mockResolvedValue([])
-    listAgents.mockReset().mockResolvedValueOnce(agents).mockResolvedValue([])
     await render(true)
     expect(listBuildQueue).toHaveBeenCalledTimes(1)
-    expect(listAgents).toHaveBeenCalledTimes(1)
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000)
-    })
-    expect(listBuildQueue).toHaveBeenCalledTimes(2)
-    expect(listAgents).toHaveBeenCalledTimes(2)
+    expect(listAgents).not.toHaveBeenCalled()
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4999)
     })
-    expect(listBuildQueue).toHaveBeenCalledTimes(2)
+    expect(listBuildQueue).toHaveBeenCalledTimes(1)
+
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1)
     })
+    expect(listBuildQueue).toHaveBeenCalledTimes(2)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
     expect(listBuildQueue).toHaveBeenCalledTimes(3)
-    expect(listAgents).toHaveBeenCalledTimes(3)
 
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
     act(() => document.dispatchEvent(new Event('visibilitychange')))
@@ -147,12 +144,11 @@ describe('JenkinsHomeRail', () => {
       await Promise.resolve()
     })
     expect(listBuildQueue).toHaveBeenCalledTimes(4)
-    expect(listAgents).toHaveBeenCalledTimes(4)
+    expect(listAgents).not.toHaveBeenCalled()
   })
 
-  it('shows an actionable error and retries both requests', async () => {
+  it('shows an actionable error and retries the queue request', async () => {
     listBuildQueue.mockRejectedValueOnce(new Error('control plane offline')).mockResolvedValueOnce([])
-    listAgents.mockResolvedValueOnce([]).mockResolvedValueOnce([])
     await render(true)
 
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('control plane offline')
@@ -160,7 +156,7 @@ describe('JenkinsHomeRail', () => {
     await act(async () => retry.click())
 
     expect(listBuildQueue).toHaveBeenCalledTimes(2)
-    expect(listAgents).toHaveBeenCalledTimes(2)
+    expect(listAgents).not.toHaveBeenCalled()
     expect(container.querySelector('[role="alert"]')).toBeNull()
     expect(container.querySelector('.jenkins-rail-empty')).not.toBeNull()
   })

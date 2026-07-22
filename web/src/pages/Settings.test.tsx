@@ -93,7 +93,9 @@ describe('Settings Jenkins directory', () => {
     expect(Array.from(container.querySelectorAll('.settings-directory-group > h2')).map(item => item.textContent)).toEqual([
       '系统配置', '安全', '状态信息', '工具和数据',
     ])
-    expect(container.querySelectorAll('.settings-directory-link')).toHaveLength(8)
+    expect(container.querySelectorAll('.settings-directory-link')).toHaveLength(7)
+    expect(vi.mocked(api.listAgents)).not.toHaveBeenCalled()
+    expect(container.querySelector('.settings-directory')?.textContent).not.toContain('Worker')
     expect(container.querySelector('.settings-directory')?.textContent).not.toContain('构建模板')
     expect(container.querySelector('.settings-directory')?.textContent).not.toContain('外观')
     expect(settingButton('备份与恢复').textContent).toContain('兼容数据')
@@ -145,5 +147,19 @@ describe('Settings Jenkins directory', () => {
     expect(container.querySelector('.portability-pane')?.textContent).not.toContain('Build Templates')
     expect(container.textContent).toContain('导出配置')
     expect(container.textContent).toContain('导入配置')
+  })
+
+  it('keeps distributed Worker settings dormant and generates a builtin pipeline', async () => {
+    await renderSettings('/settings?section=agents')
+
+    expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/settings')
+    expect(container.querySelector('.agent-enrollment-section')).toBeNull()
+    expect(vi.mocked(api.listAgents)).not.toHaveBeenCalled()
+
+    await act(async () => settingButton('Go / TypeScript 验证').click())
+    const pipeline = Array.from(container.querySelectorAll('.settings-code-panel'))
+      .find(panel => panel.textContent?.includes('pipeline.buildworld.ts'))
+    expect(pipeline?.textContent).toContain('definePipeline')
+    expect(pipeline?.textContent).not.toContain('agentRequirements')
   })
 })

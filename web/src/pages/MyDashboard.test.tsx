@@ -67,7 +67,10 @@ describe('MyDashboard Jenkins view', () => {
 
     expect(container.querySelector('.jenkins-home.jenkins-user-dashboard')).not.toBeNull()
     expect(container.querySelector('.jenkins-rail-root')).not.toBeNull()
-    expect(container.querySelectorAll('.data-metric-grid article')).toHaveLength(5)
+    expect(container.querySelectorAll('.data-metric-grid article')).toHaveLength(4)
+    expect(vi.mocked(api.listAgents)).not.toHaveBeenCalled()
+    expect(container.querySelector('a[href="/agents"]')).toBeNull()
+    expect(container.textContent).not.toContain('分布式容量')
     expect(container.querySelector('caption')?.textContent).toMatch(/最近构建|Recent Builds/)
     expect(container.querySelector('.jenkins-build-state.running svg.timeline-spinner')).not.toBeNull()
     expect(container.querySelector('.data-build-table .build-status')).toBeNull()
