@@ -1,11 +1,22 @@
 package engine
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/neko233-com/buildworld/internal/store"
 )
+
+func TestGitLSRemoteHonorsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := gitLSRemoteContext(ctx, "https://example.invalid/repository.git", "main")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("git ls-remote error = %v, want context cancellation", err)
+	}
+}
 
 func TestTriggerCheckerSkipsDisabledProject(t *testing.T) {
 	data, err := store.New(filepath.Join(t.TempDir(), "disabled-trigger.db"))

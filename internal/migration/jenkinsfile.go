@@ -15,6 +15,8 @@ const (
 	maxJenkinsfileBytes      = 2 << 20
 	macOSFeishuHelperPath    = `$HOME/Library/Application Support/buildworld/helpers/feishu-robot`
 	macOSFeishuHelperWarning = `This Jenkins step launched feishu-robot from a macOS protected directory. Before enabling the migrated pipeline, install or copy the trusted binary to "$HOME/Library/Application Support/buildworld/helpers/feishu-robot" and set its mode to 0700. BuildWorld does not copy it automatically.`
+	jenkinsGitSafetyEnv      = `GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=Never GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=60`
+	jenkinsGitStageTimeout   = 120
 )
 
 var (
@@ -34,8 +36,8 @@ var (
 	teamResourcesFallback = regexp.MustCompile(`(?s)if\s+\[\s+-f\s+\./update-team-resources\.sh\s+\];\s+then(.*?)\n\s*else(.*?)\n\s*fi`)
 	teamResourcesDirect   = regexp.MustCompile(`(?m)^(\s*)chmod\s+\+x\s+\./update-team-resources\.sh\s*\n\s*\./update-team-resources\.sh\s*$`)
 	macOSFeishuHelper     = regexp.MustCompile(`(?m)^([ \t]*)cd[ \t]+(/Users/[A-Za-z0-9._@%+=:,~-]+/(Desktop|Documents|Downloads)/[A-Za-z0-9._/@%+=:,~-]*feishu-robot)[ \t]*\n[ \t]*\./feishu-robot([^\r\n]*)$`)
-	jenkinsGitFetch       = regexp.MustCompile(`(?m)^(\s*git\s+fetch[^\r\n|]*)\s*$`)
-	jenkinsGitPull        = regexp.MustCompile(`(?m)^(\s*git\s+pull[^\r\n|]*)\s*$`)
+	jenkinsGitFetch       = regexp.MustCompile(`(?m)^([ \t]*)(git\s+fetch[^\r\n|]*)[ \t]*$`)
+	jenkinsGitPull        = regexp.MustCompile(`(?m)^([ \t]*)(git\s+pull[^\r\n|]*)[ \t]*$`)
 	jenkinsGitResetRemote = regexp.MustCompile(`(?m)^(\s*git\s+reset\s+--hard\s+origin/[^\s|]+)\s*$`)
 	retentionDeclaration  = regexp.MustCompile(`(?s)numToKeepStr\s*:\s*['\"](\d+)['\"]`)
 	timeoutDeclaration    = regexp.MustCompile(`(?is)\btimeout\s*\(.*?time\s*:\s*(\d+).*?unit\s*:\s*['\"]([A-Z]+)['\"].*?\)`)
@@ -635,7 +637,7 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			position = closeBody + 1
 			continue
 		}
-		stages = append(stages, engine.Stage{
+		stage := engine.Stage{
 			Name:     strings.TrimSpace(stageName),
 			Branches: branches,
 			Steps: []engine.Step{{
@@ -644,7 +646,9 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 				Shell:   "bash",
 				Command: "set -e\n\n" + strings.TrimSpace(command),
 			}},
-		})
+		}
+		applyJenkinsGitStageTimeout(&stage)
+		stages = append(stages, stage)
 		position = closeBody + 1
 	}
 	if len(stages) == 0 {
@@ -697,13 +701,45 @@ func parseScriptedJenkinsStages(source string, warnings *[]Warning) ([]engine.St
 			position = closeBody + 1
 			continue
 		}
-		stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Steps: []engine.Step{{Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + strings.TrimSpace(command)}}})
+		stage := engine.Stage{Name: strings.TrimSpace(stageName), Steps: []engine.Step{{Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + strings.TrimSpace(command)}}}
+		applyJenkinsGitStageTimeout(&stage)
+		stages = append(stages, stage)
 		position = closeBody + 1
 	}
 	if len(stages) == 0 {
 		return nil, fmt.Errorf("scripted Jenkinsfile has no stages with supported executable commands")
 	}
 	return stages, nil
+}
+
+// A local credential helper or pre-fetch hook can block before Git opens its
+// HTTP connection, where low-speed safeguards cannot help. Bound migrated Git
+// sync stages independently instead of consuming the whole build timeout.
+func applyJenkinsGitStageTimeout(stage *engine.Stage) {
+	for _, step := range stage.Steps {
+		if isPureJenkinsGitSyncCommand(step.Command) {
+			stage.TimeoutSec = jenkinsGitStageTimeout
+			return
+		}
+	}
+}
+
+func isPureJenkinsGitSyncCommand(command string) bool {
+	foundSync := false
+	for _, line := range strings.Split(command, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "", strings.HasPrefix(line, "#"), strings.HasPrefix(line, "set "),
+			strings.HasPrefix(line, "echo "), strings.HasPrefix(line, "printf "), strings.HasPrefix(line, "cd "),
+			strings.HasPrefix(line, "git reset "):
+			continue
+		case strings.HasPrefix(line, jenkinsGitSafetyEnv+" git fetch"), strings.HasPrefix(line, jenkinsGitSafetyEnv+" git pull"):
+			foundSync = true
+		default:
+			return false
+		}
+	}
+	return foundSync
 }
 
 func parseJenkinsWhen(source, mask string) ([]string, []Warning) {
@@ -980,8 +1016,10 @@ func normalizeMacOSFeishuHelperPath(command string) string {
 // checked-out revision when an authenticated fetch/pull is unavailable; a
 // fresh clone still fails loudly rather than claiming a deployment succeeded.
 func normalizeJenkinsGitSync(command string) string {
-	command = jenkinsGitFetch.ReplaceAllString(command, `${1} || echo "BuildWorld: git fetch unavailable; using existing checkout"`)
-	command = jenkinsGitPull.ReplaceAllString(command, `${1} || echo "BuildWorld: git pull unavailable; using existing checkout"`)
+	command = jenkinsGitFetch.ReplaceAllString(command, `${1}echo "BuildWorld: starting non-interactive git fetch (60s HTTP idle timeout)"
+${1}`+jenkinsGitSafetyEnv+` ${2} || echo "WARNING: BuildWorld: git fetch unavailable; using stale existing checkout"`)
+	command = jenkinsGitPull.ReplaceAllString(command, `${1}echo "BuildWorld: starting non-interactive git pull (60s HTTP idle timeout)"
+${1}`+jenkinsGitSafetyEnv+` ${2} || echo "WARNING: BuildWorld: git pull unavailable; using stale existing checkout"`)
 	command = jenkinsGitResetRemote.ReplaceAllString(command, `${1} || git reset --hard HEAD`)
 	return command
 }

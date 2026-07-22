@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 
+	buildgit "github.com/neko233-com/buildworld/internal/git"
 	"github.com/neko233-com/buildworld/internal/processtree"
 )
 
@@ -197,7 +198,9 @@ func (l *Loader) InstallGitHub(ctx context.Context, source string) (*BinaryManif
 		return nil, err
 	}
 	defer os.RemoveAll(tmp)
-	if out, err := processtree.CommandContext(ctx, "git", "clone", "--depth", "1", normalizedSource, tmp).CombinedOutput(); err != nil {
+	clone := processtree.CommandContext(ctx, "git", "clone", "--depth", "1", normalizedSource, tmp)
+	clone.Env = buildgit.NonInteractiveEnvironment(clone.Environ())
+	if out, err := clone.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("clone plugin: %w: %s", err, out)
 	}
 	data, err := os.ReadFile(filepath.Join(tmp, "plugin-buildworld.json"))

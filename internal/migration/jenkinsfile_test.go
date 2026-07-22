@@ -579,14 +579,41 @@ pipeline {
 		t.Fatal(err)
 	}
 	command := config.Stages[0].Steps[0].Command
+	if config.Stages[0].TimeoutSec != jenkinsGitStageTimeout {
+		t.Fatalf("Git sync stage timeout = %d, want %d", config.Stages[0].TimeoutSec, jenkinsGitStageTimeout)
+	}
 	for _, expected := range []string{
-		`git fetch --all || echo "BuildWorld: git fetch unavailable; using existing checkout"`,
+		`echo "BuildWorld: starting non-interactive git fetch (60s HTTP idle timeout)"`,
+		jenkinsGitSafetyEnv + ` git fetch --all || echo "WARNING: BuildWorld: git fetch unavailable; using stale existing checkout"`,
 		`git reset --hard origin/main || git reset --hard HEAD`,
-		`git pull || echo "BuildWorld: git pull unavailable; using existing checkout"`,
+		`echo "BuildWorld: starting non-interactive git pull (60s HTTP idle timeout)"`,
+		jenkinsGitSafetyEnv + ` git pull || echo "WARNING: BuildWorld: git pull unavailable; using stale existing checkout"`,
 	} {
 		if !strings.Contains(command, expected) {
 			t.Fatalf("missing %q:\n%s", expected, command)
 		}
+	}
+}
+
+func TestJenkinsfileStrategyDoesNotCapMixedGitAndBuildStage(t *testing.T) {
+	result, err := NewJenkinsfileStrategy().Convert(Request{Source: `pipeline {
+  agent any
+  stages {
+    stage('Build') { steps { sh '''
+      git pull
+      make all
+    ''' } }
+  }
+}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := engine.ParsePipelineConfig(result.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Stages[0].TimeoutSec != 0 {
+		t.Fatalf("mixed build stage timeout = %d, want pipeline/default timeout", config.Stages[0].TimeoutSec)
 	}
 }
 

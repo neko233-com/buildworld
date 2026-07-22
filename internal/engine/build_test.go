@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,11 +31,40 @@ func TestCompletedStepErrorHonorsCancellationAtSuccessBoundary(t *testing.T) {
 		t.Fatalf("completed step error = %v, want context.Canceled", err)
 	}
 	commandErr := fmt.Errorf("command failed")
+	cancelledCommandErr := completedStepError(ctx, commandErr)
+	if !errors.Is(cancelledCommandErr, context.Canceled) || cancelledCommandErr.Error() != "context canceled (process: command failed)" {
+		t.Fatalf("cancelled command error = %v, want contextual process error", cancelledCommandErr)
+	}
 	if err := completedStepError(context.Background(), commandErr); err != commandErr {
 		t.Fatalf("command error = %v, want original error", err)
 	}
 	if err := completedStepError(context.Background(), nil); err != nil {
 		t.Fatalf("successful step error = %v, want nil", err)
+	}
+}
+
+type blockingSCMFetcher struct{}
+
+func (blockingSCMFetcher) FetchSCMPipeline(ctx context.Context, _ SCMPipelineSource) (string, PipelineFormat, error) {
+	<-ctx.Done()
+	return "", FormatYAML, ctx.Err()
+}
+
+func TestLoadBuildConfigBoundsSCMPipelineFetch(t *testing.T) {
+	previous := DefaultSCMFetcher
+	DefaultSCMFetcher = blockingSCMFetcher{}
+	t.Cleanup(func() { DefaultSCMFetcher = previous })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	runner := &BuildRunner{}
+	_, err := runner.loadBuildConfig(ctx, &store.Project{
+		PipelineSourceMode: "scm",
+		PipelineSCMRepo:    "https://example.invalid/repository.git",
+		PipelineSCMPath:    "buildworld.ts",
+	})
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "fetch SCM pipeline timed out") {
+		t.Fatalf("SCM pipeline load error = %v, want explicit timeout", err)
 	}
 }
 
