@@ -1,41 +1,283 @@
-/* Jenkins shell controls kept separate from page styling so the masthead stays
-   stable while individual pages migrate to the classic layout. */
-.app-topbar .topbar-actions .topbar-settings-link {
+/* Jenkins 2.563 application chrome. Values mirror the rendered core UI: a
+   66px masthead, 26px gutters, 38px tertiary controls, and in-header crumbs. */
+.app-topbar-main {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  align-items: center;
+  overflow: hidden;
+  padding-left: 26px;
+}
+
+.app-topbar-breadcrumbs {
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  margin-left: -32px;
+  overflow: hidden;
+}
+
+[data-skin="jenkins"] .app-topbar .jenkins-context-breadcrumb {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  color: #0d1117;
+  border: 0;
+  font: 16px/24px system-ui, "Segoe UI", Roboto, "Noto Sans", Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", Arial, sans-serif;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .app-topbar .jenkins-context-breadcrumb ol {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  align-items: center;
+  margin: 0;
+  padding: 0 0 0 40px;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+[data-skin="jenkins"] .app-topbar .jenkins-context-breadcrumb ol::-webkit-scrollbar { display: none; }
+
+[data-skin="jenkins"] .app-topbar .jenkins-context-breadcrumb li {
   display: inline-flex;
-  height: 38px;
+  height: 29px;
   flex: 0 0 auto;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 0 13px;
-  color: #26313c;
-  border: 1px solid #cfd9e4;
-  border-radius: 6px;
-  background: #f7f9fb;
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1;
+  gap: 0;
+  font-size: 14px;
+  line-height: 21px;
+}
+
+[data-skin="jenkins"] .app-topbar .jenkins-context-breadcrumb .jenkins-breadcrumb-separator {
+  display: inline-grid;
+  width: 30px;
+  height: 29px;
+  place-items: center;
+  color: #6b7280;
+  font-size: 15px;
+}
+
+[data-skin="jenkins"] .app-topbar .jenkins-context-breadcrumb a,
+[data-skin="jenkins"] .app-topbar .jenkins-context-breadcrumb strong {
+  display: inline-flex;
+  height: 28px;
+  box-sizing: border-box;
+  align-items: center;
+  padding: 4px 8px;
+  color: #0d1117;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 450;
+  line-height: 21px;
   text-decoration: none;
-  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .app-topbar .jenkins-context-breadcrumb a:hover {
+  color: #0d1117;
+  background: #eef1f5;
+  text-decoration: none;
+}
+
+[data-skin="jenkins"] .app-topbar .jenkins-context-breadcrumb a:focus-visible {
+  color: #0d1117;
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+  text-decoration: none;
+}
+
+[data-skin="jenkins"] .app-topbar .jenkins-context-breadcrumb strong { font-weight: 450; }
+
+.app-topbar .topbar-actions {
+  flex: 0 0 auto;
+  gap: 8px;
+  padding-right: 26px;
+}
+
+.app-topbar .topbar-actions .topbar-settings-link {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  color: #0d1117;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  text-decoration: none;
 }
 
 .app-topbar .topbar-actions .topbar-settings-link:hover,
 .app-topbar .topbar-actions .topbar-settings-link.active {
-  color: #155fa9;
-  border-color: #9fbfdf;
-  background: #eaf3fc;
+  color: #0d1117;
+  background: #eef1f5;
 }
 
 .app-topbar .topbar-actions .topbar-settings-link:focus-visible {
-  outline: 2px solid var(--ui-accent);
+  outline: 2px solid #2563eb;
   outline-offset: 2px;
 }
 
+.jenkins-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+}
+
+.account-dashboard-link {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  color: #26313c;
+  border-radius: 6px;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.account-dashboard-link:hover,
+.account-dashboard-link.active { color: #0d1117; background: #eef1f5; }
+
+.account-menu-popover .in-app-notification-center { position: static; }
+
+.account-menu-popover .notification-bell-menu {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 8px;
+  color: #26313c;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+}
+
+.account-menu-popover .notification-bell-menu:hover,
+.account-menu-popover .notification-bell-menu.active {
+  color: #0d1117;
+  background: #eef1f5;
+}
+
+.notification-menu-label { display: inline; }
+
+.account-menu-popover .notification-bell-menu .notification-unread-count {
+  position: static;
+  min-width: 19px;
+  height: 19px;
+  margin-left: auto;
+  padding: 0 5px;
+  color: #fff;
+  border: 0;
+  font-size: 9px;
+}
+
+.account-menu-popover .notification-popover {
+  top: calc(100% + 8px);
+  right: 0;
+}
+
+/* Home and context pages use Jenkins' zero-gap 340px sidebar contract. */
+[data-skin="jenkins"] .app-main:has(.jenkins-home) .jenkins-home {
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 0;
+}
+[data-skin="jenkins"] .app-main .jenkins-home .jenkins-rail-link { border-radius: 10px; }
+[data-skin="jenkins"] .app-main .jenkins-home .jenkins-rail-panel {
+  border-color: #e4e9f1;
+  border-radius: 10px;
+}
+[data-skin="jenkins"] .app-main .jenkins-home .jenkins-rail-panel-header,
+[data-skin="jenkins"] .app-main .jenkins-home .jenkins-rail-panel-link {
+  min-height: 42px;
+  height: 42px;
+}
+[data-skin="jenkins"] .app-main .jenkins-context-layout { gap: 0; }
+[data-skin="jenkins"] .app-main .jenkins-context-sidepanel { padding: 0; }
+[data-skin="jenkins"] .app-main .jenkins-context-main { padding: 26px 26px 64px; }
+[data-skin="jenkins"] .app-main .jenkins-context-task-list {
+  display: grid;
+  gap: 2px;
+  margin: 0 8px 26px 26px;
+  padding: 0;
+}
+[data-skin="jenkins"] .app-main .jenkins-context-task-list a,
+[data-skin="jenkins"] .app-main .jenkins-context-task-list button {
+  width: calc(100% + 8px);
+  min-height: 38px;
+  margin-left: -8px;
+  padding: 8px 11px;
+  gap: 10px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 450;
+  line-height: 21px;
+}
+[data-skin="jenkins"] .app-main .jenkins-context-task-list a.active {
+  color: #0d1117;
+  background: #eef1f5;
+  font-weight: 650;
+}
+[data-skin="jenkins"] .app-main .jenkins-context-task-list a:hover,
+[data-skin="jenkins"] .app-main .jenkins-context-task-list button:hover,
+[data-skin="jenkins"] .app-main .jenkins-context-task-list a:focus-visible,
+[data-skin="jenkins"] .app-main .jenkins-context-task-list button:focus-visible {
+  color: #0d1117;
+  background: #eef1f5;
+}
+
+@media (max-width: 900px) {
+  [data-skin="jenkins"] .app-main:has(.jenkins-home) .jenkins-home {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  [data-skin="jenkins"] .app-main .jenkins-context-sidepanel { padding: 10px 0 6px; }
+  [data-skin="jenkins"] .app-main .jenkins-context-task-list {
+    display: flex;
+    margin: 0;
+    padding-bottom: 6px;
+    overflow-x: auto;
+  }
+  [data-skin="jenkins"] .app-main .jenkins-context-task-list a,
+  [data-skin="jenkins"] .app-main .jenkins-context-task-list button {
+    width: auto;
+    min-width: max-content;
+    margin-left: 0;
+    flex: 0 0 auto;
+  }
+  [data-skin="jenkins"] .app-main .jenkins-context-main { padding: 20px 4px 50px; }
+}
+
 @media (max-width: 760px) {
-  .app-topbar .topbar-actions .topbar-settings-link {
-    display: inline-flex;
-    height: 36px;
-    padding: 0 10px;
+  .app-topbar-main { padding-left: 10px; }
+  .app-topbar-breadcrumbs { margin-left: -22px; }
+  .app-topbar .jenkins-context-breadcrumb ol { padding-left: 28px; }
+  .app-topbar .jenkins-context-breadcrumb .jenkins-breadcrumb-separator { width: 22px; }
+  .app-topbar .topbar-actions { gap: 2px; padding-right: 10px; }
+  .account-menu-popover .notification-popover {
+    position: fixed;
+    top: 58px;
+    right: 8px;
+    left: 8px;
+    width: auto;
   }
 }
 
@@ -49,8 +291,6 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
-
-  .app-topbar .topbar-actions .topbar-settings-link {
-    padding: 0 8px;
-  }
+  .app-topbar-breadcrumbs { margin-left: -14px; }
+  .app-topbar .jenkins-context-breadcrumb ol { padding-left: 20px; }
 }

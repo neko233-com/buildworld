@@ -6,7 +6,7 @@ import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
 import { dialogs } from '../components/AppDialogs'
-import { buildStatusLabel, buildTriggerLabel } from '../lib/buildPresentation'
+import { buildStatusLabel, buildStatusTone, buildTriggerLabel } from '../lib/buildPresentation'
 import { canEdit } from '../authz'
 import { PageState } from '../components/PageState'
 import BuildApprovalPanel from '../components/BuildApprovalPanel'
@@ -22,6 +22,7 @@ export default function BuildQueue() {
   }, [])
   const [refreshing, setRefreshing] = useState(false)
   const [moving, setMoving] = useState<number | null>(null)
+  const [cancelling, setCancelling] = useState<number | null>(null)
   const [moveMessage, setMoveMessage] = useState('')
 
   const list = data?.queue || []
@@ -61,15 +62,25 @@ export default function BuildQueue() {
   const cancel = async (id: number) => {
     const item = list.find((queueItem: any) => queueItem.id === id)
     if (!item) return
-    if (!await dialogs.confirm(t('buildQueue.cancelConfirm'), { title: t('buildQueue.cancelTitle'), action: t('buildQueue.cancelBuild') })) return
+    const buildLabel = `${item.project_name || `#${item.project_id}`} #${item.build_number}`
+    if (!await dialogs.confirm(`${buildLabel}\n\n${t('buildQueue.cancelConfirm')}`, { title: t('buildQueue.cancelTitle'), action: t('buildQueue.cancelBuild') })) return
+    setCancelling(id)
     try { await api.stopBuild(item.build_id); reload() }
     catch (e: any) { dialogs.notify(e.message) }
+    finally { setCancelling(null) }
   }
 
-  const refresh = () => {
+  const refresh = async () => {
+    if (refreshing) return
     setRefreshing(true)
-    reload()
-    window.setTimeout(() => setRefreshing(false), 450)
+    try {
+      const [queue, nextApprovals] = await Promise.all([api.listBuildQueue(), api.listPendingApprovals()])
+      setData({ queue, approvals: nextApprovals })
+    } catch (e: any) {
+      dialogs.notify(e.message || t('common.error'))
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   if (loading) return <PageState />
@@ -87,13 +98,13 @@ export default function BuildQueue() {
           <Link to="/builds"><History size={20} />{t('nav.builds')}</Link>
           <Link to="/build-queue" className="active" aria-current="page"><FileClock size={20} />{t('nav.buildQueue')}</Link>
           <Link to="/agents"><ServerCog size={20} />{t('nav.agents')}</Link>
-          <button type="button" onClick={refresh} disabled={refreshing}><RotateCw className={refreshing ? 'timeline-spinner' : ''} size={20} />{t('buildQueue.refresh')}</button>
+          <button type="button" onClick={refresh} disabled={refreshing} aria-busy={refreshing}><RotateCw className={refreshing ? 'timeline-spinner' : ''} size={20} />{t('buildQueue.refresh')}</button>
         </nav>}
       >
       <div className="operations-page jenkins-queue-content">
       <header className="jenkins-page-heading">
-        <div><p>{waiting.length}</p><h1>{t('buildQueue.title')}</h1></div>
-        <button type="button" className="secondary-command" onClick={refresh} disabled={refreshing}><RotateCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('buildQueue.refresh')}</button>
+        <div><p className="jenkins-page-heading-count">{waiting.length}</p><h1>{t('buildQueue.title')}</h1></div>
+        <button type="button" className="secondary-command" onClick={refresh} disabled={refreshing} aria-busy={refreshing}><RotateCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('buildQueue.refresh')}</button>
       </header>
       <div className="queue-summary" aria-label={t('buildQueue.summary')}>
         <span><Activity size={14} />{t('buildQueue.runningSummary').replace('{count}', String(running.length))}</span>
@@ -115,6 +126,7 @@ export default function BuildQueue() {
       </section>}
       <div className="operations-table-wrap build-queue-wrap">
         <table className="operations-table build-queue-table">
+          <caption className="sr-only">{t('buildQueue.title')}</caption>
           <thead>
             <tr>
               <th>{t('buildQueue.position')}</th>
@@ -133,10 +145,10 @@ export default function BuildQueue() {
               <tr><td colSpan={9} className="operations-empty queue-empty"><FileClock size={19} /><strong>{t(running.length ? 'buildQueue.noWaitingTitle' : 'buildQueue.emptyTitle')}</strong><small>{t(running.length ? 'buildQueue.noWaitingDescription' : 'buildQueue.emptyDescription')}</small></td></tr>
             )}
             {waiting.map((q: any) => (
-              <tr key={q.id}>
+              <tr key={q.id} aria-busy={moving === q.id || cancelling === q.id}>
                 <td><Link className="queue-position build-number-link" to={`/builds/${q.build_id}`}>#{q.queue_position}</Link></td>
                 <td><Link className="entity-text-link queue-project-link" to={`/builds/${q.build_id}`}><span>{q.project_name || `#${q.project_id}`}</span><small>#{q.build_number}</small></Link></td>
-                <td><span className={`build-status ${q.status === 'running' ? 'running' : 'pending'}`}>{buildStatusLabel(t, q.status === 'queued' ? 'pending' : q.status)}</span></td>
+                <td><span className={`jenkins-build-state ${buildStatusTone(q.status === 'queued' ? 'pending' : q.status)}`}><i aria-hidden="true" /><span>{buildStatusLabel(t, q.status === 'queued' ? 'pending' : q.status)}</span></span></td>
                 <td><span className={`queue-wait-reason ${q.wait_reason || 'dispatch'}`}><Hourglass size={13} />{t(queueWaitReasonKey(q.wait_reason))}{q.waiting_for_build_id && <Link to={`/builds/${q.waiting_for_build_id}`}>#{q.waiting_for_build_number || q.waiting_for_build_id}</Link>}</span></td>
                 <td><span className="branch-cell"><GitBranch size={13} />{q.branch || '-'}</span></td>
                 <td className="muted-cell">{buildTriggerLabel(t, q.trigger)}</td>
@@ -144,11 +156,12 @@ export default function BuildQueue() {
                 <td className="muted-cell">{q.priority ?? 0}</td>
                 <td>
                   <div className="row-actions">{editable && <>
-                    <button type="button" className="row-icon" onClick={() => move(q.id, 'move_top')} disabled={moving !== null || !canMoveQueueItem(list, q.id, 'move_top')} title={t('buildQueue.moveTop')} aria-label={`${t('buildQueue.moveTop')} ${q.project_name} #${q.build_number}`}><ChevronsUp size={15} /></button>
-                    <button type="button" className="row-icon" onClick={() => move(q.id, 'move_up')} disabled={moving !== null || !canMoveQueueItem(list, q.id, 'move_up')} title={t('buildQueue.moveUp')} aria-label={`${t('buildQueue.moveUp')} ${q.project_name} #${q.build_number}`}><ArrowUp size={15} /></button>
-                    <button type="button" className="row-icon" onClick={() => move(q.id, 'move_down')} disabled={moving !== null || !canMoveQueueItem(list, q.id, 'move_down')} title={t('buildQueue.moveDown')} aria-label={`${t('buildQueue.moveDown')} ${q.project_name} #${q.build_number}`}><ArrowDown size={15} /></button>
-                    <button type="button" className="row-icon" onClick={() => move(q.id, 'move_bottom')} disabled={moving !== null || !canMoveQueueItem(list, q.id, 'move_bottom')} title={t('buildQueue.moveBottom')} aria-label={`${t('buildQueue.moveBottom')} ${q.project_name} #${q.build_number}`}><ChevronsDown size={15} /></button>
-                    <button type="button" className="row-icon danger" onClick={() => cancel(q.id)} title={t('buildQueue.cancelBuild')} aria-label={t('buildQueue.cancelBuild')}><XCircle size={15} /></button>
+                    {moving === q.id && <LoaderCircle className="timeline-spinner jenkins-queue-moving" size={16} aria-hidden="true" />}
+                    <button type="button" className="row-icon" onClick={() => move(q.id, 'move_top')} disabled={moving !== null || cancelling !== null || !canMoveQueueItem(list, q.id, 'move_top')} title={t('buildQueue.moveTop')} aria-label={`${t('buildQueue.moveTop')} ${q.project_name} #${q.build_number}`}><ChevronsUp size={16} /></button>
+                    <button type="button" className="row-icon" onClick={() => move(q.id, 'move_up')} disabled={moving !== null || cancelling !== null || !canMoveQueueItem(list, q.id, 'move_up')} title={t('buildQueue.moveUp')} aria-label={`${t('buildQueue.moveUp')} ${q.project_name} #${q.build_number}`}><ArrowUp size={16} /></button>
+                    <button type="button" className="row-icon" onClick={() => move(q.id, 'move_down')} disabled={moving !== null || cancelling !== null || !canMoveQueueItem(list, q.id, 'move_down')} title={t('buildQueue.moveDown')} aria-label={`${t('buildQueue.moveDown')} ${q.project_name} #${q.build_number}`}><ArrowDown size={16} /></button>
+                    <button type="button" className="row-icon" onClick={() => move(q.id, 'move_bottom')} disabled={moving !== null || cancelling !== null || !canMoveQueueItem(list, q.id, 'move_bottom')} title={t('buildQueue.moveBottom')} aria-label={`${t('buildQueue.moveBottom')} ${q.project_name} #${q.build_number}`}><ChevronsDown size={16} /></button>
+                    <button type="button" className="row-icon danger" disabled={moving !== null || cancelling !== null} aria-busy={cancelling === q.id} onClick={() => cancel(q.id)} title={t('buildQueue.cancelBuild')} aria-label={`${t('buildQueue.cancelBuild')} ${q.project_name || `#${q.project_id}`} #${q.build_number}`}>{cancelling === q.id ? <LoaderCircle className="timeline-spinner" size={16} /> : <XCircle size={16} />}</button>
                   </>}</div>
                 </td>
               </tr>

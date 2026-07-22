@@ -1,0 +1,261 @@
+.jenkins-project-action-dialog {
+  width: min(620px, 100%);
+  border-radius: 12px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Jenkins 2.563 classic Job shell: 340px side panel, 26px section padding,
+   38px task rows, and the upstream 14px body type scale. */
+[data-skin="jenkins"] .app-main:has(.jenkins-job-page) {
+  padding: 0;
+}
+
+[data-skin="jenkins"] .jenkins-job-layout {
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 0;
+}
+
+[data-skin="jenkins"] .jenkins-job-sidebar {
+  padding: 0 0 26px;
+}
+
+[data-skin="jenkins"] .jenkins-job-actions {
+  display: flex;
+  width: auto;
+  align-items: stretch;
+  justify-content: stretch;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 8px 26px 26px;
+  padding: 0;
+}
+
+[data-skin="jenkins"] .jenkins-job-actions a,
+[data-skin="jenkins"] .jenkins-job-actions button {
+  width: 100%;
+  min-height: 38px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-job-actions svg {
+  width: 20px;
+  height: 20px;
+}
+
+[data-skin="jenkins"] .jenkins-job-builds {
+  width: 330px;
+  margin-left: 10px;
+  border-width: 2px;
+  border-color: #d9e0e7;
+  border-radius: 10px;
+}
+
+[data-skin="jenkins"] .jenkins-job-builds > header {
+  height: 42px;
+  padding: 0 16px;
+}
+
+[data-skin="jenkins"] .jenkins-job-builds > header a {
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-job-builds > header span,
+[data-skin="jenkins"] .jenkins-job-build-filter input,
+[data-skin="jenkins"] .jenkins-job-build > a {
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .jenkins-job-build-filter {
+  height: 38px;
+  margin: 10px;
+  padding: 0 10px;
+  border-width: 2px;
+  border-radius: 7px;
+}
+
+[data-skin="jenkins"] .jenkins-job-build > a {
+  min-height: 48px;
+  grid-template-columns: 18px 42px minmax(0, 1fr) auto;
+  padding: 0 34px 0 12px;
+}
+
+[data-skin="jenkins"] .jenkins-job-build strong,
+[data-skin="jenkins"] .jenkins-job-build time {
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .jenkins-job-build small,
+[data-skin="jenkins"] .jenkins-job-build-group > h3 {
+  font-size: 11px;
+}
+
+[data-skin="jenkins"] .jenkins-job-main {
+  padding: 26px 26px 60px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-job-heading h1 {
+  font-size: 24px;
+}
+
+[data-skin="jenkins"] .jenkins-job-heading p,
+[data-skin="jenkins"] .jenkins-job-full-name,
+[data-skin="jenkins"] .jenkins-job-description,
+[data-skin="jenkins"] .jenkins-job-related li,
+[data-skin="jenkins"] .jenkins-job-source > a,
+[data-skin="jenkins"] .jenkins-job-source > span,
+[data-skin="jenkins"] .jenkins-job-source dd {
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-job-related h2,
+[data-skin="jenkins"] .jenkins-job-source h2 {
+  font-size: 22px;
+}
+
+@media (max-width: 900px) {
+  [data-skin="jenkins"] .jenkins-job-layout {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  [data-skin="jenkins"] .jenkins-job-actions {
+    margin-left: 18px;
+  }
+
+  [data-skin="jenkins"] .jenkins-job-builds {
+    width: 250px;
+  }
+}
+
+@media (max-width: 700px) {
+  [data-skin="jenkins"] .jenkins-job-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-skin="jenkins"] .jenkins-job-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 8px 0;
+  }
+
+  [data-skin="jenkins"] .jenkins-job-builds {
+    width: auto;
+    margin: 0;
+  }
+
+  [data-skin="jenkins"] .jenkins-job-main {
+    padding: 20px 4px 50px;
+  }
+}
+
+.jenkins-project-action-dialog header {
+  padding: 20px 22px;
+}
+
+.jenkins-project-action-dialog h2 {
+  color: #1f2933;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.jenkins-project-action-dialog p {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.jenkins-project-action-body {
+  padding: 22px;
+}
+
+.jenkins-project-action-body label {
+  color: #334155;
+  font-size: 14px;
+}
+
+.jenkins-project-action-body input,
+.jenkins-project-action-body select {
+  box-sizing: border-box;
+  height: 40px;
+  margin-top: 8px;
+  border-color: #aeb8c2;
+  border-radius: 7px;
+  font-size: 14px;
+}
+
+.jenkins-project-action-body input:focus,
+.jenkins-project-action-body select:focus {
+  outline: 3px solid color-mix(in srgb, var(--ui-accent) 24%, transparent);
+  outline-offset: 1px;
+  border-color: var(--ui-accent);
+}
+
+.jenkins-project-action-dialog footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.jenkins-pipeline-syntax-dialog {
+  width: min(820px, 100%);
+}
+
+.jenkins-pipeline-syntax-dialog dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  margin: 0 0 14px;
+}
+
+.jenkins-pipeline-syntax-dialog dl > div {
+  display: flex;
+  gap: 7px;
+}
+
+.jenkins-pipeline-syntax-dialog dt {
+  color: #66717d;
+  font-size: 12px;
+}
+
+.jenkins-pipeline-syntax-dialog dd {
+  margin: 0;
+  color: #263442;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.jenkins-pipeline-syntax-dialog pre {
+  box-sizing: border-box;
+  max-height: min(420px, 48dvh);
+  margin: 0;
+  overflow: auto;
+  padding: 14px 16px;
+  color: #27313a;
+  border: 1px solid #c9d0d7;
+  border-radius: 7px;
+  background: #f7f8fa;
+  font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre;
+}
+
+.jenkins-pipeline-syntax-dialog pre:focus {
+  outline: 3px solid color-mix(in srgb, var(--ui-accent) 24%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 620px) {
+  .jenkins-project-action-dialog header,
+  .jenkins-project-action-body {
+    padding: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jenkins-project-action-dialog * {
+    scroll-behavior: auto;
+  }
+}

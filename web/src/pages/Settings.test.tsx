@@ -38,6 +38,7 @@ function LocationProbe() {
 
 describe('Settings Jenkins directory', () => {
   let container: HTMLDivElement
+  let breadcrumbHost: HTMLDivElement
   let root: Root
 
   beforeEach(() => {
@@ -52,13 +53,16 @@ describe('Settings Jenkins directory', () => {
       { key: 'templates', version: 1, sensitive: false },
     ])
     container = document.createElement('div')
-    document.body.appendChild(container)
+    breadcrumbHost = document.createElement('div')
+    breadcrumbHost.id = 'jenkins-header-breadcrumbs'
+    document.body.append(breadcrumbHost, container)
     root = createRoot(container)
   })
 
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+    breadcrumbHost.remove()
     vi.clearAllMocks()
     localStorage.clear()
     ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = false
@@ -93,7 +97,8 @@ describe('Settings Jenkins directory', () => {
     expect(container.querySelector('.settings-directory')?.textContent).not.toContain('构建模板')
     expect(container.querySelector('.settings-directory')?.textContent).not.toContain('外观')
     expect(settingButton('备份与恢复').textContent).toContain('兼容数据')
-    expect(container.querySelector('.settings-breadcrumbs')?.textContent).toContain('仪表盘')
+    expect(breadcrumbHost.textContent).toContain('系统设置')
+    expect(container.querySelector('.settings-save-area')).toBeNull()
   })
 
   it('filters settings and opens existing detail content through query-addressable links', async () => {

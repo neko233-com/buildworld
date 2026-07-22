@@ -1,0 +1,155 @@
+[data-skin="jenkins"] .jenkins-parameter-build-page .jenkins-context-sidepanel {
+  min-height: calc(100vh - 66px);
+  background: #ffffff;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-build-main {
+  width: min(100%, 920px);
+  color: #20262d;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-build-main > h1 {
+  margin: 0 0 12px;
+  color: #20262d;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-intro {
+  margin: 0 0 22px;
+  color: #66727e;
+  line-height: 1.55;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form {
+  width: 100%;
+  max-width: 860px;
+  border-top: 1px solid #e4e8ed;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form .run-build-body {
+  gap: 24px;
+  padding: 22px 0 24px;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form .run-build-branch {
+  display: block;
+  max-width: 640px;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form .run-build-branch > span,
+[data-skin="jenkins"] .jenkins-parameter-form .run-parameter-grid label > span {
+  color: #303943;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form .run-build-branch input,
+[data-skin="jenkins"] .jenkins-parameter-form .run-parameter-grid input,
+[data-skin="jenkins"] .jenkins-parameter-form .run-parameter-grid select,
+[data-skin="jenkins"] .jenkins-parameter-form .run-parameter-grid textarea {
+  min-height: 40px;
+  padding: 8px 11px;
+  border-color: #c9d0d7;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form .run-build-branch small,
+[data-skin="jenkins"] .jenkins-parameter-form .run-parameter-grid label > small {
+  color: #66727e;
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form .run-parameter-section {
+  border-color: #d9dee4;
+  border-radius: 6px;
+  background: #f8f9fa;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form .run-parameter-section > header {
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form .run-parameter-section > header strong {
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form .run-parameter-section > header > span {
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form .run-parameter-grid {
+  gap: 18px 22px;
+  padding: 18px;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form .run-build-error {
+  margin: 0 0 18px;
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form > footer {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 18px 0 0;
+  border-top: 1px solid #e4e8ed;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form > footer button {
+  min-height: 38px;
+  padding: 8px 16px;
+  border: 1px solid #c6cdd4;
+  border-radius: 6px;
+  background: #ffffff;
+  font: inherit;
+  font-weight: 600;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form > footer button[type="submit"] {
+  color: #ffffff;
+  border-color: #1769c2;
+  background: #1769c2;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-form > footer button:disabled {
+  opacity: .58;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-page-state {
+  display: flex;
+  min-height: 160px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: #66727e;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-page-state.error {
+  flex-direction: column;
+  color: #aa2630;
+}
+
+[data-skin="jenkins"] .jenkins-parameter-page-state .secondary-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 760px) {
+  [data-skin="jenkins"] .jenkins-parameter-build-page .jenkins-context-sidepanel {
+    min-height: 0;
+  }
+
+  [data-skin="jenkins"] .jenkins-parameter-form .run-parameter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  [data-skin="jenkins"] .jenkins-parameter-form .run-parameter-grid .wide {
+    grid-column: 1;
+  }
+}

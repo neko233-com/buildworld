@@ -79,4 +79,22 @@ describe('application confirmation dialog', () => {
       document.querySelector('.app-notices')?.getAttribute('aria-label'),
     )
   })
+
+  it('queues concurrent confirmations without abandoning either promise', async () => {
+    let first!: Promise<boolean>
+    let second!: Promise<boolean>
+    await act(async () => {
+      first = dialogs.confirm('第一个操作？', { title: '第一个', action: '确认一' })
+      second = dialogs.confirm('第二个操作？', { title: '第二个', action: '确认二' })
+    })
+
+    expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('第一个')
+    await act(async () => document.querySelector<HTMLButtonElement>('.danger-action')?.click())
+    await expect(first).resolves.toBe(true)
+    expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('第二个')
+
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-dialog-cancel]')?.click())
+    await expect(second).resolves.toBe(false)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
 })

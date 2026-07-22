@@ -49,6 +49,21 @@ describe('API request resilience', () => {
     window.removeEventListener(API_FEEDBACK_EVENT, listener)
   })
 
+  it.each([
+    '/pipeline-validation',
+    '/projects/7/validate',
+  ])('does not report read-only POST validation as a mutation for %s', async path => {
+    const feedback: APIFeedbackDetail[] = []
+    const listener = (event: Event) => feedback.push((event as CustomEvent<APIFeedbackDetail>).detail)
+    window.addEventListener(API_FEEDBACK_EVENT, listener)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ valid: true }), { status: 200 }))
+
+    await expect(request('POST', path, { source: 'pipeline' })).resolves.toEqual({ valid: true })
+
+    expect(feedback).toEqual([])
+    window.removeEventListener(API_FEEDBACK_EVENT, listener)
+  })
+
   it('reports the server error at the top-level feedback channel', async () => {
     const feedback: APIFeedbackDetail[] = []
     const listener = (event: Event) => feedback.push((event as CustomEvent<APIFeedbackDetail>).detail)

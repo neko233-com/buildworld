@@ -2,7 +2,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api'
 import Projects from './Projects'
@@ -15,6 +15,7 @@ vi.mock('../api', () => ({
     validateProject: vi.fn(),
     triggerBuild: vi.fn(),
     deleteProject: vi.fn(),
+    setProjectFlags: vi.fn(),
   },
 }))
 
@@ -23,6 +24,7 @@ const getProject = vi.mocked(api.getProject)
 const listProjectGroups = vi.mocked(api.listProjectGroups)
 const validateProject = vi.mocked(api.validateProject)
 const triggerBuild = vi.mocked(api.triggerBuild)
+const setProjectFlags = vi.mocked(api.setProjectFlags)
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 
 async function expandFolder(container: HTMLElement, contentID = 'project-folder-ungrouped') {
@@ -39,6 +41,10 @@ async function flushRequests() {
   })
 }
 
+function LocationProbe() {
+  return <output aria-label="location">{useLocation().pathname}</output>
+}
+
 describe('Projects', () => {
   let container: HTMLDivElement
   let root: Root
@@ -52,6 +58,7 @@ describe('Projects', () => {
     listProjectGroups.mockReset()
     validateProject.mockReset()
     triggerBuild.mockReset()
+    setProjectFlags.mockReset().mockResolvedValue(undefined)
     listProjects.mockResolvedValue([{
       id: 3,
       name: 'Packaging matrix',
@@ -89,9 +96,35 @@ describe('Projects', () => {
     expect(container.querySelector('button.custom-build')).not.toBeNull()
     expect(container.querySelector('button.entity-link')).toBeNull()
     expect(container.querySelector('tr[tabindex]')).toBeNull()
+    expect(container.querySelector('.jenkins-projects-page')).not.toBeNull()
+    expect(container.querySelector('.jenkins-page-heading-count')?.textContent).toBe('1')
+    expect(container.querySelector('caption')?.textContent).toMatch(/未分组|Ungrouped/)
   })
 
-  it('opens parameter input instead of failing a quick build with unresolved required values', async () => {
+  it('shows Jenkins-sized busy feedback while a project flag is saved', async () => {
+    let resolveFlag!: () => void
+    setProjectFlags.mockReturnValue(new Promise<void>(resolve => { resolveFlag = resolve }))
+    await act(async () => {
+      root.render(<MemoryRouter><Projects /></MemoryRouter>)
+    })
+    await expandFolder(container)
+
+    const favorite = container.querySelector<HTMLButtonElement>('button.favorite')!
+    await act(async () => {
+      favorite.click()
+      await Promise.resolve()
+    })
+    expect(favorite.getAttribute('aria-busy')).toBe('true')
+    expect(favorite.querySelector('svg.timeline-spinner')).not.toBeNull()
+
+    await act(async () => {
+      resolveFlag()
+      await Promise.resolve()
+    })
+    expect(setProjectFlags).toHaveBeenCalledWith(3, true, undefined)
+  })
+
+  it('routes parameterized quick builds to the dedicated Jenkins form', async () => {
     const project = {
       id: 4,
       name: 'Signed release',
@@ -105,7 +138,7 @@ export default definePipeline({ parameters: [parameter('signing_token', 'passwor
     getProject.mockResolvedValue(project)
     validateProject.mockResolvedValue({ valid: true, format: 'typescript', stages: 0, steps: 0, parameters: [{ name: 'signing_token', type: 'password', required: true }], allow_long_running: false })
     await act(async () => {
-      root.render(<MemoryRouter><Projects /></MemoryRouter>)
+      root.render(<MemoryRouter><Projects /><LocationProbe /></MemoryRouter>)
     })
     await expandFolder(container)
 
@@ -117,12 +150,13 @@ export default definePipeline({ parameters: [parameter('signing_token', 'passwor
     })
     await flushRequests()
 
-    expect(getProject).toHaveBeenCalledWith(4)
+    expect(quickBuild?.textContent).toMatch(/Build with Parameters|参数化构建/)
+    expect(getProject).not.toHaveBeenCalled()
     expect(triggerBuild).not.toHaveBeenCalled()
-    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('signing_token')
+    expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/projects/4/build')
   })
 
-  it('loads the full project only when custom build is requested', async () => {
+  it('routes the custom build shortcut to the dedicated Jenkins form', async () => {
     const project = {
       id: 5,
       name: 'On-demand release',
@@ -136,7 +170,7 @@ export default definePipeline({ parameters: [parameter('release_channel', 'choic
     getProject.mockResolvedValue(project)
     validateProject.mockResolvedValue({ valid: true, format: 'typescript', stages: 0, steps: 0, parameters: [{ name: 'release_channel', type: 'choice', required: true, choices: ['staging', 'production'] }], allow_long_running: false })
     await act(async () => {
-      root.render(<MemoryRouter><Projects /></MemoryRouter>)
+      root.render(<MemoryRouter><Projects /><LocationProbe /></MemoryRouter>)
     })
     await expandFolder(container)
 
@@ -147,8 +181,8 @@ export default definePipeline({ parameters: [parameter('release_channel', 'choic
     })
     await flushRequests()
 
-    expect(getProject).toHaveBeenCalledWith(5)
-    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('release_channel')
+    expect(getProject).not.toHaveBeenCalled()
+    expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/projects/5/build')
   })
 
   it('keeps disabled jobs configurable while blocking quick and parameterized builds', async () => {

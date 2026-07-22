@@ -44,6 +44,7 @@ vi.mock('../api', () => ({
     listProjects: vi.fn(),
     listProjectGroups: vi.fn(),
     createProject: vi.fn(),
+    createProjectGroup: vi.fn(),
     listCredentials: vi.fn(),
     getProject: vi.fn(),
     listProjectBuilds: vi.fn(),
@@ -98,25 +99,24 @@ describe('Git-only repository UI', () => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
   })
 
-  it('creates projects with a read-only Git repository type', async () => {
+  it('creates Pipeline items with the supported Git repository type', async () => {
     await act(async () => {
       root.render(<MemoryRouter><CreateProject /></MemoryRouter>)
     })
     await flushRequests()
 
-    const repositoryType = container.querySelector<HTMLInputElement>('input[aria-readonly="true"]')
-    expect(repositoryType?.value).toContain('Git')
     expect(container.textContent).not.toMatch(/Subversion|Mercurial|\bSVN\b/)
     expect(container.querySelector('option[value="svn"], option[value="hg"]')).toBeNull()
     expect(api.listTemplates).not.toHaveBeenCalled()
     expect(Array.from(container.querySelectorAll('label > span')).map(node => node.textContent)).not.toContain('Template')
 
-    const name = container.querySelector<HTMLInputElement>('input[placeholder="my-project"]')
+    const name = container.querySelector<HTMLInputElement>('#jenkins-new-item-name')
     await act(async () => {
       if (name) {
-        name.value = 'standalone-project'
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(name, 'standalone-project')
         name.dispatchEvent(new Event('input', { bubbles: true }))
       }
+      container.querySelector<HTMLInputElement>('input[value="pipeline"]')?.click()
     })
     await act(async () => {
       container.querySelector<HTMLButtonElement>('button[type="submit"]')?.click()
@@ -126,6 +126,11 @@ describe('Git-only repository UI', () => {
     await flushRequests()
 
     expect(api.createProject).toHaveBeenCalledOnce()
+    expect(api.createProject).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'standalone-project',
+      repo_type: 'git',
+      pipeline_format: 'typescript',
+    }))
     expect(vi.mocked(api.createProject).mock.calls[0]?.[0]).not.toHaveProperty('template_id')
   })
 

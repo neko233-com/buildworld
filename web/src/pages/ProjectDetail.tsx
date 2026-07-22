@@ -1,33 +1,27 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import {
-  Activity,
-  Blocks,
   CircleCheckBig,
   CircleDashed,
   CircleX,
-  Code2,
-  GitCommitHorizontal,
   LoaderCircle,
-  Move,
   Pencil,
-  Play,
   Search,
-  Settings2,
   Square,
-  Trash2,
 } from 'lucide-react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { canEdit } from '../authz'
 import { dialogs } from '../components/AppDialogs'
+import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { PageState } from '../components/PageState'
-import RunBuildDialog, { normalizeBuildParameterDefinitions } from '../components/RunBuildDialog'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { formatDuration } from '../lib/durationPresentation'
 import { projectGroupPath } from '../lib/projectGroups'
+import ProjectJobActions from './ProjectJobActions'
+import { useJenkinsBuildFlow } from './projectBuildFlow'
 
 const activeStatuses = new Set(['running', 'pending', 'queued', 'pending_approval'])
 const buildsPerPage = 30
@@ -75,7 +69,7 @@ export default function ProjectDetail() {
   const projectId = Number(id)
   const validProjectId = Number.isSafeInteger(projectId) && projectId > 0
   const editable = canEdit()
-  const { data: project, loading, error, reload } = useApi(() => validProjectId ? api.getProject(projectId) : Promise.resolve(null), [projectId, validProjectId])
+  const { data: project, loading, error, reload, setData: setProject } = useApi(() => validProjectId ? api.getProject(projectId) : Promise.resolve(null), [projectId, validProjectId])
   const { data: buildResult, loading: buildsLoading, error: buildsError, reload: reloadBuilds } = useApi(() => validProjectId ? api.searchBuilds({
     q: '', projectId, status: '', trigger: '', branch: '', pinned: false, page: 1, limit: 100,
   }) : Promise.resolve({ version: 1, items: [], total: 0, limit: 100, offset: 0 }), [projectId, validProjectId])
@@ -85,7 +79,7 @@ export default function ProjectDetail() {
   const [building, setBuilding] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [stopping, setStopping] = useState<number | null>(null)
-  const [showCustomBuild, setShowCustomBuild] = useState(false)
+  const { isParameterized, start } = useJenkinsBuildFlow(project && editable ? [project] : [], navigate)
 
   const buildList = useMemo(() => [...(buildResult?.items || [])].sort((left, right) => (right.number - left.number) || (right.id - left.id)), [buildResult])
   const visibleBuilds = useMemo(() => {
@@ -109,6 +103,20 @@ export default function ProjectDetail() {
     }
     return groups
   }, [locale, pagedBuilds])
+  const hasActiveBuild = buildList.some(build => activeStatuses.has(build.status))
+
+  useEffect(() => {
+    if (!hasActiveBuild) return
+    const pollVisibleBuilds = () => {
+      if (document.visibilityState === 'visible') reloadBuilds()
+    }
+    const interval = window.setInterval(pollVisibleBuilds, 2_000)
+    document.addEventListener('visibilitychange', pollVisibleBuilds)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', pollVisibleBuilds)
+    }
+  }, [hasActiveBuild, reloadBuilds])
 
   if (!validProjectId) return <Navigate to="/projects" replace />
   if (loading) return <PageState />
@@ -130,13 +138,7 @@ export default function ProjectDetail() {
   const handleBuildNow = async () => {
     setBuilding(true)
     try {
-      const metadata = await api.validateProject(projectId)
-      if (normalizeBuildParameterDefinitions(metadata.parameters).length > 0) {
-        setShowCustomBuild(true)
-        return
-      }
-      const build = await api.triggerBuild(projectId)
-      navigate(`/builds/${build.id}`)
+      await start(project)
     } catch (reason: any) {
       dialogs.notify(reason.message || t('projectDetail.buildFailed'))
     } finally {
@@ -145,7 +147,7 @@ export default function ProjectDetail() {
   }
 
   const handleDelete = async () => {
-    if (!await dialogs.confirm(t('projectDetail.deleteDescription'), { title: t('projectDetail.deleteTitle'), action: t('projectDetail.deleteTitle') })) return
+    if (!await dialogs.confirm(t('projectDetail.deleteDescriptionNamed').replace('{name}', project.name), { title: t('projectDetail.deleteTitleNamed').replace('{name}', project.name), action: t('projectDetail.deleteTitle') })) return
     setDeleting(true)
     try {
       await api.deleteProject(projectId)
@@ -157,7 +159,7 @@ export default function ProjectDetail() {
   }
 
   const handleStop = async (build: any) => {
-    if (!await dialogs.confirm(t('builds.stopConfirm'), { title: t('builds.stopTitle'), action: t('builds.stopBuild') })) return
+    if (!await dialogs.confirm(t('projectDetail.stopBuildConfirm').replace('{project}', project.name).replace('{build}', String(build.number)), { title: t('builds.stopTitle'), action: t('builds.stopBuild') })) return
     setStopping(build.id)
     try {
       await api.stopBuild(build.id)
@@ -179,23 +181,23 @@ export default function ProjectDetail() {
     : <li><span>{label}</span><small>{t('projectDetail.none')}</small></li>
 
   return <motion.section className="jenkins-job-page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
-    <nav className="jenkins-job-breadcrumb" aria-label={t('projectDetail.breadcrumb')}>
-      <Link to="/">BuildWorld</Link><span>/</span><Link to="/projects">{groupName}</Link><span>/</span><strong>{project.name}</strong>
-    </nav>
+    <JenkinsHeaderBreadcrumb ariaLabel={t('projectDetail.breadcrumb')} breadcrumbs={[{ label: groupName, to: '/projects' }, { label: project.name }]} />
 
     <div className="jenkins-job-layout">
       <aside className="jenkins-job-sidebar" aria-label={t('projectDetail.jobActions')}>
-        <nav className="jenkins-job-actions">
-          <Link className="active" to={`/projects/${projectId}`}><Activity size={16} />{t('projectDetail.status')}</Link>
-          <Link to={`/builds?project=${projectId}`}><GitCommitHorizontal size={16} />{t('projectDetail.changes')}</Link>
-          {editable && <button type="button" onClick={handleBuildNow} disabled={building || !projectEnabled} aria-busy={building} title={!projectEnabled ? t('common.disabled') : undefined}>{building ? <LoaderCircle className="timeline-spinner" size={16} /> : <Play size={16} />}{t('projectDetail.buildNow')}</button>}
-          {editable && <button type="button" className="danger" onClick={handleDelete} disabled={deleting}>{deleting ? <LoaderCircle className="timeline-spinner" size={16} /> : <Trash2 size={16} />}{t('projectDetail.deletePipeline')}</button>}
-          {editable && <Link to={`/projects/${projectId}/configure`}><Settings2 size={16} />{t('projectDetail.configure')}</Link>}
-          {editable && <Link to={`/projects/${projectId}/configure#jenkins-configure-general`}><Pencil size={16} />{t('projectDetail.rename')}</Link>}
-          {editable && <Link to={`/projects/${projectId}/configure#jenkins-configure-general`}><Move size={16} />{t('projectDetail.move')}</Link>}
-          <Link to={`/projects/${projectId}/configure#jenkins-configure-pipeline`}><Blocks size={16} />{t('projectDetail.stages')}</Link>
-          <Link to={`/projects/${projectId}/configure#jenkins-configure-pipeline`}><Code2 size={16} />{t('projectDetail.pipelineSyntax')}</Link>
-        </nav>
+        <ProjectJobActions
+          project={project}
+          projectGroups={projectGroups || []}
+          projectId={projectId}
+          activeView="status"
+          editable={editable}
+          building={building}
+          parameterized={isParameterized(project)}
+          deleting={deleting}
+          onBuildNow={handleBuildNow}
+          onDelete={handleDelete}
+          onProjectUpdated={setProject}
+        />
 
         <section className="jenkins-job-builds" aria-label={t('builds.title')}>
           <header><Link to={`/builds?project=${projectId}`}>{t('builds.title')}</Link><span>{buildList.length}{(buildResult?.total || 0) > buildList.length ? ` / ${buildResult?.total}` : ''}</span></header>
@@ -224,7 +226,7 @@ export default function ProjectDetail() {
         </section>
       </aside>
 
-      <main className="jenkins-job-main">
+      <div className="jenkins-job-main">
         <header className={`jenkins-job-heading ${jobTone}`}>
           <JobStatusIcon status={projectEnabled ? latest?.status : undefined} size={25} />
           <div><h1>{project.name}</h1><p>{statusLabel}</p></div>
@@ -250,8 +252,7 @@ export default function ProjectDetail() {
           {project.repo_url ? <a href={project.repo_url} target="_blank" rel="noreferrer">{project.repo_url}</a> : <span>{t('projectDetail.none')}</span>}
           <dl><div><dt>{t('builds.branch')}</dt><dd>{project.default_branch || '-'}</dd></div><div><dt>{t('projectGroups.title')}</dt><dd>{groupName}</dd></div></dl>
         </section>
-      </main>
+      </div>
     </div>
-    {showCustomBuild && <RunBuildDialog project={project} onClose={() => setShowCustomBuild(false)} onQueued={build => { setShowCustomBuild(false); navigate(`/builds/${build.id}`) }} />}
   </motion.section>
 }

@@ -10,6 +10,8 @@ import TestReports from './TestReports'
 vi.mock('../api', () => ({
   api: {
     getBuildTestResults: vi.fn(),
+    getBuild: vi.fn(),
+    getProject: vi.fn(),
     uploadTestResults: vi.fn(),
   },
 }))
@@ -19,6 +21,8 @@ vi.mock('../components/AppDialogs', () => ({
 }))
 
 const getBuildTestResults = vi.mocked(api.getBuildTestResults)
+const getBuild = vi.mocked(api.getBuild)
+const getProject = vi.mocked(api.getProject)
 const uploadTestResults = vi.mocked(api.uploadTestResults)
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 
@@ -43,21 +47,29 @@ const reportFixture: BuildTestResultsResponse = {
 
 describe('TestReports', () => {
   let container: HTMLDivElement
+  let breadcrumbHost: HTMLDivElement
   let root: Root
 
   beforeEach(() => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     getBuildTestResults.mockReset()
+    getBuild.mockReset()
+    getProject.mockReset()
     uploadTestResults.mockReset()
     getBuildTestResults.mockResolvedValue(reportFixture)
+    getBuild.mockResolvedValue({ id: 42, number: 7, project_id: 9, status: 'success' })
+    getProject.mockResolvedValue({ id: 9, name: 'weather-service' })
     uploadTestResults.mockResolvedValue(reportFixture.summary!)
+    breadcrumbHost = document.createElement('div')
+    breadcrumbHost.id = 'jenkins-header-breadcrumbs'
     container = document.createElement('div')
-    document.body.appendChild(container)
+    document.body.append(breadcrumbHost, container)
     root = createRoot(container)
   })
 
   afterEach(() => {
     act(() => root.unmount())
+    breadcrumbHost.remove()
     container.remove()
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
   })
@@ -80,11 +92,15 @@ describe('TestReports', () => {
     const metrics = Array.from(container.querySelectorAll('.test-report-metrics article strong')).map(node => node.textContent)
     expect(metrics).toEqual(['3', '1', '1', '1'])
     expect(container.querySelectorAll('.test-results-table tbody tr')).toHaveLength(3)
-    expect(container.querySelectorAll('.build-status.success')).toHaveLength(1)
-    expect(container.querySelectorAll('.build-status.failed')).toHaveLength(1)
-    expect(container.querySelectorAll('.build-status.pending')).toHaveLength(1)
+    expect(container.querySelectorAll('.test-results-table .build-status.success')).toHaveLength(1)
+    expect(container.querySelectorAll('.test-results-table .build-status.failed')).toHaveLength(1)
+    expect(container.querySelectorAll('.test-results-table .build-status.pending')).toHaveLength(1)
     expect(container.textContent).toContain('pkg.Example · AssertionError · want true')
     expect(container.textContent).toContain('125 ms')
+    expect(breadcrumbHost.textContent).toContain('weather-service')
+    expect(breadcrumbHost.textContent).toContain('#7')
+    expect(getBuild).toHaveBeenCalledWith(42)
+    expect(getProject).toHaveBeenCalledWith(9)
   })
 
   it('renders a stable empty state', async () => {

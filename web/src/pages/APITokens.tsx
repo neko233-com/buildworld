@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { motion } from 'motion/react'
-import { Check, Clock3, Copy, KeyRound, Plus, ShieldCheck, Trash2, X } from 'lucide-react'
+import { Check, Clock3, Copy, KeyRound, LoaderCircle, Plus, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
 import { dialogs } from '../components/AppDialogs'
 import { ModalDialog } from '../components/ModalDialog'
+import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { PageState } from '../components/PageState'
+import './ManagementPages.jenkins.css'
 
 interface APIToken {
   id: number
@@ -41,9 +43,11 @@ export default function APITokens() {
   const [scopes, setScopes] = useState('')
   const [expires, setExpires] = useState('')
   const [creating, setCreating] = useState(false)
+  const [deletingID, setDeletingID] = useState<number | null>(null)
   const [formError, setFormError] = useState('')
   const [newToken, setNewToken] = useState('')
   const [copied, setCopied] = useState(false)
+  const breadcrumb = <JenkinsHeaderBreadcrumb breadcrumbs={[{ label: t('apiTokens.title') }]} />
 
   const openCreate = () => {
     setName('')
@@ -55,6 +59,7 @@ export default function APITokens() {
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (creating) return
     setCreating(true)
     setFormError('')
     try {
@@ -75,10 +80,12 @@ export default function APITokens() {
   }
 
   const handleDelete = async (token: APIToken) => {
-    if (!await dialogs.confirm(t('apiTokens.removeConfirm'), {
+    if (deletingID !== null) return
+    if (!await dialogs.confirm(t('apiTokens.removeConfirmNamed').replace('{name}', token.name), {
       title: t('apiTokens.removeTitle'),
       action: t('apiTokens.remove'),
     })) return
+    setDeletingID(token.id)
     try {
       await api.deleteAPIToken(token.id)
       setNewToken('')
@@ -86,6 +93,8 @@ export default function APITokens() {
       reload()
     } catch (reason: any) {
       dialogs.notify(reason.message || t('common.error'))
+    } finally {
+      setDeletingID(null)
     }
   }
 
@@ -100,18 +109,18 @@ export default function APITokens() {
     }
   }
 
-  if (loading) return <PageState />
-  if (error) return <PageState error={error} onRetry={reload} />
+  if (loading) return <>{breadcrumb}<section className="jenkins-management-page"><PageState /></section></>
+  if (error) return <>{breadcrumb}<section className="jenkins-management-page"><PageState error={error} onRetry={reload} /></section></>
 
   const list = tokens || []
   const active = list.filter(token => !isExpired(token)).length
   const used = list.filter(token => token.last_used_at).length
 
-  return (
-    <motion.section className="operations-page api-token-workbench" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+  return <>{breadcrumb}
+    <motion.section className="operations-page api-token-workbench jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
       <header className="operations-heading">
         <div><p>{list.length} {t('apiTokens.registered')}</p><h1>{t('apiTokens.title')}</h1></div>
-        <button className="primary-command" type="button" onClick={openCreate}><Plus size={16} />{t('apiTokens.new')}</button>
+        <button className="primary-command" type="button" disabled={deletingID !== null} onClick={openCreate}><Plus size={16} />{t('apiTokens.new')}</button>
       </header>
 
       <section className="notification-summary api-token-summary">
@@ -137,14 +146,15 @@ export default function APITokens() {
             {list.map(token => {
               const parsedScopes = tokenScopes(token)
               const expired = isExpired(token)
-              return <tr key={token.id}>
+              const deleting = deletingID === token.id
+              return <tr key={token.id} aria-busy={deleting || undefined}>
                 <td><span className="api-token-name"><KeyRound size={15} /><strong>{token.name}</strong></span></td>
                 <td><code className="api-token-prefix">{token.token_prefix || '-'}{token.token_prefix ? '…' : ''}</code></td>
                 <td><span className="api-token-scopes">{parsedScopes.length ? parsedScopes.map(scope => <span key={scope}>{scope}</span>) : <span>{t('apiTokens.allScopes')}</span>}</span></td>
                 <td><span className={`api-token-status ${expired ? 'expired' : 'active'}`}>{expired ? t('apiTokens.expired') : token.expires_at ? `${t('apiTokens.activeUntil')} ${new Date(token.expires_at).toLocaleDateString()}` : t('apiTokens.noExpiry')}</span></td>
                 <td className="muted-cell">{token.last_used_at ? new Date(token.last_used_at).toLocaleString() : t('apiTokens.neverUsed')}</td>
                 <td className="muted-cell">{token.created_at ? new Date(token.created_at).toLocaleString() : '-'}</td>
-                <td><button className="row-icon danger" type="button" onClick={() => handleDelete(token)} title={t('apiTokens.remove')} aria-label={t('apiTokens.remove')}><Trash2 size={15} /></button></td>
+                <td><button className="row-icon danger" type="button" disabled={deletingID !== null} aria-busy={deleting || undefined} onClick={() => void handleDelete(token)} title={t('apiTokens.remove')} aria-label={`${t('apiTokens.remove')}: ${token.name}`}>{deleting ? <LoaderCircle className="timeline-spinner" size={15} /> : <Trash2 size={15} />}</button></td>
               </tr>
             })}
           </tbody>
@@ -152,15 +162,15 @@ export default function APITokens() {
       </section>
 
       {showEditor && <ModalDialog className="notification-editor api-token-editor" ariaLabel={t('apiTokens.new')} busy={creating} onClose={() => setShowEditor(false)}>
-          <header><div><KeyRound size={18} /><div><h2>{t('apiTokens.new')}</h2><p>{t('apiTokens.editorHelp')}</p></div></div><button type="button" onClick={() => setShowEditor(false)} title={t('common.close')}><X size={18} /></button></header>
+          <header><div><KeyRound size={18} /><div><h2>{t('apiTokens.new')}</h2><p>{t('apiTokens.editorHelp')}</p></div></div><button type="button" disabled={creating} onClick={() => setShowEditor(false)} title={t('common.close')}><X size={18} /></button></header>
           <form className="notification-editor-form" onSubmit={handleCreate}>
             <label className="wide">{t('apiTokens.name')}<input required autoFocus data-dialog-initial-focus value={name} onChange={event => setName(event.target.value)} placeholder={t('apiTokens.namePlaceholder')} /></label>
             <label className="wide">{t('apiTokens.scopes')}<input value={scopes} onChange={event => setScopes(event.target.value)} placeholder="build:trigger" /><small>{t('apiTokens.scopesHelp')}</small></label>
             <label className="wide">{t('apiTokens.expiresAt')}<input type="datetime-local" value={expires} onChange={event => setExpires(event.target.value)} /><small>{t('apiTokens.expiryHelp')}</small></label>
-            {formError && <p className="form-error">{formError}</p>}
-            <footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={creating || !name.trim()}>{creating ? t('common.loading') : t('apiTokens.create')}</button></footer>
+            {formError && <p className="form-error" role="alert">{formError}</p>}
+            <footer><button type="button" disabled={creating} onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={creating || !name.trim()}>{creating ? <><LoaderCircle className="timeline-spinner" size={14} />{t('common.loading')}</> : t('apiTokens.create')}</button></footer>
           </form>
       </ModalDialog>}
     </motion.section>
-  )
+  </>
 }

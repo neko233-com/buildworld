@@ -1,0 +1,62 @@
+.run-build-dialog > header > button:disabled {
+  cursor: wait;
+  opacity: .45;
+}
+
+.run-build-form [aria-invalid="true"] {
+  border-color: #d33840;
+  box-shadow: 0 0 0 1px rgba(211, 56, 64, .15);
+}
+
+.run-build-branch > span em {
+  color: var(--ui-danger-strong);
+  font-style: normal;
+}
+
+.run-field-error {
+  display: block;
+  margin-top: 5px;
+  color: #b6202a;
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.4;
+}
+
+.run-parameter-loading,
+.run-parameter-failure {
+  display: flex;
+  min-height: 72px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.run-parameter-failure {
+  flex-direction: column;
+  color: #a51d27;
+}
+
+.run-parameter-failure .secondary-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.run-build-form footer button:disabled {
+  cursor: wait;
+}
+
+.run-build-form footer button[type="submit"] {
+  display: inline-flex;
+  min-width: 126px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-build-form .timeline-spinner {
+    animation-duration: 1.8s;
+  }
+}

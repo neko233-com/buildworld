@@ -3,8 +3,10 @@ import { motion } from 'motion/react'
 import { Activity, ClipboardList, RefreshCw, Search, UserRound } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { PageState } from '../components/PageState'
+import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { api } from '../api'
 import { useApi } from '../hooks'
+import './ManagementPages.jenkins.css'
 
 interface AuditEntry {
   id: number
@@ -28,12 +30,13 @@ function entryDetail(entry: AuditEntry) {
 
 export default function AuditLog() {
   const { t } = useI18n()
+  const breadcrumb = <JenkinsHeaderBreadcrumb breadcrumbs={[{ label: t('auditLog.title') }]} />
   const [actionFilter, setActionFilter] = useState('')
   const [userFilter, setUserFilter] = useState('')
   const { data: logs, loading, error, reload } = useApi<AuditEntry[]>(() => api.listAuditLogs(), [])
 
-  if (loading) return <PageState />
-  if (error) return <PageState error={error} onRetry={reload} />
+  if (loading) return <>{breadcrumb}<section className="jenkins-management-page"><PageState /></section></>
+  if (error) return <>{breadcrumb}<section className="jenkins-management-page"><PageState error={error} onRetry={reload} /></section></>
 
   const list = logs || []
   const query = userFilter.trim().toLowerCase()
@@ -45,7 +48,7 @@ export default function AuditLog() {
   const actors = new Set(list.map(entry => entry.username || entry.user || entry.user_id).filter(Boolean)).size
 
   return (
-    <motion.section className="operations-page audit-workbench" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <>{breadcrumb}<motion.section className="operations-page audit-workbench jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
       <header className="operations-heading">
         <div><p>{rows.length} / {list.length} {t('auditLog.events')}</p><h1>{t('auditLog.title')}</h1></div>
         <button className="secondary-command" type="button" onClick={reload}><RefreshCw size={14} />{t('auditLog.refresh')}</button>
@@ -79,6 +82,6 @@ export default function AuditLog() {
           </tbody>
         </table>
       </section>
-    </motion.section>
+    </motion.section></>
   )
 }

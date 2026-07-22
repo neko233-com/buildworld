@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { motion } from 'motion/react'
-import { Braces, FolderGit2, GitBranch, KeyRound, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { Braces, FolderGit2, GitBranch, KeyRound, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { api } from '../api'
 import { useApi } from '../hooks'
 import { dialogs } from '../components/AppDialogs'
 import { ModalDialog } from '../components/ModalDialog'
+import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { PageState } from '../components/PageState'
 import { useI18n } from '../i18n'
 import { prettyConfigSource, prettyConfigSourceSync } from '../lib/configFormat'
 import { canEdit, isAdmin } from '../authz'
+import './ManagementPages.jenkins.css'
 
 interface VCSRoot {
   id: number
@@ -51,7 +53,9 @@ export default function VCSRoots() {
   const [showEditor, setShowEditor] = useState(false)
   const [form, setForm] = useState<FormData>(emptyForm)
   const [saving, setSaving] = useState(false)
+  const [deletingID, setDeletingID] = useState<number | null>(null)
   const [formError, setFormError] = useState('')
+  const breadcrumb = <JenkinsHeaderBreadcrumb breadcrumbs={[{ label: t('vcsRoots.title') }]} />
 
   const openCreate = () => {
     setEditing(null)
@@ -78,6 +82,7 @@ export default function VCSRoots() {
   }
 
   const handleFormat = async () => {
+    if (saving) return
     setFormError('')
     try {
       const config = await prettyConfigSource(form.config)
@@ -92,6 +97,7 @@ export default function VCSRoots() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (saving) return
     setSaving(true)
     setFormError('')
     try {
@@ -117,29 +123,33 @@ export default function VCSRoots() {
   }
 
   const handleDelete = async (root: VCSRoot) => {
-    if (!await dialogs.confirm(t('vcsRoots.deleteConfirm'), { title: t('vcsRoots.deleteTitle'), action: t('common.delete') })) return
+    if (deletingID !== null) return
+    if (!await dialogs.confirm(t('vcsRoots.deleteConfirmNamed').replace('{name}', root.name), { title: t('vcsRoots.deleteTitle'), action: t('common.delete') })) return
+    setDeletingID(root.id)
     try {
       await api.deleteVCSRoot(root.id)
       reload()
     } catch (reason: any) {
       dialogs.notify(reason.message || t('common.error'))
+    } finally {
+      setDeletingID(null)
     }
   }
 
   const getCredentialName = (credentialID?: number) => credentials?.find(credential => credential.id === credentialID)?.name || '-'
 
-  if (loading) return <PageState />
-  if (error) return <PageState error={error} onRetry={reload} />
+  if (loading) return <>{breadcrumb}<section className="jenkins-management-page"><PageState /></section></>
+  if (error) return <>{breadcrumb}<section className="jenkins-management-page"><PageState error={error} onRetry={reload} /></section></>
 
   const list = roots || []
   const automatic = list.filter(root => root.auto_checkout).length
   const polling = list.filter(root => root.poll_interval > 0).length
 
-  return (
-    <motion.section className="operations-page vcs-workbench" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+  return <>{breadcrumb}
+    <motion.section className="operations-page vcs-workbench jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
       <header className="operations-heading">
         <div><p>{list.length} {t('vcsRoots.registered')}</p><h1>{t('vcsRoots.title')}</h1></div>
-        {editable && <button className="primary-command" type="button" onClick={openCreate}><Plus size={16} />{t('vcsRoots.new')}</button>}
+        {editable && <button className="primary-command" type="button" disabled={deletingID !== null} onClick={openCreate}><Plus size={16} />{t('vcsRoots.new')}</button>}
       </header>
 
       <section className="notification-summary vcs-summary">
@@ -153,23 +163,24 @@ export default function VCSRoots() {
           <thead><tr><th>{t('vcsRoots.name')}</th><th>{t('vcsRoots.type')}</th><th>{t('vcsRoots.url')}</th><th>{t('vcsRoots.branch')}</th><th>{t('vcsRoots.credential')}</th><th>{t('vcsRoots.pollInterval')}</th><th aria-label={t('projects.actions')} /></tr></thead>
           <tbody>
             {!list.length && <tr><td colSpan={7} className="operations-empty"><FolderGit2 size={18} />{t('vcsRoots.empty')}</td></tr>}
-            {list.map(root => (
-              <tr key={root.id}>
-                <td><button className="entity-link" type="button" disabled={!editable} onClick={() => openEdit(root)}><FolderGit2 size={16} /><span><strong>{root.name}</strong><small>{root.auto_checkout ? t('vcsRoots.autoCheckout') : t('vcsRoots.manualCheckout')}</small></span></button></td>
+            {list.map(root => {
+              const deleting = deletingID === root.id
+              return <tr key={root.id} aria-busy={deleting || undefined}>
+                <td><button className="entity-link" type="button" disabled={!editable || deletingID !== null} onClick={() => openEdit(root)}><FolderGit2 size={16} /><span><strong>{root.name}</strong><small>{root.auto_checkout ? t('vcsRoots.autoCheckout') : t('vcsRoots.manualCheckout')}</small></span></button></td>
                 <td><span className="vcs-type git">Git</span></td>
                 <td><code className="repo-cell" title={root.url}>{root.url || '-'}</code></td>
                 <td><span className="branch-cell"><GitBranch size={13} />{root.branch || 'main'}</span></td>
                 <td>{root.credential_id ? <span className="vcs-credential"><KeyRound size={13} />{getCredentialName(root.credential_id)}</span> : <span className="muted-cell">{t('vcsRoots.none')}</span>}</td>
                 <td className="muted-cell">{root.poll_interval > 0 ? `${root.poll_interval}${t('vcsRoots.secondsShort')}` : t('vcsRoots.disabled')}</td>
-                <td><div className="row-actions">{editable && <><button className="row-icon" type="button" title={t('vcsRoots.edit')} aria-label={t('vcsRoots.edit')} onClick={() => openEdit(root)}><Pencil size={15} /></button><button className="row-icon danger" type="button" title={t('common.delete')} aria-label={t('common.delete')} onClick={() => handleDelete(root)}><Trash2 size={15} /></button></>}</div></td>
+                <td><div className="row-actions">{editable && <><button className="row-icon" type="button" disabled={deletingID !== null} title={t('vcsRoots.edit')} aria-label={`${t('vcsRoots.edit')}: ${root.name}`} onClick={() => openEdit(root)}><Pencil size={15} /></button><button className="row-icon danger" type="button" disabled={deletingID !== null} aria-busy={deleting || undefined} title={t('common.delete')} aria-label={`${t('common.delete')}: ${root.name}`} onClick={() => void handleDelete(root)}>{deleting ? <LoaderCircle className="timeline-spinner" size={15} /> : <Trash2 size={15} />}</button></>}</div></td>
               </tr>
-            ))}
+            })}
           </tbody>
         </table>
       </section>
 
       {showEditor && <ModalDialog className="notification-editor vcs-editor" ariaLabel={editing ? t('vcsRoots.edit') : t('vcsRoots.new')} busy={saving} onClose={() => setShowEditor(false)}>
-          <header><div><FolderGit2 size={18} /><div><h2>{editing ? t('vcsRoots.edit') : t('vcsRoots.new')}</h2><p>{t('vcsRoots.editorHelp')}</p></div></div><button type="button" onClick={() => setShowEditor(false)} title={t('common.close')}><X size={18} /></button></header>
+          <header><div><FolderGit2 size={18} /><div><h2>{editing ? t('vcsRoots.edit') : t('vcsRoots.new')}</h2><p>{t('vcsRoots.editorHelp')}</p></div></div><button type="button" disabled={saving} onClick={() => setShowEditor(false)} title={t('common.close')}><X size={18} /></button></header>
           <form className="notification-editor-form" onSubmit={handleSubmit}>
             <label>{t('vcsRoots.name')}<input required autoFocus data-dialog-initial-focus value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
             <label>{t('vcsRoots.type')}<input value={t('vcsRoots.gitOnly')} readOnly aria-readonly="true" /></label>
@@ -178,11 +189,11 @@ export default function VCSRoots() {
             <label>{t('vcsRoots.credential')}<select value={form.credential_id} onChange={event => setForm({ ...form, credential_id: event.target.value === '' ? '' : Number(event.target.value) })}><option value="">{t('vcsRoots.none')}</option>{(credentials || []).map(credential => <option key={credential.id} value={credential.id}>{credential.name}</option>)}</select></label>
             <label>{t('vcsRoots.pollInterval')}<input type="number" min={0} value={form.poll_interval} onChange={event => setForm({ ...form, poll_interval: Number(event.target.value) || 0 })} /></label>
             <label className="channel-enabled vcs-auto-checkout"><input type="checkbox" checked={form.auto_checkout} onChange={event => setForm({ ...form, auto_checkout: event.target.checked })} />{t('vcsRoots.autoCheckout')}</label>
-            <div className="wide vcs-config-field"><div className="config-label-row"><label htmlFor="vcs-config">{t('vcsRoots.config')} (JSON/YAML)</label><button className="format-command" type="button" onClick={handleFormat}><Braces size={13} />{t('config.format')}</button></div><textarea id="vcs-config" className="code-input" rows={7} value={form.config} onChange={event => setForm({ ...form, config: event.target.value })} /></div>
-            {formError && <p className="form-error">{formError}</p>}
-            <footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}>{saving ? t('common.loading') : t('common.save')}</button></footer>
+            <div className="wide vcs-config-field"><div className="config-label-row"><label htmlFor="vcs-config">{t('vcsRoots.config')} (JSON/YAML)</label><button className="format-command" type="button" disabled={saving} onClick={handleFormat}><Braces size={13} />{t('config.format')}</button></div><textarea id="vcs-config" className="code-input" rows={7} value={form.config} onChange={event => setForm({ ...form, config: event.target.value })} /></div>
+            {formError && <p className="form-error" role="alert">{formError}</p>}
+            <footer><button type="button" disabled={saving} onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}>{saving ? <><LoaderCircle className="timeline-spinner" size={14} />{t('common.loading')}</> : t('common.save')}</button></footer>
           </form>
       </ModalDialog>}
     </motion.section>
-  )
+  </>
 }

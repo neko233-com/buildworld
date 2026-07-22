@@ -37,4 +37,10 @@ describe('BuildStatusBadge', () => {
     expect(container.querySelector('.build-status-spinner')).toBeNull()
     expect(container.querySelector('.build-status.success')?.textContent).toBe('已成功')
   })
+
+  it.each(['pending', 'queued', 'pending_approval'])('keeps %s builds visibly active', statusName => {
+    act(() => root.render(<BuildStatusBadge status={statusName} label="等待中" />))
+
+    expect(container.querySelector('[role="status"] .build-status-spinner')).not.toBeNull()
+  })
 })

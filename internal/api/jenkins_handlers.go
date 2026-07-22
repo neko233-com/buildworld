@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/neko233-com/buildworld/internal/jenkins"
 	"github.com/go-chi/chi/v5"
+	"github.com/neko233-com/buildworld/internal/jenkins"
 )
 
 type importJenkinsJobReq struct {

@@ -7,6 +7,9 @@
   --jenkins-text: #20262d;
   --jenkins-muted: #66727e;
   --jenkins-link: #1769c2;
+  --jenkins-table-radius: 16px;
+  --jenkins-row-radius: 4px;
+  --jenkins-table-padding: 0.55rem;
 }
 
 [data-skin="jenkins"] .app-main:has(.jenkins-context-page) {
@@ -87,7 +90,7 @@
   padding: 7px 12px;
   color: #26303a;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   font: inherit;
   font-size: 14px;
@@ -133,16 +136,16 @@
 [data-skin="jenkins"] .jenkins-page-heading h1 {
   margin: 0;
   color: #1f2831;
-  font-size: 24px;
-  font-weight: 650;
-  line-height: 1.25;
-  letter-spacing: 0;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.18;
+  letter-spacing: -0.012em;
 }
 
 [data-skin="jenkins"] .jenkins-page-heading p {
   margin: 4px 0 0;
   color: var(--jenkins-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 [data-skin="jenkins"] .jenkins-page-actions {
@@ -168,25 +171,40 @@
 [data-skin="jenkins"] .jenkins-context-main .queue-running-section,
 [data-skin="jenkins"] .jenkins-context-main .approval-inbox {
   border-color: var(--jenkins-border);
-  border-radius: 10px;
+  border-radius: var(--jenkins-table-radius);
   background: var(--jenkins-surface);
   box-shadow: none;
 }
 
 [data-skin="jenkins"] .jenkins-context-main .operations-table th {
-  height: 40px;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 8px 0 10px 1.6rem;
   color: #39434e;
   border-bottom-color: var(--jenkins-border);
   background: var(--jenkins-muted-surface);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 650;
   letter-spacing: 0;
   text-transform: none;
 }
 
 [data-skin="jenkins"] .jenkins-context-main .operations-table td {
-  min-height: 48px;
+  height: 48px;
+  box-sizing: border-box;
+  padding: var(--jenkins-table-padding) 0 var(--jenkins-table-padding) 1.6rem;
   border-bottom-color: #e9edf2;
-  font-size: 13px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .operations-table th:first-child,
+[data-skin="jenkins"] .jenkins-context-main .operations-table td:first-child {
+  padding-left: calc(var(--jenkins-table-padding) * 2);
+}
+
+[data-skin="jenkins"] .jenkins-context-main .operations-table th:last-child,
+[data-skin="jenkins"] .jenkins-context-main .operations-table td:last-child {
+  padding-right: var(--jenkins-table-padding);
 }
 
 [data-skin="jenkins"] .jenkins-context-main .operations-table tbody tr:hover {
@@ -198,18 +216,18 @@
 }
 
 [data-skin="jenkins"] .jenkins-context-main .project-folder-heading button {
-  min-height: 48px;
-  border-radius: 9px;
+  min-height: 52px;
+  border-radius: 15px;
 }
 
 [data-skin="jenkins"] .jenkins-context-main .project-folder-content .operations-table-wrap {
   margin: 0 10px 10px;
-  border-radius: 8px;
+  border-radius: 12px;
 }
 
 [data-skin="jenkins"] .jenkins-context-main .build-history-filters {
   margin-bottom: 16px;
-  padding: 14px;
+  padding: 16px;
 }
 
 [data-skin="jenkins"] .jenkins-context-main .build-history-summary,
@@ -220,9 +238,9 @@
 
 [data-skin="jenkins"] .jenkins-context-main .primary-command,
 [data-skin="jenkins"] .jenkins-context-main .secondary-command {
-  min-height: 34px;
-  border-radius: 6px;
-  font-size: 13px;
+  min-height: 38px;
+  border-radius: 8px;
+  font-size: 14px;
 }
 
 [data-skin="jenkins"] .jenkins-home {
@@ -232,6 +250,451 @@
 
 [data-skin="jenkins"] .jenkins-rail-root {
   width: 340px;
+}
+
+/* Jenkins 2.563 dashboard geometry: 2.375rem controls, 3rem rows, 1rem cards. */
+[data-skin="jenkins"] .jenkins-rail-link {
+  min-height: 38px;
+  padding: 8px 11px;
+  border-radius: 7px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-rail-panel {
+  border-color: #d9dfe6;
+  border-radius: 10px;
+}
+
+[data-skin="jenkins"] .jenkins-rail-panel-header,
+[data-skin="jenkins"] .jenkins-rail-panel-link {
+  min-height: 44px;
+  height: 44px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-rail-empty,
+[data-skin="jenkins"] .jenkins-rail-queue-name {
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .jenkins-rail-queue-meta,
+[data-skin="jenkins"] .jenkins-rail-capacity,
+[data-skin="jenkins"] .jenkins-rail-agent-item {
+  font-size: 11px;
+}
+
+[data-skin="jenkins"] .jenkins-view-tabs {
+  min-height: 38px;
+  padding: 2px;
+  border-color: #dce2e8;
+  border-radius: 20px;
+  background: #f4f6f9;
+}
+
+[data-skin="jenkins"] .jenkins-view-tabs button {
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 17px;
+  font-size: 14px;
+  transition: color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+[data-skin="jenkins"] .jenkins-view-tabs .jenkins-view-add {
+  width: 34px;
+  padding: 0;
+}
+
+[data-skin="jenkins"] .jenkins-job-table-wrap {
+  margin-top: 26px;
+  border-color: #dce2e8;
+  border-radius: var(--jenkins-table-radius);
+}
+
+[data-skin="jenkins"] .jenkins-job-table {
+  min-width: 760px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-job-table th {
+  height: 47px;
+  padding: 0 1.6rem;
+  color: #343d46;
+  border-bottom-color: #e2e6eb;
+  background: #f4f6f9;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+[data-skin="jenkins"] .jenkins-job-table td {
+  height: 49px;
+  padding: 0 1.6rem;
+  border-bottom-color: #e7ebef;
+}
+
+[data-skin="jenkins"] .jenkins-job-table.icon-small td {
+  height: 39px;
+}
+
+[data-skin="jenkins"] .jenkins-job-table.icon-large td {
+  height: 57px;
+}
+
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(1),
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(2) {
+  width: 60px;
+  padding-right: .6rem;
+  padding-left: .6rem;
+}
+
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(3) {
+  width: 28%;
+}
+
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(7) {
+  width: 148px;
+}
+
+[data-skin="jenkins"] .jenkins-status-orb {
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border: 2px solid color-mix(in srgb, currentColor 24%, transparent);
+  background: currentColor;
+  box-shadow: inset 0 0 0 4px rgba(255, 255, 255, .42), 0 1px 1px rgba(15, 23, 31, .12);
+  color: #97a2ad;
+}
+
+[data-skin="jenkins"] .jenkins-status-orb.success,
+[data-skin="jenkins"] .jenkins-status-orb.running {
+  color: #2f7ad7;
+}
+
+[data-skin="jenkins"] .jenkins-status-orb.failed {
+  color: #d64545;
+}
+
+[data-skin="jenkins"] .jenkins-status-orb.pending {
+  color: #e4a11b;
+}
+
+[data-skin="jenkins"] .jenkins-status-orb.cancelled {
+  color: #a6afb8;
+}
+
+[data-skin="jenkins"] .jenkins-health svg {
+  width: 24px;
+  height: 24px;
+}
+
+[data-skin="jenkins"] .jenkins-job-table.icon-small .jenkins-health svg,
+[data-skin="jenkins"] .jenkins-job-table.icon-small .jenkins-status-orb {
+  width: 16px;
+  height: 16px;
+}
+
+[data-skin="jenkins"] .jenkins-job-table.icon-large .jenkins-health svg {
+  width: 28px;
+  height: 28px;
+}
+
+[data-skin="jenkins"] .jenkins-job-table.icon-large .jenkins-status-orb {
+  width: 24px;
+  height: 24px;
+}
+
+[data-skin="jenkins"] .jenkins-job-name strong,
+[data-skin="jenkins"] .jenkins-build-reference,
+[data-skin="jenkins"] .jenkins-duration,
+[data-skin="jenkins"] .jenkins-empty-value {
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-job-name small,
+[data-skin="jenkins"] .jenkins-build-reference small {
+  margin-top: 3px;
+  font-size: 11px;
+}
+
+[data-skin="jenkins"] .jenkins-home-main .jenkins-job-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  padding: 0;
+}
+
+[data-skin="jenkins"] .jenkins-home-main .jenkins-job-actions button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  min-height: 0;
+  box-sizing: border-box;
+  place-items: center;
+  padding: 0;
+  border-radius: 7px;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+[data-skin="jenkins"] .jenkins-job-table tbody tr:hover .jenkins-job-actions button,
+[data-skin="jenkins"] .jenkins-job-table tbody tr:focus-within .jenkins-job-actions button {
+  opacity: 1;
+}
+
+@media (hover: none), (pointer: coarse) {
+  [data-skin="jenkins"] .jenkins-home-main .jenkins-job-actions button {
+    opacity: 1;
+  }
+}
+
+[data-skin="jenkins"] .jenkins-home-main .jenkins-job-actions button:active:not(:disabled),
+[data-skin="jenkins"] .jenkins-context-task-list button:active:not(:disabled),
+[data-skin="jenkins"] .jenkins-context-task-list a:active,
+[data-skin="jenkins"] .row-icon:active:not(:disabled),
+[data-skin="jenkins"] .row-run:active:not(:disabled) {
+  transform: scale(.97);
+}
+
+[data-skin="jenkins"] .jenkins-table-footer {
+  min-height: 76px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-icon-size {
+  gap: 5px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-icon-size button,
+[data-skin="jenkins"] .jenkins-more {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .jenkins-build-state {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: #46515b;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-build-state > i {
+  display: block;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: inset 0 0 0 4px rgba(255, 255, 255, .44);
+}
+
+[data-skin="jenkins"] .jenkins-build-state.success { color: #1d71c9; }
+[data-skin="jenkins"] .jenkins-build-state.failed { color: #d33845; }
+[data-skin="jenkins"] .jenkins-build-state.pending { color: #b87a00; }
+[data-skin="jenkins"] .jenkins-build-state.cancelled { color: #707b86; }
+[data-skin="jenkins"] .jenkins-build-state.running { color: #1d71c9; }
+
+[data-skin="jenkins"] .jenkins-build-state > span {
+  color: #46515b;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .row-icon {
+  width: 38px;
+  height: 38px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: transparent;
+  margin: -8px 0;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .row-icon:hover:not(:disabled),
+[data-skin="jenkins"] .jenkins-context-main .row-icon:focus-visible {
+  border-color: #cbd8e5;
+  background: #edf4fb;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .row-run,
+[data-skin="jenkins"] .jenkins-context-main .row-settings {
+  min-height: 38px;
+  margin: -8px 0;
+  border-radius: 7px;
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .jenkins-page-heading-count {
+  margin: 0 0 4px;
+  color: #596672;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+[data-skin="jenkins"] .build-history-summary,
+[data-skin="jenkins"] .queue-summary span {
+  min-height: 38px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .build-history-filters form {
+  grid-template-columns: minmax(260px, 1.5fr) minmax(190px, .7fr) 80px;
+  gap: 12px;
+}
+
+[data-skin="jenkins"] .build-history-filters label {
+  gap: 7px;
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .build-history-filters input,
+[data-skin="jenkins"] .build-history-filters select {
+  height: 38px;
+  border-radius: 7px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .build-filter-row {
+  gap: 12px;
+  margin-top: 12px;
+}
+
+[data-skin="jenkins"] .build-history-pagination {
+  min-height: 54px;
+  padding: 0 17px;
+  background: #f7f8fa;
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .build-history-pagination button {
+  width: 38px;
+  height: 38px;
+  border-radius: 7px;
+}
+
+[data-skin="jenkins"] .queue-running-section > header,
+[data-skin="jenkins"] .approval-inbox > header {
+  min-height: 48px;
+}
+
+[data-skin="jenkins"] .queue-running-section a {
+  min-height: 58px;
+  padding: 10px 16px;
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .queue-running-section a strong {
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .queue-running-section a small,
+[data-skin="jenkins"] .queue-running-section a em,
+[data-skin="jenkins"] .queue-wait-reason,
+[data-skin="jenkins"] .queue-project-link small {
+  font-size: 11px;
+}
+
+[data-skin="jenkins"] .jenkins-queue-moving {
+  flex: 0 0 auto;
+  color: var(--jenkins-link);
+}
+
+[data-skin="jenkins"] .project-folder {
+  border-radius: var(--jenkins-table-radius);
+}
+
+[data-skin="jenkins"] .project-folder-heading button {
+  padding-right: 18px;
+  padding-left: 18px;
+}
+
+[data-skin="jenkins"] .project-folder-title strong {
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .project-folder-title small,
+[data-skin="jenkins"] .project-folder-count,
+[data-skin="jenkins"] .project-tag {
+  font-size: 11px;
+}
+
+[data-skin="jenkins"] .project-folder-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+[data-skin="jenkins"] .project-tag-filter-inline button,
+[data-skin="jenkins"] .project-tag-filter-inline > span {
+  min-height: 32px;
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .projects-table .entity-link strong,
+[data-skin="jenkins"] .projects-table .entity-link small,
+[data-skin="jenkins"] .projects-table .repo-cell,
+[data-skin="jenkins"] .projects-table .branch-cell,
+[data-skin="jenkins"] .projects-table .muted-cell {
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .jenkins-user-dashboard-main {
+  padding-top: 28px;
+}
+
+[data-skin="jenkins"] .jenkins-user-dashboard .data-metric-grid,
+[data-skin="jenkins"] .jenkins-user-dashboard .data-panel {
+  border-color: #dce2e8;
+  border-radius: var(--jenkins-table-radius);
+  box-shadow: none;
+}
+
+[data-skin="jenkins"] .jenkins-user-dashboard .data-metric-grid article {
+  min-height: 104px;
+  padding: 16px 18px;
+}
+
+[data-skin="jenkins"] .jenkins-user-dashboard .data-metric-grid p,
+[data-skin="jenkins"] .jenkins-user-dashboard .data-metric-grid small {
+  font-size: 11px;
+}
+
+[data-skin="jenkins"] .jenkins-user-dashboard .data-metric-grid strong {
+  font-size: 24px;
+}
+
+[data-skin="jenkins"] .jenkins-user-dashboard .data-panel > header {
+  min-height: 48px;
+  padding: 0 18px;
+  border-bottom-color: #e2e6eb;
+  background: #f4f6f9;
+}
+
+[data-skin="jenkins"] .jenkins-user-dashboard .data-panel h2,
+[data-skin="jenkins"] .jenkins-user-dashboard .data-panel-actions > a {
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .jenkins-user-dashboard .data-build-table th,
+[data-skin="jenkins"] .jenkins-user-dashboard .data-build-table td {
+  height: 48px;
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] :is(.jenkins-view-tabs button, .jenkins-job-actions button, .jenkins-icon-size button, .jenkins-more, .row-icon, .row-run, .row-settings):focus-visible {
+  outline: 3px solid rgba(23, 105, 194, .28);
+  outline-offset: 1px;
+}
+
+[data-skin="jenkins"] .schedule-modal :is(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid rgba(23, 105, 194, .28);
+  outline-offset: 2px;
 }
 
 @media (max-width: 900px) {
@@ -294,5 +757,103 @@
 
   [data-skin="jenkins"] .jenkins-page-actions {
     justify-content: flex-start;
+  }
+
+  [data-skin="jenkins"] .jenkins-view-tabs button {
+    height: 30px;
+    padding: 0 13px;
+    font-size: 13px;
+  }
+
+  [data-skin="jenkins"] .jenkins-job-table th,
+  [data-skin="jenkins"] .jenkins-job-table td {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  [data-skin="jenkins"] .build-history-filters form,
+  [data-skin="jenkins"] .build-filter-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-skin="jenkins"] .operations-table-wrap:has(> .projects-table) {
+    overflow-x: auto;
+    border: 1px solid var(--jenkins-border);
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  [data-skin="jenkins"] .projects-table {
+    display: table;
+    width: 100%;
+    min-width: 760px;
+    table-layout: auto;
+  }
+
+  [data-skin="jenkins"] .projects-table thead {
+    display: table-header-group;
+  }
+
+  [data-skin="jenkins"] .projects-table thead th {
+    display: table-cell;
+  }
+
+  [data-skin="jenkins"] .projects-table tbody {
+    display: table-row-group;
+  }
+
+  [data-skin="jenkins"] .projects-table tbody tr {
+    display: table-row;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  [data-skin="jenkins"] .projects-table tbody td,
+  [data-skin="jenkins"] .projects-table tbody td:first-child,
+  [data-skin="jenkins"] .projects-table tbody td:last-child {
+    position: static;
+    display: table-cell;
+    width: auto;
+    height: 48px;
+    padding: var(--jenkins-table-padding) 0 var(--jenkins-table-padding) 1.6rem;
+    border-bottom: 1px solid #e9edf2;
+    background: #fff;
+  }
+
+  [data-skin="jenkins"] .projects-table tbody td:last-child {
+    padding-right: var(--jenkins-table-padding);
+    border-top: 0;
+  }
+
+  [data-skin="jenkins"] .jenkins-user-dashboard .data-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  [data-skin="jenkins"] .jenkins-user-dashboard .data-metric-grid article:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-skin="jenkins"] .jenkins-view-tabs button,
+  [data-skin="jenkins"] .project-folder-chevron,
+  [data-skin="jenkins"] .jenkins-job-actions button,
+  [data-skin="jenkins"] .row-icon,
+  [data-skin="jenkins"] .row-run {
+    transition: none;
+  }
+
+  [data-skin="jenkins"] .jenkins-status-orb.running,
+  [data-skin="jenkins"] .jenkins-build-state.running svg,
+  [data-skin="jenkins"] .jenkins-queue-moving,
+  [data-skin="jenkins"] .timeline-spinner {
+    animation: none;
+  }
+
+  [data-skin="jenkins"] :is(.jenkins-job-actions button, .jenkins-context-task-list button, .jenkins-context-task-list a, .row-icon, .row-run):active {
+    transform: none;
   }
 }

@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Ban, Check, Circle, CircleDot, Download, ExternalLink, FileText, FlaskConical, Gauge, GitBranch, GitCommitHorizontal, ListTree, LoaderCircle, Pin, PinOff, Radio, RotateCcw, Settings2, SlidersHorizontal, Square, Upload, UserRound, Workflow, X } from 'lucide-react'
+import { Activity, Ban, Check, Circle, CircleDot, Download, ExternalLink, FileText, FlaskConical, GitBranch, GitCommitHorizontal, LoaderCircle, Pause, Pin, PinOff, Play, RotateCcw, Settings2, SlidersHorizontal, Square, Upload, UserRound, Workflow, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
 import { dialogs } from '../components/AppDialogs'
 import { PageState } from '../components/PageState'
 import { timelineProgress, visibleBuildLog, type BuildTimelineStep } from '../lib/buildTimeline'
+import { isNearLogBottom } from '../lib/logFollow'
 import { buildTriggerLabel } from '../lib/buildPresentation'
 import { canEdit } from '../authz'
 import { formatDuration } from '../lib/durationPresentation'
@@ -15,6 +16,9 @@ import BuildApprovalPanel from '../components/BuildApprovalPanel'
 import BuildProblemsPanel from '../components/BuildProblemsPanel'
 import BuildChainPanel from '../components/BuildChainPanel'
 import { BuildStatusBadge } from '../components/BuildStatusBadge'
+import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
+import ReplayBuildDialog from '../components/ReplayBuildDialog'
+import './BuildDetail.jenkins.css'
 
 function formatTime(value?: string): string {
   return value ? new Date(value).toLocaleString() : '-'
@@ -59,38 +63,75 @@ export default function BuildDetail() {
   const buildId = Number(id)
   const validBuildId = Number.isSafeInteger(buildId) && buildId > 0
   const { data: build, loading, error, reload: reloadBuild } = useApi(() => validBuildId ? api.getBuild(buildId) : Promise.resolve(null), [buildId, validBuildId])
-  const { data: logsResp, reload: reloadLogs } = useApi(() => validBuildId ? api.getBuildLogs(buildId) : Promise.resolve({ log: '' }), [buildId, validBuildId])
-  const { data: timeline, reload: reloadTimeline } = useApi(() => validBuildId ? api.getBuildTimeline(buildId) : Promise.resolve(null), [buildId, validBuildId])
-  const { data: problems, reload: reloadProblems } = useApi(() => validBuildId ? api.getBuildProblems(buildId) : Promise.resolve(null), [buildId, validBuildId])
-  const { data: chain, reload: reloadChain } = useApi(() => validBuildId ? api.getBuildChain(buildId) : Promise.resolve(null), [buildId, validBuildId])
-  const { data: artifacts, reload: reloadArtifacts } = useApi(() => validBuildId ? api.listArtifacts(buildId) : Promise.resolve([]), [buildId, validBuildId])
+  const projectId = Number(build?.project_id)
+  const { data: buildProject } = useApi(() => Number.isSafeInteger(projectId) && projectId > 0 ? api.getProject(projectId) : Promise.resolve(null), [projectId])
+  const { data: logsResp, error: logsError, reload: reloadLogs } = useApi(() => validBuildId ? api.getBuildLogs(buildId) : Promise.resolve({ log: '' }), [buildId, validBuildId])
+  const { data: timeline, error: timelineError, reload: reloadTimeline } = useApi(() => validBuildId ? api.getBuildTimeline(buildId) : Promise.resolve(null), [buildId, validBuildId])
+  const { data: problems, error: problemsError, reload: reloadProblems } = useApi(() => validBuildId ? api.getBuildProblems(buildId) : Promise.resolve(null), [buildId, validBuildId])
+  const { data: chain, error: chainError, reload: reloadChain } = useApi(() => validBuildId ? api.getBuildChain(buildId) : Promise.resolve(null), [buildId, validBuildId])
+  const { data: artifacts, error: artifactsError, reload: reloadArtifacts } = useApi(() => validBuildId ? api.listArtifacts(buildId) : Promise.resolve([]), [buildId, validBuildId])
   const [retrying, setRetrying] = useState(false)
+  const [replayOpen, setReplayOpen] = useState(false)
   const [pinning, setPinning] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [downloading, setDownloading] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const consoleRef = useRef<HTMLPreElement>(null)
+  const followConsoleRef = useRef(true)
+  const [followConsole, setFollowConsole] = useState(true)
+  const displayedLog = visibleBuildLog(logsResp?.log)
 
   const isExecuting = build?.status === 'running'
-  const isActive = isExecuting || build?.status === 'pending' || build?.status === 'pending_approval'
+  const isActive = isExecuting || build?.status === 'pending' || build?.status === 'queued' || build?.status === 'pending_approval'
   const isFinished = !!build?.status && !isActive
 
   useEffect(() => {
     if (!isActive) return
-    const timer = setInterval(() => {
+    const refreshActiveBuild = () => {
+      if (document.visibilityState !== 'visible') return
       reloadBuild()
       reloadLogs()
       reloadTimeline()
       reloadProblems()
       reloadChain()
       reloadArtifacts()
-    }, 2000)
-    return () => clearInterval(timer)
+    }
+    const timer = setInterval(refreshActiveBuild, 2000)
+    document.addEventListener('visibilitychange', refreshActiveBuild)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', refreshActiveBuild)
+    }
   }, [isActive, reloadArtifacts, reloadBuild, reloadChain, reloadLogs, reloadProblems, reloadTimeline])
 
   useEffect(() => {
     if (isFinished) reloadArtifacts()
   }, [isFinished, reloadArtifacts])
+
+  useEffect(() => {
+    followConsoleRef.current = true
+    setFollowConsole(true)
+  }, [buildId])
+
+  useEffect(() => {
+    if (!followConsoleRef.current) return
+    const frame = window.requestAnimationFrame(() => {
+      const consoleOutput = consoleRef.current
+      if (consoleOutput) consoleOutput.scrollTop = consoleOutput.scrollHeight
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [displayedLog])
+
+  const setConsoleFollowing = (next: boolean) => {
+    followConsoleRef.current = next
+    setFollowConsole(next)
+    if (!next) return
+    window.requestAnimationFrame(() => {
+      const consoleOutput = consoleRef.current
+      if (consoleOutput) consoleOutput.scrollTop = consoleOutput.scrollHeight
+    })
+  }
 
   const handleStop = async () => {
     if (!await dialogs.confirm(t('builds.stopConfirm'), { title: t('builds.stopTitle'), action: t('builds.stopBuild') })) return
@@ -107,17 +148,7 @@ export default function BuildDetail() {
       setStopping(false)
     }
   }
-  const handleRetry = async () => {
-    setRetrying(true)
-    try {
-      const retried = await api.retryBuild(buildId)
-      navigate(`/builds/${retried.id}`)
-    } catch (reason: any) {
-      dialogs.notify(reason.message || t('common.error'))
-    } finally {
-      setRetrying(false)
-    }
-  }
+  const handleRetry = () => setReplayOpen(true)
   const handlePin = async () => {
     if (!build) return
     setPinning(true)
@@ -158,7 +189,6 @@ export default function BuildDetail() {
   if (error) return <PageState error={error} onRetry={reloadBuild} />
   if (!build) return null
 
-  const displayedLog = visibleBuildLog(logsResp?.log)
   const logLines = displayedLog.split('\n').filter(Boolean)
   const timelineSteps = timeline?.steps || []
   const activeTimelineStep = timelineSteps.find(step => step.status === 'running' || step.status === 'failed' || step.status === 'cancelled')
@@ -169,70 +199,134 @@ export default function BuildDetail() {
     .replace('{total}', String(timeline?.total_steps || 0))
     .replace('{percent}', String(progress))
   const parameters = parseParameters(build.parameters)
+  const projectName = buildProject?.name || build.project_name || `${t('builds.project')} #${build.project_id}`
   const retriedFromBuild = build.retried_from ? chain?.nodes.find(node => node.id === build.retried_from) : null
   const dependencyBuild = build.wait_dependency_on ? chain?.nodes.find(node => node.id === build.wait_dependency_on) : null
+  const supplementalErrors = [logsError, timelineError, problemsError, chainError, artifactsError].filter(Boolean)
+  const reloadSupplementalData = () => {
+    reloadLogs()
+    reloadTimeline()
+    reloadProblems()
+    reloadChain()
+    reloadArtifacts()
+  }
 
-  return <motion.section className="detail-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
-    <header className="detail-heading">
-      <div>
-        <div className="detail-kicker"><Link to={`/projects/${build.project_id}`}>{t('builds.project')} #{build.project_id}</Link><span>/</span>{t('builds.build')}</div>
-        <div className="detail-title-row"><h1>{build.pinned && <Pin size={18} aria-label={t('builds.pinned')} />}{t('builds.build')} #{build.number}</h1><BuildStatusBadge status={build.status} label={t(`builds.${build.status}`)} /></div>
+  return <>
+    <JenkinsHeaderBreadcrumb breadcrumbs={[{ label: projectName, to: `/projects/${build.project_id}` }, { label: `#${build.number}` }]} />
+    <motion.section className="jenkins-run-page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+    <div className="jenkins-run-layout">
+      <aside className="jenkins-run-side-panel" aria-label={t('builds.build')}>
+        <nav className="jenkins-run-tasks">
+          <a className="active" href="#overview"><Activity />{t('projectDetail.status')}</a>
+          <Link to={`/projects/${build.project_id}/changes?build=${buildId}`}><GitCommitHorizontal />{t('projectDetail.changes')}</Link>
+          <Link to={`/builds/${buildId}/logs`}><FileText />{t('builds.logs')}</Link>
+          <Link to={`/builds/${buildId}/tests`}><FlaskConical />{t('builds.testReports')}</Link>
+          {editable && isFinished && <button type="button" onClick={handleRetry} disabled={retrying || replayOpen} aria-busy={retrying}>{retrying ? <LoaderCircle className="timeline-spinner" /> : <RotateCcw />}{retrying ? t('builds.replaying') : t('builds.replay')}</button>}
+          {editable && <button type="button" onClick={handlePin} disabled={pinning} aria-busy={pinning}>{pinning ? <LoaderCircle className="timeline-spinner" /> : build.pinned ? <PinOff /> : <Pin />}{build.pinned ? t('builds.unpin') : t('builds.pin')}</button>}
+          {editable && build.status === 'failed' && <Link to={`/projects/${build.project_id}/configure`}><Settings2 />{t('builds.fixProjectSettings')}</Link>}
+          {editable && isActive && <button type="button" className="danger" onClick={handleStop} disabled={stopping} aria-busy={stopping}>{stopping ? <LoaderCircle className="timeline-spinner" /> : <Square />}{stopping ? t('builds.stopping') : t('builds.stopBuild')}</button>}
+        </nav>
+
+        <section className="jenkins-run-side-summary">
+          <h2>{t('builds.build')} #{build.number}</h2>
+          <dl>
+            <div><dt>{t('builds.currentStage')}</dt><dd>{lastStage}</dd></div>
+            <div><dt>{t('builds.outputLines')}</dt><dd>{logLines.length}</dd></div>
+            <div><dt>{t('builds.duration')}</dt><dd>{formatDuration(build.duration_ms)}</dd></div>
+            <div><dt>{t('builds.trigger')}</dt><dd>{buildTriggerLabel(t, build.trigger)}</dd></div>
+          </dl>
+        </section>
+      </aside>
+
+      <div className="jenkins-run-main" id="overview">
+        <header className="jenkins-run-caption">
+          <div className="jenkins-run-caption-identity">
+            <BuildStatusBadge status={build.status} label={t(`builds.${build.status}`)} />
+            <h1>{build.pinned && <Pin size={17} aria-label={t('builds.pinned')} />}{t('builds.build')} #{build.number}<small>({formatTime(build.started_at)})</small></h1>
+          </div>
+          <div className="jenkins-run-controls">
+            <Link to={`/builds/${buildId}/tests`}><FlaskConical size={15} />{t('builds.testReports')}</Link>
+            {editable && isFinished && <button type="button" onClick={handleRetry} disabled={retrying || replayOpen} aria-busy={retrying}>{retrying ? <LoaderCircle className="timeline-spinner" size={15} /> : <RotateCcw size={15} />}{retrying ? t('builds.replaying') : t('builds.replay')}</button>}
+            {editable && isActive && <button type="button" className="danger" onClick={handleStop} disabled={stopping} aria-busy={stopping}>{stopping ? <LoaderCircle className="timeline-spinner" size={15} /> : <Square size={14} />}{stopping ? t('builds.stopping') : t('builds.stopBuild')}</button>}
+          </div>
+        </header>
+
+        <p className="jenkins-run-description"><strong>{t(`builds.${build.status}`)}</strong>{isExecuting ? ` · ${t('builds.followingOutput')}` : ` · ${t('builds.outputComplete')}`}</p>
+
+        {supplementalErrors.length > 0 && <div className="jenkins-run-data-warning" role="alert">
+          <span>{supplementalErrors[0]}</span>
+          <button type="button" onClick={reloadSupplementalData}>{t('common.retry')}</button>
+        </div>}
+
+        <section className="jenkins-run-facts" aria-label={t('builds.build')}>
+          <article><span>{t('builds.duration')}</span><strong>{formatDuration(build.duration_ms)}</strong></article>
+          <article><span>{t('builds.branch')}</span><strong><GitBranch size={14} />{build.branch || '-'}</strong></article>
+          <article><span>{t('builds.commit')}</span><strong className="mono"><GitCommitHorizontal size={14} />{build.commit_sha?.slice(0, 8) || '-'}</strong></article>
+          <article><span>{t('builds.trigger')}</span><strong>{buildTriggerLabel(t, build.trigger)}</strong></article>
+          <article><span>{t('builds.started')}</span><strong>{formatTime(build.started_at)}</strong></article>
+          <article><span>{t('builds.finished')}</span><strong>{formatTime(build.finished_at)}</strong></article>
+          {(build.agent_id || build.agent_requirements) && <article><span>{t('builds.agent')}</span><strong><UserRound size={14} />{build.agent_id ? `#${build.agent_id}` : t('builds.ruleBased')}</strong></article>}
+          {build.retried_from && <article><span>{t('builds.retriedFrom')}</span><strong><Link to={`/builds/${build.retried_from}`}>{retriedFromBuild ? `#${retriedFromBuild.number}` : `ID ${build.retried_from}`}</Link></strong></article>}
+          {build.wait_dependency_on && <article><span>{t('builds.waitingForBuild')}</span><strong><Link to={`/builds/${build.wait_dependency_on}`}>{dependencyBuild ? `${dependencyBuild.project_name} #${dependencyBuild.number}` : `ID ${build.wait_dependency_on}`}</Link></strong></article>}
+        </section>
+
+        {build.status === 'pending_approval' && build.approval && <BuildApprovalPanel buildId={buildId} approval={build.approval} onResolved={() => { reloadBuild(); reloadTimeline(); reloadLogs() }} />}
+
+        {problems && <BuildProblemsPanel buildId={buildId} projectId={build.project_id} report={problems} editable={editable} retrying={retrying} onRetry={handleRetry} />}
+
+        {chain && <BuildChainPanel chain={chain} />}
+
+        {parameters.length > 0 && <section className="detail-panel build-parameters-panel jenkins-run-section">
+          <header><div><SlidersHorizontal size={17} /><h2>{t('builds.parameters')}</h2><span>{parameters.length}</span></div></header>
+          <dl>{parameters.map(([name, value]) => <div key={name}><dt>{name}</dt><dd><code>{parameterValue(name, value)}</code></dd></div>)}</dl>
+        </section>}
+
+        <section className="build-timeline jenkins-run-section" aria-label={t('builds.timeline')}>
+          <header>
+            <div><Workflow size={17} /><div><h2>{t('builds.timeline')}</h2><p>{t('builds.linearFlow')}</p></div></div>
+            <strong>{progressCopy}</strong>
+          </header>
+          <div className="timeline-progress" aria-hidden="true"><i style={{ width: `${progress}%` }} /></div>
+          {timelineSteps.length
+            ? <ol className="timeline-track">
+                {timelineSteps.map(step => <li key={step.index} className={`timeline-step ${step.status}`} aria-current={step.status === 'running' ? 'step' : undefined}>
+                  <span className="timeline-status"><TimelineStatusIcon status={step.status} /></span>
+                  <div><small>{step.stage}</small><strong>{step.name}</strong><em>{t(`builds.${step.status}`)}</em></div>
+                  {step.index < timelineSteps.length - 1 ? <span className="timeline-connector" aria-hidden="true" /> : null}
+                </li>)}
+              </ol>
+            : <div className="timeline-empty"><CircleDot size={15} />{t('builds.waitingForPlan')}</div>}
+        </section>
+
+        <section className="jenkins-run-section" id="console">
+          <header className="jenkins-run-section-heading">
+            <h2><FileText size={20} />{t('builds.logs')}</h2>
+            <div className="jenkins-console-controls">
+              {isActive && <button type="button" className={followConsole ? 'selected' : ''} aria-pressed={followConsole} onClick={() => setConsoleFollowing(!followConsole)}>{followConsole ? <Pause size={14} /> : <Play size={14} />}{followConsole ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>}
+              <button type="button" onClick={() => handleLogDownload('txt')} disabled={downloading !== null} aria-busy={downloading === 'logs-txt'}>{downloading === 'logs-txt' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Download size={15} />}{downloading === 'logs-txt' ? t('builds.downloading') : t('builds.downloadText')}</button>
+              <Link to={`/builds/${buildId}/logs`} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} />{t('builds.openStandaloneLogs')}</Link>
+            </div>
+          </header>
+          <pre ref={consoleRef} className="jenkins-console-output" id="out" onScroll={() => {
+            const consoleOutput = consoleRef.current
+            if (!consoleOutput) return
+            const next = isNearLogBottom(consoleOutput)
+            if (followConsoleRef.current !== next) setConsoleFollowing(next)
+          }}>{displayedLog || t('builds.noLogs')}</pre>
+          {isExecuting && <div className="jenkins-console-progress" role="status" aria-live="polite">{followConsole ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pause size={16} />}{followConsole ? t('builds.followingOutput') : t('builds.followPaused')}</div>}
+        </section>
+
+        <section className="detail-panel artifacts-panel jenkins-run-section" id="artifacts"><header><div><FileText size={17} /><h2>{t('builds.artifacts')}</h2><span>{(artifacts || []).length}</span></div>{editable && <><input ref={fileInputRef} type="file" onChange={handleUpload} disabled={uploading} className="visually-hidden" id="artifact-upload" /><label htmlFor="artifact-upload" className={`jenkins-artifact-upload ${uploading ? 'is-disabled' : ''}`}><Upload size={15} />{uploading ? t('builds.uploading') : t('builds.uploadArtifact')}</label></>}</header>
+          {(artifacts || []).length === 0 ? <p className="detail-empty">{t('builds.noArtifacts')}</p> : <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>{t('builds.name')}</th><th>{t('builds.size')}</th><th>{t('builds.downloads')}</th><th aria-label={t('builds.download')} /></tr></thead><tbody>{(artifacts || []).map((artifact: any) => <tr key={artifact.id}><td><strong>{artifact.name}</strong></td><td className="muted-cell">{formatSize(artifact.size)}</td><td className="muted-cell">{artifact.download_count || artifact.downloads || 0}</td><td><button type="button" onClick={() => handleArtifactDownload(artifact)} disabled={downloading !== null} aria-busy={downloading === `artifact-${artifact.id}`} className="table-link">{downloading === `artifact-${artifact.id}` ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}{downloading === `artifact-${artifact.id}` ? t('builds.downloading') : t('builds.download')}</button></td></tr>)}</tbody></table></div>}
+        </section>
       </div>
-      <div className="detail-actions">
-        <Link className="secondary-command" to={`/builds/${buildId}/tests`}><FlaskConical size={15} />{t('builds.testReports')}</Link>
-        {editable && build.status === 'failed' && <Link className="secondary-command" to={`/projects/${build.project_id}?view=settings`}><Settings2 size={15} />{t('builds.fixProjectSettings')}</Link>}
-        {editable && isFinished && <><button className="secondary-command" onClick={handleRetry} disabled={retrying}><RotateCcw size={15} />{retrying ? t('builds.retrying') : t('builds.retryBuild')}</button><button className={`icon-command ${build.pinned ? 'selected' : ''}`} title={build.pinned ? t('builds.unpin') : t('builds.pin')} aria-label={build.pinned ? t('builds.unpin') : t('builds.pin')} onClick={handlePin} disabled={pinning}>{build.pinned ? <PinOff size={15} /> : <Pin size={15} />}</button></>}
-        {editable && isActive && <button className="danger-command" onClick={handleStop} disabled={stopping} aria-busy={stopping}>{stopping ? <LoaderCircle className="timeline-spinner" size={14} /> : <Square size={14} />}{stopping ? t('builds.stopping') : t('builds.stopBuild')}</button>}
-      </div>
-    </header>
-
-    <section className="detail-facts" aria-label={t('builds.build')}>
-      <article><span>{t('builds.duration')}</span><strong>{formatDuration(build.duration_ms)}</strong></article>
-      <article><span>{t('builds.branch')}</span><strong><GitBranch size={14} />{build.branch || '-'}</strong></article>
-      <article><span>{t('builds.commit')}</span><strong className="mono"><GitCommitHorizontal size={14} />{build.commit_sha?.slice(0, 8) || '-'}</strong></article>
-      <article><span>{t('builds.trigger')}</span><strong>{buildTriggerLabel(t, build.trigger)}</strong></article>
-      <article><span>{t('builds.started')}</span><strong>{formatTime(build.started_at)}</strong></article>
-      <article><span>{t('builds.finished')}</span><strong>{formatTime(build.finished_at)}</strong></article>
-      {(build.agent_id || build.agent_requirements) && <article><span>{t('builds.agent')}</span><strong><UserRound size={14} />{build.agent_id ? `#${build.agent_id}` : t('builds.ruleBased')}</strong><small title={typeof build.agent_requirements === 'string' ? build.agent_requirements : JSON.stringify(build.agent_requirements || {})}>{build.agent_requirements ? `${typeof build.agent_requirements === 'string' ? build.agent_requirements : JSON.stringify(build.agent_requirements)}` : ''}</small></article>}
-      {build.retried_from && <article><span>{t('builds.retriedFrom')}</span><strong><Link to={`/builds/${build.retried_from}`}>{retriedFromBuild ? `#${retriedFromBuild.number}` : `ID ${build.retried_from}`}</Link></strong></article>}
-      {build.wait_dependency_on && <article><span>{t('builds.waitingForBuild')}</span><strong><Link to={`/builds/${build.wait_dependency_on}`}>{dependencyBuild ? `${dependencyBuild.project_name} #${dependencyBuild.number}` : `ID ${build.wait_dependency_on}`}</Link></strong></article>}
-    </section>
-
-    {build.status === 'pending_approval' && build.approval && <BuildApprovalPanel buildId={buildId} approval={build.approval} onResolved={() => { reloadBuild(); reloadTimeline(); reloadLogs() }} />}
-
-    {problems && <BuildProblemsPanel buildId={buildId} projectId={build.project_id} report={problems} editable={editable} retrying={retrying} onRetry={handleRetry} />}
-
-    {chain && <BuildChainPanel chain={chain} />}
-
-    {parameters.length > 0 && <section className="detail-panel build-parameters-panel">
-      <header><div><SlidersHorizontal size={17} /><h2>{t('builds.parameters')}</h2><span>{parameters.length}</span></div></header>
-      <dl>{parameters.map(([name, value]) => <div key={name}><dt>{name}</dt><dd><code>{parameterValue(name, value)}</code></dd></div>)}</dl>
-    </section>}
-
-    <section className="build-timeline" aria-label={t('builds.timeline')}>
-      <header>
-        <div><Workflow size={17} /><div><h2>{t('builds.timeline')}</h2><p>{t('builds.linearFlow')}</p></div></div>
-        <strong>{progressCopy}</strong>
-      </header>
-      <div className="timeline-progress" aria-hidden="true"><i style={{ width: `${progress}%` }} /></div>
-      {timelineSteps.length
-        ? <ol className="timeline-track">
-            {timelineSteps.map(step => <li key={step.index} className={`timeline-step ${step.status}`} aria-current={step.status === 'running' ? 'step' : undefined}>
-              <span className="timeline-status"><TimelineStatusIcon status={step.status} /></span>
-              <div><small>{step.stage}</small><strong>{step.name}</strong><em>{t(`builds.${step.status}`)}</em></div>
-              {step.index < timelineSteps.length - 1 ? <span className="timeline-connector" aria-hidden="true" /> : null}
-            </li>)}
-          </ol>
-        : <div className="timeline-empty"><CircleDot size={15} />{t('builds.waitingForPlan')}</div>}
-    </section>
-
-    <section className="build-log-workbench">
-      <div className="build-log-main"><header><div><FileText size={17} /><h2>{t('builds.logs')}</h2></div><span className={isExecuting ? 'live-status' : 'log-status'} role={isExecuting ? 'status' : undefined} aria-live={isExecuting ? 'polite' : undefined}>{isExecuting ? <LoaderCircle className="timeline-spinner" size={12} aria-hidden="true" /> : <Radio size={12} />}{isExecuting ? t('builds.liveStream') : t(`builds.${build.status}`)}</span></header><pre>{displayedLog || t('builds.noLogs')}</pre></div>
-      <aside className="build-log-inspector"><header><ListTree size={16} />{t('builds.logInspector')}</header><dl><div><dt>{t('builds.build')}</dt><dd>#{build.number}</dd></div><div><dt>{t('builds.currentStage')}</dt><dd>{lastStage}</dd></div><div><dt>{t('builds.outputLines')}</dt><dd>{logLines.length}</dd></div><div><dt>{t('builds.duration')}</dt><dd>{formatDuration(build.duration_ms)}</dd></div></dl><div className="inspector-note"><Gauge size={15} /><span>{isExecuting ? t('builds.followingOutput') : t('builds.outputComplete')}</span></div><Link className="open-plain-log" to={`/builds/${buildId}/logs`} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} />{t('builds.openStandaloneLogs')}</Link><button type="button" onClick={() => handleLogDownload('txt')} disabled={downloading !== null} aria-busy={downloading === 'logs-txt'} className="download-log-button">{downloading === 'logs-txt' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Download size={15} />}{downloading === 'logs-txt' ? t('builds.downloading') : t('builds.downloadText')}</button><button type="button" onClick={() => handleLogDownload('json')} disabled={downloading !== null} aria-busy={downloading === 'logs-json'} className="download-log-link">{downloading === 'logs-json' ? t('builds.downloading') : t('builds.downloadJSON')}</button></aside>
-    </section>
-
-    <section className="detail-panel artifacts-panel"><header><div><FileText size={17} /><h2>{t('builds.artifacts')}</h2><span>{(artifacts || []).length}</span></div>{editable && <><input ref={fileInputRef} type="file" onChange={handleUpload} className="visually-hidden" id="artifact-upload" /><label htmlFor="artifact-upload" className={`secondary-command upload-control ${uploading ? 'is-disabled' : ''}`}><Upload size={15} />{uploading ? t('builds.uploading') : t('builds.uploadArtifact')}</label></>}</header>
-      {(artifacts || []).length === 0 ? <p className="detail-empty">{t('builds.noArtifacts')}</p> : <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>{t('builds.name')}</th><th>{t('builds.size')}</th><th>{t('builds.downloads')}</th><th aria-label={t('builds.download')} /></tr></thead><tbody>{(artifacts || []).map((artifact: any) => <tr key={artifact.id}><td><strong>{artifact.name}</strong></td><td className="muted-cell">{formatSize(artifact.size)}</td><td className="muted-cell">{artifact.download_count || artifact.downloads || 0}</td><td><button type="button" onClick={() => handleArtifactDownload(artifact)} disabled={downloading !== null} aria-busy={downloading === `artifact-${artifact.id}`} className="table-link">{downloading === `artifact-${artifact.id}` ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}{downloading === `artifact-${artifact.id}` ? t('builds.downloading') : t('builds.download')}</button></td></tr>)}</tbody></table></div>}
-    </section>
-  </motion.section>
+    </div>
+    </motion.section>
+    {replayOpen && <ReplayBuildDialog
+      target={{ id: buildId, number: build.number, projectId: build.project_id, projectName, branch: build.branch, parameters: build.parameters }}
+      onBusyChange={setRetrying}
+      onClose={() => setReplayOpen(false)}
+      onReplayed={replayedID => { setReplayOpen(false); navigate(`/builds/${replayedID}`) }}
+    />}
+  </>
 }

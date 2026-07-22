@@ -5,8 +5,10 @@ import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
 import { dialogs } from '../components/AppDialogs'
+import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { ModalDialog } from '../components/ModalDialog'
 import { PageState } from '../components/PageState'
+import './ManagementPages.jenkins.css'
 
 interface User {
   id: number
@@ -27,6 +29,7 @@ function hasLoggedIn(value?: string) {
 
 export default function Users() {
   const { t } = useI18n()
+  const breadcrumb = <JenkinsHeaderBreadcrumb breadcrumbs={[{ label: t('users.title') }]} />
   const { data: users, loading, error, reload } = useApi<User[]>(() => api.listUsers())
   const { data: me } = useApi<User>(() => api.me())
   const [showEditor, setShowEditor] = useState(false)
@@ -80,15 +83,15 @@ export default function Users() {
     }
   }
 
-  if (loading) return <PageState />
-  if (error) return <PageState error={error} onRetry={reload} />
+  if (loading) return <>{breadcrumb}<section className="jenkins-management-page"><PageState /></section></>
+  if (error) return <>{breadcrumb}<section className="jenkins-management-page"><PageState error={error} onRetry={reload} /></section></>
 
   const list = users || []
   const admins = list.filter(user => user.role === 'admin').length
   const active = list.filter(user => hasLoggedIn(user.last_login)).length
 
   return (
-    <motion.section className="operations-page users-workbench" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <>{breadcrumb}<motion.section className="operations-page users-workbench jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
       <header className="operations-heading">
         <div><p>{list.length} {t('users.accounts')}</p><h1>{t('users.title')}</h1></div>
         <button className="primary-command" type="button" onClick={openCreate}><Plus size={16} />{t('users.addUser')}</button>
@@ -128,6 +131,6 @@ export default function Users() {
             <footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}><KeyRound size={14} />{saving ? t('common.loading') : t('common.save')}</button></footer>
           </form>
       </ModalDialog>}
-    </motion.section>
+    </motion.section></>
   )
 }

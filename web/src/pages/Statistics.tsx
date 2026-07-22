@@ -4,8 +4,10 @@ import { Activity, CheckCircle2, Clock3, Hash, XCircle } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
 import { PageState } from '../components/PageState'
+import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { useApi } from '../hooks'
 import { formatDuration } from '../lib/durationPresentation'
+import './ManagementPages.jenkins.css'
 
 interface TrendPoint {
   date: string
@@ -31,17 +33,18 @@ function formatRate(value: number): string {
 
 export default function Statistics() {
   const { t } = useI18n()
+  const breadcrumb = <JenkinsHeaderBreadcrumb breadcrumbs={[{ label: t('statistics.title') }]} />
   const [days, setDays] = useState(7)
   const { data: stats, loading, error, reload } = useApi<DashboardStats>(() => api.getDashboardStats(), [])
 
-  if (loading) return <PageState />
-  if (error) return <PageState error={error} onRetry={reload} />
+  if (loading) return <>{breadcrumb}<section className="jenkins-management-page"><PageState /></section></>
+  if (error) return <>{breadcrumb}<section className="jenkins-management-page"><PageState error={error} onRetry={reload} /></section></>
 
   const view = (stats?.trend || []).slice(-days)
   const maxCount = Math.max(1, ...view.map(point => point.total_builds))
 
   return (
-    <motion.section className="operations-page statistics-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+    <>{breadcrumb}<motion.section className="operations-page statistics-page jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
       <header className="operations-heading">
         <div>
           <p>{view.length} {t('statistics.daysWithData')}</p>
@@ -112,6 +115,6 @@ export default function Statistics() {
           <footer className="statistics-scale"><span>{t('statistics.less')}</span><i /><i /><i /><i /><span>{t('statistics.more')}</span></footer>
         </section>
       </div>
-    </motion.section>
+    </motion.section></>
   )
 }
