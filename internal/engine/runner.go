@@ -1192,10 +1192,13 @@ func (r *BuildRunner) execStep(ctx context.Context, step Step, workspace string,
 // completedStepError closes the race between a command returning and its
 // context being cancelled. A cancelled step must never emit a success marker.
 func completedStepError(ctx context.Context, stepErr error) error {
-	if stepErr != nil {
-		return stepErr
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if stepErr != nil {
+			return fmt.Errorf("%w (process: %v)", ctxErr, stepErr)
+		}
+		return ctxErr
 	}
-	return ctx.Err()
+	return stepErr
 }
 
 func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}, stage string, onOutput func(string)) error {

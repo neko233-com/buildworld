@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -11,6 +12,26 @@ func TestGitClient(t *testing.T) {
 	client := NewClient()
 	if client == nil {
 		t.Fatal("NewClient() returned nil")
+	}
+}
+
+func TestNonInteractiveEnvironmentAddsAndEnforcesSafetyDefaults(t *testing.T) {
+	env := NonInteractiveEnvironment([]string{
+		"PATH=/usr/bin",
+		"GIT_HTTP_LOW_SPEED_TIME=120",
+	})
+	for _, expected := range []string{
+		"GIT_TERMINAL_PROMPT=0",
+		"GCM_INTERACTIVE=Never",
+		"GIT_HTTP_LOW_SPEED_LIMIT=1",
+		"GIT_HTTP_LOW_SPEED_TIME=60",
+	} {
+		if !slices.Contains(env, expected) {
+			t.Fatalf("Git environment missing %q: %#v", expected, env)
+		}
+	}
+	if slices.Contains(env, "GIT_HTTP_LOW_SPEED_TIME=120") {
+		t.Fatalf("Git environment retained unsafe inherited timeout: %#v", env)
 	}
 }
 

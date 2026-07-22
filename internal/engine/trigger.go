@@ -1,14 +1,16 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/neko233-com/buildworld/internal/git"
+	"github.com/neko233-com/buildworld/internal/processtree"
 	"github.com/neko233-com/buildworld/internal/store"
 	"github.com/neko233-com/buildworld/internal/ws"
 )
@@ -235,15 +237,29 @@ func (tc *TriggerChecker) triggerProjectBuild(p *store.Project, trigger, branch,
 }
 
 func gitLSRemote(url, branch string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return gitLSRemoteContext(ctx, url, branch)
+}
+
+func gitLSRemoteContext(ctx context.Context, url, branch string) (string, error) {
 	if branch == "" {
 		branch = "HEAD"
 	}
-	cmd := exec.Command("git", "ls-remote", url, "refs/heads/"+branch)
+	cmd := processtree.CommandContext(ctx, "git", "ls-remote", url, "refs/heads/"+branch)
+	cmd.Env = git.NonInteractiveEnvironment(cmd.Environ())
 	out, err := cmd.Output()
 	if err != nil {
-		cmd = exec.Command("git", "ls-remote", url, branch)
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("git ls-remote: %w", ctx.Err())
+		}
+		cmd = processtree.CommandContext(ctx, "git", "ls-remote", url, branch)
+		cmd.Env = git.NonInteractiveEnvironment(cmd.Environ())
 		out, err = cmd.Output()
 		if err != nil {
+			if ctx.Err() != nil {
+				return "", fmt.Errorf("git ls-remote: %w", ctx.Err())
+			}
 			return "", fmt.Errorf("git ls-remote: %w", err)
 		}
 	}

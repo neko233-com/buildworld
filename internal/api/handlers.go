@@ -501,7 +501,9 @@ func (h *handlers) validateProjectBuildTemplate(templateID *int64) error {
 }
 
 func (h *handlers) loadProjectBuildConfig(ctx context.Context, project *store.Project) (*engine.BuildConfig, error) {
-	config, err := engine.ResolveProjectBuildConfig(ctx, project)
+	loadCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	config, err := engine.ResolveProjectBuildConfig(loadCtx, project)
 	if err != nil {
 		return nil, fmt.Errorf("invalid project build configuration: %w", err)
 	}
@@ -518,6 +520,26 @@ func (h *handlers) loadProjectBuildConfig(ctx context.Context, project *store.Pr
 		return nil, fmt.Errorf("invalid build template configuration: %w", err)
 	}
 	return engine.MergeBuildConfig(templateConfig, config), nil
+}
+
+// loadProjectBuildConfigForPresentation never performs network I/O. Build
+// list/detail serialization must remain available when an SCM host or local
+// credential helper is unavailable. Without the fetched parameter schema,
+// every SCM parameter is conservatively redacted during presentation.
+func (h *handlers) loadProjectBuildConfigForPresentation(project *store.Project) *engine.BuildConfig {
+	if !strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm") {
+		config, _ := h.loadProjectBuildConfig(context.Background(), project)
+		return config
+	}
+	if project.TemplateID == nil {
+		return nil
+	}
+	template, err := h.d.Store.GetBuildTemplate(*project.TemplateID)
+	if err != nil {
+		return nil
+	}
+	config, _ := engine.ParsePipelineConfig(template.Config)
+	return config
 }
 
 func (h *handlers) resolveProjectBuildParameters(project *store.Project, supplied map[string]interface{}) (string, error) {
@@ -584,7 +606,7 @@ func looksLikeSecretParameter(name string) bool {
 	return false
 }
 
-func redactBuildParameters(build *store.Build, secretNames map[string]struct{}) *store.Build {
+func redactBuildParameters(build *store.Build, secretNames map[string]struct{}, redactAll bool) *store.Build {
 	if build == nil {
 		return nil
 	}
@@ -599,7 +621,7 @@ func redactBuildParameters(build *store.Build, secretNames map[string]struct{}) 
 		return &redacted
 	}
 	for name := range parameters {
-		if _, secret := secretNames[name]; secret || looksLikeSecretParameter(name) {
+		if _, secret := secretNames[name]; redactAll || secret || looksLikeSecretParameter(name) {
 			parameters[name] = "********"
 		}
 	}
@@ -618,10 +640,11 @@ func (h *handlers) publicBuild(build *store.Build) *store.Build {
 	}
 	project, err := h.d.Store.GetProject(build.ProjectID)
 	if err != nil {
-		return redactBuildParameters(build, nil)
+		return redactBuildParameters(build, nil, false)
 	}
-	config, _ := h.loadProjectBuildConfig(context.Background(), project)
-	result := redactBuildParameters(build, secretBuildParameterNames(config))
+	config := h.loadProjectBuildConfigForPresentation(project)
+	redactAll := strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm")
+	result := redactBuildParameters(build, secretBuildParameterNames(config), redactAll)
 	if approval, approvalErr := h.d.Store.GetBuildApprovalByBuild(build.ID); approvalErr == nil {
 		if policy, policyErr := engine.ResolveApprovalPolicy(config); policyErr == nil {
 			approval.Prompt = policy.Prompt
@@ -636,17 +659,19 @@ func (h *handlers) publicBuild(build *store.Build) *store.Build {
 func (h *handlers) publicBuilds(builds []*store.Build) []*store.Build {
 	result := make([]*store.Build, 0, len(builds))
 	secretNamesByProject := make(map[int64]map[string]struct{})
+	redactAllByProject := make(map[int64]bool)
 	for _, build := range builds {
 		names, cached := secretNamesByProject[build.ProjectID]
 		if !cached {
 			project, projectErr := h.d.Store.GetProject(build.ProjectID)
 			if projectErr == nil {
-				config, _ := h.loadProjectBuildConfig(context.Background(), project)
+				config := h.loadProjectBuildConfigForPresentation(project)
 				names = secretBuildParameterNames(config)
+				redactAllByProject[build.ProjectID] = strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm")
 			}
 			secretNamesByProject[build.ProjectID] = names
 		}
-		result = append(result, redactBuildParameters(build, names))
+		result = append(result, redactBuildParameters(build, names, redactAllByProject[build.ProjectID]))
 	}
 	return result
 }

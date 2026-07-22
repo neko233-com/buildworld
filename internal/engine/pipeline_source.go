@@ -2,10 +2,12 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/neko233-com/buildworld/internal/git"
 	"github.com/neko233-com/buildworld/internal/processtree"
@@ -17,10 +19,11 @@ import (
 type PipelineFormat string
 
 const (
-	FormatTypeScript  PipelineFormat = "typescript"
-	FormatYAML        PipelineFormat = "yaml"
-	FormatJenkinsfile PipelineFormat = "jenkinsfile"
-	FormatAuto        PipelineFormat = "auto"
+	FormatTypeScript        PipelineFormat = "typescript"
+	FormatYAML              PipelineFormat = "yaml"
+	FormatJenkinsfile       PipelineFormat = "jenkinsfile"
+	FormatAuto              PipelineFormat = "auto"
+	scmPipelineFetchTimeout                = 5 * time.Minute
 )
 
 // NormalizeFormat maps an empty/unknown format to FormatAuto so callers can
@@ -191,7 +194,16 @@ func ResolveProjectPipelineSource(ctx context.Context, project *store.Project) (
 		Format:    NormalizeFormat(project.PipelineFormat),
 		VCSRootID: project.VCSRootID,
 	}
-	content, _, err := DefaultSCMFetcher.FetchSCMPipeline(ctx, src)
+	fetchCtx, cancel := context.WithTimeout(ctx, scmPipelineFetchTimeout)
+	content, _, err := DefaultSCMFetcher.FetchSCMPipeline(fetchCtx, src)
+	fetchErr := fetchCtx.Err()
+	cancel()
+	if errors.Is(fetchErr, context.DeadlineExceeded) {
+		return "", fmt.Errorf("fetch SCM pipeline timed out: %w", fetchErr)
+	}
+	if errors.Is(fetchErr, context.Canceled) {
+		return "", fmt.Errorf("fetch SCM pipeline canceled: %w", fetchErr)
+	}
 	if err != nil {
 		return "", fmt.Errorf("fetch SCM pipeline: %w", err)
 	}
@@ -249,6 +261,7 @@ func FetchSCMPipeline(ctx context.Context, src SCMPipelineSource) (string, Pipel
 		}
 	} else {
 		cmd := processtree.CommandContext(ctx, "git", "clone", "--branch", branch, "--depth", "1", cloneURL, dest)
+		cmd.Env = git.NonInteractiveEnvironment(cmd.Environ())
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return "", "", fmt.Errorf("git clone failed: %w, output: %s", err, out)
 		}
