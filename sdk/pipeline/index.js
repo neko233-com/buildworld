@@ -27,6 +27,22 @@ const watchAliases = [
   ['initialLines', 'initial_lines'],
 ]
 
+const stepAliases = [['platformAdditions', 'platform_additions']]
+
+const stageAliases = [
+  ['dependsOn', 'depends_on'],
+  ['workingDirectory', 'working_directory'],
+  ['timeoutSec', 'timeout_sec'],
+]
+
+const normalizeStepLiteral = source => withAliases(source, stepAliases)
+
+const normalizeStageLiteral = source => {
+  const value = withAliases(source, stageAliases)
+  if (Array.isArray(value.steps)) value.steps = value.steps.map(normalizeStepLiteral)
+  return value
+}
+
 export const definePipeline = source => {
   const pipeline = withAliases(source, pipelineAliases)
   if (pipeline.approval) {
@@ -35,11 +51,18 @@ export const definePipeline = source => {
       ['allowRequester', 'allow_requester'],
     ])
   }
+  if (Array.isArray(pipeline.stages)) pipeline.stages = pipeline.stages.map(normalizeStageLiteral)
+  if (pipeline.post) {
+    pipeline.post = Object.fromEntries(
+      Object.entries(pipeline.post)
+        .map(([condition, steps]) => [condition, Array.isArray(steps) ? steps.map(normalizeStepLiteral) : steps]),
+    )
+  }
   return pipeline
 }
 
 export const step = (name, type, command, options = {}) => ({
-  ...withAliases(options, [['platformAdditions', 'platform_additions']]),
+  ...withAliases(options, stepAliases),
   name,
   type,
   command,
@@ -62,11 +85,7 @@ export const watchService = (name, options = {}) => {
 }
 
 export const stage = (name, steps, options = {}) => ({
-  ...withAliases(options, [
-    ['dependsOn', 'depends_on'],
-    ['workingDirectory', 'working_directory'],
-    ['timeoutSec', 'timeout_sec'],
-  ]),
+  ...withAliases(options, stageAliases),
   name,
   steps: Array.isArray(steps) ? steps : [steps],
 })
