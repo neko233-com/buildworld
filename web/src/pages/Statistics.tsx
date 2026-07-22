@@ -6,6 +6,7 @@ import { PageState } from '../components/PageState'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { useApi } from '../hooks'
 import { formatDuration } from '../lib/durationPresentation'
+import { formatDate } from '../lib/dateTime'
 import './ManagementPages.jenkins.css'
 
 interface TrendPoint {
@@ -82,7 +83,7 @@ export default function Statistics() {
               <div className="statistics-chart" style={{ minWidth: `${Math.max(420, view.length * 38)}px` }}>
                 {view.map(point => {
                   const height = point.total_builds ? Math.max(4, point.total_builds / maxCount * 100) : 0
-                  return <div className="statistics-column" key={point.date} title={`${point.date}: ${point.total_builds}`}>
+                  return <div className="statistics-column" key={point.date} title={`${formatDate(point.date)}: ${point.total_builds}`}>
                     <strong>{point.total_builds}</strong>
                     <div className="statistics-bar-track">
                       <div className="statistics-bar" style={{ height: `${height}%` }}>
@@ -90,7 +91,7 @@ export default function Statistics() {
                         <i className="success" style={{ flex: point.success_count }} />
                       </div>
                     </div>
-                    <time dateTime={point.date}>{point.date.slice(5)}</time>
+                    <time dateTime={point.date}>{formatDate(point.date)}</time>
                   </div>
                 })}
               </div>
@@ -105,8 +106,8 @@ export default function Statistics() {
             <div className="statistics-heatmap">
               {view.map(point => {
                 const intensity = point.total_builds / maxCount
-                return <div key={point.date} title={`${point.date}: ${point.total_builds}`} style={{ '--heat': intensity } as React.CSSProperties}>
-                  <span>{point.date.slice(5)}</span><strong>{point.total_builds}</strong>
+                return <div key={point.date} title={`${formatDate(point.date)}: ${point.total_builds}`} style={{ '--heat': intensity } as React.CSSProperties}>
+                  <span>{formatDate(point.date)}</span><strong>{point.total_builds}</strong>
                 </div>
               })}
             </div>

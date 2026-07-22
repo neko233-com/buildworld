@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api'
 import { dialogs } from '../components/AppDialogs'
+import { formatDate } from '../lib/dateTime'
 import ProjectDetail from './ProjectDetail'
 
 vi.mock('../api', () => ({
@@ -152,8 +153,8 @@ describe('ProjectDetail Jenkins Job status', () => {
     const buildList = container.querySelector('.jenkins-job-build-list')!
     expect(buildList.querySelectorAll('.jenkins-job-build')).toHaveLength(30)
     expect(Array.from(buildList.querySelectorAll('.jenkins-job-build-group > h3')).map(item => item.textContent)).toEqual([
-      'Today',
-      yesterday.toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric' }),
+      formatDate(today),
+      formatDate(yesterday),
     ])
     expect(buildList.querySelector('a[href="/builds/1000"]')).not.toBeNull()
     expect(buildList.querySelector('a[href="/builds/970"]')).toBeNull()
@@ -168,8 +169,8 @@ describe('ProjectDetail Jenkins Job status', () => {
     expect(buildList.querySelector('a[href="/builds/1000"]')).toBeNull()
     expect(buildList.querySelector('a[href="/builds/970"]')).not.toBeNull()
     expect(Array.from(buildList.querySelectorAll('.jenkins-job-build-group > h3')).map(item => item.textContent)).toEqual([
-      yesterday.toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric' }),
-      twoDaysAgo.toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric' }),
+      formatDate(yesterday),
+      formatDate(twoDaysAgo),
     ])
     expect(newer.disabled).toBe(false)
     expect(older.disabled).toBe(true)

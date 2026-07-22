@@ -11,6 +11,7 @@ import PipelineSourceEditor from '../components/PipelineSourceEditor'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { isTypeScriptPipelineSource, prettyPipelineSource, prettyPipelineSourceSync } from '../lib/configFormat'
+import { formatDate } from '../lib/dateTime'
 import {
   isPipelineValidationReady,
   pendingPipelineValidation,
@@ -180,7 +181,7 @@ export default function Templates() {
                 : <span className="templates-name"><BookTemplate size={16} /><span><strong>{template.name}</strong><small>#{template.id}</small></span></span>}</td>
               <td className="muted-cell template-description">{template.description || '-'}</td>
               <td><span className="template-config-kind"><Braces size={13} />{isTypeScriptPipelineSource(template.config || '') ? 'TypeScript' : 'YAML'}</span></td>
-              <td className="muted-cell">{template.created_at ? new Date(template.created_at).toLocaleDateString() : '-'}</td>
+              <td className="muted-cell">{formatDate(template.created_at)}</td>
               <td><div className="row-actions">{editable && <>
                 <button className="row-run" type="button" disabled={Boolean(deletingID)} onClick={() => navigate(`/projects/new?template=${template.id}`)}><Play size={13} />{t('templates.use')}</button>
                 <button className="row-icon" type="button" disabled={Boolean(deletingID)} title={t('templates.edit')} aria-label={`${t('templates.edit')}: ${template.name}`} onClick={() => openEdit(template)}><Pencil size={15} /></button>

@@ -1164,6 +1164,9 @@ button:disabled { cursor: not-allowed; }
   .jenkins-table-footer { min-height: 50px; }
 }
 
+.statistics-column { min-width: 68px; }
+.statistics-column time { white-space: nowrap; }
+
 @media (prefers-reduced-motion: reduce) {
   .jenkins-status-orb.running,
   .jenkins-rail-loading svg { animation: none; }
