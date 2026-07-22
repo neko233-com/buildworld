@@ -11,8 +11,6 @@ import (
 
 const agentEnrollmentTokenSetting = "agent_enrollment_token"
 
-const defaultHTTPPort = 8700
-
 // ApplyStoredSettings restores settings that must be known before the build
 // runner is created. Config.yaml remains the bootstrap fallback.
 func ApplyStoredSettings(cfg *config.Config, data *store.Store) error {
@@ -27,10 +25,6 @@ func ApplyStoredSettings(cfg *config.Config, data *store.Store) error {
 		switch value.Name {
 		case "host":
 			cfg.Server.Host = value.Value
-		case "port":
-			if parsed, parseErr := strconv.Atoi(value.Value); parseErr == nil && parsed > 0 && parsed <= 65535 {
-				cfg.Server.Port = parsed
-			}
 		case "artifacts_path":
 			cfg.Storage.Artifacts = value.Value
 		case "build_temp_path":
@@ -43,13 +37,14 @@ func ApplyStoredSettings(cfg *config.Config, data *store.Store) error {
 			cfg.Workers.EnrollmentToken = value.Value
 		}
 	}
+	cfg.EnforceControlPlanePort()
 	return nil
 }
 
 func defaultGlobalSettings(cfg *config.Config) map[string]string {
 	settings := map[string]string{
 		"host":                    "0.0.0.0",
-		"port":                    strconv.Itoa(defaultHTTPPort),
+		"port":                    strconv.Itoa(config.ControlPlanePort),
 		"build_timeout":           "1800",
 		"build_concurrency":       "2",
 		"local_agent_concurrency": "1",
@@ -73,9 +68,7 @@ func defaultGlobalSettings(cfg *config.Config) map[string]string {
 	if cfg.Server.Host != "" {
 		settings["host"] = cfg.Server.Host
 	}
-	if cfg.Server.Port > 0 {
-		settings["port"] = strconv.Itoa(cfg.Server.Port)
-	}
+	settings["port"] = strconv.Itoa(config.ControlPlanePort)
 	if cfg.Storage.Artifacts != "" {
 		settings["artifacts_path"] = cfg.Storage.Artifacts
 	}
@@ -96,9 +89,8 @@ func validateGlobalSetting(name, value string) error {
 			return fmt.Errorf("%s cannot be empty", name)
 		}
 	case "port":
-		parsed, err := strconv.Atoi(value)
-		if err != nil || parsed < 1 || parsed > 65535 {
-			return fmt.Errorf("port must be between 1 and 65535")
+		if value != strconv.Itoa(config.ControlPlanePort) {
+			return fmt.Errorf("port is fixed at %d", config.ControlPlanePort)
 		}
 	case "build_timeout":
 		parsed, err := strconv.Atoi(value)

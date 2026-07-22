@@ -26,6 +26,9 @@ func TestSchemaMigrationsCreateFreshDatabase(t *testing.T) {
 		"5:remove-inert-deployment-and-project-hooks",
 		"6:remove-dead-account-ssh-keys",
 		"7:repair-orphan-project-history-references",
+		"8:project-favorite-quick-access",
+		"9:project-pipeline-source",
+		"10:project-enabled",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("migration ledger = %v, want %v", got, want)
 	}
@@ -105,6 +108,9 @@ func TestUserSessionVersionMigrationUpgradesVersionedDatabase(t *testing.T) {
 		"5:remove-inert-deployment-and-project-hooks",
 		"6:remove-dead-account-ssh-keys",
 		"7:repair-orphan-project-history-references",
+		"8:project-favorite-quick-access",
+		"9:project-pipeline-source",
+		"10:project-enabled",
 	}) {
 		t.Fatalf("migration ledger = %v", got)
 	}
@@ -147,7 +153,7 @@ func TestRemovedFeatureSchemaMigrationDropsTablesAndIndexes(t *testing.T) {
 			t.Fatalf("removed %s %q still exists", object.kind, object.name)
 		}
 	}
-	if got := readMigrationLedger(t, db); got[len(got)-1] != "7:repair-orphan-project-history-references" {
+	if got := readMigrationLedger(t, db); got[len(got)-1] != "10:project-enabled" {
 		t.Fatalf("migration ledger = %v", got)
 	}
 }
@@ -217,7 +223,7 @@ func TestSSHKeysSchemaMigrationDropsDeadTableAndPreservesRepositoryCredentials(t
 	if credentialType != "ssh_key" || privateKey != "private-value" || publicKey != "ssh-ed25519 active" {
 		t.Fatalf("repository credential changed: type=%q private=%q public=%q", credentialType, privateKey, publicKey)
 	}
-	if got := readMigrationLedger(t, db); got[len(got)-1] != "7:repair-orphan-project-history-references" {
+	if got := readMigrationLedger(t, db); got[len(got)-1] != "10:project-enabled" {
 		t.Fatalf("migration ledger = %v", got)
 	}
 }

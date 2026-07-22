@@ -194,33 +194,7 @@ func decodeTypeScriptPipelineData(jsonStr string) (*BuildConfig, error) {
 }
 
 func ParsePipelineConfig(raw string) (*BuildConfig, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return nil, fmt.Errorf("pipeline config cannot be empty")
-	}
-	var config *BuildConfig
-	var err error
-	if IsTypeScriptPipeline(trimmed) {
-		config, err = ParseTypeScriptPipeline(raw)
-	} else {
-		if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
-			return nil, fmt.Errorf("JSON pipeline configs are not supported; use TypeScript or jobs-based YAML")
-		}
-		if strings.HasPrefix(trimmed, "#") {
-			return nil, fmt.Errorf("Markdown pipeline configs are not supported; use TypeScript or jobs-based YAML")
-		}
-		config, err = ParseYAMLConfig(raw)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := ValidatePipelineSemantics(config); err != nil {
-		return nil, err
-	}
-	if _, err := ResolveApprovalPolicy(config); err != nil {
-		return nil, err
-	}
-	return config, nil
+	return ParsePipelineConfigWithFormat(FormatAuto, raw, "")
 }
 
 func MergeBuildConfig(template, project *BuildConfig) *BuildConfig {

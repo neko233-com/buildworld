@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
-import { Activity, ArrowDown, ArrowUp, ChevronsDown, ChevronsUp, Clock3, FileClock, GitBranch, Hourglass, RotateCw, XCircle } from 'lucide-react'
+import { Activity, ArrowDown, ArrowUp, ChevronsDown, ChevronsUp, Clock3, FileClock, FolderTree, GitBranch, History, Hourglass, LayoutDashboard, LoaderCircle, RotateCw, ServerCog, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { api } from '../api'
@@ -11,6 +11,7 @@ import { canEdit } from '../authz'
 import { PageState } from '../components/PageState'
 import BuildApprovalPanel from '../components/BuildApprovalPanel'
 import { canMoveQueueItem, moveQueueItem, queueWaitReasonKey, type QueueMoveOperation } from '../lib/queuePresentation'
+import JenkinsPageShell from '../components/JenkinsPageShell'
 
 export default function BuildQueue() {
   const { t } = useI18n()
@@ -29,12 +30,12 @@ export default function BuildQueue() {
   const waiting = list.filter((item: any) => item.status !== 'running')
   const dispatchWaiting = list.filter((item: any) => item.status === 'queued').length
   const approvalWaiting = list.filter((item: any) => item.status === 'pending_approval').length
-  const hasActiveQueue = list.some((item: any) => item.status === 'queued' || item.status === 'running' || item.status === 'pending_approval')
+  const hasActiveQueue = list.some((item: any) => ['running', 'pending', 'pending_approval', 'queued'].includes(item.status))
   useEffect(() => {
-    const poll = () => {
+    if (!hasActiveQueue) return
+    const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') reload()
-    }
-    const timer = window.setInterval(poll, hasActiveQueue ? 3000 : 5000)
+    }, 2000)
     return () => window.clearInterval(timer)
   }, [hasActiveQueue, reload])
 
@@ -75,8 +76,22 @@ export default function BuildQueue() {
   if (error) return <PageState error={error} onRetry={reload} />
 
   return (
-    <motion.section className="operations-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
-      <header className="operations-heading">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+      <JenkinsPageShell
+        className="jenkins-build-queue-page"
+        breadcrumbs={[{ label: t('buildQueue.title') }]}
+        sidepanelLabel={t('buildQueue.title')}
+        sidepanel={<nav className="jenkins-context-task-list">
+          <Link to="/"><LayoutDashboard size={20} />{t('nav.dashboard')}</Link>
+          <Link to="/projects"><FolderTree size={20} />{t('nav.projects')}</Link>
+          <Link to="/builds"><History size={20} />{t('nav.builds')}</Link>
+          <Link to="/build-queue" className="active" aria-current="page"><FileClock size={20} />{t('nav.buildQueue')}</Link>
+          <Link to="/agents"><ServerCog size={20} />{t('nav.agents')}</Link>
+          <button type="button" onClick={refresh} disabled={refreshing}><RotateCw className={refreshing ? 'timeline-spinner' : ''} size={20} />{t('buildQueue.refresh')}</button>
+        </nav>}
+      >
+      <div className="operations-page jenkins-queue-content">
+      <header className="jenkins-page-heading">
         <div><p>{waiting.length}</p><h1>{t('buildQueue.title')}</h1></div>
         <button type="button" className="secondary-command" onClick={refresh} disabled={refreshing}><RotateCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('buildQueue.refresh')}</button>
       </header>
@@ -89,7 +104,7 @@ export default function BuildQueue() {
       {running.length > 0 && <section className="queue-running-section" aria-label={t('buildQueue.runningNow')}>
         <header><div><Activity size={16} /><strong>{t('buildQueue.runningNow')}</strong></div><span>{running.length}</span></header>
         <div>{running.map((item: any) => <Link key={item.id} to={`/builds/${item.build_id}`}>
-          <span className="queue-running-pulse" />
+          <LoaderCircle className="timeline-spinner" size={18} aria-hidden="true" />
           <span><strong>{item.project_name || `#${item.project_id}`} <b>#{item.build_number}</b></strong><small>{item.branch || '-'} · {buildTriggerLabel(t, item.trigger)}</small></span>
           <em>{t('buildQueue.reasonRunning')}</em>
         </Link>)}</div>
@@ -141,6 +156,8 @@ export default function BuildQueue() {
           </tbody>
         </table>
       </div>
-    </motion.section>
+      </div>
+      </JenkinsPageShell>
+    </motion.div>
   )
 }

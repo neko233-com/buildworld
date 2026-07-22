@@ -1,6 +1,6 @@
 import { motion } from 'motion/react'
 import { useState } from 'react'
-import { Check, ChevronRight, CirclePlay, Folder, FolderGit2, FolderOpen, FolderTree, GitBranch, LoaderCircle, Plus, Settings2, SlidersHorizontal, Tag, Trash2, X } from 'lucide-react'
+import { Check, ChevronRight, CirclePlay, Folder, FolderGit2, FolderOpen, FolderTree, GitBranch, History, LayoutDashboard, LoaderCircle, Pin, Plus, Settings2, SlidersHorizontal, Star, Tag, Trash2, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { api } from '../api'
@@ -8,8 +8,9 @@ import { useApi } from '../hooks'
 import { dialogs } from '../components/AppDialogs'
 import { canEdit } from '../authz'
 import { PageState } from '../components/PageState'
-import RunBuildDialog, { normalizeBuildParameterDefinitions, requiresBuildParameterDefinitionsInput } from '../components/RunBuildDialog'
+import RunBuildDialog, { normalizeBuildParameterDefinitions } from '../components/RunBuildDialog'
 import ProjectGroupsDialog from '../components/ProjectGroupsDialog'
+import JenkinsPageShell from '../components/JenkinsPageShell'
 import { normalizeProjectGroupColor, sortProjectGroups, type ProjectGroup } from '../lib/projectGroups'
 
 const PROJECT_FOLDER_STATE_KEY = 'buildworld.projects.folders'
@@ -27,6 +28,9 @@ type ProjectTableProps = {
   onCustomBuild: (project: any) => void
   onDelete: (id: number) => void
   onToggleTag: (tag: string) => void
+  onToggleFavorite: (project: any) => void
+  onToggleQuickAccess: (project: any) => void
+  flagBusy: number | null
 }
 
 function readExpandedProjectFolders(): Set<string> {
@@ -51,7 +55,7 @@ function persistExpandedProjectFolders(expanded: Set<string>) {
   }
 }
 
-function ProjectTable({ caption, projects, groupsByID, editable, building, loadingDefinition, emptyLabel, onBuild, onCustomBuild, onDelete, onToggleTag }: ProjectTableProps) {
+function ProjectTable({ caption, projects, groupsByID, editable, building, loadingDefinition, emptyLabel, onBuild, onCustomBuild, onDelete, onToggleTag, onToggleFavorite, onToggleQuickAccess, flagBusy }: ProjectTableProps) {
   const { t } = useI18n()
   return <div className="operations-table-wrap project-folder-table">
     <table className="operations-table projects-table">
@@ -68,7 +72,7 @@ function ProjectTable({ caption, projects, groupsByID, editable, building, loadi
             <td><span className="repo-cell" title={project.repo_url || '-'}>{project.repo_url || '-'}</span></td>
             <td><span className="branch-cell"><GitBranch size={13} />{project.default_branch || '-'}</span></td>
             <td className="muted-cell">{project.created_at ? new Date(project.created_at).toLocaleString() : '-'}</td>
-            <td><div className="row-actions"><Link className="row-settings" title={t('projects.openSettings')} to={`/projects/${project.id}?view=settings`}><Settings2 size={15} />{t('projects.settings')}</Link>{editable && <><button type="button" className="row-icon custom-build" title={t('builds.customBuild')} aria-label={`${t('builds.customBuild')} ${project.name}`} disabled={building !== null || loadingDefinition !== null} aria-busy={loadingDefinition === project.id} onClick={() => onCustomBuild(project)}>{loadingDefinition === project.id ? <LoaderCircle className="timeline-spinner" size={15} /> : <SlidersHorizontal size={15} />}</button><button type="button" className="row-run" disabled={building !== null || loadingDefinition !== null} aria-busy={building === project.id} onClick={() => onBuild(project)}>{building === project.id ? <LoaderCircle className="timeline-spinner" size={15} /> : <CirclePlay size={15} />}{building === project.id ? t('projects.startingBuild') : t('projects.build')}</button><button type="button" className="row-icon danger" title={t('projects.delete')} aria-label={`${t('projects.delete')} ${project.name}`} onClick={() => onDelete(project.id)}><Trash2 size={15} /></button></>}</div></td>
+            <td><div className="row-actions">{editable && <><button type="button" className={`row-icon favorite${project.favorite ? ' active' : ''}`} title={project.favorite ? t('projects.unfavorite') : t('projects.favorite')} aria-label={`${project.favorite ? t('projects.unfavorite') : t('projects.favorite')} ${project.name}`} aria-pressed={project.favorite} disabled={flagBusy !== null} onClick={() => onToggleFavorite(project)}><Star size={15} /></button><button type="button" className={`row-icon quick-access${project.quick_access ? ' active' : ''}`} title={project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} aria-label={`${project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} ${project.name}`} aria-pressed={project.quick_access} disabled={flagBusy !== null} onClick={() => onToggleQuickAccess(project)}><Pin size={15} /></button></>}<Link className="row-settings" title={t('projects.openSettings')} to={`/projects/${project.id}/configure`}><Settings2 size={15} />{t('projects.settings')}</Link>{editable && <><button type="button" className="row-icon custom-build" title={project.enabled === false ? t('common.disabled') : t('builds.customBuild')} aria-label={`${t('builds.customBuild')} ${project.name}`} disabled={building !== null || loadingDefinition !== null || project.enabled === false} aria-busy={loadingDefinition === project.id} onClick={() => onCustomBuild(project)}>{loadingDefinition === project.id ? <LoaderCircle className="timeline-spinner" size={15} /> : <SlidersHorizontal size={15} />}</button><button type="button" className="row-run" title={project.enabled === false ? t('common.disabled') : undefined} disabled={building !== null || loadingDefinition !== null || project.enabled === false} aria-busy={building === project.id} onClick={() => onBuild(project)}>{building === project.id ? <LoaderCircle className="timeline-spinner" size={15} /> : <CirclePlay size={15} />}{building === project.id ? t('projects.startingBuild') : t('projects.build')}</button><button type="button" className="row-icon danger" title={t('projects.delete')} aria-label={`${t('projects.delete')} ${project.name}`} onClick={() => onDelete(project.id)}><Trash2 size={15} /></button></>}</div></td>
           </tr>
         })}
       </tbody>
@@ -86,6 +90,7 @@ export default function Projects() {
   const [showGroups, setShowGroups] = useState(false)
   const [building, setBuilding] = useState<number | null>(null)
   const [loadingDefinition, setLoadingDefinition] = useState<number | null>(null)
+  const [flagBusy, setFlagBusy] = useState<number | null>(null)
   const [customProject, setCustomProject] = useState<any>(null)
   const editable = canEdit()
 
@@ -105,9 +110,9 @@ export default function Projects() {
   const handleBuild = async (project: any) => {
     setBuilding(project.id)
     try {
-      const definition = await loadProjectDefinition(project)
-      const metadata = await api.validatePipeline(definition.config || '')
-      if (requiresBuildParameterDefinitionsInput(normalizeBuildParameterDefinitions(metadata.parameters))) {
+      const metadata = await api.validateProject(project.id)
+      if (normalizeBuildParameterDefinitions(metadata.parameters).length > 0) {
+        const definition = await loadProjectDefinition(project)
         setCustomProject(definition)
         return
       }
@@ -141,6 +146,30 @@ export default function Projects() {
     }
   }
 
+  const handleToggleFavorite = async (project: any) => {
+    setFlagBusy(project.id)
+    try {
+      await api.setProjectFlags(project.id, !project.favorite, project.quick_access)
+      reloadProjects()
+    } catch (e: any) {
+      dialogs.notify(e.message || t('projects.favoriteFailed') || '操作失败')
+    } finally {
+      setFlagBusy(null)
+    }
+  }
+
+  const handleToggleQuickAccess = async (project: any) => {
+    setFlagBusy(project.id)
+    try {
+      await api.setProjectFlags(project.id, project.favorite, !project.quick_access)
+      reloadProjects()
+    } catch (e: any) {
+      dialogs.notify(e.message || '操作失败')
+    } finally {
+      setFlagBusy(null)
+    }
+  }
+
   if (loading || groupsLoading) return <PageState />
   if (error || groupsError) return <PageState error={error || groupsError} onRetry={() => { reloadProjects(); reloadGroups() }} />
 
@@ -162,13 +191,26 @@ export default function Projects() {
   }
   const toggleTag = (tag: string) => setSelectedTags(current => current.some(value => value.toLowerCase() === tag.toLowerCase()) ? current.filter(value => value.toLowerCase() !== tag.toLowerCase()) : [...current, tag])
   return (
-    <motion.section className="operations-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
-      <header className="operations-heading">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+      <JenkinsPageShell
+        className="jenkins-projects-page"
+        breadcrumbs={[{ label: t('projects.title') }]}
+        sidepanelLabel={t('shell.quickAccess')}
+        sidepanel={<nav className="jenkins-context-task-list">
+          {editable && <Link to="/projects/new"><Plus size={20} />{t('projects.newProject')}</Link>}
+          <Link to="/"><LayoutDashboard size={20} />{t('nav.dashboard')}</Link>
+          <Link to="/builds"><History size={20} />{t('nav.builds')}</Link>
+          <Link to="/projects" className="active" aria-current="page"><FolderTree size={20} />{t('nav.projects')}</Link>
+          {editable && <button type="button" onClick={() => setShowGroups(true)}><Settings2 size={20} />{t('projectGroups.manage')}</button>}
+        </nav>}
+      >
+      <div className="operations-page jenkins-projects-content">
+      <header className="jenkins-page-heading">
         <div className="operations-heading-main">
           <div className="projects-title-block"><p>{filtered.length}{selectedTags.length ? ` / ${list.length}` : ''}</p><h1>{t('projects.title')}</h1></div>
           {tags.length > 0 && <div className="project-tag-filter project-tag-filter-inline" aria-label={t('projects.filterTags')}><span><Tag size={14} />{t('projects.tags')}</span><button type="button" className={!selectedTags.length ? 'active' : ''} aria-pressed={!selectedTags.length} onClick={() => setSelectedTags([])}>{t('projects.allProjects')}</button>{tags.map(tag => <button type="button" key={tag} className={selectedTags.some(value => value.toLowerCase() === tag.toLowerCase()) ? 'active' : ''} aria-pressed={selectedTags.some(value => value.toLowerCase() === tag.toLowerCase())} onClick={() => toggleTag(tag)}>{selectedTags.some(value => value.toLowerCase() === tag.toLowerCase()) && <Check size={13} />}{tag}</button>)}{selectedTags.length > 0 && <button type="button" className="clear-tags" onClick={() => setSelectedTags([])} title={t('projects.clearTagFilters')} aria-label={t('projects.clearTagFilters')}><X size={13} /></button>}</div>}
         </div>
-        {editable && <div className="operations-heading-actions"><button type="button" className="secondary-command" onClick={() => setShowGroups(true)}><FolderTree size={16} />{t('projectGroups.manage')}</button><Link className="primary-command" to="/projects/new"><Plus size={16} />{t('projects.newProject')}</Link></div>}
+        {editable && <div className="jenkins-page-actions"><button type="button" className="secondary-command" onClick={() => setShowGroups(true)}><FolderTree size={16} />{t('projectGroups.manage')}</button><Link className="primary-command" to="/projects/new"><Plus size={16} />{t('projects.newProject')}</Link></div>}
       </header>
       <div className="project-directory-list">
         {orderedGroups.map(group => {
@@ -187,7 +229,7 @@ export default function Projects() {
               </button>
             </header>
             <div id={contentID} className="project-folder-content" hidden={!expanded}>
-              {expanded ? <ProjectTable caption={label} projects={folderProjects} groupsByID={groupsByID} editable={editable} building={building} loadingDefinition={loadingDefinition} emptyLabel={selectedTags.length ? t('projects.noTagMatches') : t('projectGroups.emptyFolder')} onBuild={handleBuild} onCustomBuild={handleCustomBuild} onDelete={handleDelete} onToggleTag={toggleTag} /> : null}
+              {expanded ? <ProjectTable caption={label} projects={folderProjects} groupsByID={groupsByID} editable={editable} building={building} loadingDefinition={loadingDefinition} emptyLabel={selectedTags.length ? t('projects.noTagMatches') : t('projectGroups.emptyFolder')} onBuild={handleBuild} onCustomBuild={handleCustomBuild} onDelete={handleDelete} onToggleTag={toggleTag} onToggleFavorite={handleToggleFavorite} onToggleQuickAccess={handleToggleQuickAccess} flagBusy={flagBusy} /> : null}
             </div>
           </section>
         })}
@@ -205,13 +247,15 @@ export default function Projects() {
               </button>
             </header>
             <div id={contentID} className="project-folder-content" hidden={!expanded}>
-              {expanded ? <ProjectTable caption={t('projectGroups.ungrouped')} projects={ungroupedProjects} groupsByID={groupsByID} editable={editable} building={building} loadingDefinition={loadingDefinition} emptyLabel={selectedTags.length ? t('projects.noTagMatches') : t('projectGroups.emptyFolder')} onBuild={handleBuild} onCustomBuild={handleCustomBuild} onDelete={handleDelete} onToggleTag={toggleTag} /> : null}
+              {expanded ? <ProjectTable caption={t('projectGroups.ungrouped')} projects={ungroupedProjects} groupsByID={groupsByID} editable={editable} building={building} loadingDefinition={loadingDefinition} emptyLabel={selectedTags.length ? t('projects.noTagMatches') : t('projectGroups.emptyFolder')} onBuild={handleBuild} onCustomBuild={handleCustomBuild} onDelete={handleDelete} onToggleTag={toggleTag} onToggleFavorite={handleToggleFavorite} onToggleQuickAccess={handleToggleQuickAccess} flagBusy={flagBusy} /> : null}
             </div>
           </section>
         })()}
       </div>
+      </div>
+      </JenkinsPageShell>
       {customProject && <RunBuildDialog project={customProject} onClose={() => setCustomProject(null)} onQueued={build => { setCustomProject(null); navigate(`/builds/${build.id}`) }} />}
       {showGroups && <ProjectGroupsDialog groups={groups} projects={list} onReload={() => { reloadGroups(); reloadProjects() }} onClose={() => setShowGroups(false)} />}
-    </motion.section>
+    </motion.div>
   )
 }

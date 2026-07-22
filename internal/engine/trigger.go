@@ -64,6 +64,9 @@ func (tc *TriggerChecker) checkCronTriggers() {
 	}
 	now := time.Now()
 	for _, p := range projects {
+		if !p.Enabled {
+			continue
+		}
 		cfg, err := tc.loadProjectConfig(p)
 		if err != nil {
 			continue
@@ -128,6 +131,9 @@ func (tc *TriggerChecker) pollVCSRoots() {
 				continue
 			}
 			for _, p := range projects {
+				if !p.Enabled {
+					continue
+				}
 				cfg, err := tc.loadProjectConfig(p)
 				if err != nil {
 					continue
@@ -156,6 +162,9 @@ func (tc *TriggerChecker) HandleBuildFinish(build *store.Build) {
 		return
 	}
 	for _, p := range projects {
+		if !p.Enabled {
+			continue
+		}
 		cfg, err := tc.loadProjectConfig(p)
 		if err != nil {
 			continue
@@ -200,6 +209,9 @@ func (tc *TriggerChecker) loadProjectConfig(p *store.Project) (*BuildConfig, err
 }
 
 func (tc *TriggerChecker) triggerProjectBuild(p *store.Project, trigger, branch, commitSHA string, dependency *int64) {
+	if !p.Enabled {
+		return
+	}
 	if branch == "" {
 		branch = p.DefaultBranch
 	}

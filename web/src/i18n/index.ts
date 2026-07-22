@@ -59,6 +59,12 @@ function savedLocale(): Locale {
 let activeLocale: Locale = savedLocale();
 const localeListeners = new Set<() => void>();
 
+function updateDocumentLocale(locale: Locale) {
+  if (typeof document !== 'undefined') document.documentElement.lang = locale;
+}
+
+updateDocumentLocale(activeLocale);
+
 function subscribeLocale(listener: () => void) {
   localeListeners.add(listener);
   return () => localeListeners.delete(listener);
@@ -72,6 +78,7 @@ function setActiveLocale(locale: Locale) {
   if (activeLocale === locale) return;
   activeLocale = locale;
   localStorage.setItem('locale', locale);
+  updateDocumentLocale(locale);
   localeListeners.forEach(listener => listener());
 }
 

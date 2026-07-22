@@ -76,6 +76,42 @@ func TestUpdateGlobalSettingsRejectsUnknownKeys(t *testing.T) {
 	}
 }
 
+func TestControlPlanePortCannotBeOverriddenByStoredSettings(t *testing.T) {
+	database, err := store.New(filepath.Join(t.TempDir(), "settings.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.SetEnvVar("system", nil, "port", "6050", false, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{Server: config.ServerConfig{Port: 6050}}
+	if err := ApplyStoredSettings(cfg, database); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.Port != config.ControlPlanePort {
+		t.Fatalf("runtime port = %d, want %d", cfg.Server.Port, config.ControlPlanePort)
+	}
+
+	handler := &handlers{d: Deps{Cfg: cfg, Store: database}}
+	settings := httptest.NewRecorder()
+	handler.getGlobalSettings(settings, httptest.NewRequest("GET", "/api/settings", nil))
+	var values map[string]string
+	if err := json.NewDecoder(settings.Body).Decode(&values); err != nil {
+		t.Fatal(err)
+	}
+	if values["port"] != "8700" {
+		t.Fatalf("settings port = %q, want 8700", values["port"])
+	}
+
+	response := httptest.NewRecorder()
+	handler.updateGlobalSettings(response, httptest.NewRequest("PUT", "/api/settings", strings.NewReader(`{"port":"6050"}`)))
+	if response.Code != 400 || !strings.Contains(response.Body.String(), "fixed at 8700") {
+		t.Fatalf("override status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
 func TestResourceSettingsDefaultLowAndHotReloadWithoutRestart(t *testing.T) {
 	defaults := defaultGlobalSettings(nil)
 	if defaults["cpu_limit_percent"] != "25" || defaults["background_mode"] != "true" ||

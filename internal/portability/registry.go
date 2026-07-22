@@ -48,6 +48,17 @@ type SectionResult struct {
 	Created int    `json:"created,omitempty"`
 	Updated int    `json:"updated,omitempty"`
 	Skipped int    `json:"skipped,omitempty"`
+	// Issued carries freshly generated secrets that could not be preserved in
+	// the bundle (e.g. re-issued API tokens). Consumers must capture these
+	// exactly once; they are never written back into exported data.
+	Issued []IssuedSecret `json:"issued,omitempty"`
+}
+
+// IssuedSecret is a one-time plaintext secret produced during import.
+type IssuedSecret struct {
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Token    string `json:"token"`
 }
 
 type Inspection struct {

@@ -54,6 +54,9 @@ func TestProjectHistoryReferenceMigrationRepairsProductionOrphansWithForeignKeys
 		"5:remove-inert-deployment-and-project-hooks",
 		"6:remove-dead-account-ssh-keys",
 		"7:repair-orphan-project-history-references",
+		"8:project-favorite-quick-access",
+		"9:project-pipeline-source",
+		"10:project-enabled",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("migration ledger = %v, want %v", got, want)
 	}

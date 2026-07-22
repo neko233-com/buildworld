@@ -17,13 +17,15 @@ var startCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if healthy(cfg.Server.Port) {
-			fmt.Printf("BuildWorld is already running at http://127.0.0.1:%d\n", cfg.Server.Port)
-			return nil
-		}
 		server, err := serverExecutable()
 		if err != nil {
 			return err
+		}
+		if _, err := stopManagedServer(); err != nil {
+			return fmt.Errorf("stop existing BuildWorld server: %w", err)
+		}
+		if !waitForPortAvailable(cfg.Server.Host, cfg.Server.Port, 5*time.Second) {
+			return fmt.Errorf("port %d is occupied by a process not identified as %s; refusing to terminate it", cfg.Server.Port, expectedServerProcessName())
 		}
 		if !foreground {
 			managed, err := startAutostartService()

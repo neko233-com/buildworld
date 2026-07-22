@@ -426,7 +426,7 @@ func (r *BuildRunner) dispatchPending() {
 
 		localExecution := true
 		if projectErr == nil {
-			if cfg, configErr := r.loadBuildConfig(project); configErr == nil {
+			if cfg, configErr := r.loadBuildConfig(context.Background(), project); configErr == nil {
 				localExecution = len(cfg.AgentRequirements) == 0
 			}
 		}
@@ -547,7 +547,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		}
 	}
 
-	cfg, err := r.loadBuildConfig(project)
+	cfg, err := r.loadBuildConfig(ctx, project)
 	if err != nil {
 		r.fail(buildID, start, fmt.Sprintf("invalid pipeline config: %v", err), project)
 		return
@@ -695,9 +695,34 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 				r.logBuildOutput(buildID, stage.Name, line)
 				outputs = appendBuildKV(outputs, line)
 			}
-			stepErr := r.execStep(stageCtx, step, workspace, project, build, stepEnv, params, stage.Name, onOutput)
-			stepErr = completedStepError(stageCtx, stepErr)
+			// Run the step in its own goroutine so the step loop can keep
+			// flushing buffered output while a long-running step (e.g.
+			// service_watch used as a temporary log monitor) stays alive.
+			// Without this, the secret-masker stream only flushes at step
+			// completion, so never-ending steps would emit nothing to the
+			// live log or the durable store.
+			stepErrCh := make(chan error, 1)
+			go func() {
+				stepErrCh <- r.execStep(stageCtx, step, workspace, project, build, stepEnv, params, stage.Name, onOutput)
+			}()
+			stepFlushTicker := time.NewTicker(durableBuildLogFlushInterval)
+			var stepErr error
+			stepSettled := false
+			for !stepSettled {
+				select {
+				case stepErr = <-stepErrCh:
+					stepSettled = true
+				case <-stepFlushTicker.C:
+					_ = r.flushBuildOutput(buildID, stage.Name)
+				case <-stageCtx.Done():
+					cancelStage()
+					stepErr = <-stepErrCh
+					stepSettled = true
+				}
+			}
+			stepFlushTicker.Stop()
 			_ = r.flushBuildOutput(buildID, stage.Name)
+			stepErr = completedStepError(stageCtx, stepErr)
 			if stepErr != nil {
 				if ctx.Err() == context.Canceled {
 					cancelStage()
@@ -866,8 +891,12 @@ func (r *BuildRunner) runPostSteps(_ context.Context, cfg *BuildConfig, outcome,
 	}
 }
 
-func (r *BuildRunner) loadBuildConfig(project *store.Project) (*BuildConfig, error) {
-	cfg, err := ParsePipelineConfig(project.Config)
+func (r *BuildRunner) loadBuildConfig(ctx context.Context, project *store.Project) (*BuildConfig, error) {
+	source, err := ResolveProjectPipelineSource(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := ParsePipelineConfig(source)
 	if err != nil {
 		return nil, err
 	}
@@ -890,7 +919,7 @@ func (r *BuildRunner) loadBuildConfig(project *store.Project) (*BuildConfig, err
 }
 
 func (r *BuildRunner) matchAgent(build *store.Build, project *store.Project) bool {
-	cfg, err := r.loadBuildConfig(project)
+	cfg, err := r.loadBuildConfig(context.Background(), project)
 	if err != nil {
 		return true
 	}
@@ -979,7 +1008,12 @@ func (r *BuildRunner) runRemote(ctx context.Context, build *store.Build, project
 		}
 	}
 	dispatchCtx := bytemsg.WithDispatchCredential(ctx, r.workerDispatchToken)
-	stream, err := pb.NewWorkerServiceClient(conn).ExecuteBuild(dispatchCtx, &pb.BuildRequest{BuildId: fmt.Sprintf("%d", build.ID), ProjectName: project.Name, RepoUrl: project.RepoURL, Branch: build.Branch, CommitSha: build.CommitSHA, PipelineConfig: project.Config, Environment: env, Protocol: bytemsg.NewProtocolInfo(), Plugins: pluginRefs})
+	pipelineConfig, err := ResolveProjectPipelineSource(ctx, project)
+	if err != nil {
+		r.fail(build.ID, start, fmt.Sprintf("resolve pipeline source: %v", err), project)
+		return
+	}
+	stream, err := pb.NewWorkerServiceClient(conn).ExecuteBuild(dispatchCtx, &pb.BuildRequest{BuildId: fmt.Sprintf("%d", build.ID), ProjectName: project.Name, RepoUrl: project.RepoURL, Branch: build.Branch, CommitSha: build.CommitSHA, PipelineConfig: pipelineConfig, Environment: env, Protocol: bytemsg.NewProtocolInfo(), Plugins: pluginRefs})
 	if err != nil {
 		r.fail(build.ID, start, fmt.Sprintf("remote worker start: %v", err), project)
 		return

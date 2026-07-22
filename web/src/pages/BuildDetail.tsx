@@ -8,12 +8,13 @@ import { useApi } from '../hooks'
 import { dialogs } from '../components/AppDialogs'
 import { PageState } from '../components/PageState'
 import { timelineProgress, visibleBuildLog, type BuildTimelineStep } from '../lib/buildTimeline'
-import { buildStatusTone, buildTriggerLabel } from '../lib/buildPresentation'
+import { buildTriggerLabel } from '../lib/buildPresentation'
 import { canEdit } from '../authz'
 import { formatDuration } from '../lib/durationPresentation'
 import BuildApprovalPanel from '../components/BuildApprovalPanel'
 import BuildProblemsPanel from '../components/BuildProblemsPanel'
 import BuildChainPanel from '../components/BuildChainPanel'
+import { BuildStatusBadge } from '../components/BuildStatusBadge'
 
 function formatTime(value?: string): string {
   return value ? new Date(value).toLocaleString() : '-'
@@ -175,7 +176,7 @@ export default function BuildDetail() {
     <header className="detail-heading">
       <div>
         <div className="detail-kicker"><Link to={`/projects/${build.project_id}`}>{t('builds.project')} #{build.project_id}</Link><span>/</span>{t('builds.build')}</div>
-        <div className="detail-title-row"><h1>{build.pinned && <Pin size={18} aria-label={t('builds.pinned')} />}{t('builds.build')} #{build.number}</h1><span className={`build-status ${buildStatusTone(build.status)}`}>{t(`builds.${build.status}`)}</span></div>
+        <div className="detail-title-row"><h1>{build.pinned && <Pin size={18} aria-label={t('builds.pinned')} />}{t('builds.build')} #{build.number}</h1><BuildStatusBadge status={build.status} label={t(`builds.${build.status}`)} /></div>
       </div>
       <div className="detail-actions">
         <Link className="secondary-command" to={`/builds/${buildId}/tests`}><FlaskConical size={15} />{t('builds.testReports')}</Link>
@@ -226,7 +227,7 @@ export default function BuildDetail() {
     </section>
 
     <section className="build-log-workbench">
-      <div className="build-log-main"><header><div><FileText size={17} /><h2>{t('builds.logs')}</h2></div><span className={isExecuting ? 'live-status' : 'log-status'}><Radio size={12} />{isExecuting ? t('builds.liveStream') : t(`builds.${build.status}`)}</span></header><pre>{displayedLog || t('builds.noLogs')}</pre></div>
+      <div className="build-log-main"><header><div><FileText size={17} /><h2>{t('builds.logs')}</h2></div><span className={isExecuting ? 'live-status' : 'log-status'} role={isExecuting ? 'status' : undefined} aria-live={isExecuting ? 'polite' : undefined}>{isExecuting ? <LoaderCircle className="timeline-spinner" size={12} aria-hidden="true" /> : <Radio size={12} />}{isExecuting ? t('builds.liveStream') : t(`builds.${build.status}`)}</span></header><pre>{displayedLog || t('builds.noLogs')}</pre></div>
       <aside className="build-log-inspector"><header><ListTree size={16} />{t('builds.logInspector')}</header><dl><div><dt>{t('builds.build')}</dt><dd>#{build.number}</dd></div><div><dt>{t('builds.currentStage')}</dt><dd>{lastStage}</dd></div><div><dt>{t('builds.outputLines')}</dt><dd>{logLines.length}</dd></div><div><dt>{t('builds.duration')}</dt><dd>{formatDuration(build.duration_ms)}</dd></div></dl><div className="inspector-note"><Gauge size={15} /><span>{isExecuting ? t('builds.followingOutput') : t('builds.outputComplete')}</span></div><Link className="open-plain-log" to={`/builds/${buildId}/logs`} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} />{t('builds.openStandaloneLogs')}</Link><button type="button" onClick={() => handleLogDownload('txt')} disabled={downloading !== null} aria-busy={downloading === 'logs-txt'} className="download-log-button">{downloading === 'logs-txt' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Download size={15} />}{downloading === 'logs-txt' ? t('builds.downloading') : t('builds.downloadText')}</button><button type="button" onClick={() => handleLogDownload('json')} disabled={downloading !== null} aria-busy={downloading === 'logs-json'} className="download-log-link">{downloading === 'logs-json' ? t('builds.downloading') : t('builds.downloadJSON')}</button></aside>
     </section>
 

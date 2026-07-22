@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -180,19 +181,35 @@ func (h *handlers) me(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type createProjectReq struct {
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	RepoURL       string   `json:"repo_url"`
-	RepoType      string   `json:"repo_type"`
-	DefaultBranch string   `json:"default_branch"`
-	VCSRootID     *int64   `json:"vcs_root_id"`
-	TemplateID    *int64   `json:"template_id"`
-	GroupID       *int64   `json:"group_id"`
-	Tags          []string `json:"tags"`
-	Config        string   `json:"config"`
+	Name               string   `json:"name"`
+	Description        string   `json:"description"`
+	RepoURL            string   `json:"repo_url"`
+	RepoType           string   `json:"repo_type"`
+	DefaultBranch      string   `json:"default_branch"`
+	VCSRootID          *int64   `json:"vcs_root_id"`
+	TemplateID         *int64   `json:"template_id"`
+	GroupID            *int64   `json:"group_id"`
+	Tags               []string `json:"tags"`
+	Config             string   `json:"config"`
+	PipelineFormat     string   `json:"pipeline_format"`
+	PipelineSourceMode string   `json:"pipeline_source_mode"`
+	PipelineSCMRepo    string   `json:"pipeline_scm_repo"`
+	PipelineSCMBranch  string   `json:"pipeline_scm_branch"`
+	PipelineSCMPath    string   `json:"pipeline_scm_path"`
+	Enabled            *bool    `json:"enabled"`
 }
 
-func (h *handlers) listProjects(w http.ResponseWriter, _ *http.Request) {
+func (h *handlers) listProjects(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("quick_access") == "1" {
+		projects, err := h.d.Store.ListQuickAccessProjects()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("X-Buildworld-View-Version", "1")
+		writeJSON(w, http.StatusOK, projects)
+		return
+	}
 	projects, err := h.d.Store.ListProjectSummaries()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -200,6 +217,32 @@ func (h *handlers) listProjects(w http.ResponseWriter, _ *http.Request) {
 	}
 	w.Header().Set("X-Buildworld-View-Version", "1")
 	writeJSON(w, http.StatusOK, projects)
+}
+
+type setProjectFlagsReq struct {
+	Favorite    bool `json:"favorite"`
+	QuickAccess bool `json:"quick_access"`
+}
+
+// setProjectFlags toggles the favorite / quick-access state of a project without
+// requiring a full pipeline-config resubmission.
+func (h *handlers) setProjectFlags(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req setProjectFlagsReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := h.d.Store.SetProjectFlags(id, req.Favorite, req.QuickAccess); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	p, _ := h.d.Store.GetProject(id)
+	writeJSON(w, http.StatusOK, p)
 }
 
 func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
@@ -218,8 +261,8 @@ func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.RepoType = repoType
-	if _, err := engine.ParsePipelineConfig(req.Config); err != nil {
-		writeErr(w, http.StatusUnprocessableEntity, "invalid pipeline config: "+err.Error())
+	if err := validateProjectPipelineSource(req.PipelineSourceMode, req.PipelineFormat, req.Config); err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	if req.GroupID != nil {
@@ -228,15 +271,30 @@ func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := h.validateProjectBuildTemplate(req.TemplateID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	p, err := h.d.Store.CreateProject(req.Name, req.Description, req.RepoURL, req.RepoType,
 		req.DefaultBranch, req.Config, userIDOf(r), req.VCSRootID, req.TemplateID, req.Tags)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := h.d.Store.SetProjectPipelineSource(p.ID, req.PipelineFormat, req.PipelineSourceMode,
+		req.PipelineSCMRepo, req.PipelineSCMBranch, req.PipelineSCMPath); err != nil {
+		writeErr(w, http.StatusInternalServerError, "persist pipeline source: "+err.Error())
+		return
+	}
 	if err := h.d.Store.SetProjectGroup(p.ID, req.GroupID); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if req.Enabled != nil {
+		if err := h.d.Store.SetProjectEnabled(p.ID, *req.Enabled); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	p, _ = h.d.Store.GetProject(p.ID)
 	writeJSON(w, http.StatusCreated, p)
@@ -273,8 +331,8 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.RepoType = repoType
-	if _, err := engine.ParsePipelineConfig(req.Config); err != nil {
-		writeErr(w, http.StatusUnprocessableEntity, "invalid pipeline config: "+err.Error())
+	if err := validateProjectPipelineSource(req.PipelineSourceMode, req.PipelineFormat, req.Config); err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	if req.GroupID != nil {
@@ -283,16 +341,36 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := h.validateProjectBuildTemplate(req.TemplateID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := h.d.Store.UpdateProject(id, req.Name, req.Description, req.RepoURL, req.RepoType,
 		req.DefaultBranch, req.Config, req.VCSRootID, req.TemplateID, req.Tags); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := h.d.Store.SetProjectPipelineSource(id, req.PipelineFormat, req.PipelineSourceMode,
+		req.PipelineSCMRepo, req.PipelineSCMBranch, req.PipelineSCMPath); err != nil {
+		writeErr(w, http.StatusInternalServerError, "persist pipeline source: "+err.Error())
 		return
 	}
 	if err := h.d.Store.SetProjectGroup(id, req.GroupID); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	if req.Enabled != nil {
+		if err := h.d.Store.SetProjectEnabled(id, *req.Enabled); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	p, err := h.d.Store.GetProject(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
 }
 
 type validatePipelineReq struct {
@@ -305,14 +383,13 @@ func writePipelineValidation(w http.ResponseWriter, source string) {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
+	writeBuildConfigValidation(w, config, string(engine.DetectPipelineFormat(source)))
+}
+
+func writeBuildConfigValidation(w http.ResponseWriter, config *engine.BuildConfig, format string) {
 	stepCount := 0
 	for _, stage := range config.Stages {
 		stepCount += len(stage.Steps)
-	}
-	format := "yaml"
-	trimmed := strings.TrimSpace(source)
-	if engine.IsTypeScriptPipeline(trimmed) {
-		format = "typescript"
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"valid":              true,
@@ -349,7 +426,12 @@ func (h *handlers) validateProjectConfig(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
 	}
-	writePipelineValidation(w, project.Config)
+	config, err := h.loadProjectBuildConfig(r.Context(), project)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	writeBuildConfigValidation(w, config, string(engine.NormalizeFormat(project.PipelineFormat)))
 }
 
 func (h *handlers) deleteProject(w http.ResponseWriter, r *http.Request) {
@@ -385,8 +467,41 @@ func decodeTriggerBuildRequest(r *http.Request) (triggerBuildReq, error) {
 	return req, nil
 }
 
-func (h *handlers) loadProjectBuildConfig(project *store.Project) (*engine.BuildConfig, error) {
-	config, err := engine.ParsePipelineConfig(project.Config)
+// validateProjectPipelineSource validates the pipeline definition supplied at
+// project create/update time. Inline definitions must be non-empty and parse
+// for the declared format; SCM-sourced definitions only need a repository and
+// file path because the actual content is fetched at build time.
+func validateProjectPipelineSource(sourceMode, format, config string) error {
+	if strings.EqualFold(strings.TrimSpace(sourceMode), "scm") {
+		return nil
+	}
+	if strings.TrimSpace(config) == "" {
+		return fmt.Errorf("pipeline config is required")
+	}
+	if _, err := engine.ParsePipelineConfigWithFormat(engine.NormalizeFormat(format), config, ""); err != nil {
+		return fmt.Errorf("invalid pipeline config: %w", err)
+	}
+	return nil
+}
+
+func (h *handlers) validateProjectBuildTemplate(templateID *int64) error {
+	if templateID == nil {
+		return nil
+	}
+	if *templateID <= 0 {
+		return fmt.Errorf("build template not found")
+	}
+	if _, err := h.d.Store.GetBuildTemplate(*templateID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("build template not found")
+		}
+		return fmt.Errorf("load build template: %w", err)
+	}
+	return nil
+}
+
+func (h *handlers) loadProjectBuildConfig(ctx context.Context, project *store.Project) (*engine.BuildConfig, error) {
+	config, err := engine.ResolveProjectBuildConfig(ctx, project)
 	if err != nil {
 		return nil, fmt.Errorf("invalid project build configuration: %w", err)
 	}
@@ -406,7 +521,7 @@ func (h *handlers) loadProjectBuildConfig(project *store.Project) (*engine.Build
 }
 
 func (h *handlers) resolveProjectBuildParameters(project *store.Project, supplied map[string]interface{}) (string, error) {
-	config, err := h.loadProjectBuildConfig(project)
+	config, err := h.loadProjectBuildConfig(context.Background(), project)
 	if err != nil {
 		return "", err
 	}
@@ -425,7 +540,7 @@ func (h *handlers) resolveProjectBuildParameters(project *store.Project, supplie
 }
 
 func (h *handlers) requestBuildApproval(project *store.Project, build *store.Build, requesterID int64) error {
-	config, err := h.loadProjectBuildConfig(project)
+	config, err := h.loadProjectBuildConfig(context.Background(), project)
 	if err != nil {
 		return err
 	}
@@ -505,7 +620,7 @@ func (h *handlers) publicBuild(build *store.Build) *store.Build {
 	if err != nil {
 		return redactBuildParameters(build, nil)
 	}
-	config, _ := h.loadProjectBuildConfig(project)
+	config, _ := h.loadProjectBuildConfig(context.Background(), project)
 	result := redactBuildParameters(build, secretBuildParameterNames(config))
 	if approval, approvalErr := h.d.Store.GetBuildApprovalByBuild(build.ID); approvalErr == nil {
 		if policy, policyErr := engine.ResolveApprovalPolicy(config); policyErr == nil {
@@ -526,7 +641,7 @@ func (h *handlers) publicBuilds(builds []*store.Build) []*store.Build {
 		if !cached {
 			project, projectErr := h.d.Store.GetProject(build.ProjectID)
 			if projectErr == nil {
-				config, _ := h.loadProjectBuildConfig(project)
+				config, _ := h.loadProjectBuildConfig(context.Background(), project)
 				names = secretBuildParameterNames(config)
 			}
 			secretNamesByProject[build.ProjectID] = names
@@ -637,6 +752,10 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 	project, err := h.d.Store.GetProject(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+	if !project.Enabled {
+		writeCodedErr(w, http.StatusConflict, "project_disabled", "project is disabled")
 		return
 	}
 
@@ -1264,6 +1383,9 @@ func (h *handlers) triggerBuildByWebhook(payload webhook.WebhookPayload) error {
 		return err
 	}
 	for _, p := range projects {
+		if !p.Enabled {
+			continue
+		}
 		if p.RepoURL == "" {
 			continue
 		}
@@ -1699,6 +1821,10 @@ func (h *handlers) deleteTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.d.Store.DeleteBuildTemplate(id); err != nil {
+		if errors.Is(err, store.ErrBuildTemplateInUse) {
+			writeCodedErr(w, http.StatusConflict, "build_template_in_use", err.Error())
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -2658,6 +2784,10 @@ func (h *handlers) httpTriggerBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
 	}
+	if !project.Enabled {
+		writeCodedErr(w, http.StatusConflict, "project_disabled", "project is disabled")
+		return
+	}
 
 	req, err := decodeTriggerBuildRequest(r)
 	if err != nil {
@@ -2710,6 +2840,9 @@ func (h *handlers) getGlobalSettings(w http.ResponseWriter, _ *http.Request) {
 	}
 	settings := defaultGlobalSettings(h.d.Cfg)
 	for _, v := range vars {
+		if v.Name == "port" {
+			continue
+		}
 		if v.IsSecret {
 			settings[v.Name+"_configured"] = strconv.FormatBool(v.Value != "")
 			continue

@@ -105,7 +105,7 @@ export default function RunBuildDialog({ project, onClose, onQueued }: RunBuildD
   useEffect(() => {
     let active = true
     setLoadingDefinitions(true)
-    api.validatePipeline(project.config || '').then(metadata => {
+    api.validateProject(project.id).then(metadata => {
       if (!active) return
       const next = normalizeBuildParameterDefinitions(metadata.parameters)
       setDefinitions(next)
@@ -117,7 +117,7 @@ export default function RunBuildDialog({ project, onClose, onQueued }: RunBuildD
       setLoadingDefinitions(false)
     })
     return () => { active = false }
-  }, [project.config, t])
+  }, [project.id, t])
 
   const updateValue = (name: string, value: string | boolean) => {
     setValues(current => ({ ...current, [name]: value }))

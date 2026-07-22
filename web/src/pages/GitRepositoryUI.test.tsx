@@ -7,13 +7,34 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api'
 import CreateProject from './CreateProject'
 import Credentials from './Credentials'
-import ProjectDetail from './ProjectDetail'
+import ProjectConfigure from './ProjectConfigure'
 import VCSRoots from './VCSRoots'
 
 vi.mock('../authz', () => ({
   canEdit: () => true,
   isAdmin: () => true,
 }))
+
+vi.mock('../components/PipelineSourceEditor', async () => {
+  const React = await import('react')
+  return {
+    default: ({ value, onChange, onValidationChange, ariaLabel }: any) => {
+      React.useEffect(() => {
+        onValidationChange?.({
+          source: value,
+          checking: false,
+          diagnosticsReady: true,
+          diagnosticErrors: 0,
+          serverValid: true,
+          valid: true,
+          message: '',
+          problems: 0,
+        })
+      }, [value, onValidationChange])
+      return <textarea aria-label={ariaLabel} value={value} onChange={event => onChange(event.target.value)} />
+    },
+  }
+})
 
 vi.mock('../api', () => ({
   API_FEEDBACK_EVENT: 'buildworld:api-feedback',
@@ -22,6 +43,7 @@ vi.mock('../api', () => ({
     listTemplates: vi.fn(),
     listProjects: vi.fn(),
     listProjectGroups: vi.fn(),
+    createProject: vi.fn(),
     listCredentials: vi.fn(),
     getProject: vi.fn(),
     listProjectBuilds: vi.fn(),
@@ -59,6 +81,7 @@ describe('Git-only repository UI', () => {
     vi.mocked(api.listTemplates).mockResolvedValue([])
     vi.mocked(api.listProjects).mockResolvedValue([])
     vi.mocked(api.listProjectGroups).mockResolvedValue([])
+    vi.mocked(api.createProject).mockResolvedValue({ id: 9 })
     vi.mocked(api.listCredentials).mockResolvedValue([])
     vi.mocked(api.listProjectBuilds).mockResolvedValue([])
     vi.mocked(api.listEnvVars).mockResolvedValue([])
@@ -85,6 +108,25 @@ describe('Git-only repository UI', () => {
     expect(repositoryType?.value).toContain('Git')
     expect(container.textContent).not.toMatch(/Subversion|Mercurial|\bSVN\b/)
     expect(container.querySelector('option[value="svn"], option[value="hg"]')).toBeNull()
+    expect(api.listTemplates).not.toHaveBeenCalled()
+    expect(Array.from(container.querySelectorAll('label > span')).map(node => node.textContent)).not.toContain('Template')
+
+    const name = container.querySelector<HTMLInputElement>('input[placeholder="my-project"]')
+    await act(async () => {
+      if (name) {
+        name.value = 'standalone-project'
+        name.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+    })
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[type="submit"]')?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await flushRequests()
+
+    expect(api.createProject).toHaveBeenCalledOnce()
+    expect(vi.mocked(api.createProject).mock.calls[0]?.[0]).not.toHaveProperty('template_id')
   })
 
   it('edits repository templates without unsupported type choices', async () => {
@@ -118,7 +160,6 @@ describe('Git-only repository UI', () => {
   })
 
   it('repairs an unsupported project type to Git when settings are saved', async () => {
-    vi.useFakeTimers()
     vi.mocked(api.getProject).mockResolvedValue({
       id: 7,
       name: 'Imported project',
@@ -131,24 +172,25 @@ describe('Git-only repository UI', () => {
     })
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={['/projects/7?view=settings']}>
-          <Routes><Route path="/projects/:id" element={<ProjectDetail />} /></Routes>
+        <MemoryRouter initialEntries={['/projects/7/configure']}>
+          <Routes><Route path="/projects/:id/configure" element={<ProjectConfigure />} /></Routes>
         </MemoryRouter>,
       )
     })
     await flushRequests()
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(500)
-    })
 
-    const repositoryType = container.querySelector<HTMLInputElement>('#project-settings-repository-type')
+    const repositoryType = container.querySelector<HTMLInputElement>('#jenkins-configure-repository-type')
     expect(repositoryType?.value).toContain('Git')
+    const save = container.querySelector<HTMLButtonElement>('button[value="save"]')
+    expect(save?.disabled).toBe(false)
     await act(async () => {
-      container.querySelector<HTMLFormElement>('.project-settings-form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      save?.click()
       await Promise.resolve()
       await Promise.resolve()
     })
+    await flushRequests()
 
+    expect(container.querySelector('[role="alert"]')?.textContent).toBeUndefined()
     expect(api.updateProject).toHaveBeenCalledWith(7, expect.objectContaining({ repo_type: 'git' }))
   })
 })

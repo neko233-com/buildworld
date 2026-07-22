@@ -12,8 +12,18 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/neko233-com/buildworld/internal/engine"
 	"github.com/neko233-com/buildworld/internal/store"
 )
+
+type staticPipelineFetcher struct {
+	source string
+	format engine.PipelineFormat
+}
+
+func (fetcher staticPipelineFetcher) FetchSCMPipeline(context.Context, engine.SCMPipelineSource) (string, engine.PipelineFormat, error) {
+	return fetcher.source, fetcher.format, nil
+}
 
 func TestValidateProjectConfigParsesTypeScriptWithoutStartingBuild(t *testing.T) {
 	database, err := store.New(filepath.Join(t.TempDir(), "project-validation.db"))
@@ -21,9 +31,12 @@ func TestValidateProjectConfigParsesTypeScriptWithoutStartingBuild(t *testing.T)
 		t.Fatal(err)
 	}
 	defer database.Close()
-	_, err = database.CreateProject("typed", "", "", "git", "main", `import { definePipeline, shell, stage } from '@buildworld/pipeline'
+	project, err := database.CreateProject("typed", "", "", "git", "main", `import { definePipeline, shell, stage } from '@buildworld/pipeline'
 export default definePipeline({ stages: [stage('Build', shell('Compile', 'echo ok'))] })`, 1, nil, nil)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetProjectPipelineSource(project.ID, "typescript", "inline", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	handler := &handlers{d: Deps{Store: database}}
@@ -38,6 +51,48 @@ export default definePipeline({ stages: [stage('Build', shell('Compile', 'echo o
 	}
 }
 
+func TestValidateProjectConfigResolvesJenkinsfileFromSCM(t *testing.T) {
+	database, err := store.New(filepath.Join(t.TempDir(), "project-validation-scm.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	project, err := database.CreateProject("jenkins-scm", "", "https://example.test/app.git", "git", "main", "", 1, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetProjectPipelineSource(project.ID, "jenkinsfile", "scm", "https://example.test/app.git", "main", "Jenkinsfile"); err != nil {
+		t.Fatal(err)
+	}
+
+	originalFetcher := engine.DefaultSCMFetcher
+	engine.DefaultSCMFetcher = staticPipelineFetcher{
+		format: engine.FormatJenkinsfile,
+		source: `pipeline {
+  agent any
+  stages {
+    stage('Build') {
+      steps { sh 'echo ok' }
+    }
+  }
+}`,
+	}
+	defer func() { engine.DefaultSCMFetcher = originalFetcher }()
+
+	handler := &handlers{d: Deps{Store: database}}
+	request := httptest.NewRequest(http.MethodPost, "/api/projects/1/validate", nil)
+	routeContext := chi.NewRouteContext()
+	routeContext.URLParams.Add("id", strconv.FormatInt(project.ID, 10))
+	request = request.WithContext(context.WithValue(request.Context(), chi.RouteCtxKey, routeContext))
+	response := httptest.NewRecorder()
+
+	handler.validateProjectConfig(response, request)
+
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"format":"jenkinsfile"`) || !strings.Contains(response.Body.String(), `"stages":1`) {
+		t.Fatalf("SCM validation = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestValidatePipelineSourceParsesUnsavedDraft(t *testing.T) {
 	handler := &handlers{}
 	request := httptest.NewRequest(http.MethodPost, "/api/pipeline-validation", bytes.NewBufferString(`{
@@ -49,6 +104,26 @@ func TestValidatePipelineSourceParsesUnsavedDraft(t *testing.T) {
 
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"format":"typescript"`) || !strings.Contains(response.Body.String(), `"steps":1`) {
 		t.Fatalf("draft validation = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestValidatePipelineSourceReportsJenkinsfileFormat(t *testing.T) {
+	source := `pipeline {
+  agent any
+  stages {
+    stage('Build') {
+      steps { sh 'echo ok' }
+    }
+  }
+}`
+	handler := &handlers{}
+	request := httptest.NewRequest(http.MethodPost, "/api/pipeline-validation", bytes.NewBufferString(`{"source":`+strconv.Quote(source)+`}`))
+	response := httptest.NewRecorder()
+
+	handler.validatePipelineSource(response, request)
+
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"format":"jenkinsfile"`) {
+		t.Fatalf("Jenkinsfile validation = %d %s", response.Code, response.Body.String())
 	}
 }
 

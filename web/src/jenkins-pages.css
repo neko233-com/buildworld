@@ -1,0 +1,298 @@
+[data-skin="jenkins"] {
+  --jenkins-page: #fefefe;
+  --jenkins-surface: #ffffff;
+  --jenkins-muted-surface: hsl(240 20% 96.5%);
+  --jenkins-border: #dfe4ea;
+  --jenkins-border-soft: #edf0f3;
+  --jenkins-text: #20262d;
+  --jenkins-muted: #66727e;
+  --jenkins-link: #1769c2;
+}
+
+[data-skin="jenkins"] .app-main:has(.jenkins-context-page) {
+  width: 100%;
+  max-width: none;
+  padding: 0 8px 40px;
+  background: var(--jenkins-page);
+}
+
+[data-skin="jenkins"] .jenkins-context-page {
+  min-width: 0;
+  min-height: calc(100vh - 66px);
+  color: var(--jenkins-text);
+  background: var(--jenkins-page);
+}
+
+[data-skin="jenkins"] .jenkins-context-breadcrumb {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 18px;
+  overflow-x: auto;
+  color: #75818c;
+  border-bottom: 1px solid var(--jenkins-border-soft);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-context-breadcrumb span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+[data-skin="jenkins"] .jenkins-context-breadcrumb a {
+  color: #46515c;
+  text-decoration: none;
+}
+
+[data-skin="jenkins"] .jenkins-context-breadcrumb a:hover,
+[data-skin="jenkins"] .jenkins-context-breadcrumb a:focus-visible {
+  color: var(--jenkins-link);
+  text-decoration: underline;
+}
+
+[data-skin="jenkins"] .jenkins-context-breadcrumb strong {
+  color: #303943;
+  font-weight: 600;
+}
+
+[data-skin="jenkins"] .jenkins-context-layout {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 340px minmax(0, 1fr);
+  align-items: start;
+  gap: 26px;
+}
+
+[data-skin="jenkins"] .jenkins-context-sidepanel {
+  min-width: 0;
+  padding: 16px 8px 32px;
+}
+
+[data-skin="jenkins"] .jenkins-context-task-list {
+  display: grid;
+  gap: 2px;
+}
+
+[data-skin="jenkins"] .jenkins-context-task-list a,
+[data-skin="jenkins"] .jenkins-context-task-list button {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 11px;
+  padding: 7px 12px;
+  color: #26303a;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+}
+
+[data-skin="jenkins"] .jenkins-context-task-list a:hover,
+[data-skin="jenkins"] .jenkins-context-task-list button:hover,
+[data-skin="jenkins"] .jenkins-context-task-list a:focus-visible,
+[data-skin="jenkins"] .jenkins-context-task-list button:focus-visible {
+  color: var(--jenkins-link);
+  outline: 0;
+  background: #f1f6fb;
+}
+
+[data-skin="jenkins"] .jenkins-context-task-list a.active {
+  color: #20262d;
+  background: #e9edf3;
+  font-weight: 650;
+}
+
+[data-skin="jenkins"] .jenkins-context-task-list svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+[data-skin="jenkins"] .jenkins-context-main {
+  min-width: 0;
+  padding: 26px 26px 64px 0;
+}
+
+[data-skin="jenkins"] .jenkins-page-heading {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 0 20px;
+}
+
+[data-skin="jenkins"] .jenkins-page-heading h1 {
+  margin: 0;
+  color: #1f2831;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+[data-skin="jenkins"] .jenkins-page-heading p {
+  margin: 4px 0 0;
+  color: var(--jenkins-muted);
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .jenkins-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+[data-skin="jenkins"] .jenkins-flat-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 10px 0 16px;
+  border-bottom: 1px solid var(--jenkins-border);
+}
+
+[data-skin="jenkins"] .jenkins-context-main .operations-table-wrap,
+[data-skin="jenkins"] .jenkins-context-main .project-folder,
+[data-skin="jenkins"] .jenkins-context-main .build-history-filters,
+[data-skin="jenkins"] .jenkins-context-main .queue-running-section,
+[data-skin="jenkins"] .jenkins-context-main .approval-inbox {
+  border-color: var(--jenkins-border);
+  border-radius: 10px;
+  background: var(--jenkins-surface);
+  box-shadow: none;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .operations-table th {
+  height: 40px;
+  color: #39434e;
+  border-bottom-color: var(--jenkins-border);
+  background: var(--jenkins-muted-surface);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .operations-table td {
+  min-height: 48px;
+  border-bottom-color: #e9edf2;
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .operations-table tbody tr:hover {
+  background: #f7faff;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .project-directory-list {
+  gap: 10px;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .project-folder-heading button {
+  min-height: 48px;
+  border-radius: 9px;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .project-folder-content .operations-table-wrap {
+  margin: 0 10px 10px;
+  border-radius: 8px;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .build-history-filters {
+  margin-bottom: 16px;
+  padding: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .build-history-summary,
+[data-skin="jenkins"] .jenkins-context-main .queue-summary {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+[data-skin="jenkins"] .jenkins-context-main .primary-command,
+[data-skin="jenkins"] .jenkins-context-main .secondary-command {
+  min-height: 34px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .jenkins-home {
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 26px;
+}
+
+[data-skin="jenkins"] .jenkins-rail-root {
+  width: 340px;
+}
+
+@media (max-width: 900px) {
+  [data-skin="jenkins"] .app-main:has(.jenkins-context-page) {
+    padding: 0 8px 28px;
+  }
+
+  [data-skin="jenkins"] .jenkins-context-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  [data-skin="jenkins"] .jenkins-context-sidepanel {
+    padding: 10px 0 6px;
+  }
+
+  [data-skin="jenkins"] .jenkins-context-task-list {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+
+  [data-skin="jenkins"] .jenkins-context-task-list a,
+  [data-skin="jenkins"] .jenkins-context-task-list button {
+    width: auto;
+    min-width: max-content;
+    flex: 0 0 auto;
+    border: 1px solid var(--jenkins-border);
+  }
+
+  [data-skin="jenkins"] .jenkins-context-main {
+    padding: 20px 4px 50px;
+  }
+
+  [data-skin="jenkins"] .jenkins-home {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  [data-skin="jenkins"] .jenkins-rail-root {
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  [data-skin="jenkins"] .jenkins-context-page {
+    min-height: calc(100vh - 50px);
+  }
+}
+
+@media (max-width: 620px) {
+  [data-skin="jenkins"] .jenkins-context-breadcrumb {
+    padding: 0 10px;
+  }
+
+  [data-skin="jenkins"] .jenkins-page-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  [data-skin="jenkins"] .jenkins-page-actions {
+    justify-content: flex-start;
+  }
+}

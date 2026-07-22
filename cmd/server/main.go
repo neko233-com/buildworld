@@ -45,6 +45,7 @@ func main() {
 	if err := api.ApplyStoredSettings(cfg, db); err != nil {
 		log.Printf("Warning: failed to restore runtime settings: %v", err)
 	}
+	cfg.EnforceControlPlanePort()
 	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.Server.Host, fmt.Sprint(cfg.Server.Port)))
 	if err != nil {
 		log.Fatalf("Failed to reserve HTTP listener: %v", err)

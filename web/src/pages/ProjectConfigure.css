@@ -1,0 +1,425 @@
+.jenkins-configure-page {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-areas:
+    "header header"
+    "left main";
+  min-height: calc(100vh - 52px);
+  color: #20242b;
+  background: #fff;
+}
+
+.jenkins-configure-header {
+  grid-area: header;
+  padding: 14px 20px 4px;
+}
+
+.jenkins-configure-header nav {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  gap: 10px;
+  color: #5d6673;
+  font-size: 13px;
+}
+
+.jenkins-configure-header nav a {
+  color: #26313d;
+  text-decoration: none;
+}
+
+.jenkins-configure-header nav a:hover {
+  color: #0b63ce;
+  text-decoration: underline;
+}
+
+.jenkins-configure-header h1 {
+  margin: 14px 0 0;
+  font-size: 23px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.jenkins-configure-left {
+  grid-area: left;
+  align-self: start;
+  position: sticky;
+  top: 64px;
+  padding: 12px 14px 24px;
+}
+
+.jenkins-configure-nav {
+  display: grid;
+  gap: 4px;
+}
+
+.jenkins-configure-nav a {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  gap: 10px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  color: #252b33;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.jenkins-configure-nav a:first-child,
+.jenkins-configure-nav a:hover,
+.jenkins-configure-nav a:focus-visible {
+  background: #e9edf3;
+}
+
+.jenkins-configure-main {
+  grid-area: main;
+  min-width: 0;
+  padding: 12px 30px 88px 16px;
+}
+
+.jenkins-configure-main form {
+  width: min(100%, 1300px);
+}
+
+.jenkins-configure-section {
+  scroll-margin-top: 70px;
+  padding: 0 0 28px;
+  margin: 0 0 24px;
+  border-bottom: 1px solid #dce2ea;
+}
+
+.jenkins-configure-section h2 {
+  margin: 0 0 20px;
+  font-size: 20px;
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+
+.jenkins-configure-general-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.jenkins-configure-general-heading h2 {
+  margin: 0;
+}
+
+.jenkins-configure-enabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #20242b;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.jenkins-configure-enabled input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.jenkins-configure-enabled i {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: #aeb7c2;
+  transition: background .15s ease;
+}
+
+.jenkins-configure-enabled i::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  content: "";
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .24);
+  transition: transform .15s ease;
+}
+
+.jenkins-configure-enabled input:checked + i {
+  background: #0b6ee5;
+}
+
+.jenkins-configure-enabled input:checked + i::after {
+  transform: translateX(18px);
+}
+
+.jenkins-configure-enabled input:focus-visible + i {
+  outline: 2px solid rgba(11, 110, 229, .45);
+  outline-offset: 2px;
+}
+
+.jenkins-configure-enabled:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.jenkins-configure-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.jenkins-configure-section-heading h2 {
+  margin-bottom: 4px;
+}
+
+.jenkins-configure-section-heading p,
+.jenkins-configure-disabled p {
+  margin: 0;
+  color: #667180;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.jenkins-configure-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 18px 24px;
+}
+
+.jenkins-configure-fields label,
+.jenkins-configure-trigger label {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  color: #2c333d;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.jenkins-configure-fields input,
+.jenkins-configure-fields textarea,
+.jenkins-configure-fields select,
+.jenkins-configure-trigger input[type="text"],
+.jenkins-configure-trigger label > input:not([type="checkbox"]) {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid #c8d1dc;
+  border-radius: 4px;
+  color: #20242b;
+  background: #fff;
+  font: inherit;
+  font-weight: 400;
+}
+
+.jenkins-configure-fields textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.jenkins-configure-fields input:focus,
+.jenkins-configure-fields textarea:focus,
+.jenkins-configure-fields select:focus,
+.jenkins-configure-trigger input:focus {
+  border-color: #0b6ee5;
+  outline: 2px solid rgba(11, 110, 229, .2);
+  outline-offset: 1px;
+}
+
+.jenkins-configure-fields input[readonly],
+.jenkins-configure-fields select:disabled {
+  color: #56606d;
+  background: #f5f7f9;
+}
+
+.jenkins-configure-fields small,
+.jenkins-configure-trigger small {
+  color: #677384;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.jenkins-configure-wide {
+  grid-column: 1 / -1;
+}
+
+.jenkins-configure-trigger {
+  display: grid;
+  max-width: 720px;
+  gap: 15px;
+  padding: 0;
+  border: 0;
+}
+
+.jenkins-configure-check {
+  display: flex !important;
+  align-items: center;
+  gap: 9px !important;
+  min-height: 28px;
+}
+
+.jenkins-configure-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #0b6ee5;
+}
+
+.jenkins-configure-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.jenkins-configure-tools button,
+.jenkins-configure-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  gap: 7px;
+  padding: 6px 13px;
+  border: 1px solid #b8c3cf;
+  border-radius: 4px;
+  color: #242b34;
+  background: #f5f7f9;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jenkins-configure-tools button:hover:not(:disabled),
+.jenkins-configure-actions button:hover:not(:disabled) {
+  border-color: #8f9ba8;
+  background: #e9edf2;
+}
+
+.jenkins-configure-tools button:disabled,
+.jenkins-configure-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.jenkins-configure-editor {
+  min-height: 440px;
+  overflow: hidden;
+  border: 1px solid #c7d0da;
+  border-radius: 4px;
+}
+
+.jenkins-configure-disabled {
+  display: flex;
+  align-items: flex-start;
+  max-width: 760px;
+  min-height: 56px;
+  gap: 11px;
+  padding: 12px 14px;
+  border-left: 3px solid #8895a4;
+  background: #f4f6f8;
+}
+
+.jenkins-configure-disabled strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 13px;
+}
+
+.jenkins-configure-notice,
+.jenkins-configure-error {
+  width: min(100%, 1300px);
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border-left: 3px solid #168345;
+  color: #195c36;
+  background: #edf8f1;
+  font-size: 13px;
+}
+
+.jenkins-configure-error {
+  border-left-color: #c62828;
+  color: #8d1d1d;
+  background: #fff1f1;
+}
+
+.jenkins-configure-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: -1px 0 0;
+  padding: 12px 0;
+  border-top: 1px solid #d7dee7;
+  background: rgba(255, 255, 255, .96);
+  backdrop-filter: blur(8px);
+}
+
+.jenkins-configure-actions .jenkins-configure-save {
+  border-color: #0864d8;
+  color: #fff;
+  background: #0b6ee5;
+}
+
+.jenkins-configure-actions .jenkins-configure-save:hover:not(:disabled) {
+  border-color: #0757ba;
+  background: #075fc9;
+}
+
+@media (max-width: 800px) {
+  .jenkins-configure-page {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "header"
+      "left"
+      "main";
+  }
+
+  .jenkins-configure-header {
+    padding-inline: 14px;
+  }
+
+  .jenkins-configure-left {
+    z-index: 2;
+    top: 52px;
+    overflow-x: auto;
+    padding: 8px 14px;
+    border-bottom: 1px solid #dce2ea;
+    background: rgba(255, 255, 255, .97);
+  }
+
+  .jenkins-configure-nav {
+    display: flex;
+    width: max-content;
+  }
+
+  .jenkins-configure-main {
+    padding: 20px 14px 64px;
+  }
+
+  .jenkins-configure-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .jenkins-configure-wide {
+    grid-column: auto;
+  }
+
+  .jenkins-configure-section-heading {
+    display: grid;
+  }
+
+  .jenkins-configure-general-heading {
+    align-items: flex-start;
+  }
+
+  .jenkins-configure-tools {
+    justify-content: flex-start;
+  }
+}
