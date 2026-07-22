@@ -23,14 +23,14 @@ type JobDefinition struct {
 }
 
 var (
-	scriptRe      = regexp.MustCompile(`(?s)<script>(.*?)</script>`)
-	gitURLRe      = regexp.MustCompile(`(?s)<scm[^>]*>.*?<url>([^<]+)</url>`)
-	gitBranchRe   = regexp.MustCompile(`(?s)<scm[^>]*>.*?<name>([^<]+)</name>`)
-	scriptPathRe  = regexp.MustCompile(`(?s)<scriptPath>([^<]+)</scriptPath>`)
-	envRepoRe     = regexp.MustCompile(`GIT_REPO_URL\s*=\s*"([^"]+)"`)
-	envBranchRe   = regexp.MustCompile(`GIT_BRANCH\s*=\s*"([^"]+)"`)
+	scriptRe       = regexp.MustCompile(`(?s)<script>(.*?)</script>`)
+	gitURLRe       = regexp.MustCompile(`(?s)<scm[^>]*>.*?<url>([^<]+)</url>`)
+	gitBranchRe    = regexp.MustCompile(`(?s)<scm[^>]*>.*?<name>([^<]+)</name>`)
+	scriptPathRe   = regexp.MustCompile(`(?s)<scriptPath>([^<]+)</scriptPath>`)
+	envRepoRe      = regexp.MustCompile(`GIT_REPO_URL\s*=\s*"([^"]+)"`)
+	envBranchRe    = regexp.MustCompile(`GIT_BRANCH\s*=\s*"([^"]+)"`)
 	freestyleCmdRe = regexp.MustCompile(`(?s)<hudson\.tasks\.Shell>(.*?)</hudson\.tasks\.Shell>`)
-	commandRe     = regexp.MustCompile(`(?s)<command>([^<]*)</command>`)
+	commandRe      = regexp.MustCompile(`(?s)<command>([^<]*)</command>`)
 )
 
 // ParseConfig turns a Jenkins job config.xml into a BuildWorld JobDefinition.

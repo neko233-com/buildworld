@@ -1,0 +1,566 @@
+[data-skin="jenkins"] .app-main:has(.jenkins-run-page) {
+  padding: 0;
+  background: #fefefe;
+}
+
+[data-skin="jenkins"] .jenkins-run-page {
+  --run-section-padding: 26px;
+  --run-side-panel-width: 340px;
+  --run-border: color-mix(in srgb, #4d545d 17.5%, #fff);
+  --run-border-subtle: color-mix(in srgb, #20262d 3.5%, transparent);
+  --run-muted-surface: hsl(240 20% 96.5%);
+  --run-text: oklch(5% 0.075 256.91);
+  --run-secondary: #5d6873;
+  --run-link: oklch(55% 0.2308 256.91);
+
+  min-height: calc(100vh - 66px);
+  color: var(--run-text);
+  background: #fefefe;
+  font-family: system-ui, "Segoe UI", roboto, "Noto Sans", oxygen, ubuntu, cantarell, "Helvetica Neue", arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+[data-skin="jenkins"] .jenkins-run-breadcrumb {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--run-section-padding);
+  overflow: hidden;
+  border-bottom: 1px solid var(--run-border-subtle);
+  color: var(--run-secondary);
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-run-breadcrumb a,
+[data-skin="jenkins"] .jenkins-run-breadcrumb strong {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-weight: 450;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-run-breadcrumb a:hover,
+[data-skin="jenkins"] .jenkins-run-breadcrumb a:focus-visible {
+  color: var(--run-link);
+  text-decoration: underline;
+}
+
+[data-skin="jenkins"] .jenkins-run-breadcrumb span {
+  color: color-mix(in srgb, var(--run-secondary) 30%, transparent);
+}
+
+[data-skin="jenkins"] .jenkins-run-layout {
+  display: grid;
+  grid-template-columns: var(--run-side-panel-width) minmax(0, 1fr);
+  align-items: start;
+}
+
+[data-skin="jenkins"] .jenkins-run-side-panel {
+  position: sticky;
+  top: 66px;
+  display: flex;
+  max-height: calc(100vh - 66px);
+  flex-direction: column;
+  gap: 13px;
+  padding: 26px 8px 26px 26px;
+  overflow: auto;
+}
+
+[data-skin="jenkins"] .jenkins-run-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+[data-skin="jenkins"] .jenkins-run-tasks a,
+[data-skin="jenkins"] .jenkins-run-tasks button {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 11px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--run-text);
+  background: transparent;
+  font: inherit;
+  font-weight: 400;
+  text-align: left;
+  text-decoration: none;
+}
+
+[data-skin="jenkins"] .jenkins-run-tasks a:hover,
+[data-skin="jenkins"] .jenkins-run-tasks button:hover,
+[data-skin="jenkins"] .jenkins-run-tasks a:focus-visible,
+[data-skin="jenkins"] .jenkins-run-tasks button:focus-visible {
+  background: color-mix(in srgb, var(--run-secondary) 10%, transparent);
+  outline: none;
+}
+
+[data-skin="jenkins"] .jenkins-run-tasks .active {
+  background: color-mix(in srgb, var(--run-secondary) 15%, transparent);
+  font-weight: 450;
+}
+
+[data-skin="jenkins"] .jenkins-run-tasks .danger {
+  color: #c4001d;
+}
+
+[data-skin="jenkins"] .jenkins-run-tasks a svg,
+[data-skin="jenkins"] .jenkins-run-tasks button svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+
+[data-skin="jenkins"] .jenkins-run-tasks button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+[data-skin="jenkins"] .jenkins-run-side-summary {
+  padding: 14px 16px;
+  border: 1.5px solid var(--run-border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+[data-skin="jenkins"] .jenkins-run-side-summary h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 450;
+}
+
+[data-skin="jenkins"] .jenkins-run-side-summary dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+[data-skin="jenkins"] .jenkins-run-side-summary dl div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  color: var(--run-secondary);
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .jenkins-run-side-summary dt,
+[data-skin="jenkins"] .jenkins-run-side-summary dd {
+  margin: 0;
+}
+
+[data-skin="jenkins"] .jenkins-run-side-summary dd {
+  color: var(--run-text);
+  font-weight: 450;
+  text-align: right;
+}
+
+[data-skin="jenkins"] .jenkins-run-main {
+  min-width: 0;
+  padding: 20px var(--run-section-padding) var(--run-section-padding);
+}
+
+[data-skin="jenkins"] .jenkins-run-caption {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--run-section-padding);
+  margin-bottom: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-run-caption-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-run-caption .build-status {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 0;
+}
+
+[data-skin="jenkins"] .jenkins-run-caption .build-status::before {
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, currentColor 20%, transparent);
+}
+
+[data-skin="jenkins"] .jenkins-run-caption .build-status svg,
+[data-skin="jenkins"] .jenkins-run-caption .build-status i {
+  width: 32px;
+  height: 32px;
+}
+
+[data-skin="jenkins"] .jenkins-run-caption h1 {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 21px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+[data-skin="jenkins"] .jenkins-run-caption h1 small {
+  color: var(--run-secondary);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+[data-skin="jenkins"] .jenkins-run-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+[data-skin="jenkins"] .jenkins-run-controls a,
+[data-skin="jenkins"] .jenkins-run-controls button,
+[data-skin="jenkins"] .jenkins-console-controls a,
+[data-skin="jenkins"] .jenkins-console-controls button,
+[data-skin="jenkins"] .jenkins-artifact-upload {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--run-text);
+  background: color-mix(in srgb, var(--run-secondary) 7.5%, transparent);
+  box-shadow: 0 0 0 1.5px var(--run-border-subtle);
+  font: inherit;
+  font-weight: 450;
+  text-decoration: none;
+}
+
+[data-skin="jenkins"] .jenkins-run-controls a:hover,
+[data-skin="jenkins"] .jenkins-run-controls button:hover,
+[data-skin="jenkins"] .jenkins-console-controls a:hover,
+[data-skin="jenkins"] .jenkins-console-controls button:hover,
+[data-skin="jenkins"] .jenkins-artifact-upload:hover {
+  background: color-mix(in srgb, var(--run-secondary) 12.5%, transparent);
+}
+
+[data-skin="jenkins"] .jenkins-run-controls .danger {
+  color: #fff;
+  background: #c4001d;
+}
+
+[data-skin="jenkins"] .jenkins-run-controls button:disabled,
+[data-skin="jenkins"] .jenkins-console-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+[data-skin="jenkins"] .jenkins-run-description {
+  min-height: 24px;
+  margin: 0 0 20px 46px;
+  color: var(--run-secondary);
+}
+
+[data-skin="jenkins"] .jenkins-run-data-warning {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 18px;
+  padding: 8px 12px;
+  border: 2px solid #efc15b;
+  border-radius: 10px;
+  color: #5f4300;
+  background: #fff9e8;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-run-data-warning button {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 2px solid #c99b31;
+  border-radius: 7px;
+  color: inherit;
+  background: #fff;
+  font: inherit;
+  font-weight: 600;
+}
+
+[data-skin="jenkins"] .jenkins-run-description strong {
+  color: var(--run-text);
+  font-weight: 450;
+}
+
+[data-skin="jenkins"] .jenkins-run-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0 0 26px;
+  overflow: hidden;
+  border: 1.5px solid var(--run-border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+[data-skin="jenkins"] .jenkins-run-facts article {
+  display: flex;
+  min-height: 72px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 12px 16px;
+  border-right: 1px solid var(--run-border-subtle);
+  border-bottom: 1px solid var(--run-border-subtle);
+}
+
+[data-skin="jenkins"] .jenkins-run-facts article:nth-child(4n) {
+  border-right: 0;
+}
+
+[data-skin="jenkins"] .jenkins-run-facts article span {
+  color: var(--run-secondary);
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .jenkins-run-facts article strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 450;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-run-section {
+  margin: 0 0 26px;
+}
+
+[data-skin="jenkins"] .jenkins-run-section-heading {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 14px;
+}
+
+[data-skin="jenkins"] .jenkins-run-section-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  font-size: 21px;
+  font-weight: 650;
+}
+
+[data-skin="jenkins"] .jenkins-run-section-heading > span,
+[data-skin="jenkins"] .jenkins-run-section-heading > strong {
+  color: var(--run-secondary);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+[data-skin="jenkins"] .jenkins-console-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-skin="jenkins"] .jenkins-console-controls .selected {
+  color: #1569c2;
+  border-color: #9fc5eb;
+  background: #edf6ff;
+}
+
+[data-skin="jenkins"] .jenkins-console-output {
+  min-height: 240px;
+  max-height: 520px;
+  margin: 0;
+  padding: 13px 16px;
+  overflow: auto;
+  border: 1.5px solid var(--run-border);
+  border-radius: 10px;
+  color: var(--run-text);
+  background: #fff;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", JetBrains Mono, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.66;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+[data-skin="jenkins"] .jenkins-console-progress {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--run-secondary);
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .jenkins-run-page .build-timeline,
+[data-skin="jenkins"] .jenkins-run-page .detail-panel,
+[data-skin="jenkins"] .jenkins-run-page .build-chain-panel,
+[data-skin="jenkins"] .jenkins-run-page .build-problems-panel,
+[data-skin="jenkins"] .jenkins-run-page .build-approval-panel {
+  border-color: var(--run-border);
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+[data-skin="jenkins"] .jenkins-run-page .build-timeline {
+  margin-bottom: 26px;
+}
+
+[data-skin="jenkins"] .jenkins-run-page .build-log-workbench {
+  display: block;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+[data-skin="jenkins"] .jenkins-run-page .build-log-main,
+[data-skin="jenkins"] .jenkins-run-page .build-log-inspector {
+  display: none;
+}
+
+[data-skin="jenkins"] .jenkins-run-page .artifacts-panel {
+  margin-bottom: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+[data-skin="jenkins"] .jenkins-run-page .artifacts-panel > header {
+  min-height: 46px;
+  padding: 0 14px;
+  background: var(--run-muted-surface);
+}
+
+[data-skin="jenkins"] .jenkins-run-page .artifacts-panel .operations-table-wrap {
+  border: 0;
+  border-radius: 0;
+}
+
+[data-skin="jenkins"] .jenkins-run-page .artifacts-panel .operations-table th,
+[data-skin="jenkins"] .jenkins-run-page .artifacts-panel .operations-table td {
+  height: 48px;
+  padding: 9px 16px;
+  font-size: 14px;
+}
+
+@media (max-width: 1050px) {
+  [data-skin="jenkins"] .jenkins-run-page {
+    --run-side-panel-width: 250px;
+  }
+
+  [data-skin="jenkins"] .jenkins-run-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  [data-skin="jenkins"] .jenkins-run-facts article:nth-child(4n) {
+    border-right: 1px solid var(--run-border-subtle);
+  }
+
+  [data-skin="jenkins"] .jenkins-run-facts article:nth-child(2n) {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  [data-skin="jenkins"] .jenkins-run-page {
+    --run-section-padding: 20px;
+    min-height: calc(100vh - 50px);
+  }
+
+  [data-skin="jenkins"] .jenkins-run-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-skin="jenkins"] .jenkins-run-side-panel {
+    position: static;
+    max-height: none;
+    padding: 14px var(--run-section-padding) 0;
+    overflow: visible;
+  }
+
+  [data-skin="jenkins"] .jenkins-run-tasks {
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  [data-skin="jenkins"] .jenkins-run-tasks a,
+  [data-skin="jenkins"] .jenkins-run-tasks button {
+    width: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  [data-skin="jenkins"] .jenkins-run-side-summary {
+    display: none;
+  }
+
+  [data-skin="jenkins"] .jenkins-run-main {
+    padding-top: 14px;
+  }
+
+  [data-skin="jenkins"] .jenkins-run-caption {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  [data-skin="jenkins"] .jenkins-run-controls,
+  [data-skin="jenkins"] .jenkins-console-controls {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  [data-skin="jenkins"] .jenkins-run-description {
+    margin-left: 0;
+  }
+
+  [data-skin="jenkins"] .jenkins-run-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-skin="jenkins"] .jenkins-run-facts article {
+    border-right: 0 !important;
+  }
+
+  [data-skin="jenkins"] .jenkins-run-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-skin="jenkins"] .jenkins-run-page * {
+    scroll-behavior: auto !important;
+  }
+}

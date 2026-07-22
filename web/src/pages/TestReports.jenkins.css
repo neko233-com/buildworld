@@ -1,0 +1,118 @@
+[data-skin="jenkins"] .test-report-page .jenkins-run-main {
+  min-width: 0;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .test-report-page .test-report-heading {
+  margin-bottom: 8px;
+}
+
+[data-skin="jenkins"] .test-report-page .test-report-description {
+  margin: 0 0 20px;
+  color: #66727e;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .test-report-page .test-report-metrics {
+  margin-bottom: 20px;
+  border-color: #dfe4ea;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+[data-skin="jenkins"] .test-report-page .test-report-metrics article {
+  min-height: 86px;
+  padding: 14px 16px;
+}
+
+[data-skin="jenkins"] .test-report-page .test-report-metrics p {
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .test-report-page .test-report-metrics strong {
+  font-size: 22px;
+}
+
+[data-skin="jenkins"] .test-report-page .test-results-panel,
+[data-skin="jenkins"] .test-report-page .operations-table-wrap {
+  border-color: #dfe4ea;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+[data-skin="jenkins"] .test-report-page .test-results-panel > header {
+  min-height: 48px;
+  padding: 0 16px;
+  border-bottom-color: #dfe4ea;
+  background: hsl(240 20% 96.5%);
+}
+
+[data-skin="jenkins"] .test-report-page .test-results-panel h2,
+[data-skin="jenkins"] .test-report-page .test-results-panel header span {
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .test-report-page .operations-table {
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .test-report-page .operations-table th {
+  height: 38px;
+  padding: 0 16px;
+  color: #39434e;
+  border-bottom-color: #dfe4ea;
+  background: hsl(240 20% 96.5%);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+[data-skin="jenkins"] .test-report-page .operations-table td {
+  height: 49px;
+  box-sizing: border-box;
+  padding: 7px 16px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .test-report-page .test-results-table td:first-child strong {
+  display: block;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .test-report-page .test-results-table td:first-child small {
+  display: block;
+  margin-top: 2px;
+  color: #66727e;
+  font-size: 11px;
+}
+
+[data-skin="jenkins"] .test-report-page .test-results-empty {
+  display: grid;
+  min-height: 180px;
+  place-content: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .test-report-page .test-results-empty svg {
+  margin: 0 auto;
+}
+
+[data-skin="jenkins"] .test-report-page .test-results-empty small {
+  color: #66727e;
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .test-report-page .jenkins-run-side-summary dd {
+  max-width: 164px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  [data-skin="jenkins"] .test-report-page .test-report-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

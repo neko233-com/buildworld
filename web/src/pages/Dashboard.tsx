@@ -8,12 +8,12 @@ import { dialogs } from '../components/AppDialogs'
 import JenkinsHomeRail from '../components/JenkinsHomeRail'
 import { PageState } from '../components/PageState'
 import ProjectGroupsDialog from '../components/ProjectGroupsDialog'
-import RunBuildDialog, { normalizeBuildParameterDefinitions } from '../components/RunBuildDialog'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { formatDuration } from '../lib/durationPresentation'
 import { sortProjectGroups } from '../lib/projectGroups'
+import { useJenkinsBuildFlow } from './projectBuildFlow'
 
 type IconSize = 'small' | 'medium' | 'large'
 
@@ -25,8 +25,8 @@ function initialIconSize(): IconSize {
   return stored === 'small' || stored === 'large' ? stored : 'medium'
 }
 
-function BuildReference({ build, locale }: { build?: any; locale: string }) {
-  if (!build) return <span className="jenkins-empty-value">-</span>
+function BuildReference({ build, locale, emptyLabel }: { build?: any; locale: string; emptyLabel: string }) {
+  if (!build) return <span className="jenkins-empty-value">{emptyLabel}</span>
   return <span className="jenkins-build-reference">
     <Link to={`/builds/${build.id}`}>#{build.number}</Link>
     <small>{build.started_at ? new Date(build.started_at).toLocaleString(locale) : '-'}</small>
@@ -35,12 +35,12 @@ function BuildReference({ build, locale }: { build?: any; locale: string }) {
 
 function Health({ builds, label }: { builds: any[]; label: string }) {
   const completed = builds.filter(build => !['running', 'pending', 'queued', 'pending_approval'].includes(build.status)).slice(0, 5)
-  if (!completed.length) return <span className="jenkins-health none" role="img" aria-label={label}><Cloud size={20} /></span>
+  if (!completed.length) return <span className="jenkins-health none" role="img" aria-label={label}><Cloud size={24} /></span>
   const successRate = completed.filter(build => build.status === 'success').length / completed.length
   const accessibleLabel = `${label}: ${Math.round(successRate * 100)}%`
-  if (successRate === 1) return <span className="jenkins-health excellent" role="img" aria-label={accessibleLabel}><Sun size={20} /></span>
-  if (successRate >= 0.6) return <span className="jenkins-health fair" role="img" aria-label={accessibleLabel}><CloudSun size={20} /></span>
-  return <span className="jenkins-health poor" role="img" aria-label={accessibleLabel}><CloudRain size={20} /></span>
+  if (successRate === 1) return <span className="jenkins-health excellent" role="img" aria-label={accessibleLabel}><Sun size={24} /></span>
+  if (successRate >= 0.6) return <span className="jenkins-health fair" role="img" aria-label={accessibleLabel}><CloudSun size={24} /></span>
+  return <span className="jenkins-health poor" role="img" aria-label={accessibleLabel}><CloudRain size={24} /></span>
 }
 
 export default function Dashboard() {
@@ -52,7 +52,6 @@ export default function Dashboard() {
   const [iconSize, setIconSize] = useState<IconSize>(initialIconSize)
   const [flagBusy, setFlagBusy] = useState<{ id: number; flag: 'favorite' | 'quick_access' } | null>(null)
   const [building, setBuilding] = useState<number | null>(null)
-  const [customProject, setCustomProject] = useState<any>(null)
   const [groupsOpen, setGroupsOpen] = useState(false)
   const { data, loading, error, reload } = useApi(async () => {
     const [projects, overviews, groups] = await Promise.all([
@@ -62,6 +61,8 @@ export default function Dashboard() {
     ])
     return { projects, overviews, groups }
   })
+  const buildProjects = data?.projects || []
+  const { isParameterized, start } = useJenkinsBuildFlow(editable ? buildProjects : [], navigate)
   const hasActiveBuilds = (data?.overviews || []).some(overview => ACTIVE_BUILD_STATUSES.has(overview.latest?.status || ''))
 
   useEffect(() => {
@@ -114,14 +115,7 @@ export default function Dashboard() {
   const handleBuild = async (project: any) => {
     setBuilding(project.id)
     try {
-      const metadata = await api.validateProject(project.id)
-      if (normalizeBuildParameterDefinitions(metadata.parameters).length > 0) {
-        const definition = typeof project.config === 'string' ? project : await api.getProject(project.id)
-        setCustomProject(definition)
-        return
-      }
-      const build = await api.triggerBuild(project.id)
-      navigate(`/builds/${build.id}`)
+      await start(project)
     } catch (reason: any) {
       dialogs.notify(reason.message || t('projects.buildFailed'))
     } finally {
@@ -144,8 +138,8 @@ export default function Dashboard() {
             <th className="jenkins-status-column"><span aria-label={t('projects.status')}>S</span></th>
             <th className="jenkins-health-column"><span aria-label={t('statistics.successRate')}>W</span></th>
             <th className="jenkins-name-column" aria-sort={sortDirection === 'asc' ? 'ascending' : 'descending'}><button type="button" onClick={() => setSortDirection(value => value === 'asc' ? 'desc' : 'asc')}>{t('projects.name')} <span aria-hidden="true">{sortDirection === 'asc' ? '\u2193' : '\u2191'}</span></button></th>
-            <th>{t('dashboard.latestBuild')} / {t('status.success')}</th>
-            <th>{t('dashboard.latestBuild')} / {t('status.failed')}</th>
+            <th>{t('projectDetail.lastSuccessfulBuild')}</th>
+            <th>{t('projectDetail.lastFailedBuild')}</th>
             <th>{t('builds.duration')}</th>
             <th aria-label={t('projects.actions')} />
           </tr></thead>
@@ -159,17 +153,18 @@ export default function Dashboard() {
               const recentBuilds = (overview?.recent_statuses || []).map(status => ({ status }))
               const status = latest ? buildStatusTone(latest.status) : 'cancelled'
               const statusLabel = latest ? buildStatusLabel(t, latest.status) : t('dashboard.noBuilds')
+              const buildLabel = t(isParameterized(project) ? 'builds.buildWithParameters' : 'projects.build')
               return <tr key={project.id}>
                 <td><span className={`jenkins-status-orb ${status}`} role="img" aria-label={statusLabel} title={statusLabel} /></td>
                 <td><Health builds={recentBuilds} label={`${project.name} ${t('statistics.successRate')}`} /></td>
-                <td><Link className="jenkins-job-name" to={`/projects/${project.id}`}><Folder size={18} /><span><strong>{project.name}</strong>{project.default_branch && <small>{project.default_branch}</small>}</span></Link></td>
-                <td><BuildReference build={lastSuccess} locale={locale} /></td>
-                <td><BuildReference build={lastFailure} locale={locale} /></td>
+                <td><Link className="jenkins-job-name" to={`/projects/${project.id}`}><span><strong>{project.name}</strong>{project.default_branch && <small>{project.default_branch}</small>}</span></Link></td>
+                <td><BuildReference build={lastSuccess} locale={locale} emptyLabel={t('projectDetail.none')} /></td>
+                <td><BuildReference build={lastFailure} locale={locale} emptyLabel={t('projectDetail.none')} /></td>
                 <td className="jenkins-duration">{formatDuration(latest?.duration_ms)}</td>
                 <td><div className="jenkins-job-actions">
                   <button type="button" className={project.favorite ? 'active' : ''} disabled={flagBusy !== null} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'favorite'} aria-label={`${project.favorite ? t('projects.unfavorite') : t('projects.favorite')} ${project.name}`} title={project.favorite ? t('projects.unfavorite') : t('projects.favorite')} onClick={() => toggleFlag(project, 'favorite')}>{flagBusy?.id === project.id && flagBusy?.flag === 'favorite' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Star size={15} />}</button>
                   <button type="button" className={project.quick_access ? 'active' : ''} disabled={flagBusy !== null} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'quick_access'} aria-label={`${project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} ${project.name}`} title={project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} onClick={() => toggleFlag(project, 'quick_access')}>{flagBusy?.id === project.id && flagBusy?.flag === 'quick_access' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Pin size={15} />}</button>
-                  {editable && <button type="button" disabled={building !== null || project.enabled === false} aria-busy={building === project.id} aria-label={`${t('projects.build')} ${project.name}`} title={project.enabled === false ? t('common.disabled') : t('projects.build')} onClick={() => handleBuild(project)}>{building === project.id ? <LoaderCircle className="timeline-spinner" size={15} /> : <Play size={15} />}</button>}
+                  {editable && <button type="button" disabled={building !== null || project.enabled === false} aria-busy={building === project.id} aria-label={`${buildLabel} ${project.name}`} title={project.enabled === false ? t('common.disabled') : buildLabel} onClick={() => handleBuild(project)}>{building === project.id ? <LoaderCircle className="timeline-spinner" size={15} /> : <Play size={15} />}</button>}
                 </div></td>
               </tr>
             })}
@@ -183,6 +178,5 @@ export default function Dashboard() {
       </footer>
     </div>
     {groupsOpen && <ProjectGroupsDialog groups={groups} projects={projects} onReload={reload} onClose={() => setGroupsOpen(false)} />}
-    {customProject && <RunBuildDialog project={customProject} onClose={() => setCustomProject(null)} onQueued={build => { setCustomProject(null); navigate(`/builds/${build.id}`) }} />}
   </motion.section>
 }

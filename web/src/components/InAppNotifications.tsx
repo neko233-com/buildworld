@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Bell, CheckCircle2, CircleDot, LoaderCircle, X, XCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -45,7 +46,12 @@ function StatusIcon({ status }: { status?: string }) {
   return <CircleDot size={15} />
 }
 
-export default function InAppNotifications() {
+type InAppNotificationsProps = {
+  menu?: boolean
+  menuOpen?: boolean
+}
+
+export default function InAppNotifications({ menu = false, menuOpen = true }: InAppNotificationsProps) {
   const { t } = useI18n()
   const navigate = useNavigate()
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -97,6 +103,10 @@ export default function InAppNotifications() {
     return () => document.removeEventListener('mousedown', closeOutside)
   }, [])
 
+  useEffect(() => {
+    if (!menuOpen) setOpen(false)
+  }, [menuOpen])
+
   const markRead = async () => {
     const latest = feed.items[0]?.id || 0
     if (!latest || feed.unread_count === 0) return
@@ -136,13 +146,14 @@ export default function InAppNotifications() {
     <div className="in-app-notification-center" ref={wrapperRef}>
       <button
         type="button"
-        className={`notification-bell ${open ? 'active' : ''}`}
+        className={`notification-bell ${menu ? 'notification-bell-menu' : ''} ${open ? 'active' : ''}`}
         aria-label={t('notifications.webTitle')}
         aria-expanded={open}
         onClick={togglePanel}
       >
         <Bell size={17} />
-        {feed.unread_count > 0 && <span>{feed.unread_count > 99 ? '99+' : feed.unread_count}</span>}
+        {menu && <span className="notification-menu-label">{t('notifications.webTitle')}</span>}
+        {feed.unread_count > 0 && <span className="notification-unread-count">{feed.unread_count > 99 ? '99+' : feed.unread_count}</span>}
       </button>
       {open && <section className="notification-popover" role="dialog" aria-label={t('notifications.webTitle')}>
         <header><div><Bell size={16} /><div><h2>{t('notifications.webTitle')}</h2><p>{feed.unread_count ? t('notifications.webUnread').replace('{count}', String(feed.unread_count)) : t('notifications.webAllRead')}</p></div></div><button type="button" onClick={() => setOpen(false)} aria-label={t('common.close')}><X size={16} /></button></header>
@@ -158,7 +169,7 @@ export default function InAppNotifications() {
         </div>
       </section>}
     </div>
-    {toasts.length > 0 && <aside className="web-notification-toasts" aria-live="polite">
+    {toasts.length > 0 && typeof document !== 'undefined' && createPortal(<aside className="web-notification-toasts" aria-live="polite">
       {toasts.map(item => {
         const copy = notificationCopy(item)
         return <article key={item.id} className={copy.payload.status || 'pending'} onClick={() => openBuild(item)}>
@@ -167,6 +178,6 @@ export default function InAppNotifications() {
           <button type="button" onClick={event => { event.stopPropagation(); setToasts(current => current.filter(value => value.id !== item.id)) }} aria-label={t('common.dismiss')}><X size={14} /></button>
         </article>
       })}
-    </aside>}
+    </aside>, document.body)}
   </>
 }

@@ -1,0 +1,88 @@
+/* Jenkins 2.563 geometry shared by administration and execution pages. */
+[data-skin="jenkins"] .app-main:has(.jenkins-management-page) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 26px 26px 64px;
+}
+
+[data-skin="jenkins"] .jenkins-management-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-management-page .operations-heading {
+  align-items: center;
+  margin: 0 0 26px;
+}
+
+[data-skin="jenkins"] .jenkins-management-page .operations-heading h1,
+[data-skin="jenkins"] .jenkins-management-page .plugin-registry-heading h1,
+[data-skin="jenkins"] .jenkins-management-page .settings-page-heading h1 {
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+[data-skin="jenkins"] .jenkins-management-page .operations-heading p,
+[data-skin="jenkins"] .jenkins-management-page .operations-heading small,
+[data-skin="jenkins"] .jenkins-management-page .plugin-registry-heading p {
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .jenkins-management-page button,
+[data-skin="jenkins"] .jenkins-management-page input,
+[data-skin="jenkins"] .jenkins-management-page select,
+[data-skin="jenkins"] .jenkins-management-page textarea {
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-management-page .operations-table,
+[data-skin="jenkins"] .jenkins-management-page .plugin-table {
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-management-page .operations-table th,
+[data-skin="jenkins"] .jenkins-management-page .plugin-table th {
+  height: 38px;
+  padding: 0 16px;
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+[data-skin="jenkins"] .jenkins-management-page .operations-table td,
+[data-skin="jenkins"] .jenkins-management-page .plugin-table td {
+  height: 49px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+[data-skin="jenkins"] .jenkins-management-page .operations-table-wrap,
+[data-skin="jenkins"] .jenkins-management-page .plugin-table-wrap {
+  width: 100%;
+  border-radius: 12px;
+}
+
+[data-skin="jenkins"] .jenkins-management-page .page-state {
+  min-height: calc(100vh - 118px);
+}
+
+[data-skin="jenkins"] .jenkins-management-page :focus-visible {
+  outline: 3px solid rgba(23, 105, 194, .28);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  [data-skin="jenkins"] .app-main:has(.jenkins-management-page) {
+    padding: 20px 14px 40px;
+  }
+
+  [data-skin="jenkins"] .jenkins-management-page .operations-heading {
+    align-items: flex-start;
+  }
+}

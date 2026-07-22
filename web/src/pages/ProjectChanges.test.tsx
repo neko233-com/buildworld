@@ -17,6 +17,7 @@ vi.mock('../api', () => ({
     triggerBuild: vi.fn(),
     stopBuild: vi.fn(),
     deleteProject: vi.fn(),
+    updateProject: vi.fn(),
   },
 }))
 
@@ -29,9 +30,11 @@ vi.mock('../components/RunBuildDialog', () => ({
 
 const project = {
   id: 7,
-  name: 'server-game-go',
+  name: 'Weather',
   enabled: true,
   group_id: 3,
+  repo_type: 'git',
+  config: 'jobs:\n  build:\n    steps: []',
 }
 
 const builds = [
@@ -63,6 +66,7 @@ describe('ProjectChanges', () => {
     vi.mocked(api.triggerBuild).mockResolvedValue({ id: 520 })
     vi.mocked(api.stopBuild).mockResolvedValue({})
     vi.mocked(api.deleteProject).mockResolvedValue({})
+    vi.mocked(api.updateProject).mockImplementation(async (_id, payload) => ({ ...project, ...payload }))
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -89,6 +93,7 @@ describe('ProjectChanges', () => {
       root.render(<MemoryRouter initialEntries={['/projects/7/changes']}><Routes>
         <Route path="/projects/:id/changes" element={<><ProjectChanges /><LocationProbe /></>} />
         <Route path="/projects" element={<LocationProbe />} />
+        <Route path="/projects/:id/build" element={<LocationProbe />} />
         <Route path="/builds/:id" element={<LocationProbe />} />
       </Routes></MemoryRouter>)
     })
@@ -108,6 +113,8 @@ describe('ProjectChanges', () => {
     expect(container.querySelector('a.active[href="/projects/7/changes"]')?.textContent).toContain('Changes')
     expect(container.querySelector('.jenkins-job-actions a[href="/projects/7"]')?.textContent).toContain('Status')
     expect(container.querySelector('.jenkins-job-actions a[href="/projects/7/configure"]')?.textContent).toContain('Configure')
+    expect(container.querySelector('.jenkins-job-actions a[href*="jenkins-configure-general"]')).toBeNull()
+    expect(button('Rename').tagName).toBe('BUTTON')
     expect(container.querySelector('a[href="/builds?project=7"]')?.textContent).toContain('Build History')
     expect(container.querySelector('.jenkins-changes-main > h1')?.textContent).toBe('Changes')
 
@@ -133,6 +140,27 @@ describe('ProjectChanges', () => {
     expect(api.validateProject).toHaveBeenCalledWith(7)
     expect(api.triggerBuild).toHaveBeenCalledWith(7)
     expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/builds/520')
+  })
+
+  it('labels and routes parameterized builds from the Changes action rail', async () => {
+    vi.mocked(api.validateProject).mockResolvedValue({ valid: true, format: 'yaml', stages: 1, steps: 1, parameters: [{ name: 'ENV', type: 'choice', choices: ['dev'] }], allow_long_running: false })
+    await renderPage()
+
+    await act(async () => button('Build with Parameters').click())
+
+    expect(api.triggerBuild).not.toHaveBeenCalled()
+    expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/projects/7/build')
+  })
+
+  it('keeps real Jenkins job-management actions available on Changes', async () => {
+    await renderPage()
+
+    await act(async () => button('Move').click())
+    expect(document.querySelector('[role="dialog"][aria-label="Move project"]')).not.toBeNull()
+    await act(async () => document.querySelector<HTMLButtonElement>('[role="dialog"][aria-label="Move project"] button[aria-label="Close"]')?.click())
+
+    await act(async () => button('Pipeline Syntax').click())
+    expect(document.querySelector('[role="dialog"][aria-label="Pipeline Syntax"] pre')?.textContent).toContain('jobs:')
   })
 
   it('shows an explicit empty state when no revisions were recorded', async () => {

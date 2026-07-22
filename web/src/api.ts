@@ -208,7 +208,12 @@ function beginOperation(message?: string): string {
 
 function shouldReportMutation(method: string, path: string): boolean {
   if (method === 'GET' || method === 'HEAD') return false
-  return path !== '/auth/login' && path !== '/notifications/in-app/read'
+  if (path === '/auth/login' || path === '/notifications/in-app/read') return false
+  // These POST endpoints only inspect source or project metadata. They run while
+  // editors and Jenkins-style build actions are loading, so mutation toasts
+  // would falsely announce that user data changed on every validation pass.
+  if (path === '/pipeline-validation' || /^\/projects\/\d+\/validate$/.test(path)) return false
+  return true
 }
 
 function serviceUnavailableMessage(status?: number): string {

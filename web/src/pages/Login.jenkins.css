@@ -1,0 +1,306 @@
+.jenkins-login-page {
+  --jenkins-login-background: #fefefe;
+  --jenkins-login-text: #15181d;
+  --jenkins-login-secondary: #626a73;
+  --jenkins-login-input-border: #c5c9cf;
+  --jenkins-login-input-hover: #969da5;
+  --jenkins-login-accent: #1769c2;
+  --jenkins-login-error: #c62828;
+
+  position: relative;
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  box-sizing: border-box;
+  place-items: center;
+  padding: 78px 26px 52px;
+  color: var(--jenkins-login-text);
+  background: var(--jenkins-login-background);
+  font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.jenkins-login-page *,
+.jenkins-login-page *::before,
+.jenkins-login-page *::after {
+  box-sizing: border-box;
+}
+
+.jenkins-login-language {
+  position: absolute;
+  top: 20px;
+  right: 26px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--jenkins-login-secondary);
+  font-size: 13px;
+}
+
+.jenkins-login-language select {
+  min-width: 98px;
+  min-height: 38px;
+  padding: 7px 30px 7px 11px;
+  color: var(--jenkins-login-text);
+  border: 1px solid var(--jenkins-login-input-border);
+  border-radius: 10px;
+  outline: none;
+  background: #fff;
+  font: inherit;
+}
+
+.jenkins-login-language select:not(:disabled):hover {
+  border-color: var(--jenkins-login-input-hover);
+}
+
+.jenkins-login-content {
+  display: flex;
+  width: min(430px, 100%);
+  align-items: stretch;
+  flex-direction: column;
+  gap: 25.6px;
+  margin-top: -24px;
+}
+
+.jenkins-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.jenkins-login-brand > span {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 1px solid #d8dde3;
+  border-radius: 16px;
+  background: #f7f9fb;
+}
+
+.jenkins-login-brand strong {
+  color: #20262d;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.jenkins-login-heading h1 {
+  margin: 0;
+  color: var(--jenkins-login-text);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 28.8px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.jenkins-login-heading p {
+  margin: 8px 0 0;
+  color: var(--jenkins-login-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.jenkins-login-form {
+  display: contents;
+}
+
+.jenkins-login-field label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--jenkins-login-text);
+  font-size: 15.2px;
+  font-weight: 500;
+}
+
+.jenkins-login-field > input,
+.jenkins-login-password input {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  padding: 9.6px 12px;
+  color: var(--jenkins-login-text);
+  border: 1px solid var(--jenkins-login-input-border);
+  border-radius: 10px;
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 8px transparent;
+  caret-color: var(--jenkins-login-accent);
+  font: inherit;
+  font-size: 15.2px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.jenkins-login-field > input:not(:disabled):hover,
+.jenkins-login-password input:not(:disabled):hover {
+  border-color: var(--jenkins-login-input-hover);
+}
+
+.jenkins-login-field > input:focus,
+.jenkins-login-password input:focus,
+.jenkins-login-language select:focus-visible {
+  border-color: var(--jenkins-login-accent);
+  box-shadow: 0 0 0 4px rgba(23, 105, 194, 0.16);
+}
+
+.jenkins-login-field > input[aria-invalid="true"],
+.jenkins-login-password input[aria-invalid="true"] {
+  border-color: var(--jenkins-login-error);
+}
+
+.jenkins-login-password {
+  position: relative;
+}
+
+.jenkins-login-password input {
+  padding-right: 48px;
+}
+
+.jenkins-login-password button {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  place-items: center;
+  color: var(--jenkins-login-secondary);
+  border: 0;
+  border-radius: 8px;
+  outline: none;
+  background: transparent;
+}
+
+.jenkins-login-password button:not(:disabled):hover {
+  color: var(--jenkins-login-accent);
+  background: #eef4fa;
+}
+
+.jenkins-login-password button:focus-visible,
+.jenkins-login-submit:focus-visible {
+  outline: 3px solid var(--jenkins-login-text);
+  outline-offset: 3px;
+}
+
+.jenkins-login-error {
+  padding: 11px 13px;
+  color: #a91f2b;
+  border: 1px solid #e9b7bd;
+  border-radius: 10px;
+  background: #fff3f4;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.jenkins-login-submit {
+  position: relative;
+  display: inline-flex;
+  width: 100%;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14.4px 16px;
+  color: #fff;
+  border: 0;
+  border-radius: 10px;
+  outline: none;
+  background: var(--jenkins-login-accent);
+  font: inherit;
+  font-size: 15.2px;
+  cursor: pointer;
+  transition: background 120ms ease, transform 80ms ease;
+}
+
+.jenkins-login-submit:not(:disabled):hover {
+  background: #0f5baa;
+}
+
+.jenkins-login-submit:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.jenkins-login-submit:disabled,
+.jenkins-login-page input:disabled,
+.jenkins-login-page select:disabled,
+.jenkins-login-page button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.jenkins-login-spinner {
+  flex: 0 0 auto;
+  transform-origin: center;
+  animation: jenkins-login-spin 800ms linear infinite;
+}
+
+.jenkins-login-help {
+  margin: 0;
+  color: var(--jenkins-login-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+
+@keyframes jenkins-login-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 600px) {
+  .jenkins-login-page {
+    align-items: start;
+    padding: 82px 20px 34px;
+  }
+
+  .jenkins-login-language {
+    top: 18px;
+    right: 20px;
+  }
+
+  .jenkins-login-language > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .jenkins-login-content {
+    margin-top: 0;
+  }
+
+  .jenkins-login-heading h1 {
+    font-size: 25.6px;
+  }
+
+  .jenkins-login-field > input,
+  .jenkins-login-password input {
+    font-size: 16px;
+  }
+}
+
+@media (max-height: 600px) {
+  .jenkins-login-page {
+    align-items: start;
+  }
+
+  .jenkins-login-content {
+    margin-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jenkins-login-spinner {
+    animation: none;
+  }
+
+  .jenkins-login-submit,
+  .jenkins-login-field > input,
+  .jenkins-login-password input {
+    transition: none;
+  }
+}

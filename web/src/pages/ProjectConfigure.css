@@ -1,17 +1,19 @@
 .jenkins-configure-page {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-columns: 340px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
   grid-template-areas:
-    "header header"
+    "left header"
     "left main";
-  min-height: calc(100vh - 52px);
+  min-height: calc(100dvh - 66px);
   color: #20242b;
-  background: #fff;
+  background: rgb(254, 254, 254);
+  font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .jenkins-configure-header {
   grid-area: header;
-  padding: 14px 20px 4px;
+  padding: 26px 26px 0;
 }
 
 .jenkins-configure-header nav {
@@ -34,8 +36,8 @@
 }
 
 .jenkins-configure-header h1 {
-  margin: 14px 0 0;
-  font-size: 23px;
+  margin: 0;
+  font-size: 24px;
   line-height: 1.25;
   letter-spacing: 0;
 }
@@ -44,8 +46,9 @@
   grid-area: left;
   align-self: start;
   position: sticky;
-  top: 64px;
-  padding: 12px 14px 24px;
+  top: 66px;
+  min-width: 0;
+  padding: 26px;
 }
 
 .jenkins-configure-nav {
@@ -74,11 +77,11 @@
 .jenkins-configure-main {
   grid-area: main;
   min-width: 0;
-  padding: 12px 30px 88px 16px;
+  padding: 26px 26px 88px;
 }
 
 .jenkins-configure-main form {
-  width: min(100%, 1300px);
+  width: 100%;
 }
 
 .jenkins-configure-section {
@@ -112,7 +115,7 @@
   align-items: center;
   gap: 10px;
   color: #20242b;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
 }
@@ -197,7 +200,7 @@
   gap: 7px;
   min-width: 0;
   color: #2c333d;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -290,7 +293,7 @@
   color: #242b34;
   background: #f5f7f9;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -314,6 +317,20 @@
   border-radius: 4px;
 }
 
+.jenkins-configure-editor[aria-invalid="true"],
+.jenkins-configure-fields input[aria-invalid="true"],
+.jenkins-configure-fields textarea[aria-invalid="true"],
+.jenkins-configure-fields select[aria-invalid="true"],
+.jenkins-configure-trigger input[aria-invalid="true"] {
+  border-color: #c62828;
+  box-shadow: 0 0 0 2px rgba(198, 40, 40, .14);
+}
+
+.jenkins-configure-editor:focus-visible {
+  outline: 2px solid rgba(11, 110, 229, .42);
+  outline-offset: 2px;
+}
+
 .jenkins-configure-disabled {
   display: flex;
   align-items: flex-start;
@@ -333,7 +350,7 @@
 
 .jenkins-configure-notice,
 .jenkins-configure-error {
-  width: min(100%, 1300px);
+  width: 100%;
   margin: 0 0 18px;
   padding: 10px 12px;
   border-left: 3px solid #168345;
@@ -361,6 +378,17 @@
   backdrop-filter: blur(8px);
 }
 
+.jenkins-configure-save-state {
+  margin-right: 4px;
+  color: #5f6977;
+  font-size: 13px;
+}
+
+.jenkins-configure-save-state.dirty {
+  color: #8a5b00;
+  font-weight: 600;
+}
+
 .jenkins-configure-actions .jenkins-configure-save {
   border-color: #0864d8;
   color: #fff;
@@ -372,7 +400,7 @@
   background: #075fc9;
 }
 
-@media (max-width: 800px) {
+@media (max-width: 900px) {
   .jenkins-configure-page {
     grid-template-columns: 1fr;
     grid-template-areas:

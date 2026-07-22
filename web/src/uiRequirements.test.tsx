@@ -12,8 +12,9 @@ import { PROJECT_GROUP_COLORS } from './lib/projectGroups'
 
 const indexStyles = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
 const jenkinsPageStyles = readFileSync(resolve(process.cwd(), 'src/jenkins-pages.css'), 'utf8')
+const jenkinsShellStyles = readFileSync(resolve(process.cwd(), 'src/jenkins-shell.css'), 'utf8')
 const settingsStyles = readFileSync(resolve(process.cwd(), 'src/settings.css'), 'utf8')
-const styles = `${indexStyles}\n${jenkinsPageStyles}`
+const styles = `${indexStyles}\n${jenkinsPageStyles}\n${jenkinsShellStyles}`
 const documentTemplate = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
 const entrypoint = readFileSync(resolve(process.cwd(), 'src/main.tsx'), 'utf8')
 
@@ -45,11 +46,11 @@ describe('requested UI contracts', () => {
 
   it('keeps the Jenkins-compatible masthead white and readable', () => {
     expect(styles).toMatch(/\.app-shell\s*\{[^}]*display:\s*block/)
-    expect(styles).toMatch(/\.app-topbar,\s*\[data-skin="jenkins"\] \.app-topbar\s*\{[^}]*height:\s*66px[^}]*background:\s*#ffffff/)
-    expect(styles).toMatch(/\.app-brand,\s*\[data-skin="jenkins"\] \.app-brand\s*\{[^}]*height:\s*66px[^}]*color:\s*#1f252c/)
-    expect(styles).toMatch(/\.topbar-dashboard-link,\s*\[data-skin="jenkins"\] \.topbar-dashboard-link\s*\{[^}]*display:\s*inline-flex[^}]*white-space:\s*nowrap/)
+    expect(styles).toMatch(/\.app-topbar,\s*\[data-skin="jenkins"\] \.app-topbar\s*\{[^}]*height:\s*66px[^}]*background:\s*#fefefe/)
+    expect(styles).toMatch(/\.app-brand,\s*\[data-skin="jenkins"\] \.app-brand\s*\{[^}]*height:\s*38px[^}]*color:\s*#0d1117/)
+    expect(styles).not.toContain('.topbar-dashboard-link,')
     expect(styles).toMatch(/\.account-menu-popover\s*\{[^}]*right:\s*0[^}]*background:\s*#ffffff/)
-    expect(contrast('#20242a', '#ffffff')).toBeGreaterThan(7)
+    expect(contrast('#0d1117', '#fefefe')).toBeGreaterThan(7)
 
     document.documentElement.dataset.skin = 'jenkins'
     installStyles(styles)
@@ -61,7 +62,7 @@ describe('requested UI contracts', () => {
     document.body.appendChild(topbar)
 
     expect(getComputedStyle(topbar).height).toBe('66px')
-    expect(getComputedStyle(brand).height).toBe('66px')
+    expect(getComputedStyle(brand).height).toBe('38px')
   })
 
   it('uses Jenkins as the only, pre-rendered interface skin', () => {
@@ -116,13 +117,18 @@ describe('requested UI contracts', () => {
   })
 
   it('keeps one document main landmark inside JenkinsPageShell', () => {
+    const breadcrumbHost = document.createElement('div')
+    breadcrumbHost.id = 'jenkins-header-breadcrumbs'
     const outerMain = document.createElement('main')
-    document.body.appendChild(outerMain)
+    document.body.append(breadcrumbHost, outerMain)
     const root = createRoot(outerMain)
     act(() => root.render(<MemoryRouter><JenkinsPageShell breadcrumbs={[{ label: 'Projects' }]} sidepanel={<span>Tasks</span>} sidepanelLabel="Tasks"><h1>Projects</h1></JenkinsPageShell></MemoryRouter>))
 
     expect(document.querySelectorAll('main')).toHaveLength(1)
     expect(outerMain.querySelector('.jenkins-context-main')?.tagName).toBe('DIV')
+    expect(outerMain.querySelector('.jenkins-context-breadcrumb')).toBeNull()
+    expect(breadcrumbHost.querySelector('.jenkins-context-breadcrumb')).not.toBeNull()
+    expect(breadcrumbHost.textContent).toContain('Projects')
 
     act(() => root.unmount())
   })

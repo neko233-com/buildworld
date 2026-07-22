@@ -170,7 +170,7 @@ describe('Dashboard Jenkins job view', () => {
     expect(headings[0]).toBe('S')
     expect(headings[1]).toBe('W')
     expect(headings[2]).toContain('名称')
-    expect(headings.slice(3)).toEqual(['最新构建 / 成功', '最新构建 / 失败', '耗时', ''])
+    expect(headings.slice(3)).toEqual(['最近成功构建', '最近失败构建', '耗时', ''])
     expect(table!.querySelector('[aria-label="状态"]')?.textContent).toBe('S')
     expect(table!.querySelector('[aria-label="成功率"]')?.textContent).toBe('W')
     const nameSort = table!.querySelector<HTMLButtonElement>('th[aria-sort="ascending"] button')
@@ -187,12 +187,12 @@ describe('Dashboard Jenkins job view', () => {
 
     const beta = rowFor(2)
     expect(beta.cells[3].textContent).toContain('#4')
-    expect(beta.cells[4].textContent).toBe('-')
+    expect(beta.cells[4].textContent).toBe('无')
     expect(beta.cells[5].textContent).toBe('2.5s')
 
     const zulu = rowFor(3)
-    expect(zulu.cells[3].textContent).toBe('-')
-    expect(zulu.cells[4].textContent).toBe('-')
+    expect(zulu.cells[3].textContent).toBe('无')
+    expect(zulu.cells[4].textContent).toBe('无')
     expect(zulu.cells[5].textContent).toBe('-')
     expect(zulu.querySelector('[role="img"][aria-label="暂无构建活动。"]')).not.toBeNull()
     expect(zulu.querySelector('[role="img"][aria-label="Zulu 成功率"]')).not.toBeNull()
@@ -253,6 +253,23 @@ describe('Dashboard Jenkins job view', () => {
     expect(container.querySelector('output[aria-label="current-location"]')?.textContent).toBe('/builds/901')
     expect(alphaBuild.disabled).toBe(false)
     expect(alphaBuild.getAttribute('aria-busy')).toBe('false')
+  })
+
+  it('labels parameterized jobs and routes them without queueing', async () => {
+    validateProject.mockImplementation(async id => ({
+      valid: true,
+      format: 'yaml',
+      stages: 1,
+      steps: 1,
+      parameters: id === 1 ? [{ name: 'ENV', type: 'choice', choices: ['dev'] }] : [],
+      allow_long_running: false,
+    }))
+    await renderDashboard()
+
+    await act(async () => buttonNamed('参数化构建 Alpha').click())
+
+    expect(triggerBuild).not.toHaveBeenCalled()
+    expect(container.querySelector('output[aria-label="current-location"]')?.textContent).toBe('/projects/1/build')
   })
 
   it('keeps disabled Jenkins jobs visible but prevents builds', async () => {

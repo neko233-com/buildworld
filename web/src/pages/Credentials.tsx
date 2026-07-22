@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { motion } from 'motion/react'
-import { Copy, Eye, EyeOff, KeyRound, Pencil, Plus, Server, ShieldCheck, Trash2, X } from 'lucide-react'
+import { Copy, Eye, EyeOff, KeyRound, LoaderCircle, Pencil, Plus, Server, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useApi } from '../hooks'
 import { api } from '../api'
 import { dialogs } from '../components/AppDialogs'
 import { ModalDialog } from '../components/ModalDialog'
+import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { PageState } from '../components/PageState'
 import { useI18n } from '../i18n'
+import './ManagementPages.jenkins.css'
 
 type CredentialType = 'ssh_key' | 'git'
 interface Credential {
@@ -60,8 +62,11 @@ export default function Credentials() {
   const [editing, setEditing] = useState<Credential | null>(null)
   const [form, setForm] = useState<FormData>(emptyForm)
   const [saving, setSaving] = useState(false)
+  const [deletingID, setDeletingID] = useState<number | null>(null)
+  const [revealingID, setRevealingID] = useState<number | null>(null)
   const [formError, setFormError] = useState('')
   const [revealed, setRevealed] = useState<Record<number, string>>({})
+  const breadcrumb = <JenkinsHeaderBreadcrumb breadcrumbs={[{ label: t('credentials.title') }]} />
 
   const openCreate = () => {
     setEditing(null)
@@ -88,6 +93,7 @@ export default function Credentials() {
   }
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (saving) return
     setSaving(true)
     setFormError('')
     try {
@@ -103,7 +109,9 @@ export default function Credentials() {
     }
   }
   const handleDelete = async (credential: Credential) => {
-    if (!await dialogs.confirm(t('credentials.deleteConfirm'), { title: t('credentials.deleteTitle'), action: t('common.delete') })) return
+    if (deletingID !== null) return
+    if (!await dialogs.confirm(t('credentials.deleteConfirmNamed').replace('{name}', credential.name), { title: t('credentials.deleteTitle'), action: t('common.delete') })) return
+    setDeletingID(credential.id)
     try {
       await api.deleteCredential(credential.id)
       setRevealed(current => {
@@ -114,9 +122,12 @@ export default function Credentials() {
       reload()
     } catch (reason: any) {
       dialogs.notify(reason.message || t('common.error'))
+    } finally {
+      setDeletingID(null)
     }
   }
   const toggleReveal = async (credential: Credential) => {
+    if (revealingID !== null || deletingID !== null) return
     if (revealed[credential.id] !== undefined) {
       setRevealed(current => {
         const next = { ...current }
@@ -125,11 +136,14 @@ export default function Credentials() {
       })
       return
     }
+    setRevealingID(credential.id)
     try {
       const full = await api.getCredential(credential.id, true)
       setRevealed(current => ({ ...current, [credential.id]: full.password || full.private_key || full.token || '' }))
     } catch (reason: any) {
       dialogs.notify(reason.message || t('credentials.revealFailed'))
+    } finally {
+      setRevealingID(null)
     }
   }
   const copySecret = async (secret: string) => {
@@ -141,18 +155,18 @@ export default function Credentials() {
     }
   }
 
-  if (loading) return <PageState />
-  if (error) return <PageState error={error} onRetry={reload} />
+  if (loading) return <>{breadcrumb}<section className="jenkins-management-page"><PageState /></section></>
+  if (error) return <>{breadcrumb}<section className="jenkins-management-page"><PageState error={error} onRetry={reload} /></section></>
 
   const list = credentials || []
   const hosts = new Set(list.map(credential => credential.host).filter(Boolean)).size
   const sshKeys = list.filter(credential => credential.type === 'ssh_key').length
 
-  return (
-    <motion.section className="operations-page credential-workbench" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+  return <>{breadcrumb}
+    <motion.section className="operations-page credential-workbench jenkins-management-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
       <header className="operations-heading">
         <div><p>{list.length} {t('credentials.registered')}</p><h1>{t('credentials.title')}</h1></div>
-        <div className="credential-heading-actions"><select className="operations-filter" aria-label={t('credentials.filter')} value={filterType} onChange={event => setFilterType(event.target.value)}><option value="">{t('credentials.allTypes')}</option>{credentialTypes.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select><button className="primary-command" type="button" onClick={openCreate}><Plus size={16} />{t('credentials.new')}</button></div>
+        <div className="credential-heading-actions"><select className="operations-filter" disabled={deletingID !== null} aria-label={t('credentials.filter')} value={filterType} onChange={event => setFilterType(event.target.value)}><option value="">{t('credentials.allTypes')}</option>{credentialTypes.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select><button className="primary-command" type="button" disabled={deletingID !== null} onClick={openCreate}><Plus size={16} />{t('credentials.new')}</button></div>
       </header>
 
       <section className="notification-summary credential-summary">
@@ -169,14 +183,16 @@ export default function Credentials() {
             {list.map(credential => {
               const hasSecret = Boolean(maskedSecret(credential))
               const secret = revealed[credential.id]
-              return <tr key={credential.id}>
-                <td><button className="entity-link" type="button" onClick={() => openEdit(credential)}><KeyRound size={16} /><span><strong>{credential.name}</strong><small>{credential.description || t('credentials.noDescription')}</small></span></button></td>
+              const deleting = deletingID === credential.id
+              const revealing = revealingID === credential.id
+              return <tr key={credential.id} aria-busy={deleting || revealing || undefined}>
+                <td><button className="entity-link" type="button" disabled={deletingID !== null} onClick={() => openEdit(credential)}><KeyRound size={16} /><span><strong>{credential.name}</strong><small>{credential.description || t('credentials.noDescription')}</small></span></button></td>
                 <td><span className={`credential-type ${credential.type}`}>{typeLabel(credential.type)}</span></td>
                 <td><code className="credential-host">{credential.host || '*'}</code></td>
                 <td className="muted-cell">{credential.username || '-'}</td>
-                <td>{!hasSecret ? <span className="muted-cell">{t('credentials.noSecret')}</span> : <div className="credential-secret">{secret !== undefined ? <code title={secret}>{secret || t('credentials.emptySecret')}</code> : <span>••••••••</span>}<button className="row-icon" type="button" title={secret !== undefined ? t('credentials.hide') : t('credentials.reveal')} aria-label={secret !== undefined ? t('credentials.hide') : t('credentials.reveal')} onClick={() => toggleReveal(credential)}>{secret !== undefined ? <EyeOff size={14} /> : <Eye size={14} />}</button>{secret !== undefined && secret && <button className="row-icon" type="button" title={t('common.copy')} aria-label={t('common.copy')} onClick={() => copySecret(secret)}><Copy size={14} /></button>}</div>}</td>
+                <td>{!hasSecret ? <span className="muted-cell">{t('credentials.noSecret')}</span> : <div className="credential-secret">{secret !== undefined ? <code>{secret || t('credentials.emptySecret')}</code> : <span>••••••••</span>}<button className="row-icon" type="button" disabled={revealingID !== null || deletingID !== null} aria-busy={revealing || undefined} title={secret !== undefined ? t('credentials.hide') : t('credentials.reveal')} aria-label={`${secret !== undefined ? t('credentials.hide') : t('credentials.reveal')}: ${credential.name}`} onClick={() => void toggleReveal(credential)}>{revealing ? <LoaderCircle className="timeline-spinner" size={14} /> : secret !== undefined ? <EyeOff size={14} /> : <Eye size={14} />}</button>{secret !== undefined && secret && <button className="row-icon" type="button" disabled={deletingID !== null} title={t('common.copy')} aria-label={`${t('common.copy')}: ${credential.name}`} onClick={() => void copySecret(secret)}><Copy size={14} /></button>}</div>}</td>
                 <td className="muted-cell">{credential.updated_at ? new Date(credential.updated_at).toLocaleString() : '-'}</td>
-                <td><div className="row-actions"><button className="row-icon" type="button" title={t('credentials.edit')} aria-label={t('credentials.edit')} onClick={() => openEdit(credential)}><Pencil size={15} /></button><button className="row-icon danger" type="button" title={t('common.delete')} aria-label={t('common.delete')} onClick={() => handleDelete(credential)}><Trash2 size={15} /></button></div></td>
+                <td><div className="row-actions"><button className="row-icon" type="button" disabled={deletingID !== null} title={t('credentials.edit')} aria-label={`${t('credentials.edit')}: ${credential.name}`} onClick={() => openEdit(credential)}><Pencil size={15} /></button><button className="row-icon danger" type="button" disabled={deletingID !== null || revealingID !== null} aria-busy={deleting || undefined} title={t('common.delete')} aria-label={`${t('common.delete')}: ${credential.name}`} onClick={() => void handleDelete(credential)}>{deleting ? <LoaderCircle className="timeline-spinner" size={15} /> : <Trash2 size={15} />}</button></div></td>
               </tr>
             })}
           </tbody>
@@ -184,7 +200,7 @@ export default function Credentials() {
       </section>
 
       {showEditor && <ModalDialog className="notification-editor credential-editor" ariaLabel={editing ? t('credentials.edit') : t('credentials.new')} busy={saving} onClose={() => setShowEditor(false)}>
-          <header><div><KeyRound size={18} /><div><h2>{editing ? t('credentials.edit') : t('credentials.new')}</h2><p>{t('credentials.editorHelp')}</p></div></div><button type="button" onClick={() => setShowEditor(false)} title={t('common.close')}><X size={18} /></button></header>
+          <header><div><KeyRound size={18} /><div><h2>{editing ? t('credentials.edit') : t('credentials.new')}</h2><p>{t('credentials.editorHelp')}</p></div></div><button type="button" disabled={saving} onClick={() => setShowEditor(false)} title={t('common.close')}><X size={18} /></button></header>
           <form className="notification-editor-form" onSubmit={handleSubmit}>
             <label>{t('credentials.name')}<input required autoFocus data-dialog-initial-focus value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
             <label>{t('credentials.type')}<select value={form.type} onChange={event => setForm({ ...form, type: event.target.value as CredentialType })}>{credentialTypes.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
@@ -198,10 +214,10 @@ export default function Credentials() {
               <label>{t('credentials.token')}<input type="password" autoComplete="new-password" value={form.token} onChange={event => setForm({ ...form, token: event.target.value })} /></label>
             </>}
             <label className="wide">{t('credentials.description')}<input value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} /></label>
-            {formError && <p className="form-error">{formError}</p>}
-            <footer><button type="button" onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}>{saving ? t('common.loading') : t('common.save')}</button></footer>
+            {formError && <p className="form-error" role="alert">{formError}</p>}
+            <footer><button type="button" disabled={saving} onClick={() => setShowEditor(false)}>{t('common.cancel')}</button><button type="submit" disabled={saving}>{saving ? <><LoaderCircle className="timeline-spinner" size={14} />{t('common.loading')}</> : t('common.save')}</button></footer>
           </form>
       </ModalDialog>}
     </motion.section>
-  )
+  </>
 }

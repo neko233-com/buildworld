@@ -17,6 +17,7 @@ type Confirmation = { message: string; title: string; action: string; resolve: (
 let nextNoticeID = 1
 let notices: Notice[] = []
 let confirmation: Confirmation | null = null
+let confirmationQueue: Confirmation[] = []
 let currentState: { notices: Notice[]; confirmation: Confirmation | null } = { notices, confirmation }
 const listeners = new Set<() => void>()
 
@@ -55,7 +56,9 @@ export const dialogs = {
   },
   confirm(message: string, options: { title?: string; action?: string } = {}) {
     return new Promise<boolean>(resolve => {
-      confirmation = { message, resolve, title: options.title || 'Confirm action', action: options.action || 'Confirm' }
+      const next = { message, resolve, title: options.title || 'Confirm action', action: options.action || 'Confirm' }
+      if (confirmation) confirmationQueue = [...confirmationQueue, next]
+      else confirmation = next
       emit()
     })
   },
@@ -80,7 +83,8 @@ export function AppDialogs() {
   }
   const resolveConfirmation = (accepted: boolean) => {
     const current = confirmation
-    confirmation = null
+    confirmation = confirmationQueue[0] || null
+    confirmationQueue = confirmationQueue.slice(1)
     emit()
     current?.resolve(accepted)
   }

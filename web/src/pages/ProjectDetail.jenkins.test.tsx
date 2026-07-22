@@ -17,6 +17,7 @@ vi.mock('../api', () => ({
     triggerBuild: vi.fn(),
     stopBuild: vi.fn(),
     deleteProject: vi.fn(),
+    updateProject: vi.fn(),
   },
 }))
 
@@ -29,11 +30,13 @@ vi.mock('../components/RunBuildDialog', () => ({
 
 const project = {
   id: 7,
-  name: 'server-game-go',
-  description: 'GAME Server',
-  repo_url: 'https://git.example.test/server-game-go.git',
+  name: 'Weather',
+  description: 'Weather checks',
+  repo_url: 'https://git.example.test/weather.git',
+  repo_type: 'git',
   default_branch: 'main',
   group_id: 3,
+  enabled: true,
   config: 'jobs:\n  build:\n    steps: []',
 }
 
@@ -61,6 +64,7 @@ describe('ProjectDetail Jenkins Job status', () => {
     vi.mocked(api.triggerBuild).mockResolvedValue({ id: 520 })
     vi.mocked(api.stopBuild).mockResolvedValue({})
     vi.mocked(api.deleteProject).mockResolvedValue({})
+    vi.mocked(api.updateProject).mockImplementation(async (_id, payload) => ({ id: 7, ...payload }))
     vi.mocked(dialogs.confirm).mockResolvedValue(true)
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -71,6 +75,8 @@ describe('ProjectDetail Jenkins Job status', () => {
     act(() => root.unmount())
     container.remove()
     localStorage.clear()
+    vi.useRealTimers()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
     vi.clearAllMocks()
     ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = false
   })
@@ -80,6 +86,8 @@ describe('ProjectDetail Jenkins Job status', () => {
       root.render(<MemoryRouter initialEntries={['/projects/7']}><Routes>
         <Route path="/projects/:id" element={<><ProjectDetail /><LocationProbe /></>} />
         <Route path="/projects" element={<LocationProbe />} />
+        <Route path="/projects/:id/configure" element={<LocationProbe />} />
+        <Route path="/projects/:id/build" element={<LocationProbe />} />
         <Route path="/builds/:id" element={<LocationProbe />} />
       </Routes></MemoryRouter>)
       await Promise.resolve()
@@ -99,9 +107,10 @@ describe('ProjectDetail Jenkins Job status', () => {
     expect(container.querySelector('.jenkins-job-layout')).not.toBeNull()
     expect(container.querySelector('a.active[href="/projects/7"]')?.textContent).toContain('Status')
     expect(container.querySelector('a[href="/projects/7/configure"]')?.textContent).toContain('Configure')
-    expect(container.querySelector('a[href="/projects/7/configure#jenkins-configure-general"]')?.textContent).toContain('Rename')
+    expect(container.querySelector('a[href="/projects/7/configure#jenkins-configure-general"]')?.textContent).not.toContain('Rename')
+    expect(button('Rename').tagName).toBe('BUTTON')
     expect(container.querySelector('a[href="/projects/7/configure#jenkins-configure-pipeline"]')?.textContent).toContain('Stages')
-    expect(container.querySelector('a[href="/builds?project=7"]')?.textContent).toContain('Changes')
+    expect(container.querySelector('a[href="/projects/7/changes"]')?.textContent).toContain('Changes')
     expect(container.querySelector('a[href="/builds/519"]')).not.toBeNull()
     expect(container.querySelector('a[href="/builds/518"]')).not.toBeNull()
     expect(container.querySelector('.jenkins-job-related')?.textContent).toContain('Last successful build')
@@ -179,13 +188,13 @@ describe('ProjectDetail Jenkins Job status', () => {
     expect(buildList.querySelector('a[href="/builds/970"]')).toBeNull()
   })
 
-  it('opens Build with Parameters for every parameterized Jenkins job', async () => {
+  it('routes every parameterized Jenkins job to Build with Parameters', async () => {
     vi.mocked(api.validateProject).mockResolvedValue({ valid: true, format: 'yaml', stages: 1, steps: 1, parameters: [{ name: 'ENV', type: 'choice', default: 'dev' }], allow_long_running: false })
     await renderPage()
 
-    await act(async () => button('Build Now').click())
+    await act(async () => button('Build with Parameters').click())
 
-    expect(container.querySelector('[role="dialog"][aria-label="custom-build"]')?.textContent).toBe('server-game-go')
+    expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/projects/7/build')
     expect(api.triggerBuild).not.toHaveBeenCalled()
   })
 
@@ -200,17 +209,87 @@ describe('ProjectDetail Jenkins Job status', () => {
     await act(async () => buildNow.click())
     expect(api.validateProject).not.toHaveBeenCalled()
     expect(api.triggerBuild).not.toHaveBeenCalled()
+
+    await act(async () => button('Enable Project').click())
+    expect(dialogs.confirm).not.toHaveBeenCalled()
+    expect(api.updateProject).toHaveBeenCalledWith(7, expect.objectContaining({ enabled: true, name: 'Weather' }))
   })
 
   it('stops active builds and deletes the job with confirmation', async () => {
     await renderPage()
 
     await act(async () => button('Stop build #519').click())
-    expect(dialogs.confirm).toHaveBeenCalled()
+    expect(dialogs.confirm).toHaveBeenCalledWith(expect.stringContaining('Weather #519'), expect.any(Object))
     expect(api.stopBuild).toHaveBeenCalledWith(519)
 
     await act(async () => button('Delete Pipeline').click())
+    expect(dialogs.confirm).toHaveBeenLastCalledWith(expect.stringContaining('Weather'), expect.any(Object))
     expect(api.deleteProject).toHaveBeenCalledWith(7)
     expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/projects')
+  })
+
+  it('renames, moves, and toggles the job with complete update payloads', async () => {
+    await renderPage()
+
+    await act(async () => button('Rename').click())
+    const renameDialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Rename project"]')!
+    const nameInput = renameDialog.querySelector<HTMLInputElement>('input')!
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(nameInput, 'Weather Nightly')
+    await act(async () => nameInput.dispatchEvent(new Event('input', { bubbles: true })))
+    await act(async () => renameDialog.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+
+    expect(api.updateProject).toHaveBeenCalledWith(7, expect.objectContaining({
+      name: 'Weather Nightly',
+      config: project.config,
+      repo_url: project.repo_url,
+      group_id: 3,
+      enabled: true,
+    }))
+    expect(document.querySelector('[role="dialog"][aria-label="Rename project"]')).toBeNull()
+
+    await act(async () => button('Move').click())
+    const moveDialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Move project"]')!
+    const groupSelect = moveDialog.querySelector<HTMLSelectElement>('select')!
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(groupSelect, '')
+    await act(async () => groupSelect.dispatchEvent(new Event('change', { bubbles: true })))
+    await act(async () => moveDialog.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(api.updateProject).toHaveBeenLastCalledWith(7, expect.objectContaining({ group_id: null, name: 'Weather Nightly' }))
+
+    vi.mocked(dialogs.confirm).mockResolvedValueOnce(true)
+    await act(async () => button('Disable Project').click())
+    expect(dialogs.confirm).toHaveBeenLastCalledWith(expect.stringContaining('Weather Nightly'), expect.objectContaining({ action: 'Disable Project' }))
+    expect(api.updateProject).toHaveBeenLastCalledWith(7, expect.objectContaining({ enabled: false, name: 'Weather Nightly', group_id: null }))
+    expect(button('Enable Project')).toBeDefined()
+  })
+
+  it('opens real Pipeline Syntax source and routes to the editor', async () => {
+    await renderPage()
+
+    await act(async () => button('Pipeline Syntax').click())
+    const syntaxDialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Pipeline Syntax"]')!
+    expect(syntaxDialog.querySelector('pre')?.textContent).toContain('jobs:')
+    const openEditor = Array.from(syntaxDialog.querySelectorAll<HTMLButtonElement>('button')).find(item => item.textContent === 'Open Pipeline Editor')!
+    await act(async () => openEditor.click())
+    expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/projects/7/configure')
+  })
+
+  it('polls active builds only while the page is visible', async () => {
+    vi.useFakeTimers()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    await renderPage()
+    expect(api.searchBuilds).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      vi.advanceTimersByTime(2_000)
+      await Promise.resolve()
+    })
+    expect(api.searchBuilds).toHaveBeenCalledTimes(2)
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    await act(async () => {
+      vi.advanceTimersByTime(2_000)
+      await Promise.resolve()
+    })
+    expect(api.searchBuilds).toHaveBeenCalledTimes(2)
   })
 })

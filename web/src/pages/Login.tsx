@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { Eye, EyeOff, LoaderCircle, LockKeyhole, Network, PackageCheck, Workflow } from 'lucide-react'
+import { Eye, EyeOff, LoaderCircle } from 'lucide-react'
 import { Navigate } from 'react-router-dom'
 import { api, setToken } from '../api'
 import { localeLabels, type Locale, useI18n } from '../i18n'
 import { BuildWorldMark } from '../components/BuildWorldMark'
-
-const capabilityIcons = [Workflow, Network, PackageCheck]
+import './Login.jenkins.css'
 
 export default function Login() {
   const { t, locale, locales, changeLocale } = useI18n()
@@ -32,70 +31,75 @@ export default function Login() {
     }
   }
 
-  return <main className="login-page">
-    <section className="login-context" aria-label={t('login.productOverview')}>
-      <div className="login-context-inner">
-        <div className="login-brand"><span><BuildWorldMark size={27} /></span><strong>{t('app.title')}</strong></div>
-        <div className="login-intro"><p>{t('login.eyebrow')}</p><h1>{t('login.heroTitle')}</h1><span>{t('login.heroDescription')}</span></div>
-        <div className="login-capabilities">
-          {[t('login.capabilityProjects'), t('login.capabilityWorkers'), t('login.capabilityPortability')].map((label, index) => {
-            const Icon = capabilityIcons[index]
-            return <div key={label}><Icon size={16} /><span>{label}</span></div>
-          })}
-        </div>
-      </div>
-    </section>
+  return <main className="jenkins-login-page">
+    <label className="jenkins-login-language" htmlFor="login-language">
+      <span>{t('shell.language')}</span>
+      <select id="login-language" value={locale} disabled={loading} onChange={event => changeLocale(event.target.value as Locale)}>
+        {locales.map(value => <option key={value} value={value}>{localeLabels[value]}</option>)}
+      </select>
+    </label>
 
-    <section className="login-panel">
-      <header className="login-toolbar">
-        <label htmlFor="login-language">{t('shell.language')}</label>
-        <select id="login-language" value={locale} onChange={event => changeLocale(event.target.value as Locale)}>
-          {locales.map(value => <option key={value} value={value}>{localeLabels[value]}</option>)}
-        </select>
+    <section className="jenkins-login-content" aria-labelledby="login-title">
+      <div className="jenkins-login-brand" aria-label={t('app.title')}>
+        <span><BuildWorldMark size={48} /></span>
+        <strong>{t('app.title')}</strong>
+      </div>
+
+      <header className="jenkins-login-heading">
+        <h1 id="login-title">{t('login.title')}</h1>
+        <p>{t('login.description')}</p>
       </header>
 
-      <div className="login-card">
-        <span className="login-card-icon"><LockKeyhole size={21} /></span>
-        <p>{t('login.welcome')}</p>
-        <h2>{t('login.title')}</h2>
-        <span className="login-card-description">{t('login.description')}</span>
+      <form className="jenkins-login-form" aria-busy={loading} onSubmit={handleLogin}>
+        {error && <div id="login-error" className="jenkins-login-error" role="alert">{error}</div>}
 
-        <form onSubmit={handleLogin}>
+        <div className="jenkins-login-field">
           <label htmlFor="login-username">{t('login.username')}</label>
           <input
             id="login-username"
             name="username"
             required
             autoFocus
+            disabled={loading}
             autoComplete="username"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? 'login-error' : undefined}
             value={username}
             onChange={event => setUsername(event.target.value)}
           />
+        </div>
 
+        <div className="jenkins-login-field">
           <label htmlFor="login-password">{t('login.password')}</label>
-          <div className="login-password-field">
+          <div className="jenkins-login-password">
             <input
               id="login-password"
               name="password"
               required
+              disabled={loading}
               type={showPassword ? 'text' : 'password'}
               autoComplete="current-password"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? 'login-error' : undefined}
               value={password}
               onChange={event => setPassword(event.target.value)}
             />
-            <button type="button" onClick={() => setShowPassword(value => !value)} title={showPassword ? t('login.hidePassword') : t('login.showPassword')} aria-label={showPassword ? t('login.hidePassword') : t('login.showPassword')}>
+            <button type="button" disabled={loading} onClick={() => setShowPassword(value => !value)} title={showPassword ? t('login.hidePassword') : t('login.showPassword')} aria-label={showPassword ? t('login.hidePassword') : t('login.showPassword')}>
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
+        </div>
 
-          {error && <p className="login-error" role="alert">{error}</p>}
-          <button className="login-submit" type="submit" disabled={loading || !username.trim() || !password}>
-            {loading ? <LoaderCircle className="timeline-spinner" size={16} /> : <LockKeyhole size={16} />}
-            {loading ? t('login.signingIn') : t('login.signIn')}
-          </button>
-        </form>
-        <small>{t('login.accountHelp')}</small>
-      </div>
+        <button className="jenkins-login-submit" type="submit" disabled={loading || !username.trim() || !password}>
+          {loading && <LoaderCircle className="jenkins-login-spinner" size={17} aria-hidden="true" />}
+          {loading ? t('login.signingIn') : t('login.signIn')}
+        </button>
+      </form>
+
+      <p className="jenkins-login-help">{t('login.accountHelp')}</p>
     </section>
   </main>
 }

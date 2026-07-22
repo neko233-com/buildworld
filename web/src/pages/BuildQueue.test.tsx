@@ -83,6 +83,39 @@ describe('BuildQueue active refresh', () => {
     expect(listBuildQueue).toHaveBeenCalledTimes(2)
   })
 
+  it('renders the waiting queue as a Jenkins table with status icons', async () => {
+    await renderQueue()
+
+    expect(container.querySelector('.jenkins-build-queue-page')).not.toBeNull()
+    expect(container.querySelector('caption')?.textContent).toMatch(/构建进行中|Builds in Progress/)
+    expect(container.querySelector('.jenkins-page-heading-count')?.textContent).toBe('2')
+    expect(container.querySelectorAll('.build-queue-table tbody tr')).toHaveLength(2)
+    expect(container.querySelectorAll('.build-queue-table .jenkins-build-state.pending > i')).toHaveLength(2)
+    expect(container.querySelector('.build-queue-table .build-status')).toBeNull()
+  })
+
+  it('keeps refresh feedback visible until the replacement queue arrives', async () => {
+    await renderQueue()
+    let resolveQueue!: (queue: typeof activeQueue) => void
+    listBuildQueue.mockReturnValueOnce(new Promise(resolve => { resolveQueue = resolve }))
+    const refresh = container.querySelector<HTMLButtonElement>('.jenkins-page-heading .secondary-command')!
+
+    await act(async () => {
+      refresh.click()
+      await Promise.resolve()
+    })
+    expect(refresh.disabled).toBe(true)
+    expect(refresh.getAttribute('aria-busy')).toBe('true')
+    expect(refresh.querySelector('svg.timeline-spinner')).not.toBeNull()
+
+    await act(async () => {
+      resolveQueue(activeQueue)
+      await Promise.resolve()
+    })
+    expect(refresh.disabled).toBe(false)
+    expect(refresh.getAttribute('aria-busy')).toBe('false')
+  })
+
   it('clears active polling when the page unmounts', async () => {
     vi.useFakeTimers()
     await renderQueue()

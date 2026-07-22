@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
-import { Activity, ChevronLeft, ChevronRight, FileClock, FileText, FolderTree, LayoutDashboard, Pin, PinOff, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
+import { Activity, ChevronLeft, ChevronRight, FileClock, FileText, FolderTree, LayoutDashboard, LoaderCircle, Pin, PinOff, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { api } from '../api'
@@ -12,6 +12,7 @@ import { PageState } from '../components/PageState'
 import { formatDuration } from '../lib/durationPresentation'
 import { activeBuildFilterCount, readBuildSearchParams } from '../lib/buildSearch'
 import JenkinsPageShell from '../components/JenkinsPageShell'
+import ReplayBuildDialog, { type ReplayBuildTarget } from '../components/ReplayBuildDialog'
 
 const buildStatuses = ['', 'running', 'failed', 'success', 'pending', 'pending_approval', 'cancelled', 'rejected']
 const buildTriggers = ['', 'manual', 'retry', 'webhook', 'schedule', 'http', 'api']
@@ -28,6 +29,7 @@ export default function Builds() {
   const { data: projects } = useApi(() => api.listProjects())
   const [pinning, setPinning] = useState<number | null>(null)
   const [retrying, setRetrying] = useState<number | null>(null)
+  const [replayTarget, setReplayTarget] = useState<ReplayBuildTarget | null>(null)
   const [queryDraft, setQueryDraft] = useState(filters.q)
   const [branchDraft, setBranchDraft] = useState(filters.branch)
   const projectMap = new Map((projects || []).map(project => [project.id, project.name]))
@@ -78,18 +80,6 @@ export default function Builds() {
     setSearchParams(next)
   }
 
-  const handleRetry = async (buildId: number) => {
-    setRetrying(buildId)
-    try {
-      const retried = await api.retryBuild(buildId)
-      navigate(`/builds/${retried.id}`)
-    } catch (reason: any) {
-      dialogs.notify(reason.message || t('common.error'))
-    } finally {
-      setRetrying(null)
-    }
-  }
-
   const handlePin = async (buildId: number, currentPinned: boolean) => {
     setPinning(buildId)
     try {
@@ -124,7 +114,7 @@ export default function Builds() {
     >
     <div className="operations-page build-history-page">
     <header className="jenkins-page-heading">
-      <div><p>{result?.total || 0}</p><h1>{t('builds.title')}</h1></div>
+      <div><p className="jenkins-page-heading-count">{result?.total || 0}</p><h1>{t('builds.title')}</h1></div>
       <div className="build-history-summary"><SlidersHorizontal size={15} /><span>{filterCount ? t('builds.activeFilters').replace('{count}', String(filterCount)) : t('builds.allBuilds')}</span></div>
     </header>
 
@@ -146,18 +136,19 @@ export default function Builds() {
     {error && <div className="build-history-inline-error" role="alert"><span>{error}</span><button type="button" onClick={reload}>{t('common.retry')}</button></div>}
     <section className="operations-table-wrap build-history-results" aria-busy={loading}>
       <table className="operations-table builds-table">
+        <caption className="sr-only">{t('builds.title')}</caption>
         <thead><tr><th>{t('builds.buildNumber')}</th><th>{t('builds.project')}</th><th>{t('builds.status')}</th><th>{t('builds.trigger')}</th><th>{t('builds.branch')}</th><th>{t('builds.commit')}</th><th>{t('builds.duration')}</th><th aria-label={t('projects.actions')} /></tr></thead>
         <tbody>
           {!list.length && <tr><td colSpan={8} className="operations-empty"><FileText size={18} />{filterCount ? t('builds.noMatchingBuilds') : t('builds.noBuilds')}</td></tr>}
           {list.map(build => <tr key={build.id}>
             <td><Link className="build-number build-number-link" to={`/builds/${build.id}`}>{build.pinned && <Pin size={13} />}#{build.number}</Link></td>
             <td><Link className="entity-text-link" to={`/projects/${build.project_id}`}>{projectMap.get(build.project_id) || `#${build.project_id}`}</Link></td>
-            <td><span className={`build-status ${buildStatusTone(build.status)}`}>{buildStatusLabel(t, build.status)}</span></td>
+            <td><span className={`jenkins-build-state ${buildStatusTone(build.status)}`}>{build.status === 'running' ? <LoaderCircle className="timeline-spinner" size={20} aria-hidden="true" /> : <i aria-hidden="true" />}<span>{buildStatusLabel(t, build.status)}</span></span></td>
             <td className="muted-cell">{buildTriggerLabel(t, build.trigger)}</td>
             <td className="branch-cell">{build.branch || '-'}</td>
             <td><code>{build.commit_sha?.slice(0, 8) || '-'}</code></td>
             <td className="muted-cell">{formatDuration(build.duration_ms)}</td>
-            <td><div className="row-actions">{editable && <><button type="button" className="row-icon" disabled={retrying === build.id || ['running', 'pending', 'pending_approval'].includes(build.status)} title={t('builds.retryBuild')} aria-label={`${t('builds.retryBuild')} #${build.number}`} onClick={() => handleRetry(build.id)}><RotateCcw size={15} /></button><button type="button" className={`row-icon ${build.pinned ? 'selected' : ''}`} disabled={pinning === build.id} title={build.pinned ? t('builds.unpin') : t('builds.pin')} aria-label={`${build.pinned ? t('builds.unpin') : t('builds.pin')} #${build.number}`} onClick={() => handlePin(build.id, !!build.pinned)}>{build.pinned ? <PinOff size={15} /> : <Pin size={15} />}</button></>}<Link className="row-icon" title={t('builds.openBuild')} aria-label={`${t('builds.openBuild')} #${build.number}`} to={`/builds/${build.id}`}><FileText size={15} /></Link></div></td>
+            <td><div className="row-actions">{editable && <><button type="button" className="row-icon" disabled={retrying === build.id || replayTarget?.id === build.id || ['running', 'pending', 'queued', 'pending_approval'].includes(build.status)} aria-busy={retrying === build.id} title={t('builds.replay')} aria-label={`${t('builds.replay')} ${projectMap.get(build.project_id) || `#${build.project_id}`} #${build.number}`} onClick={() => setReplayTarget({ id: build.id, number: build.number, projectId: build.project_id, projectName: projectMap.get(build.project_id) || `#${build.project_id}`, branch: build.branch })}>{retrying === build.id ? <LoaderCircle className="timeline-spinner" size={16} /> : <RotateCcw size={16} />}</button><button type="button" className={`row-icon ${build.pinned ? 'selected' : ''}`} disabled={pinning === build.id} aria-busy={pinning === build.id} title={build.pinned ? t('builds.unpin') : t('builds.pin')} aria-label={`${build.pinned ? t('builds.unpin') : t('builds.pin')} #${build.number}`} onClick={() => handlePin(build.id, !!build.pinned)}>{pinning === build.id ? <LoaderCircle className="timeline-spinner" size={16} /> : build.pinned ? <PinOff size={16} /> : <Pin size={16} />}</button></>}<Link className="row-icon" title={t('builds.openBuild')} aria-label={`${t('builds.openBuild')} #${build.number}`} to={`/builds/${build.id}`}><FileText size={16} /></Link></div></td>
           </tr>)}
         </tbody>
       </table>
@@ -172,5 +163,12 @@ export default function Builds() {
     </section>
     </div>
     </JenkinsPageShell>
+    {replayTarget && <ReplayBuildDialog
+      target={replayTarget}
+      loadDetails
+      onBusyChange={busy => setRetrying(busy ? replayTarget.id : null)}
+      onClose={() => setReplayTarget(null)}
+      onReplayed={replayedID => { setReplayTarget(null); navigate(`/builds/${replayedID}`) }}
+    />}
   </motion.div>
 }

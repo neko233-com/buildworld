@@ -1,19 +1,17 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import {
+  BookTemplate,
   ChevronDown,
-  FileClock,
   FolderKanban,
   GitBranch,
   History,
   LoaderCircle,
   Plus,
   RotateCw,
-  ServerCog,
-  Settings2,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
-import { canEdit, isAdmin } from '../authz'
+import { canEdit } from '../authz'
 import { useI18n } from '../i18n'
 import { buildStatusLabel } from '../lib/buildPresentation'
 
@@ -55,7 +53,6 @@ function errorMessage(reason: unknown, fallback: string): string {
 export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsHomeRailProps) {
   const { t } = useI18n()
   const authorizedToEdit = useMemo(() => canEdit(), [])
-  const authorizedToManage = useMemo(() => isAdmin(), [])
   const editable = editableOverride ?? authorizedToEdit
   const queuePanelId = useId()
   const agentsPanelId = useId()
@@ -130,22 +127,21 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
   const quickLinks = [
     { to: '/projects/new', label: t('projects.newProject'), Icon: Plus, editOnly: true },
     { to: '/builds', label: t('nav.builds'), Icon: History, editOnly: false },
+    { to: '/templates', label: t('nav.templates'), Icon: BookTemplate, editOnly: false },
     { to: '/projects', label: t('nav.projects'), Icon: FolderKanban, editOnly: false },
     { to: '/vcs-roots', label: t('nav.vcsRoots'), Icon: GitBranch, editOnly: false },
-    { to: '/settings', label: t('nav.settings'), Icon: Settings2, editOnly: false, adminOnly: true },
   ]
   const queueList = (queue || []).filter(item => item.build_id !== undefined && item.build_id !== null).slice(0, 3)
-  const agentList = (agents || []).slice(0, 3)
-  const onlineAgents = (agents || []).filter(agent => agent.status === 'online').length
   const activeCapacity = (agents || []).reduce((total, agent) => total + count(agent.active_builds), 0)
   const totalCapacity = (agents || []).reduce((total, agent) => total + count(agent.max_concurrent_builds), 0)
+  const agentList = (agents || []).filter(agent => count(agent.active_builds) > 0).slice(0, 3)
 
   return (
     <aside className="jenkins-rail-root" aria-label={t('shell.quickAccess')}>
       <nav className="jenkins-rail-links" aria-label={t('shell.quickAccess')}>
-        {quickLinks.filter(item => (editable || !item.editOnly) && (!item.adminOnly || authorizedToManage)).map(({ to, label, Icon }) => (
+        {quickLinks.filter(item => editable || !item.editOnly).map(({ to, label, Icon }) => (
           <Link className="jenkins-rail-link" to={to} key={to}>
-            <Icon size={15} aria-hidden="true" />
+            <Icon size={20} aria-hidden="true" />
             <span className="jenkins-rail-link-label">{label}</span>
           </Link>
         ))}
@@ -173,9 +169,7 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
           <section className="jenkins-rail-panel">
             <header className="jenkins-rail-panel-header">
               <Link className="jenkins-rail-panel-link" to="/build-queue">
-                <FileClock size={15} aria-hidden="true" />
                 <span className="jenkins-rail-panel-title">{t('nav.buildQueue')}</span>
-                <span className="jenkins-rail-panel-count">{(queue || []).length}</span>
               </Link>
               <button
                 className="jenkins-rail-panel-toggle"
@@ -214,9 +208,8 @@ export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsH
           <section className="jenkins-rail-panel">
             <header className="jenkins-rail-panel-header">
               <Link className="jenkins-rail-panel-link" to="/agents">
-                <ServerCog size={15} aria-hidden="true" />
                 <span className="jenkins-rail-panel-title">{t('agents.title')}</span>
-                <span className="jenkins-rail-panel-count">{onlineAgents} / {(agents || []).length}</span>
+                <span className="jenkins-rail-panel-count">{activeCapacity} / {totalCapacity}</span>
               </Link>
               <button
                 className="jenkins-rail-panel-toggle"

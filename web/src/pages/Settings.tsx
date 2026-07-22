@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import {
   Activity, AlertTriangle, Bot, Check, CheckCircle2, ChevronRight, CircleGauge, Clipboard,
   Clock3, Code2, Copy, Database, Download, FileCode2, FileJson, HardDrive, Info, KeyRound,
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import { dialogs } from '../components/AppDialogs'
+import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { PageState } from '../components/PageState'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
@@ -25,6 +26,7 @@ import {
   type PortabilityCapability,
   type SettingsSection,
 } from '../lib/portabilitySelection'
+import './ManagementPages.jenkins.css'
 
 type SettingsMap = Record<string, string>
 type AgentPlatform = 'linux' | 'windows'
@@ -111,10 +113,14 @@ function Toggle({ checked, onChange, label, description, id }: {
   description?: string
   id?: string
 }) {
-  return <label className="settings-toggle-row">
-    <span><strong>{label}</strong>{description && <small>{description}</small>}</span>
-    <button id={id} type="button" role="switch" aria-checked={checked} className={`settings-switch ${checked ? 'on' : ''}`} onClick={() => onChange(!checked)}><i /></button>
-  </label>
+  const generatedID = useId()
+  const controlID = id || `settings-switch-${generatedID.replaceAll(':', '')}`
+  const labelID = `${controlID}-label`
+  const descriptionID = description ? `${controlID}-description` : undefined
+  return <div className="settings-toggle-row">
+    <span><strong id={labelID}>{label}</strong>{description && <small id={descriptionID}>{description}</small>}</span>
+    <button id={controlID} type="button" role="switch" aria-labelledby={labelID} aria-describedby={descriptionID} aria-checked={checked} className={`settings-switch ${checked ? 'on' : ''}`} onClick={() => onChange(!checked)}><i /></button>
+  </div>
 }
 
 function SectionHeading({ icon: Icon, title, description, action }: {
@@ -561,27 +567,17 @@ ${steps.join(',\n')}
     .map(group => ({ ...group, items: visibleSettings.filter(item => group.items.includes(item.id)) }))
     .filter(group => group.items.length > 0)
   const currentNavigation = section === 'overview' ? null : navigation.find(item => item.id === section) || null
+  const breadcrumbs = currentNavigation
+    ? [{ label: t('settings.title'), to: '/settings' }, { label: currentNavigation.label }]
+    : [{ label: t('settings.title') }]
 
-  if (loading || !initialized) return <PageState />
-  if (error) return <PageState error={error} onRetry={reload} />
+  if (loading || !initialized) return <><JenkinsHeaderBreadcrumb breadcrumbs={breadcrumbs} /><section className="jenkins-management-page"><PageState /></section></>
+  if (error) return <><JenkinsHeaderBreadcrumb breadcrumbs={breadcrumbs} /><section className="jenkins-management-page"><PageState error={error} onRetry={reload} /></section></>
 
-  return <motion.section className="settings-center" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
-    <nav className="settings-breadcrumbs" aria-label="Breadcrumb">
-      <Link to="/">{t('dashboard.title')}</Link>
-      <ChevronRight size={13} aria-hidden="true" />
-      {currentNavigation ? <>
-        <button type="button" onClick={() => changeSection('overview')}>{t('settings.title')}</button>
-        <ChevronRight size={13} aria-hidden="true" />
-        <span aria-current="page">{currentNavigation.label}</span>
-      </> : <span aria-current="page">{t('settings.title')}</span>}
-    </nav>
+  return <><JenkinsHeaderBreadcrumb breadcrumbs={breadcrumbs} /><motion.section className="settings-center jenkins-management-page" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
 
     {section === 'overview' ? <header className="settings-page-heading">
       <div><h1>{t('settings.title')}</h1><p>{t('settings.description')}</p></div>
-      <div className="settings-save-area">
-        <span className={dirty ? 'dirty' : saved ? 'saved' : ''}>{dirty ? t('settings.unsaved') : saved ? t('settings.saved') : t('settings.upToDate')}</span>
-        <button className="primary-command" onClick={handleSave} disabled={!dirty || saving}>{saving ? <RefreshCw className="spin" size={15} /> : <Save size={15} />}{saving ? t('settings.saving') : t('settings.saveChanges')}</button>
-      </div>
     </header> : <div className="settings-detail-toolbar">
       <button type="button" className="settings-back-link" onClick={() => changeSection('overview')}>{t('settings.title')}</button>
       <div className="settings-save-area">
@@ -700,5 +696,5 @@ ${steps.join(',\n')}
         </div>}
       </div>
     </div>}
-  </motion.section>
+  </motion.section></>
 }

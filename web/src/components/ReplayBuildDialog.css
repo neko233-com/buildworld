@@ -1,0 +1,59 @@
+.jenkins-replay-dialog {
+  width: min(640px, 100%);
+  color: #333;
+  border: 1px solid #c7c7c7;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 18px 54px rgba(0, 0, 0, .24);
+  font-size: 14px;
+}
+
+.jenkins-replay-dialog header {
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom-color: #e7e7e7;
+}
+
+.jenkins-replay-dialog header > div { align-items: flex-start; gap: 12px; }
+.jenkins-replay-dialog header > div > svg { margin-top: 2px; color: #1675d1; }
+.jenkins-replay-dialog h2 { color: #222; font-size: 20px; font-weight: 650; }
+.jenkins-replay-dialog header p { margin-top: 5px; color: #666; font-size: 13px; line-height: 1.45; }
+.jenkins-replay-dialog header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 7px; }
+.jenkins-replay-dialog header button:hover:not(:disabled) { color: #222; background: #f1f1f1; }
+
+.jenkins-replay-body { display: grid; gap: 14px; padding: 20px 24px 22px; }
+.jenkins-replay-source { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: center; min-height: 44px; padding: 0 14px; border: 1px solid #dedede; border-radius: 8px; background: #fafafa; }
+.jenkins-replay-source span { color: #666; font-size: 12px; }
+.jenkins-replay-source strong { overflow: hidden; color: #222; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+
+.jenkins-replay-summary { display: grid; gap: 1px; overflow: hidden; border: 1px solid #dedede; border-radius: 8px; background: #dedede; }
+.jenkins-replay-summary > section { padding: 14px; background: #fff; }
+.jenkins-replay-summary > section > div:first-child { display: flex; align-items: center; gap: 7px; color: #666; font-size: 12px; font-weight: 600; }
+.jenkins-replay-summary > section > div:first-child svg { color: #1675d1; }
+.jenkins-replay-summary > section > strong { display: block; margin-top: 8px; color: #222; }
+.jenkins-replay-summary p { margin: 8px 0 0; color: #777; font-size: 13px; }
+.jenkins-replay-summary dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0 0; }
+.jenkins-replay-summary dl > div { min-width: 0; padding: 9px 10px; border: 1px solid #e4e4e4; border-radius: 6px; background: #fafafa; }
+.jenkins-replay-summary dt { overflow: hidden; color: #666; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.jenkins-replay-summary dd { margin: 4px 0 0; overflow: hidden; color: #222; text-overflow: ellipsis; white-space: nowrap; }
+.jenkins-replay-summary code { font-size: 12px; }
+
+.jenkins-replay-state { display: flex; min-height: 106px; align-items: center; justify-content: center; gap: 8px; color: #555; border: 1px solid #dedede; border-radius: 8px; background: #fafafa; }
+.jenkins-replay-state.error { flex-direction: column; color: #b51f2e; border-color: #edc4c8; background: #fff5f6; }
+.jenkins-replay-state.error button { min-height: 32px; padding: 0 12px; color: #333; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
+.jenkins-replay-submit-error { padding: 10px 12px; color: #b51f2e; border: 1px solid #edc4c8; border-radius: 7px; background: #fff5f6; font-size: 13px; }
+
+.jenkins-replay-dialog footer { padding: 15px 24px; border-top-color: #e7e7e7; }
+.jenkins-replay-dialog footer button { display: inline-flex; min-width: 82px; height: 36px; align-items: center; justify-content: center; gap: 7px; border-radius: 7px; font-size: 14px; font-weight: 600; }
+.jenkins-replay-dialog footer button:last-child { border-color: #1675d1; background: #1675d1; }
+.jenkins-replay-dialog footer button:last-child:hover:not(:disabled) { border-color: #0b5fad; background: #0b5fad; }
+
+@media (max-width: 620px) {
+  .jenkins-replay-dialog header, .jenkins-replay-body, .jenkins-replay-dialog footer { padding-right: 16px; padding-left: 16px; }
+  .jenkins-replay-source { grid-template-columns: 1fr; gap: 4px; padding-top: 9px; padding-bottom: 9px; }
+  .jenkins-replay-summary dl { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jenkins-replay-dialog .timeline-spinner { animation: none; }
+}

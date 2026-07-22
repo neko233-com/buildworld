@@ -8,14 +8,14 @@ type BuildStatusBadgeProps = {
 
 export function BuildStatusBadge({ status, label }: BuildStatusBadgeProps) {
   const tone = buildStatusTone(status)
-  const running = tone === 'running'
+  const live = ['running', 'pending', 'queued', 'pending_approval'].includes((status || '').toLowerCase())
 
   return <span
-    className={`build-status ${tone}${running ? ' build-status-live' : ''}`}
-    role={running ? 'status' : undefined}
-    aria-live={running ? 'polite' : undefined}
+    className={`build-status ${tone}${live ? ' build-status-live' : ''}`}
+    role={live ? 'status' : undefined}
+    aria-live={live ? 'polite' : undefined}
   >
-    {running && <LoaderCircle className="timeline-spinner build-status-spinner" size={11} strokeWidth={2.2} aria-hidden="true" />}
+    {live && <LoaderCircle className="timeline-spinner build-status-spinner" size={11} strokeWidth={2.2} aria-hidden="true" />}
     <span>{label}</span>
   </span>
 }

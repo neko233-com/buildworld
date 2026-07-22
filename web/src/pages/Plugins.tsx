@@ -5,8 +5,10 @@ import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { isAdmin } from '../authz'
 import { dialogs } from '../components/AppDialogs'
+import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { ModalDialog } from '../components/ModalDialog'
 import { PageState } from '../components/PageState'
+import './ManagementPages.jenkins.css'
 
 type Filter = 'all' | 'enabled' | 'disabled'
 
@@ -28,6 +30,7 @@ export default function Plugins() {
   const { t } = useI18n()
   const admin = isAdmin()
   const p = (key: string) => t(`pluginRegistry.${key}`)
+  const breadcrumb = <JenkinsHeaderBreadcrumb breadcrumbs={[{ label: p('title') }]} />
   const { data: plugins, loading, error, reload } = useApi(() => api.listPlugins())
   const [source, setSource] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
@@ -100,11 +103,11 @@ export default function Plugins() {
     }
   }
 
-  if (loading) return <PageState />
-  if (error) return <PageState error={error} onRetry={reload} />
+  if (loading) return <>{breadcrumb}<section className="jenkins-management-page"><PageState /></section></>
+  if (error) return <>{breadcrumb}<section className="jenkins-management-page"><PageState error={error} onRetry={reload} /></section></>
 
   return (
-    <main className="plugin-registry">
+    <>{breadcrumb}<section className="plugin-registry jenkins-management-page">
       <header className="plugin-registry-heading">
         <div>
           <h1>{p('title')}</h1>
@@ -151,6 +154,6 @@ export default function Plugins() {
       </section>
 
       {pendingDelete && <ModalDialog ariaLabel={p('removeTitle')} busy={busyDelete} onClose={() => setPendingDelete(null)}><header><div><Trash2 size={18} /><div><h2>{p('removeTitle')} {pendingDelete.name}</h2><p>{p('removeDescription')}</p></div></div><button type="button" onClick={() => setPendingDelete(null)} title={t('common.close')} aria-label={t('common.close')}><X size={18} /></button></header><footer><button type="button" data-dialog-initial-focus disabled={busyDelete} onClick={() => setPendingDelete(null)}>{t('common.cancel')}</button><button type="button" className="danger-action" disabled={busyDelete} onClick={deletePlugin}>{busyDelete ? p('removing') : p('remove')}</button></footer></ModalDialog>}
-    </main>
+    </section></>
   )
 }

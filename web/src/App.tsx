@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
 import { MotionConfig } from 'motion/react'
 import { BrowserRouter, Navigate, NavLink, Outlet, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { localeLabels, type Locale, useI18n } from './i18n'
@@ -11,7 +11,7 @@ import { CommandPalette, type CommandPaletteGroup } from './components/CommandPa
 import { RouteErrorBoundary } from './components/RouteErrorBoundary'
 import InAppNotifications from './components/InAppNotifications'
 import { PageState } from './components/PageState'
-import { Activity, Bell, Boxes, ChevronDown, CircleUserRound, ClipboardList, CloudOff, Cog, FileClock, Gauge, GitBranch, KeyRound, LayoutDashboard, LogOut, Network, Search, Settings2, ShieldCheck, SlidersHorizontal, TerminalSquare, UsersRound } from 'lucide-react'
+import { Activity, Bell, BookTemplate, Boxes, CircleUserRound, ClipboardList, CloudOff, Cog, FileClock, Gauge, GitBranch, KeyRound, LayoutDashboard, LogOut, Network, Search, Settings2, ShieldCheck, SlidersHorizontal, TerminalSquare, UsersRound } from 'lucide-react'
 import { buildStatusLabel } from './lib/buildPresentation'
 import './jenkins-shell.css'
 
@@ -19,6 +19,8 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Projects = lazy(() => import('./pages/Projects'))
 const ProjectDetail = lazy(() => import('./pages/ProjectDetail'))
 const ProjectConfigure = lazy(() => import('./pages/ProjectConfigure'))
+const ProjectChanges = lazy(() => import('./pages/ProjectChanges'))
+const ProjectBuildWithParameters = lazy(() => import('./pages/ProjectBuildWithParameters'))
 const CreateProject = lazy(() => import('./pages/CreateProject'))
 const Builds = lazy(() => import('./pages/Builds'))
 const BuildDetail = lazy(() => import('./pages/BuildDetail'))
@@ -29,6 +31,7 @@ const Settings = lazy(() => import('./pages/Settings'))
 const Users = lazy(() => import('./pages/Users'))
 const Credentials = lazy(() => import('./pages/Credentials'))
 const VCSRoots = lazy(() => import('./pages/VCSRoots'))
+const Templates = lazy(() => import('./pages/Templates'))
 const Notifications = lazy(() => import('./pages/Notifications'))
 const Statistics = lazy(() => import('./pages/Statistics'))
 const AuditLog = lazy(() => import('./pages/AuditLog'))
@@ -44,10 +47,70 @@ export const WORKSPACE_NAV_ITEMS = [
   { href: '/projects', labelKey: 'nav.projects', icon: Boxes },
   { href: '/build-queue', labelKey: 'nav.buildQueue', icon: FileClock },
   { href: '/builds', labelKey: 'nav.builds', icon: Activity },
+  { href: '/templates', labelKey: 'nav.templates', icon: BookTemplate },
   { href: '/vcs-roots', labelKey: 'nav.vcsRoots', icon: GitBranch },
 ] as const
 
-function Layout() {
+const ACCOUNT_MENU_FOCUSABLE = [
+  'select:not(:disabled)',
+  'a[href]',
+  'button:not(:disabled)',
+  'input:not(:disabled):not([type="hidden"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
+type RouteFocusResult = 'heading' | 'fallback' | 'pending' | 'blocked'
+
+export function focusRouteContent(container: HTMLElement, allowFallback = true): RouteFocusResult {
+  if (document.querySelector('[role="dialog"][aria-modal="true"]')) return 'blocked'
+
+  const heading = container.querySelector<HTMLElement>('h1')
+  if (heading) {
+    if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1')
+    heading.style.outline = 'none'
+    heading.focus()
+    return 'heading'
+  }
+
+  if (container.querySelector('.route-loading') || !allowFallback) return 'pending'
+  container.focus()
+  return 'fallback'
+}
+
+function useRouteFocus(mainRef: RefObject<HTMLElement | null>, routeKey: string) {
+  useEffect(() => {
+    const container = mainRef.current
+    if (!container) return
+
+    let observer: MutationObserver | null = null
+    let fallbackFocused = false
+    const focusWhenReady = () => {
+      if (fallbackFocused && document.activeElement !== container && document.activeElement !== document.body) {
+        observer?.disconnect()
+        return
+      }
+      const result = focusRouteContent(container, !fallbackFocused)
+      if (result === 'fallback') fallbackFocused = true
+      if (result === 'heading' || result === 'blocked') observer?.disconnect()
+    }
+
+    observer = new MutationObserver(focusWhenReady)
+    observer.observe(container, { childList: true, subtree: true })
+    const frame = window.requestAnimationFrame(focusWhenReady)
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer?.disconnect()
+    }
+  }, [mainRef, routeKey])
+}
+
+function accountMenuItems(popover: HTMLElement | null): HTMLElement[] {
+  return Array.from(popover?.querySelectorAll<HTMLElement>(ACCOUNT_MENU_FOCUSABLE) || [])
+    .filter(element => element.getAttribute('aria-hidden') !== 'true')
+}
+
+export function Layout() {
   const { t, locale, changeLocale, locales } = useI18n()
   const navigate = useNavigate()
   const location = useLocation()
@@ -62,6 +125,10 @@ function Layout() {
   const paletteOriginRef = useRef<HTMLElement | null>(null)
   const accountRef = useRef<HTMLDivElement | null>(null)
   const accountButtonRef = useRef<HTMLButtonElement | null>(null)
+  const accountPopoverRef = useRef<HTMLDivElement | null>(null)
+  const mainRef = useRef<HTMLElement | null>(null)
+
+  useRouteFocus(mainRef, `${location.pathname}${location.search}`)
 
   const openPalette = useCallback(() => {
     if (paletteOpen) return
@@ -96,23 +163,55 @@ function Layout() {
     return () => window.removeEventListener(API_STATUS_EVENT, onAPIStatus)
   }, [])
 
+  const closeAccount = useCallback((restoreFocus = true) => {
+    setAccountOpen(false)
+    if (!restoreFocus) return
+    window.requestAnimationFrame(() => {
+      if (accountButtonRef.current?.isConnected) accountButtonRef.current.focus()
+    })
+  }, [])
+
   useEffect(() => {
     if (!accountOpen) return
+    const frame = window.requestAnimationFrame(() => accountMenuItems(accountPopoverRef.current)[0]?.focus())
     const onPointerDown = (event: PointerEvent) => {
-      if (!accountRef.current?.contains(event.target as Node)) setAccountOpen(false)
+      if (!accountRef.current?.contains(event.target as Node)) closeAccount()
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      setAccountOpen(false)
-      accountButtonRef.current?.focus()
+      event.preventDefault()
+      closeAccount()
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
     return () => {
+      window.cancelAnimationFrame(frame)
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [accountOpen])
+  }, [accountOpen, closeAccount])
+
+  const handleAccountMenuKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      closeAccount()
+      return
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+
+    const items = accountMenuItems(accountPopoverRef.current)
+    if (!items.length) return
+    event.preventDefault()
+    event.stopPropagation()
+    const current = items.indexOf(document.activeElement as HTMLElement)
+    let next = current
+    if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = items.length - 1
+    else if (event.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length
+    else next = current <= 0 ? items.length - 1 : current - 1
+    items[next]?.focus()
+  }, [closeAccount])
 
   useEffect(() => {
     if (!paletteOpen) return
@@ -130,7 +229,7 @@ function Layout() {
     return () => { active = false }
   }, [paletteOpen])
   const handleLogout = () => {
-    setAccountOpen(false)
+    closeAccount()
     clearToken()
     navigate('/login')
   }
@@ -152,6 +251,7 @@ function Layout() {
     { label: t('shell.projects'), detail: t('shell.projectsDetail'), href: '/projects', icon: Boxes },
     { label: t('nav.buildQueue'), detail: t('shell.buildQueueDetail'), href: '/build-queue', icon: FileClock },
     { label: t('nav.builds'), detail: t('shell.navigationDetail'), href: '/builds', icon: Activity },
+    { label: t('nav.templates'), detail: t('shell.navigationDetail'), href: '/templates', icon: BookTemplate },
     { label: t('nav.vcsRoots'), detail: t('shell.navigationDetail'), href: '/vcs-roots', icon: GitBranch },
     { label: t('dashboard.workers'), detail: t('shell.workersDetail'), href: '/agents', icon: Network },
     { label: t('nav.plugins'), detail: t('shell.pluginsDetail'), href: '/plugins', icon: TerminalSquare },
@@ -204,15 +304,16 @@ function Layout() {
   return (
     <div className="app-shell">
       <header className="app-topbar">
-        <NavLink to="/" end className="app-brand" aria-label="BuildWorld">
-          <BuildWorldMark size={28} />
-          <span>BuildWorld</span>
-        </NavLink>
+        <div className="app-topbar-main">
+          <NavLink to="/" end className="app-brand" aria-label="BuildWorld">
+            <BuildWorldMark size={36} />
+            <span>BuildWorld</span>
+          </NavLink>
+          <div className="app-topbar-breadcrumbs" id="jenkins-header-breadcrumbs" />
+        </div>
         <div className="topbar-actions">
-          <button className="topbar-icon-button" onClick={openPalette} aria-label={t('shell.searchPlaceholder')} title={t('shell.searchPlaceholder')}><Search size={18} /></button>
-          <InAppNotifications />
-          <NavLink to="/my-dashboard" className={({ isActive }) => `topbar-dashboard-link ${isActive ? 'active' : ''}`}><Gauge size={17} /><span>{t('nav.myDashboard')}</span></NavLink>
-          {admin && <NavLink to="/settings" className={({ isActive }) => `topbar-settings-link ${isActive ? 'active' : ''}`}><Cog size={18} /><span>{t('nav.settings')}</span></NavLink>}
+          <button className="topbar-icon-button" onClick={openPalette} aria-label={t('shell.searchPlaceholder')} title={t('shell.searchPlaceholder')}><Search size={20} /></button>
+          {admin && <NavLink to="/settings" aria-label={t('nav.settings')} title={t('nav.settings')} className={({ isActive }) => `topbar-settings-link ${isActive ? 'active' : ''}`}><Cog size={20} /><span className="jenkins-visually-hidden">{t('nav.settings')}</span></NavLink>}
           <div className="account-menu" ref={accountRef}>
             <button
               ref={accountButtonRef}
@@ -221,22 +322,23 @@ function Layout() {
               aria-label={t('shell.my')}
               aria-expanded={accountOpen}
               aria-controls="account-menu-popover"
-              onClick={() => setAccountOpen(value => !value)}
+              onClick={() => accountOpen ? closeAccount() : setAccountOpen(true)}
             >
-              <CircleUserRound size={19} />
-              <ChevronDown size={13} />
+              <CircleUserRound size={20} />
             </button>
-            {accountOpen && <div id="account-menu-popover" className="account-menu-popover">
+            <div ref={accountPopoverRef} id="account-menu-popover" className="account-menu-popover" hidden={!accountOpen} aria-hidden={!accountOpen} onKeyDown={handleAccountMenuKeyDown}>
               <div className="account-menu-summary"><CircleUserRound size={20} /><span><strong>{t('shell.my')}</strong><small>{t(`users.role_${role}`)}</small></span></div>
               <label className="account-language"><span>{t('shell.language')}</span><select value={locale} onChange={(event) => changeLocale(event.target.value as Locale)} aria-label={t('shell.language')}>{locales.map((item) => <option key={item} value={item}>{localeLabels[item]}</option>)}</select></label>
+              <NavLink to="/my-dashboard" className="account-dashboard-link" onClick={() => closeAccount()}><Gauge size={16} /><span>{t('nav.myDashboard')}</span></NavLink>
+              <InAppNotifications menu menuOpen={accountOpen} />
               <button type="button" className="account-logout" onClick={handleLogout}><LogOut size={16} /><span>{t('shell.logout')}</span></button>
-            </div>}
+            </div>
           </div>
         </div>
       </header>
       <section className="app-frame">
         {apiUnavailable && <div className="service-status-banner" role="alert"><CloudOff size={15} /><span><strong>{t('shell.serviceUnavailable')}</strong>{t('shell.serviceUnavailableHint')}</span></div>}
-        <main className="app-main"><RouteErrorBoundary resetKey={location.pathname}><Suspense fallback={<RouteLoading />}><Outlet /></Suspense></RouteErrorBoundary></main>
+        <main ref={mainRef} className="app-main" tabIndex={-1} style={{ outline: 'none' }}><RouteErrorBoundary resetKey={location.pathname}><Suspense fallback={<RouteLoading />}><Outlet /></Suspense></RouteErrorBoundary></main>
       </section>
       {paletteOpen && <CommandPalette ariaLabel={t('shell.globalSearch')} placeholder={t('shell.searchPlaceholder')} query={query} groups={commandGroups} loading={searchLoading} loadingLabel={t('shell.searchLoading')} emptyLabel={t('shell.noResults')} keyboardHint={t('shell.searchKeyboardHint')} error={searchError} onQueryChange={setQuery} onNavigate={navigateFromPalette} onClose={closePalette} />}
     </div>
@@ -260,6 +362,8 @@ function App() {
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/new" element={<RoleGate roles={['admin', 'developer']}><CreateProject /></RoleGate>} />
             <Route path="/projects/:id/configure" element={<RoleGate roles={['admin', 'developer']}><ProjectConfigure /></RoleGate>} />
+            <Route path="/projects/:id/changes" element={<ProjectChanges />} />
+            <Route path="/projects/:id/build" element={<RoleGate roles={['admin', 'developer']}><ProjectBuildWithParameters /></RoleGate>} />
             <Route path="/projects/:id" element={<ProjectDetail />} />
             <Route path="/builds" element={<Builds />} />
             <Route path="/builds/:id" element={<BuildDetail />} />
@@ -267,7 +371,7 @@ function App() {
             <Route path="/build-queue" element={<BuildQueue />} />
             <Route path="/agents" element={<Agents />} />
             <Route path="/vcs-roots" element={<VCSRoots />} />
-            <Route path="/templates" element={<Navigate to="/projects" replace />} />
+            <Route path="/templates" element={<Templates />} />
             <Route path="/plugins" element={<Plugins />} />
             <Route path="/credentials" element={<RoleGate roles={['admin']}><Credentials /></RoleGate>} />
             <Route path="/notifications" element={<RoleGate roles={['admin']}><Notifications /></RoleGate>} />

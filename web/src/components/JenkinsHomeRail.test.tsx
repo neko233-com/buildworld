@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api'
-import { canEdit, isAdmin } from '../authz'
+import { canEdit } from '../authz'
 import JenkinsHomeRail from './JenkinsHomeRail'
 
 vi.mock('../api', () => ({
@@ -15,12 +15,11 @@ vi.mock('../api', () => ({
   },
 }))
 
-vi.mock('../authz', () => ({ canEdit: vi.fn(), isAdmin: vi.fn() }))
+vi.mock('../authz', () => ({ canEdit: vi.fn() }))
 
 const listBuildQueue = vi.mocked(api.listBuildQueue)
 const listAgents = vi.mocked(api.listAgents)
 const mockedCanEdit = vi.mocked(canEdit)
-const mockedIsAdmin = vi.mocked(isAdmin)
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 
 const queue = [
@@ -45,7 +44,6 @@ describe('JenkinsHomeRail', () => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
     mockedCanEdit.mockReset().mockReturnValue(false)
-    mockedIsAdmin.mockReset().mockReturnValue(false)
     listBuildQueue.mockReset().mockResolvedValue(queue)
     listAgents.mockReset().mockResolvedValue(agents)
     container = document.createElement('div')
@@ -71,19 +69,26 @@ describe('JenkinsHomeRail', () => {
     await render()
 
     expect(mockedCanEdit).toHaveBeenCalledOnce()
-    expect(mockedIsAdmin).toHaveBeenCalledOnce()
     expect(container.querySelector('a[href="/projects/new"]')).toBeNull()
-    expect(container.querySelector('a[href="/templates"]')).toBeNull()
+    expect(container.querySelector('a[href="/templates"]')).not.toBeNull()
     expect(container.querySelector('a[href="/settings"]')).toBeNull()
-    for (const href of ['/builds', '/projects', '/vcs-roots', '/build-queue', '/agents']) {
+    for (const href of ['/builds', '/templates', '/projects', '/vcs-roots', '/build-queue', '/agents']) {
       expect(container.querySelector(`a[href="${href}"]`)).not.toBeNull()
     }
+    expect(Array.from(container.querySelectorAll<HTMLAnchorElement>('.jenkins-rail-links a')).map(link => link.getAttribute('href'))).toEqual([
+      '/builds',
+      '/templates',
+      '/projects',
+      '/vcs-roots',
+    ])
     expect(container.querySelectorAll('.jenkins-rail-queue-item')).toHaveLength(3)
     expect(container.querySelector('a[href="/builds/101"]')).not.toBeNull()
     expect(container.textContent).not.toContain('Delta')
-    expect(container.querySelectorAll('.jenkins-rail-agent-item')).toHaveLength(3)
+    expect(container.querySelectorAll('.jenkins-rail-agent-item')).toHaveLength(2)
+    expect(container.textContent).not.toContain('Worker C')
     expect(container.textContent).not.toContain('Worker D')
-    expect(container.querySelector('.jenkins-rail-panel-count')?.textContent).toBe('4')
+    expect(container.querySelectorAll('.jenkins-rail-panel-count')).toHaveLength(1)
+    expect(container.querySelector('.jenkins-rail-panel-count')?.textContent).toBe('3 / 10')
     expect(container.querySelector('.jenkins-rail-capacity-value')?.textContent).toBe('3 / 10')
     expect(container.querySelector('progress')?.getAttribute('value')).toBe('3')
 
@@ -98,14 +103,11 @@ describe('JenkinsHomeRail', () => {
     expect(container.querySelector('a[href="/projects/new"]')).not.toBeNull()
   })
 
-  it('gives administrators a visible settings shortcut', async () => {
-    mockedIsAdmin.mockReturnValue(true)
+  it('keeps settings in the Jenkins masthead instead of duplicating it in the rail', async () => {
     await render()
 
-    const settings = container.querySelector<HTMLAnchorElement>('a[href="/settings"]')
-    expect(settings).not.toBeNull()
-    expect(settings?.querySelector('.jenkins-rail-link-label')?.textContent?.trim()).toBeTruthy()
-    expect(container.querySelector('a[href="/templates"]')).toBeNull()
+    expect(container.querySelector('a[href="/settings"]')).toBeNull()
+    expect(container.querySelector('a[href="/templates"]')).not.toBeNull()
   })
 
   it('adapts between active and idle polling and pauses while hidden', async () => {

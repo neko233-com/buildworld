@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'motion/react'
-import { Activity, Boxes, CheckCircle2, Gauge, RefreshCw, ServerCog, UserRound, XCircle } from 'lucide-react'
+import { Activity, Boxes, CheckCircle2, Gauge, LoaderCircle, RefreshCw, ServerCog, UserRound, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { useI18n } from '../i18n'
@@ -8,6 +8,7 @@ import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { PageState } from '../components/PageState'
 import { formatDuration } from '../lib/durationPresentation'
 import { currentRole, isAdmin } from '../authz'
+import JenkinsHomeRail from '../components/JenkinsHomeRail'
 
 interface DashboardData {
   summary: {
@@ -83,8 +84,11 @@ export default function MyDashboard() {
 
   if (loading) return <PageState />
 
-  return <motion.section className="operations-page data-dashboard-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
-    <header className="operations-heading data-dashboard-heading">
+  return <motion.section className="jenkins-home jenkins-user-dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+    <JenkinsHomeRail />
+    <div className="jenkins-home-main jenkins-user-dashboard-main">
+    <div className="operations-page data-dashboard-page">
+    <header className="jenkins-page-heading data-dashboard-heading">
       <div><p>{t('nav.myDashboard')}</p><h1>{t('myDashboard.title')}</h1><small>{t('myDashboard.subtitle')}</small></div>
       <div><span>{t('bigScreen.lastUpdate')}: {lastUpdate?.toLocaleTimeString(locale === 'en' ? 'en-US' : locale) || '-'}</span><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
     </header>
@@ -97,12 +101,13 @@ export default function MyDashboard() {
       <Metric icon={CheckCircle2} label={t('bigScreen.successToday')} value={data.summary.success_today} detail={`${data.summary.success_rate.toFixed(1)}% ${t('bigScreen.successRate')}`} tone="success" />
       <Metric icon={XCircle} label={t('bigScreen.failedToday')} value={data.summary.failed_today} detail={t('bigScreen.today')} tone={data.summary.failed_today ? 'failed' : ''} />
       <Metric icon={ServerCog} label={t('bigScreen.activeAgents')} value={`${data.summary.active_agents} / ${data.summary.total_agents}`} detail={t('bigScreen.distributedCapacity')} />
+      <Metric icon={Boxes} label={t('nav.projects')} value={data.summary.total_projects} detail={`${projects.length} ${t('myDashboard.quickAccess')}`} />
     </section>
 
     <div className="data-dashboard-grid">
       <section className="data-panel recent-build-panel">
         <header><div><Activity size={16} /><h2>{t('bigScreen.recentBuilds')}</h2></div><div className="data-panel-actions"><span>{visibleRecentBuilds.length}/{data.recent_builds.length}</span><Link to="/builds">{t('dashboard.viewAllBuilds')}</Link></div></header>
-        <div className="operations-table-wrap"><table className="operations-table data-build-table"><thead><tr><th>{t('projects.name')}</th><th>{t('builds.status')}</th><th>{t('builds.branch')}</th><th>{t('builds.duration')}</th><th>{t('projectDetail.started')}</th></tr></thead><tbody>{!visibleRecentBuilds.length && <tr><td colSpan={5} className="operations-empty">{t('common.noData')}</td></tr>}{visibleRecentBuilds.map(build => <tr key={build.id}><td><Link className="data-build-link" to={`/builds/${build.id}`}><strong>{build.project}</strong><small>#{build.number}</small></Link></td><td><span className={`build-status ${buildStatusTone(build.status)}`}>{buildStatusLabel(t, build.status)}</span></td><td><code>{build.branch || '-'}</code></td><td className="muted-cell">{formatDuration(build.duration_ms)}</td><td className="muted-cell">{formatDate(build.started_at)}</td></tr>)}</tbody></table></div>
+        <div className="operations-table-wrap"><table className="operations-table data-build-table"><caption className="sr-only">{t('bigScreen.recentBuilds')}</caption><thead><tr><th>{t('projects.name')}</th><th>{t('builds.status')}</th><th>{t('builds.branch')}</th><th>{t('builds.duration')}</th><th>{t('projectDetail.started')}</th></tr></thead><tbody>{!visibleRecentBuilds.length && <tr><td colSpan={5} className="operations-empty">{t('common.noData')}</td></tr>}{visibleRecentBuilds.map(build => { const tone = buildStatusTone(build.status); return <tr key={build.id}><td><Link className="data-build-link" to={`/builds/${build.id}`}><strong>{build.project}</strong><small>#{build.number}</small></Link></td><td><span className={`jenkins-build-state ${tone}`}>{tone === 'running' ? <LoaderCircle className="timeline-spinner" size={20} aria-hidden="true" /> : <i aria-hidden="true" />}<span>{buildStatusLabel(t, build.status)}</span></span></td><td><code>{build.branch || '-'}</code></td><td className="muted-cell">{formatDuration(build.duration_ms)}</td><td className="muted-cell">{formatDate(build.started_at)}</td></tr>})}</tbody></table></div>
       </section>
 
       <section className="data-panel trend-panel">
@@ -132,6 +137,8 @@ export default function MyDashboard() {
         </dl>
         {admin && <Link className="dashboard-panel-link" to="/settings">{t('nav.settings')}</Link>}
       </section>
+    </div>
+    </div>
     </div>
   </motion.section>
 }
