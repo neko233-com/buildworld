@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'motion/react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Braces, Check, Code2, FileCode2, FileInput, FolderGit2, Plus, Tag, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api, type PipelineMigrationResult } from '../api'
 import { useApi } from '../hooks'
-import { isTypeScriptPipelineSource, prettyPipelineSource, prettyPipelineSourceSync } from '../lib/configFormat'
+import { isTypeScriptPipelineSource, prettyPipelineSource } from '../lib/configFormat'
 import { sortProjectGroups } from '../lib/projectGroups'
 import {
   isPipelineValidationReady,
@@ -58,9 +58,8 @@ export default definePipeline({
 export default function CreateProject() {
   const { t } = useI18n()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const [format, setFormat] = useState<'yaml' | 'ts'>('yaml')
-  const [form, setForm] = useState({ name: '', description: '', repo_url: '', default_branch: 'main', config: SAMPLE_YAML, vcs_root_id: '' as number | '', template_id: '' as number | '', group_id: '' as number | '', tags: [] as string[] })
+  const [format, setFormat] = useState<'yaml' | 'ts' | 'jenkinsfile'>('yaml')
+  const [form, setForm] = useState({ name: '', description: '', repo_url: '', default_branch: 'main', config: SAMPLE_YAML, vcs_root_id: '' as number | '', group_id: '' as number | '', tags: [] as string[] })
   const [tagDraft, setTagDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [formatting, setFormatting] = useState(false)
@@ -68,33 +67,12 @@ export default function CreateProject() {
   const [error, setError] = useState('')
   const [pipelineValidation, setPipelineValidation] = useState(() => pendingPipelineValidation(SAMPLE_YAML))
   const { data: vcsRoots } = useApi(() => api.listVCSRoots())
-  const { data: templates } = useApi(() => api.listTemplates())
   const { data: projects } = useApi(() => api.listProjects())
   const { data: projectGroups } = useApi(() => api.listProjectGroups())
   const knownTags = useMemo<string[]>(() => [...new Map<string, string>((projects || []).flatMap(project => (project.tags || []).map((tag: string): [string, string] => [tag.toLowerCase(), tag]))).values()].sort((a, b) => a.localeCompare(b)), [projects])
   const groups = useMemo(() => sortProjectGroups(projectGroups || []), [projectGroups])
   const pipelineReady = isPipelineValidationReady(pipelineValidation, form.config)
   const pipelineBlockedMessage = pipelineValidation.message || t('config.resolveErrors')
-
-  useEffect(() => {
-    const templateParam = searchParams.get('template')
-    if (templateParam) setForm(previous => ({ ...previous, template_id: Number(templateParam) }))
-  }, [searchParams])
-
-  useEffect(() => {
-    if (form.template_id === '' || form.template_id === undefined) return
-    const template = templates?.find((item: any) => item.id === Number(form.template_id))
-    if (!template?.config) return
-    if (typeof template.config !== 'string') {
-      setError(t('config.invalid'))
-      return
-    }
-    let config = template.config
-    try { config = prettyPipelineSourceSync(config) } catch { /* Validate on format or submit. */ }
-    setFormat(isTypeScriptPipelineSource(config) ? 'ts' : 'yaml')
-    setPipelineValidation(pendingPipelineValidation(config))
-    setForm(previous => ({ ...previous, config }))
-  }, [form.template_id, t, templates])
 
   useEffect(() => {
     if (form.vcs_root_id === '' || form.vcs_root_id === undefined) return
@@ -104,7 +82,7 @@ export default function CreateProject() {
 
   const set = (key: Exclude<keyof typeof form, 'tags'>) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const value = event.target.value
-    setForm(previous => ({ ...previous, [key]: key === 'vcs_root_id' || key === 'template_id' || key === 'group_id' ? value === '' ? '' : Number(value) : value }))
+    setForm(previous => ({ ...previous, [key]: key === 'vcs_root_id' || key === 'group_id' ? value === '' ? '' : Number(value) : value }))
   }
   const addTag = (value = tagDraft) => {
     const tag = value.trim().replace(/,$/, '')
@@ -116,7 +94,7 @@ export default function CreateProject() {
     setFormat(nextFormat)
     const config = nextFormat === 'ts' ? SAMPLE_TYPESCRIPT : SAMPLE_YAML
     setPipelineValidation(pendingPipelineValidation(config))
-    setForm(previous => ({ ...previous, config, template_id: '' }))
+    setForm(previous => ({ ...previous, config }))
   }
   const handleFormatConfig = async () => {
     setFormatting(true); setError('')
@@ -145,7 +123,6 @@ export default function CreateProject() {
       config: result.config,
       repo_url: previous.repo_url || result.hints.repository_url || '',
       default_branch: result.hints.default_branch || previous.default_branch,
-      template_id: '',
     }))
   }
   const handleSubmit = async (event: React.FormEvent) => {
@@ -158,12 +135,24 @@ export default function CreateProject() {
     try {
       const config = await prettyPipelineSource(form.config)
       await api.validatePipeline(config)
-      const data: any = { name: form.name, description: form.description, repo_url: form.repo_url, repo_type: 'git', default_branch: form.default_branch, config, tags: form.tags }
+      const data: any = {
+        name: form.name,
+        description: form.description,
+        repo_url: form.repo_url,
+        repo_type: 'git',
+        default_branch: form.default_branch,
+        config,
+        tags: form.tags,
+        pipeline_format: format === 'ts' ? 'typescript' : format,
+        pipeline_source_mode: 'inline',
+        pipeline_scm_repo: '',
+        pipeline_scm_branch: '',
+        pipeline_scm_path: '',
+      }
       if (form.vcs_root_id !== '') data.vcs_root_id = Number(form.vcs_root_id)
-      if (form.template_id !== '') data.template_id = Number(form.template_id)
       if (form.group_id !== '') data.group_id = Number(form.group_id)
       const project = await api.createProject(data)
-      navigate(`/projects/${project.id}?view=settings`)
+      navigate(`/projects/${project.id}/configure`)
     } catch (reason: any) {
       const message = reason.message || t('projects.createFailed')
       setError(message)
@@ -178,7 +167,7 @@ export default function CreateProject() {
 
       <section className="project-create-section"><header><div><Tag size={17} /><div><h2>{t('projects.tags')}</h2><p>{t('projects.tagsHelp')}</p></div></div></header><div className="tag-composer"><div className="known-tag-list">{knownTags.length ? knownTags.map(tag => <button type="button" key={tag} className={form.tags.some(item => item.toLowerCase() === tag.toLowerCase()) ? 'selected' : ''} onClick={() => toggleTag(tag)} aria-pressed={form.tags.some(item => item.toLowerCase() === tag.toLowerCase())}>{form.tags.some(item => item.toLowerCase() === tag.toLowerCase()) && <Check size={13} />}{tag}</button>) : <span>{t('projects.noExistingTags')}</span>}</div><div className="tag-input-row"><input value={tagDraft} onChange={event => setTagDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ',') { event.preventDefault(); addTag() } }} placeholder={t('projects.addTag')} aria-label={t('projects.addTag')} /><button type="button" className="secondary-command" onClick={() => addTag()}><Plus size={15} />{t('common.create')}</button></div>{form.tags.length > 0 && <div className="selected-tag-list">{form.tags.map(tag => <button type="button" key={tag} onClick={() => toggleTag(tag)}>{tag}<X size={13} /></button>)}</div>}</div></section>
 
-      <section className="project-create-section"><header><div><FileCode2 size={17} /><div><h2>{t('projectDetail.pipelineConfig')}</h2><p>{t('projects.buildFlowHelp')}</p></div></div><label className="template-picker"><span>{t('projects.template')}</span><select value={form.template_id} onChange={set('template_id')}><option value="">{t('projects.noTemplate')}</option>{templates?.map((template: any) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label></header>{format === 'yaml' && <ApprovalSettingsEditor source={form.config} onChange={config => { setPipelineValidation(pendingPipelineValidation(config)); setForm(previous => ({ ...previous, config })) }} onError={setError} />}<div className="definition-toolbar"><span>{t('projects.sourceFormat')}</span><div className="definition-toolbar-actions"><div role="group" aria-label={t('projects.sourceFormat')}><button type="button" className={format === 'yaml' ? 'selected' : ''} onClick={() => switchFormat('yaml')}><FileCode2 size={14} />YAML</button><button type="button" className={format === 'ts' ? 'selected' : ''} onClick={() => switchFormat('ts')}><Code2 size={14} />TypeScript</button></div><button type="button" className="format-command" onClick={() => setShowJenkinsImport(true)}><FileInput size={13} />{t('jenkinsImport.title')}</button><button type="button" className="format-command" onClick={handleFormatConfig} disabled={formatting}><Braces size={13} />{formatting ? t('config.formatting') : format === 'ts' ? t('config.validate') : t('config.format')}</button></div></div><PipelineSourceEditor ariaLabel={t('pipeline.sourceLabel')} value={form.config} onChange={config => { setPipelineValidation(pendingPipelineValidation(config)); setForm(previous => ({ ...previous, config })) }} onValidationChange={setPipelineValidation} statusId="create-project-pipeline-status" height={430} /></section>
+      <section className="project-create-section"><header><div><FileCode2 size={17} /><div><h2>{t('projectDetail.pipelineConfig')}</h2><p>{t('projects.buildFlowHelp')}</p></div></div></header>{format === 'yaml' && <ApprovalSettingsEditor source={form.config} onChange={config => { setPipelineValidation(pendingPipelineValidation(config)); setForm(previous => ({ ...previous, config })) }} onError={setError} />}<div className="definition-toolbar"><span>{t('projects.sourceFormat')}</span><div className="definition-toolbar-actions"><div role="group" aria-label={t('projects.sourceFormat')}><button type="button" className={format === 'yaml' ? 'selected' : ''} onClick={() => switchFormat('yaml')}><FileCode2 size={14} />YAML</button><button type="button" className={format === 'ts' ? 'selected' : ''} onClick={() => switchFormat('ts')}><Code2 size={14} />TypeScript</button></div><button type="button" className="format-command" onClick={() => setShowJenkinsImport(true)}><FileInput size={13} />{t('jenkinsImport.title')}</button><button type="button" className="format-command" onClick={handleFormatConfig} disabled={formatting}><Braces size={13} />{formatting ? t('config.formatting') : format === 'ts' ? t('config.validate') : t('config.format')}</button></div></div><PipelineSourceEditor ariaLabel={t('pipeline.sourceLabel')} value={form.config} onChange={config => { setPipelineValidation(pendingPipelineValidation(config)); setForm(previous => ({ ...previous, config })) }} onValidationChange={setPipelineValidation} statusId="create-project-pipeline-status" height={430} /></section>
       {error && <p className="form-error">{error}</p>}
       <footer className="project-create-actions"><button type="button" className="secondary-command" onClick={() => navigate('/projects')}>{t('common.cancel')}</button><button type="submit" className="primary-command" disabled={saving || !pipelineReady} aria-describedby={!pipelineReady ? 'create-project-pipeline-status' : undefined} title={!pipelineReady ? pipelineBlockedMessage : undefined}>{saving ? t('common.loading') : t('projects.newProject')}</button></footer>
     </form>

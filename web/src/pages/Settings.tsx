@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   Activity, AlertTriangle, Bot, Check, CheckCircle2, ChevronRight, CircleGauge, Clipboard,
   Clock3, Code2, Copy, Database, Download, FileCode2, FileJson, HardDrive, Info, KeyRound,
-  LockKeyhole, Network, PackageCheck, RefreshCw, RotateCw, Save, Server, Settings2,
+  LockKeyhole, Network, PackageCheck, RefreshCw, RotateCw, Save, Search, Server, Settings2,
   ShieldCheck, TerminalSquare, TestTube2, Upload, Workflow,
 } from 'lucide-react'
 import { api } from '../api'
@@ -28,9 +28,21 @@ import {
 
 type SettingsMap = Record<string, string>
 type AgentPlatform = 'linux' | 'windows'
+type SettingsView = SettingsSection | 'status'
+
+const SETTINGS_VIEWS = new Set<SettingsView>([
+  'overview', 'runtime', 'builds', 'agents', 'proxies', 'validation', 'security', 'portability', 'status',
+])
+
+const HIDDEN_PORTABILITY_CAPABILITIES = new Set(['build_templates', 'templates'])
+
+function resolveSettingsView(value: string | null): SettingsView {
+  if (value && SETTINGS_VIEWS.has(value as SettingsView)) return value as SettingsView
+  return resolveSettingsSection(value)
+}
 
 const editableKeys = [
-  'host', 'port', 'build_timeout', 'build_concurrency', 'local_agent_concurrency',
+  'host', 'build_timeout', 'build_concurrency', 'local_agent_concurrency',
   'cpu_limit_percent', 'background_mode',
   'retry_policy', 'artifacts_path', 'build_temp_path',
   'go_validation_enabled', 'go_version', 'go_checks', 'node_validation_enabled',
@@ -48,7 +60,7 @@ const defaults: SettingsMap = {
 }
 
 function normalizeSettings(value: SettingsMap | null | undefined): SettingsMap {
-  return value ? { ...defaults, ...value } : { ...defaults }
+  return value ? { ...defaults, ...value, port: '8700' } : { ...defaults }
 }
 
 function parseChecks(value: string): string[] {
@@ -71,7 +83,7 @@ function powerShellQuote(value: string): string {
   return `'${value.replaceAll("'", "''")}'`
 }
 
-function SettingField({ label, hint, value, onChange, type = 'text', min, max, suffix }: {
+function SettingField({ label, hint, value, onChange, type = 'text', min, max, suffix, readOnly = false }: {
   label: string
   hint?: string
   value: string
@@ -80,11 +92,12 @@ function SettingField({ label, hint, value, onChange, type = 'text', min, max, s
   min?: number
   max?: number
   suffix?: string
+  readOnly?: boolean
 }) {
   return <label className="settings-field">
     <span>{label}</span>
     <div className="settings-input-wrap">
-      <input type={type} min={min} max={max} value={value} onChange={event => onChange(event.target.value)} />
+      <input type={type} min={min} max={max} value={value} readOnly={readOnly} aria-readonly={readOnly} onChange={event => onChange(event.target.value)} />
       {suffix && <small>{suffix}</small>}
     </div>
     {hint && <em>{hint}</em>}
@@ -140,10 +153,10 @@ function CheckSelector({ options, selected, onChange }: {
 }
 
 export default function Settings() {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedSection = searchParams.get('section')
-  const section = resolveSettingsSection(requestedSection)
+  const section = resolveSettingsView(requestedSection)
   const { data: settings, loading, error, reload } = useApi(() => api.getGlobalSettings(), [])
   const { data: metrics } = useApi(() => api.getServerMetrics(), [])
   const { data: agents } = useApi(() => api.listAgents(), [])
@@ -155,6 +168,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState('')
+  const [settingsQuery, setSettingsQuery] = useState('')
   const [agentToken, setAgentToken] = useState('')
   const [generatingToken, setGeneratingToken] = useState(false)
   const [agentPlatform, setAgentPlatform] = useState<AgentPlatform>('linux')
@@ -186,9 +200,10 @@ export default function Settings() {
   const [proxyMessage, setProxyMessage] = useState('')
   const [proxyError, setProxyError] = useState('')
   const capabilities = portabilityCapabilities || []
+  const visibleCapabilities = capabilities.filter(capability => !HIDDEN_PORTABILITY_CAPABILITIES.has(capability.key))
   const proxyList = packageProxies || []
 
-  const changeSection = (nextSection: SettingsSection) => {
+  const changeSection = (nextSection: SettingsView) => {
     const next = new URLSearchParams(searchParams)
     if (nextSection === 'overview') next.delete('section')
     else next.set('section', nextSection)
@@ -227,7 +242,7 @@ export default function Settings() {
     setSaved(false)
   }
   const dirty = editableKeys.some(key => draft[key] !== baseline[key])
-  const restartKeys = ['host', 'port', 'artifacts_path', 'build_temp_path']
+  const restartKeys = ['host', 'artifacts_path', 'build_temp_path']
   const restartRequired = restartKeys.some(key => draft[key] !== baseline[key])
   const sys = metrics?.system || metrics || {}
   const agentList = agents || []
@@ -280,6 +295,9 @@ export default function Settings() {
   }
 
   const capabilityLabel = (key: string) => {
+    if (HIDDEN_PORTABILITY_CAPABILITIES.has(key)) {
+      return locale === 'zh-CN' ? '兼容数据' : 'Compatibility data'
+    }
     const translationKey = `settings.portability_${key}`
     const translated = t(translationKey)
     return translated === translationKey ? humanizePortabilityKey(key) : translated
@@ -496,36 +514,105 @@ ${steps.join(',\n')}
 `
   }, [agentConfig.pool, draft])
 
-  const navigation: Array<{ id: SettingsSection; label: string; icon: typeof Settings2 }> = [
-    { id: 'overview', label: t('settings.overview'), icon: CircleGauge },
-    { id: 'runtime', label: t('settings.runtimeStorage'), icon: Server },
-    { id: 'builds', label: t('settings.buildPolicy'), icon: Workflow },
-    { id: 'agents', label: t('settings.agentAutomation'), icon: Bot },
-    { id: 'proxies', label: t('settings.packageProxies'), icon: Network },
-    { id: 'validation', label: t('settings.validation'), icon: TestTube2 },
-    { id: 'security', label: t('settings.security'), icon: ShieldCheck },
-    { id: 'portability', label: t('settings.backup'), icon: Database },
+  const directoryCopy = locale === 'zh-CN' ? {
+    systemConfiguration: '系统配置',
+    security: '安全',
+    statusInformation: '状态信息',
+    toolsAndData: '工具和数据',
+    searchSettings: '搜索设置',
+    noResults: '未找到匹配的设置。',
+    compatibilityData: '兼容数据',
+  } : {
+    systemConfiguration: 'System Configuration',
+    security: 'Security',
+    statusInformation: 'Status Information',
+    toolsAndData: 'Tools and Data',
+    searchSettings: 'Search settings',
+    noResults: 'No matching settings found.',
+    compatibilityData: 'Compatibility data',
+  }
+  const navigation: Array<{
+    id: Exclude<SettingsView, 'overview'>
+    label: string
+    description: string
+    icon: typeof Settings2
+    badge?: string
+  }> = [
+    { id: 'runtime', label: t('settings.runtimeStorage'), description: t('settings.runtimeStorageDescription'), icon: Server },
+    { id: 'builds', label: t('settings.buildPolicy'), description: t('settings.buildPolicyDescription'), icon: Workflow },
+    { id: 'agents', label: t('settings.agentAutomation'), description: t('settings.agentAutomationDescription'), icon: Bot },
+    { id: 'security', label: t('settings.security'), description: t('settings.securityDescription'), icon: ShieldCheck },
+    { id: 'status', label: t('settings.systemOverview'), description: t('settings.systemOverviewDescription'), icon: CircleGauge },
+    { id: 'proxies', label: t('settings.packageProxies'), description: t('settings.packageProxiesDescription'), icon: Network },
+    { id: 'validation', label: t('settings.validation'), description: t('settings.validationDescription'), icon: TestTube2 },
+    { id: 'portability', label: t('settings.backup'), description: t('settings.portabilityDescription'), icon: Database, badge: directoryCopy.compatibilityData },
   ]
+  const query = settingsQuery.trim().toLocaleLowerCase()
+  const visibleSettings = query
+    ? navigation.filter(item => `${item.label} ${item.description} ${item.badge || ''}`.toLocaleLowerCase().includes(query))
+    : navigation
+  const groupDefinitions: Array<{ id: string; title: string; items: Array<Exclude<SettingsView, 'overview'>> }> = [
+    { id: 'system', title: directoryCopy.systemConfiguration, items: ['runtime', 'builds', 'agents'] },
+    { id: 'security', title: directoryCopy.security, items: ['security'] },
+    { id: 'status', title: directoryCopy.statusInformation, items: ['status'] },
+    { id: 'tools', title: directoryCopy.toolsAndData, items: ['proxies', 'validation', 'portability'] },
+  ]
+  const directoryGroups = groupDefinitions
+    .map(group => ({ ...group, items: visibleSettings.filter(item => group.items.includes(item.id)) }))
+    .filter(group => group.items.length > 0)
+  const currentNavigation = section === 'overview' ? null : navigation.find(item => item.id === section) || null
 
   if (loading || !initialized) return <PageState />
   if (error) return <PageState error={error} onRetry={reload} />
 
   return <motion.section className="settings-center" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
-    <header className="settings-page-heading">
+    <nav className="settings-breadcrumbs" aria-label="Breadcrumb">
+      <Link to="/">{t('dashboard.title')}</Link>
+      <ChevronRight size={13} aria-hidden="true" />
+      {currentNavigation ? <>
+        <button type="button" onClick={() => changeSection('overview')}>{t('settings.title')}</button>
+        <ChevronRight size={13} aria-hidden="true" />
+        <span aria-current="page">{currentNavigation.label}</span>
+      </> : <span aria-current="page">{t('settings.title')}</span>}
+    </nav>
+
+    {section === 'overview' ? <header className="settings-page-heading">
       <div><h1>{t('settings.title')}</h1><p>{t('settings.description')}</p></div>
       <div className="settings-save-area">
         <span className={dirty ? 'dirty' : saved ? 'saved' : ''}>{dirty ? t('settings.unsaved') : saved ? t('settings.saved') : t('settings.upToDate')}</span>
         <button className="primary-command" onClick={handleSave} disabled={!dirty || saving}>{saving ? <RefreshCw className="spin" size={15} /> : <Save size={15} />}{saving ? t('settings.saving') : t('settings.saveChanges')}</button>
       </div>
-    </header>
+    </header> : <div className="settings-detail-toolbar">
+      <button type="button" className="settings-back-link" onClick={() => changeSection('overview')}>{t('settings.title')}</button>
+      <div className="settings-save-area">
+        <span className={dirty ? 'dirty' : saved ? 'saved' : ''}>{dirty ? t('settings.unsaved') : saved ? t('settings.saved') : t('settings.upToDate')}</span>
+        <button className="primary-command" onClick={handleSave} disabled={!dirty || saving}>{saving ? <RefreshCw className="spin" size={15} /> : <Save size={15} />}{saving ? t('settings.saving') : t('settings.saveChanges')}</button>
+      </div>
+    </div>}
+
+    {section === 'overview' && <label className="settings-directory-search">
+      <Search size={17} aria-hidden="true" />
+      <span className="sr-only">{directoryCopy.searchSettings}</span>
+      <input type="search" value={settingsQuery} onChange={event => setSettingsQuery(event.target.value)} placeholder={directoryCopy.searchSettings} aria-label={directoryCopy.searchSettings} autoComplete="off" />
+    </label>}
 
     {restartRequired && <div className="settings-restart-notice"><RotateCw size={15} /><span><strong>{t('settings.restartRequired')}</strong>{t('settings.restartDescription')}</span></div>}
 
-    <div className="settings-workspace">
-      <nav className="settings-nav" aria-label={t('settings.title')}>{navigation.map(item => { const Icon = item.icon; return <button key={item.id} type="button" className={section === item.id ? 'active' : ''} aria-current={section === item.id ? 'page' : undefined} onClick={() => changeSection(item.id)}><Icon size={15} /><span>{item.label}</span><ChevronRight size={13} /></button> })}</nav>
-
+    {section === 'overview' ? <section className="settings-directory" aria-label={t('settings.title')}>
+      {directoryGroups.map(group => <section className="settings-directory-group" key={group.id}>
+        <h2>{group.title}</h2>
+        <div className="settings-directory-list">
+          {group.items.map(item => { const Icon = item.icon; return <button key={item.id} type="button" className="settings-directory-link" onClick={() => changeSection(item.id)}>
+            <span className={`settings-directory-icon ${item.id}`}><Icon size={31} strokeWidth={1.65} /></span>
+            <span className="settings-directory-copy"><strong>{item.label}</strong><small>{item.description}</small>{item.badge && <em>{item.badge}</em>}</span>
+            <ChevronRight size={16} aria-hidden="true" />
+          </button> })}
+        </div>
+      </section>)}
+      {directoryGroups.length === 0 && <p className="settings-directory-empty" role="status">{directoryCopy.noResults}</p>}
+    </section> : <div className="settings-workspace settings-detail-workspace">
       <div className="settings-content">
-        {section === 'overview' && <div className="settings-pane">
+        {section === 'status' && <div className="settings-pane">
           <SectionHeading icon={CircleGauge} title={t('settings.systemOverview')} description={t('settings.systemOverviewDescription')} />
           <div className="settings-health-grid">
             <article><span><Activity size={15} />{t('settings.serviceStatus')}</span><strong className="positive"><i />{t('settings.healthy')}</strong><small>{t('settings.serviceStatusHelp')}</small></article>
@@ -542,7 +629,7 @@ ${steps.join(',\n')}
 
         {section === 'runtime' && <div className="settings-pane">
           <SectionHeading icon={Server} title={t('settings.runtimeStorage')} description={t('settings.runtimeStorageDescription')} />
-          <section className="settings-form-section"><header><Network size={15} /><div><h3>{t('settings.serverConfig')}</h3><p>{t('settings.serverConfigHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.host')} value={draft.host} onChange={value => set('host', value)} /><SettingField label={t('settings.port')} type="number" min={1} max={65535} value={draft.port} onChange={value => set('port', value)} /></div></section>
+          <section className="settings-form-section"><header><Network size={15} /><div><h3>{t('settings.serverConfig')}</h3><p>{t('settings.serverConfigHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.host')} value={draft.host} onChange={value => set('host', value)} /><SettingField label={t('settings.port')} hint={t('settings.portFixed')} type="number" value="8700" readOnly onChange={() => undefined} /></div></section>
           <section className="settings-form-section"><header><Database size={15} /><div><h3>{t('settings.storagePaths')}</h3><p>{t('settings.storageHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.artifactsPath')} value={draft.artifacts_path} onChange={value => set('artifacts_path', value)} /><SettingField label={t('settings.buildTempPath')} hint={t('settings.buildTempHint')} value={draft.build_temp_path} onChange={value => set('build_temp_path', value)} /></div><div className="settings-inline-note"><Info size={14} /><span>{t('settings.buildTempNote')}</span></div></section>
           <section className="settings-form-section"><header><Activity size={15} /><div><h3>{t('settings.resourceControl')}</h3><p>{t('settings.resourceControlHelp')}</p></div></header><div className="settings-form-grid three"><SettingField label={t('settings.cpuLimit')} hint={t('settings.cpuLimitHelp')} type="number" min={5} max={100} suffix="%" value={draft.cpu_limit_percent} onChange={value => set('cpu_limit_percent', value)} /><SettingField label={t('settings.localConcurrency')} type="number" min={1} max={256} value={draft.local_agent_concurrency} onChange={value => set('local_agent_concurrency', value)} /><Toggle label={t('settings.backgroundMode')} description={t('settings.backgroundModeHelp')} checked={draft.background_mode === 'true'} onChange={value => set('background_mode', String(value))} /></div><div className="settings-inline-note"><Info size={14} /><span>{t('settings.resourceHotReloadHelp')}</span></div></section>
         </div>}
@@ -579,19 +666,19 @@ ${steps.join(',\n')}
         </div>}
 
         {section === 'portability' && <div className="settings-pane portability-pane">
-          <SectionHeading icon={Database} title={t('settings.backup')} description={t('settings.portabilityDescription')} />
+          <SectionHeading icon={Database} title={t('settings.backup')} description={t('settings.portabilityDescription')} action={<span className="settings-compatibility-label">{directoryCopy.compatibilityData}</span>} />
           {portabilityError && <div className="settings-inline-note error"><Info size={14} /><span>{portabilityError}</span></div>}
 
           <section className="settings-form-section portability-card">
             <header><Download size={15} /><div><h3>{t('settings.exportBundle')}</h3><p>{t('settings.exportBundleHelp')}</p></div><button type="button" className="primary-command" onClick={handleExport} disabled={exporting || !exportSections.length || invalidSensitiveSelection}>{exporting ? <RefreshCw className="spin" size={14} /> : <Download size={14} />}{exporting ? t('settings.exporting') : t('settings.downloadBundle')}</button></header>
             <div className="portability-presets">
-              <span><strong>{exportSections.length}</strong> / {capabilities.length} {t('settings.sectionsSelected')}</span>
+              <span><strong>{visibleCapabilities.filter(capability => exportSections.includes(capability.key)).length}</strong> / {visibleCapabilities.length} {t('settings.sectionsSelected')}</span>
               <div>
                 <button type="button" className={!includeSecrets && exportSections.length === safePortabilitySections(capabilities).length ? 'active' : ''} onClick={chooseSafeExport}>{t('settings.safeExport')}</button>
                 <button type="button" className={includeSecrets && exportSections.length === capabilities.length ? 'active' : ''} onClick={chooseCompleteExport}><LockKeyhole size={12} />{t('settings.completeExport')}</button>
               </div>
             </div>
-            <div className="portability-section-grid">{capabilities.map(capability => <button type="button" key={capability.key} className={`${exportSections.includes(capability.key) ? 'selected' : ''} ${capability.sensitive ? 'sensitive' : ''}`} aria-pressed={exportSections.includes(capability.key)} disabled={capability.sensitive && !includeSecrets} onClick={() => toggleExportSection(capability)}><span>{exportSections.includes(capability.key) ? <Check size={12} /> : capability.sensitive ? <LockKeyhole size={11} /> : null}</span><div><strong>{capabilityLabel(capability.key)}{capability.sensitive && <em>{t('settings.sensitiveSection')}</em>}</strong><small>v{capability.version} · {capabilityHelp(capability)}</small></div></button>)}</div>
+            <div className="portability-section-grid">{visibleCapabilities.map(capability => <button type="button" key={capability.key} className={`${exportSections.includes(capability.key) ? 'selected' : ''} ${capability.sensitive ? 'sensitive' : ''}`} aria-pressed={exportSections.includes(capability.key)} disabled={capability.sensitive && !includeSecrets} onClick={() => toggleExportSection(capability)}><span>{exportSections.includes(capability.key) ? <Check size={12} /> : capability.sensitive ? <LockKeyhole size={11} /> : null}</span><div><strong>{capabilityLabel(capability.key)}{capability.sensitive && <em>{t('settings.sensitiveSection')}</em>}</strong><small>v{capability.version} · {capabilityHelp(capability)}</small></div></button>)}</div>
             <Toggle id="include-portability-secrets" checked={includeSecrets} onChange={changeSecretExport} label={t('settings.includeSecrets')} description={t('settings.includeSecretsHelp')} />
             {missingDependencies.length > 0 && <div className="settings-inline-note warning"><AlertTriangle size={14} /><span>{t('settings.missingDependencies')}: {missingDependencies.map(item => `${capabilityLabel(item.section)} → ${capabilityLabel(item.dependency)}`).join(' · ')}</span></div>}
             {exportError && <div className="settings-inline-note error" role="alert"><AlertTriangle size={14} /><span>{exportError}</span></div>}
@@ -612,6 +699,6 @@ ${steps.join(',\n')}
           </section>
         </div>}
       </div>
-    </div>
+    </div>}
   </motion.section>
 }

@@ -11,12 +11,14 @@ import { CommandPalette, type CommandPaletteGroup } from './components/CommandPa
 import { RouteErrorBoundary } from './components/RouteErrorBoundary'
 import InAppNotifications from './components/InAppNotifications'
 import { PageState } from './components/PageState'
-import { Activity, Bell, BookTemplate, Boxes, CircleUserRound, ClipboardList, CloudOff, FileClock, GitBranch, KeyRound, LayoutDashboard, Network, Search, Settings2, ShieldCheck, SlidersHorizontal, TerminalSquare, UsersRound } from 'lucide-react'
+import { Activity, Bell, Boxes, ChevronDown, CircleUserRound, ClipboardList, CloudOff, Cog, FileClock, Gauge, GitBranch, KeyRound, LayoutDashboard, LogOut, Network, Search, Settings2, ShieldCheck, SlidersHorizontal, TerminalSquare, UsersRound } from 'lucide-react'
 import { buildStatusLabel } from './lib/buildPresentation'
+import './jenkins-shell.css'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Projects = lazy(() => import('./pages/Projects'))
 const ProjectDetail = lazy(() => import('./pages/ProjectDetail'))
+const ProjectConfigure = lazy(() => import('./pages/ProjectConfigure'))
 const CreateProject = lazy(() => import('./pages/CreateProject'))
 const Builds = lazy(() => import('./pages/Builds'))
 const BuildDetail = lazy(() => import('./pages/BuildDetail'))
@@ -27,7 +29,6 @@ const Settings = lazy(() => import('./pages/Settings'))
 const Users = lazy(() => import('./pages/Users'))
 const Credentials = lazy(() => import('./pages/Credentials'))
 const VCSRoots = lazy(() => import('./pages/VCSRoots'))
-const Templates = lazy(() => import('./pages/Templates'))
 const Notifications = lazy(() => import('./pages/Notifications'))
 const Statistics = lazy(() => import('./pages/Statistics'))
 const AuditLog = lazy(() => import('./pages/AuditLog'))
@@ -36,6 +37,7 @@ const BuildQueue = lazy(() => import('./pages/BuildQueue'))
 const TestReports = lazy(() => import('./pages/TestReports'))
 const Login = lazy(() => import('./pages/Login'))
 const BigScreen = lazy(() => import('./pages/BigScreen'))
+const MyDashboard = lazy(() => import('./pages/MyDashboard'))
 
 export const WORKSPACE_NAV_ITEMS = [
   { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard },
@@ -43,12 +45,7 @@ export const WORKSPACE_NAV_ITEMS = [
   { href: '/build-queue', labelKey: 'nav.buildQueue', icon: FileClock },
   { href: '/builds', labelKey: 'nav.builds', icon: Activity },
   { href: '/vcs-roots', labelKey: 'nav.vcsRoots', icon: GitBranch },
-  { href: '/templates', labelKey: 'nav.templates', icon: BookTemplate },
 ] as const
-
-function NavItem({ href, label, icon: Icon }: { href: string; label: string; icon: typeof LayoutDashboard }) {
-  return <NavLink to={href} end={href === '/'} className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} aria-label={label} title={label}><Icon size={16} /> <span>{label}</span></NavLink>
-}
 
 function Layout() {
   const { t, locale, changeLocale, locales } = useI18n()
@@ -61,7 +58,10 @@ function Layout() {
   const [searchError, setSearchError] = useState('')
   const [searchLoading, setSearchLoading] = useState(false)
   const [apiUnavailable, setApiUnavailable] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
   const paletteOriginRef = useRef<HTMLElement | null>(null)
+  const accountRef = useRef<HTMLDivElement | null>(null)
+  const accountButtonRef = useRef<HTMLButtonElement | null>(null)
 
   const openPalette = useCallback(() => {
     if (paletteOpen) return
@@ -97,6 +97,24 @@ function Layout() {
   }, [])
 
   useEffect(() => {
+    if (!accountOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!accountRef.current?.contains(event.target as Node)) setAccountOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setAccountOpen(false)
+      accountButtonRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [accountOpen])
+
+  useEffect(() => {
     if (!paletteOpen) return
     let active = true
     setSearchError('')
@@ -112,6 +130,7 @@ function Layout() {
     return () => { active = false }
   }, [paletteOpen])
   const handleLogout = () => {
+    setAccountOpen(false)
     clearToken()
     navigate('/login')
   }
@@ -134,12 +153,12 @@ function Layout() {
     { label: t('nav.buildQueue'), detail: t('shell.buildQueueDetail'), href: '/build-queue', icon: FileClock },
     { label: t('nav.builds'), detail: t('shell.navigationDetail'), href: '/builds', icon: Activity },
     { label: t('nav.vcsRoots'), detail: t('shell.navigationDetail'), href: '/vcs-roots', icon: GitBranch },
-    { label: t('nav.templates'), detail: t('shell.navigationDetail'), href: '/templates', icon: BookTemplate },
     { label: t('dashboard.workers'), detail: t('shell.workersDetail'), href: '/agents', icon: Network },
     { label: t('nav.plugins'), detail: t('shell.pluginsDetail'), href: '/plugins', icon: TerminalSquare },
     { label: t('nav.apiTokens'), detail: t('shell.navigationDetail'), href: '/api-tokens', icon: KeyRound },
     { label: t('nav.statistics'), detail: t('shell.navigationDetail'), href: '/statistics', icon: SlidersHorizontal },
     { label: t('nav.bigScreen'), detail: t('shell.navigationDetail'), href: '/bigscreen', icon: ShieldCheck },
+    { label: t('nav.myDashboard'), detail: t('shell.myDashboardDetail'), href: '/my-dashboard', icon: Gauge },
     ...(admin ? [
       { label: t('settings.notifications'), detail: t('shell.notificationsDetail'), href: '/notifications', icon: Bell },
       { label: t('nav.credentials'), detail: t('shell.navigationDetail'), href: '/credentials', icon: KeyRound },
@@ -184,33 +203,39 @@ function Layout() {
 
   return (
     <div className="app-shell">
-      <aside className="app-sidebar">
-        <NavLink to="/" end className="app-brand"><span className="brand-mark"><BuildWorldMark size={22} /></span><span>buildworld</span></NavLink>
-        <div className="sidebar-section"><p>{t('shell.workspace')}</p>{WORKSPACE_NAV_ITEMS.map(item => <NavItem key={item.href} href={item.href} label={t(item.labelKey)} icon={item.icon} />)}</div>
-        <div className="sidebar-section"><p>{t('shell.execution')}</p><NavItem href="/agents" label={t('nav.agents')} icon={Network} />{admin && <NavItem href="/notifications" label={t('settings.notifications')} icon={Bell} />}</div>
-        <div className="sidebar-section"><p>{t('shell.administration')}</p>{admin && <NavItem href="/credentials" label={t('nav.credentials')} icon={KeyRound} />}<NavItem href="/api-tokens" label={t('nav.apiTokens')} icon={KeyRound} /><NavItem href="/plugins" label={t('nav.plugins')} icon={TerminalSquare} />{admin && <><NavItem href="/users" label={t('nav.users')} icon={UsersRound} /><NavItem href="/audit-log" label={t('nav.auditLog')} icon={ClipboardList} /><NavItem href="/settings" label={t('nav.settings')} icon={Settings2} /></>}</div>
-        <div className="sidebar-bottom"><NavLink to="/statistics" className="sidebar-link" aria-label={t('nav.statistics')} title={t('nav.statistics')}><SlidersHorizontal size={16} /><span>{t('nav.statistics')}</span></NavLink><NavLink to="/bigscreen" className="sidebar-link" aria-label={t('nav.bigScreen')} title={t('nav.bigScreen')}><ShieldCheck size={16} /><span>{t('nav.bigScreen')}</span></NavLink></div>
-      </aside>
+      <header className="app-topbar">
+        <NavLink to="/" end className="app-brand" aria-label="BuildWorld">
+          <BuildWorldMark size={28} />
+          <span>BuildWorld</span>
+        </NavLink>
+        <div className="topbar-actions">
+          <button className="topbar-icon-button" onClick={openPalette} aria-label={t('shell.searchPlaceholder')} title={t('shell.searchPlaceholder')}><Search size={18} /></button>
+          <InAppNotifications />
+          <NavLink to="/my-dashboard" className={({ isActive }) => `topbar-dashboard-link ${isActive ? 'active' : ''}`}><Gauge size={17} /><span>{t('nav.myDashboard')}</span></NavLink>
+          {admin && <NavLink to="/settings" className={({ isActive }) => `topbar-settings-link ${isActive ? 'active' : ''}`}><Cog size={18} /><span>{t('nav.settings')}</span></NavLink>}
+          <div className="account-menu" ref={accountRef}>
+            <button
+              ref={accountButtonRef}
+              type="button"
+              className="account-menu-trigger"
+              aria-label={t('shell.my')}
+              aria-expanded={accountOpen}
+              aria-controls="account-menu-popover"
+              onClick={() => setAccountOpen(value => !value)}
+            >
+              <CircleUserRound size={19} />
+              <ChevronDown size={13} />
+            </button>
+            {accountOpen && <div id="account-menu-popover" className="account-menu-popover">
+              <div className="account-menu-summary"><CircleUserRound size={20} /><span><strong>{t('shell.my')}</strong><small>{t(`users.role_${role}`)}</small></span></div>
+              <label className="account-language"><span>{t('shell.language')}</span><select value={locale} onChange={(event) => changeLocale(event.target.value as Locale)} aria-label={t('shell.language')}>{locales.map((item) => <option key={item} value={item}>{localeLabels[item]}</option>)}</select></label>
+              <button type="button" className="account-logout" onClick={handleLogout}><LogOut size={16} /><span>{t('shell.logout')}</span></button>
+            </div>}
+          </div>
+        </div>
+      </header>
       <section className="app-frame">
         {apiUnavailable && <div className="service-status-banner" role="alert"><CloudOff size={15} /><span><strong>{t('shell.serviceUnavailable')}</strong>{t('shell.serviceUnavailableHint')}</span></div>}
-        <header className="app-topbar">
-          <button className="command-trigger" onClick={openPalette} aria-label={t('shell.searchPlaceholder')} title={t('shell.searchPlaceholder')}><Search size={15} /><span>{t('shell.searchPlaceholder')}</span><kbd>Ctrl K</kbd></button>
-          <div className="topbar-actions">
-              <span className={`session-role ${role}`}>{t(`users.role_${role}`)}</span>
-              <InAppNotifications />
-              <select
-                value={locale}
-                onChange={(e) => changeLocale(e.target.value as Locale)}
-                className="language-select"
-                aria-label={t('shell.language')}
-              >
-                {locales.map((l) => (
-                  <option key={l} value={l}>{localeLabels[l]}</option>
-                ))}
-              </select>
-              <button onClick={handleLogout} className="logout-button" aria-label={t('shell.logout')} title={t('shell.logout')}><CircleUserRound size={16} /><span>{t('shell.logout')}</span></button>
-          </div>
-        </header>
         <main className="app-main"><RouteErrorBoundary resetKey={location.pathname}><Suspense fallback={<RouteLoading />}><Outlet /></Suspense></RouteErrorBoundary></main>
       </section>
       {paletteOpen && <CommandPalette ariaLabel={t('shell.globalSearch')} placeholder={t('shell.searchPlaceholder')} query={query} groups={commandGroups} loading={searchLoading} loadingLabel={t('shell.searchLoading')} emptyLabel={t('shell.noResults')} keyboardHint={t('shell.searchKeyboardHint')} error={searchError} onQueryChange={setQuery} onNavigate={navigateFromPalette} onClose={closePalette} />}
@@ -234,6 +259,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/new" element={<RoleGate roles={['admin', 'developer']}><CreateProject /></RoleGate>} />
+            <Route path="/projects/:id/configure" element={<RoleGate roles={['admin', 'developer']}><ProjectConfigure /></RoleGate>} />
             <Route path="/projects/:id" element={<ProjectDetail />} />
             <Route path="/builds" element={<Builds />} />
             <Route path="/builds/:id" element={<BuildDetail />} />
@@ -241,12 +267,13 @@ function App() {
             <Route path="/build-queue" element={<BuildQueue />} />
             <Route path="/agents" element={<Agents />} />
             <Route path="/vcs-roots" element={<VCSRoots />} />
-            <Route path="/templates" element={<Templates />} />
+            <Route path="/templates" element={<Navigate to="/projects" replace />} />
             <Route path="/plugins" element={<Plugins />} />
             <Route path="/credentials" element={<RoleGate roles={['admin']}><Credentials /></RoleGate>} />
             <Route path="/notifications" element={<RoleGate roles={['admin']}><Notifications /></RoleGate>} />
             <Route path="/statistics" element={<Statistics />} />
             <Route path="/bigscreen" element={<BigScreen />} />
+            <Route path="/my-dashboard" element={<MyDashboard />} />
             <Route path="/audit-log" element={<RoleGate roles={['admin']}><AuditLog /></RoleGate>} />
             <Route path="/api-tokens" element={<APITokens />} />
             <Route path="/users" element={<RoleGate roles={['admin']}><Users /></RoleGate>} />

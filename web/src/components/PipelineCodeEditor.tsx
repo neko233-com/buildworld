@@ -22,6 +22,7 @@ type PipelineCodeEditorProps = {
   ariaLabel: string
   height?: number | string
   statusId?: string
+  language?: 'typescript' | 'yaml' | 'jenkinsfile'
   onValidationChange?: (state: PipelineValidationState) => void
 }
 
@@ -34,9 +35,85 @@ function modelDiagnosticErrors(monaco: Monaco, model: EditorModel) {
     .filter(marker => marker.owner !== serverMarkerOwner && marker.severity === monaco.MarkerSeverity.Error)
 }
 
+// registerGroovy adds a lightweight Monarch grammar for Jenkinsfile sources.
+// Monaco does not ship Groovy, so we register it once so the editor can
+// highlight Jenkinsfile pipelines alongside TypeScript and YAML.
+function registerGroovy(monaco: Monaco) {
+  if (typeof monaco.languages.register !== 'function' || typeof monaco.languages.setMonarchTokensProvider !== 'function') return
+  if (monaco.languages.getLanguages?.().some(language => language.id === 'groovy')) return
+  monaco.languages.register({ id: 'groovy', extensions: ['.groovy', 'Jenkinsfile'], aliases: ['Groovy', 'jenkinsfile'] })
+  monaco.languages.setMonarchTokensProvider('groovy', {
+    defaultToken: '',
+    tokenPostfix: '.groovy',
+    keywords: [
+      'agent', 'any', 'none', 'stage', 'stages', 'steps', 'script', 'node', 'pipeline',
+      'environment', 'options', 'parameters', 'triggers', 'post', 'always', 'success',
+      'failure', 'unstable', 'changed', 'fixed', 'aborted', 'when', 'input', 'parallel',
+      'matrix', 'axes', 'axis', 'tools', 'def', 'if', 'else', 'for', 'while', 'return',
+      'try', 'catch', 'finally', 'throw', 'new', 'this', 'super', 'class', 'void', 'boolean',
+      'int', 'String', 'def', 'true', 'false', 'null', 'import', 'static', 'public',
+      'private', 'protected', 'final', 'abstract',
+    ],
+    operators: [
+      '=', '>', '<', '!', '~', '?', ':', '==', '<=', '>=', '!=', '&&', '||', '++', '--',
+      '+', '-', '*', '/', '&', '|', '^', '%', '<<', '>>', '>>>', '+=', '-=', '*=', '/=',
+    ],
+    symbols: /[=><!~?:&|+\-*/^%]+/,
+    tokenizer: {
+      root: [
+        [/#.*$/, 'comment'],
+        [/\/\/.*$/, 'comment'],
+        [/\/\*/, 'comment', '@comment'],
+        [/"([^"\\]|\\.)*$/, 'string.invalid'],
+        [/'([^'\\]|\\.)*$/, 'string.invalid'],
+        [/"""/, 'string', '@string2'],
+        [/"/, 'string', '@string'],
+        [/'/, 'string', '@string'],
+        [/\b\d+(\.\d+)?\b/, 'number'],
+        [/\$\{/, 'delimiter', '@interp'],
+        [
+          /[a-zA-Z_$][\w$]*/,
+          {
+            cases: {
+              '@keywords': 'keyword',
+              '@default': 'identifier',
+            },
+          },
+        ],
+        [/@symbols/, { cases: { '@operators': 'operator', '@default': '' } }],
+        [/[{}()[\]]/, '@brackets'],
+        [/@/, 'delimiter'],
+      ],
+      comment: [
+        [/[^/*]+/, 'comment'],
+        [/\*\//, 'comment', '@pop'],
+        [/[/*]/, 'comment'],
+      ],
+      string: [
+        [/[^'"\\$]+/, 'string'],
+        [/\\./, 'string.escape'],
+        [/'/, 'string', '@pop'],
+        [/"$/, 'string', '@pop'],
+        [/\$\{/, 'delimiter', '@interp'],
+      ],
+      string2: [
+        [/[^"\\$]+/, 'string'],
+        [/\\./, 'string.escape'],
+        [/"""/, 'string', '@pop'],
+      ],
+      interp: [
+        [/[}]/, 'delimiter', '@pop'],
+        [/[a-zA-Z_][\w.]*/, 'variable'],
+        [/./, 'delimiter'],
+      ],
+    },
+  })
+}
+
 function configureMonaco(monaco: Monaco) {
   if (monacoConfigured) return
   monacoConfigured = true
+  registerGroovy(monaco)
   monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
     allowNonTsExtensions: true,
     module: monaco.languages.typescript.ModuleKind.ESNext,
@@ -75,6 +152,7 @@ export default function PipelineCodeEditor({
   ariaLabel,
   height = 420,
   statusId,
+  language = 'typescript',
   onValidationChange,
 }: PipelineCodeEditorProps) {
   const { t } = useI18n()
@@ -227,6 +305,9 @@ export default function PipelineCodeEditor({
     monacoRef.current = null
   }, [])
 
+  const monacoLang = language === 'jenkinsfile' ? 'groovy' : language
+  const fileExt = language === 'jenkinsfile' ? 'groovy' : language === 'yaml' ? 'yaml' : 'ts'
+  const formatLabel = language === 'jenkinsfile' ? 'Jenkinsfile' : language === 'yaml' ? 'YAML' : 'TypeScript'
   return (
     <div
       className={`pipeline-monaco-editor ${className}`.trim()}
@@ -238,10 +319,10 @@ export default function PipelineCodeEditor({
       <Editor
         beforeMount={configureMonaco}
         height={height}
-        language="typescript"
+        language={monacoLang}
         onChange={next => onChange(next ?? '')}
         onMount={handleMount}
-        path={`file:///buildworld/pipeline-${modelID}.ts`}
+        path={`file:///buildworld/pipeline-${modelID}.${fileExt}`}
         theme="vs-dark"
         value={value}
         options={{
@@ -270,7 +351,7 @@ export default function PipelineCodeEditor({
         <span className={validation.valid ? 'valid' : validation.checking ? 'checking' : validation.problems ? 'invalid' : ''}>
           {validation.message || t('config.validating')}
         </span>
-        <span>TypeScript</span>
+        <span>{formatLabel}</span>
         <span>UTF-8</span>
         <span>Ln {cursor.line}, Col {cursor.column}</span>
         <span>{validation.problems} {t('config.problems')}</span>

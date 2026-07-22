@@ -3,10 +3,20 @@
   --ui-text: var(--ui-ink);
 }
 
-.settings-center { max-width: 1280px; margin: 0 auto; color: var(--ui-text); }
-.settings-page-heading { display: flex; min-height: 58px; align-items: flex-start; justify-content: space-between; gap: 24px; margin: 0 0 20px; }
-.settings-page-heading h1 { margin: 0; font-size: 27px; font-weight: 680; line-height: 1.2; letter-spacing: 0; }
+.app-main:has(.settings-center) { max-width: none; }
+.settings-center { width: 100%; max-width: none; margin: 0; color: var(--ui-text); }
+.settings-breadcrumbs { display: flex; min-height: 24px; align-items: center; gap: 5px; margin: 0 0 12px; color: var(--ui-subtle); font-size: 11px; }
+.settings-breadcrumbs a, .settings-breadcrumbs button { padding: 2px 3px; color: var(--ui-accent-strong); border: 0; border-radius: 3px; background: transparent; font: inherit; text-decoration: none; }
+.settings-breadcrumbs a:hover, .settings-breadcrumbs button:hover { text-decoration: underline; }
+.settings-breadcrumbs span { color: var(--ui-muted); }
+.settings-breadcrumbs svg { flex: 0 0 auto; color: #a1a4aa; }
+.settings-page-heading { display: flex; min-height: 58px; align-items: flex-start; justify-content: space-between; gap: 24px; margin: 0 0 18px; }
+.settings-page-heading h1 { margin: 0; font-size: 30px; font-weight: 650; line-height: 1.2; letter-spacing: -.01em; }
 .settings-page-heading p { margin: 6px 0 0; color: var(--ui-muted); font-size: 13px; line-height: 1.45; }
+.settings-detail-toolbar { display: flex; min-height: 40px; align-items: center; justify-content: space-between; gap: 20px; margin: 0 0 12px; }
+.settings-back-link { padding: 0; color: var(--ui-accent-strong); border: 0; background: transparent; font-size: 12px; }
+.settings-back-link::before { content: '←'; margin-right: 6px; }
+.settings-back-link:hover { text-decoration: underline; }
 .settings-save-area { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; }
 .settings-save-area > span { color: var(--ui-subtle); font-size: 11px; }
 .settings-save-area > span.dirty { color: var(--ui-warning); }
@@ -18,15 +28,34 @@
 .settings-restart-notice span { display: flex; gap: 6px; }
 .settings-restart-notice strong { color: #5d460b; }
 
-.settings-workspace { display: grid; grid-template-columns: 196px minmax(0, 1fr); min-height: 690px; overflow: hidden; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-surface); box-shadow: 0 1px 2px rgba(18,24,32,.035); }
-.settings-nav { padding: 12px 9px; border-right: 1px solid var(--ui-border); background: var(--ui-surface-muted); }
-.settings-nav button { display: grid; width: 100%; min-height: 38px; grid-template-columns: 18px minmax(0,1fr) 13px; align-items: center; gap: 8px; padding: 0 9px; color: #55565b; border: 0; border-radius: 6px; background: transparent; font-size: 12px; text-align: left; }
-.settings-nav button:hover { color: var(--ui-text); background: #eceef2; }
-.settings-nav button.active { color: var(--ui-accent-strong); background: var(--ui-accent-soft); font-weight: 650; }
 .settings-center button:focus { outline: none; }
 .settings-center button:focus-visible, .settings-center input:focus-visible, .settings-center select:focus-visible { outline: 2px solid rgba(0,113,227,.38); outline-offset: 2px; }
-.settings-nav button > svg:last-child { color: #a1a3aa; opacity: 0; }
-.settings-nav button:hover > svg:last-child, .settings-nav button.active > svg:last-child { opacity: 1; }
+.settings-directory-search { display: grid; width: min(100%, 760px); height: 42px; grid-template-columns: 21px minmax(0,1fr); align-items: center; gap: 7px; margin: 0 0 26px; padding: 0 12px; color: var(--ui-muted); border: 1px solid #c9ccd2; border-radius: 4px; background: var(--ui-surface); box-shadow: inset 0 1px 1px rgba(0,0,0,.03); }
+.settings-directory-search:focus-within { border-color: #4d90ce; box-shadow: 0 0 0 2px rgba(0,113,227,.15); }
+.settings-directory-search input { min-width: 0; height: 100%; padding: 0; color: var(--ui-text); border: 0; outline: 0; background: transparent; font-size: 14px; }
+.settings-directory-search input::placeholder { color: #898c92; }
+.settings-directory { width: 100%; padding: 0 0 36px; }
+.settings-directory-group { margin: 0 0 30px; }
+.settings-directory-group > h2 { margin: 0 0 4px; padding: 0 0 9px; color: #25272b; border-bottom: 1px solid #cfd2d7; font-size: 19px; font-weight: 620; line-height: 1.3; }
+.settings-directory-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(330px,1fr)); column-gap: 38px; }
+.settings-directory-link { display: grid; min-width: 0; min-height: 92px; grid-template-columns: 48px minmax(0,1fr) 18px; align-items: center; gap: 13px; padding: 13px 4px; color: inherit; border: 0; border-bottom: 1px solid var(--ui-border-soft); background: transparent; text-align: left; }
+.settings-directory-link:hover { background: #f7f9fb; }
+.settings-directory-link:hover .settings-directory-copy strong { text-decoration: underline; }
+.settings-directory-link > svg { color: #a1a4aa; transition: transform .14s ease, color .14s ease; }
+.settings-directory-link:hover > svg { color: var(--ui-accent-strong); transform: translateX(2px); }
+.settings-directory-icon { display: grid; width: 44px; height: 44px; place-items: center; color: #4e5964; }
+.settings-directory-icon.runtime, .settings-directory-icon.status { color: #3575a9; }
+.settings-directory-icon.builds, .settings-directory-icon.validation { color: #4b7451; }
+.settings-directory-icon.agents, .settings-directory-icon.proxies { color: #5d6a92; }
+.settings-directory-icon.security { color: #9a6128; }
+.settings-directory-icon.portability { color: #59636c; }
+.settings-directory-copy { display: block; min-width: 0; }
+.settings-directory-copy strong { display: block; color: #1769aa; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.settings-directory-copy small { display: block; max-width: 620px; margin-top: 4px; color: #5f6368; font-size: 11px; line-height: 1.48; }
+.settings-directory-copy em, .settings-compatibility-label { display: inline-flex; margin-top: 7px; padding: 2px 6px; color: #6b5a30; border: 1px solid #ddd0ab; border-radius: 3px; background: #fbf7ec; font-size: 9px; font-style: normal; font-weight: 650; line-height: 1.3; }
+.settings-directory-empty { margin: 20px 0; padding: 28px; color: var(--ui-muted); border: 1px dashed var(--ui-border); text-align: center; }
+.settings-workspace { min-height: 0; overflow: hidden; border: 1px solid var(--ui-border); border-radius: 4px; background: var(--ui-surface); box-shadow: 0 1px 2px rgba(18,24,32,.025); }
+.settings-detail-workspace { width: 100%; }
 .settings-content { min-width: 0; }
 .settings-pane { animation: settings-pane-in .18s ease-out; }
 @keyframes settings-pane-in { from { opacity: .65; transform: translateY(2px); } to { opacity: 1; transform: none; } }
@@ -221,15 +250,20 @@
   .settings-form-grid.three { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 @media (max-width: 900px) {
-  .settings-workspace { display: block; }
-  .settings-nav { display: flex; overflow-x: auto; padding: 8px; border-right: 0; border-bottom: 1px solid var(--ui-border); }
-  .settings-nav button { width: auto; min-width: max-content; grid-template-columns: 17px auto; padding: 0 10px; }
-  .settings-nav button > svg:last-child { display: none; }
+  .settings-directory-list { grid-template-columns: 1fr; }
 }
 @media (max-width: 620px) {
   .settings-page-heading { display: block; }
   .settings-page-heading h1 { font-size: 24px; }
+  .settings-detail-toolbar { align-items: flex-start; flex-direction: column; }
   .settings-save-area { justify-content: space-between; margin-top: 15px; }
+  .settings-detail-toolbar .settings-save-area { width: 100%; margin-top: 0; }
+  .settings-directory-search { width: 100%; margin-bottom: 22px; }
+  .settings-directory-group { margin-bottom: 24px; }
+  .settings-directory-group > h2 { font-size: 17px; }
+  .settings-directory-link { min-height: 86px; grid-template-columns: 40px minmax(0,1fr) 16px; gap: 10px; padding-right: 2px; }
+  .settings-directory-icon { width: 38px; height: 38px; }
+  .settings-directory-icon svg { width: 27px; height: 27px; }
   .settings-restart-notice span { display: block; }
   .settings-restart-notice strong { display: block; margin-bottom: 3px; }
   .settings-workspace { margin-right: -1px; margin-left: -1px; }

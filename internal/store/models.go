@@ -38,39 +38,52 @@ type User struct {
 }
 
 type Project struct {
-	ID            int64     `json:"id"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description,omitempty"`
-	RepoURL       string    `json:"repo_url"`
-	RepoType      string    `json:"repo_type"`
-	DefaultBranch string    `json:"default_branch"`
-	VCSRootID     *int64    `json:"vcs_root_id,omitempty"`
-	TemplateID    *int64    `json:"template_id,omitempty"`
-	GroupID       *int64    `json:"group_id,omitempty"`
-	Tags          []string  `json:"tags"`
-	Config        string    `json:"config"`
-	CreatedBy     int64     `json:"created_by"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID                 int64     `json:"id"`
+	Name               string    `json:"name"`
+	Description        string    `json:"description,omitempty"`
+	RepoURL            string    `json:"repo_url"`
+	RepoType           string    `json:"repo_type"`
+	DefaultBranch      string    `json:"default_branch"`
+	VCSRootID          *int64    `json:"vcs_root_id,omitempty"`
+	TemplateID         *int64    `json:"template_id,omitempty"`
+	GroupID            *int64    `json:"group_id,omitempty"`
+	Tags               []string  `json:"tags"`
+	Config             string    `json:"config"`
+	PipelineFormat     string    `json:"pipeline_format,omitempty"`
+	PipelineSourceMode string    `json:"pipeline_source_mode,omitempty"`
+	PipelineSCMRepo    string    `json:"pipeline_scm_repo,omitempty"`
+	PipelineSCMBranch  string    `json:"pipeline_scm_branch,omitempty"`
+	PipelineSCMPath    string    `json:"pipeline_scm_path,omitempty"`
+	Favorite           bool      `json:"favorite"`
+	QuickAccess        bool      `json:"quick_access"`
+	Enabled            bool      `json:"enabled"`
+	CreatedBy          int64     `json:"created_by"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // ProjectSummary is the list-safe project representation. Pipeline config is
 // deliberately absent because a single definition may be hundreds of
 // kilobytes; callers that edit or run a parameterized build fetch GetProject.
 type ProjectSummary struct {
-	ID            int64     `json:"id"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description,omitempty"`
-	RepoURL       string    `json:"repo_url"`
-	RepoType      string    `json:"repo_type"`
-	DefaultBranch string    `json:"default_branch"`
-	VCSRootID     *int64    `json:"vcs_root_id,omitempty"`
-	TemplateID    *int64    `json:"template_id,omitempty"`
-	GroupID       *int64    `json:"group_id,omitempty"`
-	Tags          []string  `json:"tags"`
-	CreatedBy     int64     `json:"created_by"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID                 int64     `json:"id"`
+	Name               string    `json:"name"`
+	Description        string    `json:"description,omitempty"`
+	RepoURL            string    `json:"repo_url"`
+	RepoType           string    `json:"repo_type"`
+	DefaultBranch      string    `json:"default_branch"`
+	VCSRootID          *int64    `json:"vcs_root_id,omitempty"`
+	TemplateID         *int64    `json:"template_id,omitempty"`
+	GroupID            *int64    `json:"group_id,omitempty"`
+	Tags               []string  `json:"tags"`
+	PipelineFormat     string    `json:"pipeline_format,omitempty"`
+	PipelineSourceMode string    `json:"pipeline_source_mode,omitempty"`
+	Favorite           bool      `json:"favorite"`
+	QuickAccess        bool      `json:"quick_access"`
+	Enabled            bool      `json:"enabled"`
+	CreatedBy          int64     `json:"created_by"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type Build struct {

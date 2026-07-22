@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { buildChainRelationKey, type BuildChain, type BuildChainNode } from '../lib/buildChain'
+import { BuildStatusBadge } from './BuildStatusBadge'
 
 function ChainNode({ node }: { node: BuildChainNode }) {
   const { t } = useI18n()
@@ -14,7 +15,7 @@ function ChainNode({ node }: { node: BuildChainNode }) {
       <strong>{node.pinned && <Pin size={11} />}#{node.number}</strong>
       <em><GitBranch size={11} />{node.branch || '-'}</em>
     </div>
-    <span className={`build-status ${buildStatusTone(node.status)}`}>{buildStatusLabel(t, node.status)}</span>
+    <BuildStatusBadge status={node.status} label={buildStatusLabel(t, node.status)} />
     {node.focus && <b>{t('builds.currentBuild')}</b>}
   </Link>
 }

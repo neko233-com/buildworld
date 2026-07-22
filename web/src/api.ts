@@ -30,6 +30,32 @@ export type PipelineMigrationResult = {
   hints: { repository_url?: string; default_branch?: string }
 }
 
+export type ProjectBuildOverview = {
+  project_id: number
+  latest: BuildOverview | null
+  last_success: BuildOverview | null
+  last_failure: BuildOverview | null
+  recent_statuses: string[]
+}
+
+export type BuildOverview = {
+  id: number
+  number: number
+  status: string
+  started_at?: string | null
+  finished_at?: string | null
+  duration_ms?: number | null
+}
+
+export type ProjectChange = {
+  build_id: number
+  build_number: number
+  status: string
+  commit_sha: string
+  branch: string
+  timestamp: string | null
+}
+
 export type TestReportSummary = {
   id: number
   build_id: number
@@ -73,6 +99,49 @@ export class ApiError extends Error {
     this.status = status
     this.code = code
   }
+}
+
+function missingProjectOverviewRoute(reason: unknown): boolean {
+  return reason instanceof ApiError
+    && reason.status === 400
+    && reason.code === 'api_error'
+    && reason.message.trim().toLowerCase() === 'invalid id'
+}
+
+function buildOverview(build: any): BuildOverview {
+  return {
+    id: build.id,
+    number: build.number,
+    status: build.status,
+    started_at: build.started_at,
+    finished_at: build.finished_at,
+    duration_ms: build.duration_ms,
+  }
+}
+
+function summarizeProjectBuilds(projectID: number, builds: any[]): ProjectBuildOverview {
+  const ordered = [...builds].sort((left, right) => (right.number - left.number) || (right.id - left.id))
+  const latest = ordered[0]
+  const lastSuccess = ordered.find(build => build.status === 'success')
+  const lastFailure = ordered.find(build => build.status === 'failed')
+  return {
+    project_id: projectID,
+    latest: latest ? buildOverview(latest) : null,
+    last_success: lastSuccess ? buildOverview(lastSuccess) : null,
+    last_failure: lastFailure ? buildOverview(lastFailure) : null,
+    recent_statuses: ordered.slice(0, 5).map(build => build.status),
+  }
+}
+
+function summarizeProjectBuildList(builds: any[]): ProjectBuildOverview[] {
+  const grouped = new Map<number, any[]>()
+  for (const build of builds) {
+    if (!Number.isFinite(build?.project_id)) continue
+    const projectBuilds = grouped.get(build.project_id) || []
+    projectBuilds.push(build)
+    grouped.set(build.project_id, projectBuilds)
+  }
+  return Array.from(grouped, ([projectID, projectBuilds]) => summarizeProjectBuilds(projectID, projectBuilds))
 }
 
 function getToken(): string | null {
@@ -269,6 +338,19 @@ export async function request<T = any>(method: string, path: string, body?: any,
   }
 }
 
+async function listProjectBuildOverviews(): Promise<ProjectBuildOverview[]> {
+  try {
+    return await request<ProjectBuildOverview[]>('GET', '/projects/job-overview')
+  } catch (reason) {
+    if (!missingProjectOverviewRoute(reason)) throw reason
+  }
+
+  // Older BuildWorld servers route `job-overview` through `/projects/{id}`.
+  // Keep rolling upgrades usable with one bounded legacy request.
+  const builds = await request<any[]>('GET', '/builds/?limit=500')
+  return summarizeProjectBuildList(builds)
+}
+
 export const api = {
   // auth
   login: (username: string, password: string) =>
@@ -279,14 +361,21 @@ export const api = {
 
   // projects
   listProjects: () => request<any[]>('GET', '/projects/'),
+  listProjectBuildOverviews,
+  listQuickAccess: () => request<any[]>('GET', '/projects/?quick_access=1'),
+  setProjectFlags: (id: number, favorite: boolean, quickAccess: boolean) =>
+    request<any>('POST', `/projects/${id}/flags`, { favorite, quick_access: quickAccess }),
   getProject: (id: number) => request<any>('GET', `/projects/${id}`),
   createProject: (data: any) => request('POST', '/projects/', data),
   updateProject: (id: number, data: any) => request('PUT', `/projects/${id}`, data),
   deleteProject: (id: number) => request('DELETE', `/projects/${id}`),
   triggerBuild: (id: number, data?: any) => request('POST', `/projects/${id}/builds`, data),
   listProjectBuilds: (id: number) => request<any[]>('GET', `/projects/${id}/builds`),
+  listProjectChanges: (id: number) => request<ProjectChange[]>('GET', `/projects/${id}/changes`),
   validatePipeline: (source: string) =>
-    request<{ valid: boolean; format: 'typescript' | 'yaml'; stages: number; steps: number; parameters: any[]; allow_long_running: boolean }>('POST', '/pipeline-validation', { source }),
+    request<{ valid: boolean; format: 'typescript' | 'yaml' | 'jenkinsfile' | 'auto'; stages: number; steps: number; parameters: any[]; allow_long_running: boolean }>('POST', '/pipeline-validation', { source }),
+  validateProject: (id: number) =>
+    request<{ valid: boolean; format: 'typescript' | 'yaml' | 'jenkinsfile' | 'auto'; stages: number; steps: number; parameters: any[]; allow_long_running: boolean }>('POST', `/projects/${id}/validate`),
   migratePipeline: (format: string, source: string, name?: string) =>
     request<PipelineMigrationResult>('POST', `/pipeline-migrations/${encodeURIComponent(format)}`, { source, name }),
 

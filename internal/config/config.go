@@ -7,6 +7,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ControlPlanePort is the fixed local HTTP port used by BuildWorld.
+const ControlPlanePort = 8700
+
 type Config struct {
 	Server     ServerConfig     `yaml:"server"`
 	Database   DatabaseConfig   `yaml:"database"`
@@ -53,6 +56,14 @@ type LocalWorkerConfig struct {
 	Workspace           string   `yaml:"workspace"`
 	Pool                string   `yaml:"pool"`
 	Labels              []string `yaml:"labels"`
+}
+
+// EnforceControlPlanePort keeps installed clients, workers, and server
+// lifecycle commands on one stable endpoint regardless of persisted settings.
+func (c *Config) EnforceControlPlanePort() {
+	if c != nil {
+		c.Server.Port = ControlPlanePort
+	}
 }
 
 func Load(path string) (*Config, error) {

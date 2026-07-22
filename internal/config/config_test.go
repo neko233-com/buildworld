@@ -264,3 +264,13 @@ another_unknown:
 		t.Errorf("Database.Path = %q, want %q", cfg.Database.Path, "./data/test.db")
 	}
 }
+
+func TestEnforceControlPlanePort(t *testing.T) {
+	cfg := &Config{Server: ServerConfig{Port: 6050}}
+	cfg.EnforceControlPlanePort()
+	if cfg.Server.Port != ControlPlanePort {
+		t.Fatalf("Server.Port = %d, want %d", cfg.Server.Port, ControlPlanePort)
+	}
+	var nilConfig *Config
+	nilConfig.EnforceControlPlanePort()
+}

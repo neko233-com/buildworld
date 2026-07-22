@@ -25,6 +25,7 @@
   },
   "shell": {
     "workspace": "工作区",
+    "my": "我的",
     "execution": "执行",
     "administration": "管理",
     "searchPlaceholder": "搜索项目、构建和命令",
@@ -40,11 +41,13 @@
     "notificationsDetail": "共享通知渠道",
     "pluginsDetail": "从 GitHub 安装 Go 二进制插件",
     "navigationDetail": "打开工作区页面",
+    "myDashboardDetail": "查看你的个性化数据大盘",
     "searchLoading": "正在刷新可搜索内容...",
     "searchKeyboardHint": "↑ ↓ 选择 · Enter 打开 · Esc 关闭",
     "language": "语言",
     "serviceUnavailable": "构建服务暂时不可用",
-    "serviceUnavailableHint": "读取请求已自动重试；服务恢复后此提示会自动消失。"
+    "serviceUnavailableHint": "读取请求已自动重试；服务恢复后此提示会自动消失。",
+    "quickAccess": "快速访问"
   },
   "nav": {
     "dashboard": "仪表盘",
@@ -62,7 +65,8 @@
     "auditLog": "审计日志",
     "apiTokens": "API Token",
     "buildQueue": "构建进行中",
-    "bigScreen": "数据大盘"
+    "bigScreen": "数据大盘",
+    "myDashboard": "我的数据大盘"
   },
   "bigScreen": {
     "title": "数据大盘",
@@ -242,7 +246,22 @@
     "online": "在线",
     "pending": "等待中",
     "latestBuild": "最新构建",
-    "viewAgents": "查看 Worker"
+    "viewAgents": "查看 Worker",
+    "viewLog": "查看日志",
+    "favorites": "收藏项目",
+    "noFavorites": "还没有收藏的项目"
+  },
+  "myDashboard": {
+    "title": "我的数据大盘",
+    "subtitle": "围绕你的角色、常用项目与最近构建的个性化视图，开箱即用。",
+    "myProjects": "我的常用项目",
+    "myProjectsEmpty": "还没有常用项目；在项目页点击“加入快速访问”即可显示在这里。",
+    "openProject": "打开项目",
+    "myAccount": "我的账户",
+    "role": "当前角色",
+    "quickAccess": "快速访问项目",
+    "lastBuild": "最近构建",
+    "viewAll": "查看全部"
   },
   "projects": {
     "title": "项目",
@@ -269,22 +288,24 @@
     "allProjects": "全部项目",
     "clearTagFilters": "清除标签筛选",
     "noTagMatches": "没有匹配此标签组合的项目。",
-    "startingBuild": "正在启动..."
-    ,"openSettings": "打开项目设置"
-    ,"createDescription": "先创建项目；仓库、备注和构建流程都归属于这个项目。"
-    ,"identityHelp": "填写项目名称、用途备注和 Git 仓库信息。"
-    ,"descriptionPlaceholder": "说明这个项目是做什么的，方便团队成员快速识别。"
-    ,"manualRepository": "手动填写仓库"
-    ,"repositoryType": "仓库类型"
-    ,"gitOnly": "Git（当前唯一支持）"
-    ,"tagsHelp": "可选，用于筛选和归类项目。"
-    ,"noExistingTags": "暂无已有标签"
-    ,"addTag": "添加标签"
-    ,"buildFlowHelp": "此配置属于当前项目，创建后仍可在项目设置中修改。"
-    ,"template": "模板"
-    ,"noTemplate": "不使用模板"
-    ,"sourceFormat": "配置格式"
-    ,"createFailed": "创建项目失败"
+    "startingBuild": "正在启动...",
+    "openSettings": "打开项目设置",
+    "createDescription": "先创建项目；仓库、备注和构建流程都归属于这个项目。",
+    "identityHelp": "填写项目名称、用途备注和 Git 仓库信息。",
+    "descriptionPlaceholder": "说明这个项目是做什么的，方便团队成员快速识别。",
+    "manualRepository": "手动填写仓库",
+    "repositoryType": "仓库类型",
+    "gitOnly": "Git（当前唯一支持）",
+    "tagsHelp": "可选，用于筛选和归类项目。",
+    "noExistingTags": "暂无已有标签",
+    "addTag": "添加标签",
+    "buildFlowHelp": "此配置属于当前项目，创建后仍可在项目设置中修改。",
+    "sourceFormat": "配置格式",
+    "createFailed": "创建项目失败",
+    "favorite": "收藏",
+    "unfavorite": "取消收藏",
+    "quickAccessAdd": "加入快速访问",
+    "quickAccessRemove": "移出快速访问"
   },
   "jenkinsImport": {
     "title": "导入 Jenkinsfile",
@@ -326,28 +347,60 @@
     "hour": "小时",
     "minute": "分钟",
     "saveSchedule": "保存调度",
-    "saving": "保存中..."
-    ,"project": "项目"
-    ,"repositoryKind": "仓库"
-    ,"noDescription": "暂无项目描述"
-    ,"recentBuilds": "最近构建"
-    ,"summary": "项目摘要"
-    ,"views": "项目视图"
-    ,"openEditor": "打开编辑器"
-    ,"repositoryUrl": "仓库地址"
-    ,"tagsPlaceholder": "Web, 生产环境"
-    ,"saved": "项目设置已保存。"
-    ,"updateFailed": "更新项目失败"
-    ,"deleteTitle": "删除项目"
-    ,"deleteDescription": "这会删除项目及其关联配置。"
-    ,"deleteFailed": "删除项目失败"
-    ,"invalidPipeline": "构建流程配置无效"
-    ,"scheduleSaved": "构建调度已保存。"
-    ,"saveScheduleFailed": "保存调度失败"
-    ,"projectSettings": "项目与打包设置"
-    ,"projectSettingsHelp": "仓库、备注、构建配置和触发规则统一归属于当前项目。"
-    ,"buildSteps": "构建步骤"
-    ,"openBuildSteps": "打开构建配置"
+    "saving": "保存中...",
+    "project": "项目",
+    "repositoryKind": "仓库",
+    "noDescription": "暂无项目描述",
+    "recentBuilds": "最近构建",
+    "summary": "项目摘要",
+    "views": "项目视图",
+    "openEditor": "打开编辑器",
+    "repositoryUrl": "仓库地址",
+    "tagsPlaceholder": "Web, 生产环境",
+    "saved": "项目设置已保存。",
+    "updateFailed": "更新项目失败",
+    "deleteTitle": "删除项目",
+    "deleteDescription": "这会删除项目及其关联配置。",
+    "deleteFailed": "删除项目失败",
+    "invalidPipeline": "构建流程配置无效",
+    "scheduleSaved": "构建调度已保存。",
+    "saveScheduleFailed": "保存调度失败",
+    "projectSettings": "项目与打包设置",
+    "projectSettingsHelp": "仓库、备注、构建配置和触发规则统一归属于当前项目。",
+    "buildSteps": "构建步骤",
+    "openBuildSteps": "打开构建配置",
+    "breadcrumb": "项目路径",
+    "jobActions": "项目操作",
+    "status": "状态",
+    "changes": "变更历史",
+    "buildNow": "立即构建",
+    "deletePipeline": "删除 Pipeline",
+    "configure": "Configure",
+    "rename": "重命名",
+    "move": "移动",
+    "stages": "Stages",
+    "pipelineSyntax": "流水线语法",
+    "filterBuilds": "过滤构建...",
+    "noMatchingBuilds": "没有匹配的构建",
+    "noBuildsYet": "尚无构建记录",
+    "editDescription": "编辑描述",
+    "fullProjectName": "完整项目名称：{group}/{project}",
+    "relatedLinks": "相关链接",
+    "latestBuild": "最近一次构建",
+    "lastStableBuild": "最近稳定构建",
+    "lastSuccessfulBuild": "最近成功构建",
+    "lastFailedBuild": "最近失败构建",
+    "lastUnsuccessfulBuild": "最近未成功构建",
+    "lastCompletedBuild": "最近完成构建",
+    "none": "无",
+    "definition": "定义",
+    "pipelineScript": "Pipeline 脚本",
+    "pipelineScriptFromSCM": "来自 SCM 的 Pipeline 脚本",
+    "scriptPath": "脚本路径",
+    "autoDetect": "自动检测",
+    "apply": "应用",
+    "scmPipelineRequired": "来自 SCM 的 Pipeline 脚本必须填写仓库地址和脚本路径。",
+    "triggerUnavailableForSource": "{source} 暂不支持在此编辑调度；触发规则继续由源配置定义。"
   },
   "projectGroups": {
     "title": "项目分组",
@@ -594,16 +647,16 @@
     "pending_approval": "等待审批",
     "running": "执行中",
     "success": "已成功",
-    "failed": "已失败",
+    "failed": "失败",
     "skipped": "已跳过",
     "cancelled": "已取消",
-    "rejected": "已拒绝"
-    ,"triggerManual": "手动"
-    ,"triggerRetry": "重试"
-    ,"triggerWebhook": "Webhook"
-    ,"triggerSchedule": "定时调度"
-    ,"triggerHttp": "HTTP 触发"
-    ,"triggerApi": "API"
+    "rejected": "已拒绝",
+    "triggerManual": "手动",
+    "triggerRetry": "重试",
+    "triggerWebhook": "Webhook",
+    "triggerSchedule": "定时调度",
+    "triggerHttp": "HTTP 触发",
+    "triggerApi": "API"
   },
   "plugins": {
     "name": "插件名称"
@@ -736,6 +789,7 @@
     "about": "关于",
     "serverConfig": "服务器配置",
     "port": "端口",
+    "portFixed": "BuildWorld 控制面端口固定为 8700，不可修改。",
     "host": "主机",
     "buildDefaults": "构建默认配置",
     "timeout": "超时时间(秒)",

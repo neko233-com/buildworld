@@ -24,6 +24,7 @@ const capabilities: PortabilityCapability[] = [
 describe('settings navigation', () => {
   it('accepts known deep links and canonicalizes unknown values', () => {
     expect(resolveSettingsSection('portability')).toBe('portability')
+    expect(resolveSettingsSection('appearance')).toBe('overview')
     expect(resolveSettingsSection('unknown')).toBe('overview')
     expect(resolveSettingsSection(null)).toBe('overview')
   })

@@ -35,6 +35,12 @@ var currentSchemaStatements = []string{
 		repo_type TEXT NOT NULL,
 		default_branch TEXT DEFAULT 'main',
 		config TEXT NOT NULL,
+		pipeline_format TEXT NOT NULL DEFAULT 'yaml',
+		pipeline_source_mode TEXT NOT NULL DEFAULT 'inline',
+		pipeline_scm_repo TEXT NOT NULL DEFAULT '',
+		pipeline_scm_branch TEXT NOT NULL DEFAULT '',
+		pipeline_scm_path TEXT NOT NULL DEFAULT '',
+		enabled BOOLEAN NOT NULL DEFAULT TRUE,
 		created_by INTEGER REFERENCES users(id),
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -270,6 +276,8 @@ var currentSchemaStatements = []string{
 	`ALTER TABLE build_approvals ADD COLUMN resolved_by INTEGER`,
 	`ALTER TABLE build_approvals ADD COLUMN resolved_by_username TEXT DEFAULT ''`,
 	`ALTER TABLE workers ADD COLUMN active_builds INTEGER DEFAULT 0`,
+	`ALTER TABLE projects ADD COLUMN favorite BOOLEAN NOT NULL DEFAULT 0`,
+	`ALTER TABLE projects ADD COLUMN quick_access BOOLEAN NOT NULL DEFAULT 0`,
 }
 
 var schemaMigrations = []schemaMigration{
@@ -308,6 +316,21 @@ var schemaMigrations = []schemaMigration{
 		version: 7,
 		name:    "repair-orphan-project-history-references",
 		up:      repairOrphanProjectHistoryReferences,
+	},
+	{
+		version: 8,
+		name:    "project-favorite-quick-access",
+		up:      addProjectFavoriteQuickAccess,
+	},
+	{
+		version: 9,
+		name:    "project-pipeline-source",
+		up:      addProjectPipelineSource,
+	},
+	{
+		version: 10,
+		name:    "project-enabled",
+		up:      addProjectEnabled,
 	},
 }
 
@@ -535,6 +558,72 @@ func addUserSessionVersion(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 1`); err != nil {
 		return fmt.Errorf("add users.session_version: %w", err)
+	}
+	return nil
+}
+
+// addProjectFavoriteQuickAccess introduces the favorite / quick_access flags
+// used by the dashboard sidebar and quick-access navigation. It runs as a
+// discrete migration because reconcileCurrentSchema (v1) only executes once,
+// so columns appended to currentSchemaStatements after the first boot are not
+// picked up by existing databases. The existence guard keeps it safe to replay.
+func addProjectFavoriteQuickAccess(tx *sql.Tx) error {
+	for _, column := range []string{"favorite", "quick_access"} {
+		exists, err := sqliteColumnExists(tx, "projects", column)
+		if err != nil {
+			return fmt.Errorf("inspect projects.%s: %w", column, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := tx.Exec(`ALTER TABLE projects ADD COLUMN ` + column + ` BOOLEAN NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("add projects.%s: %w", column, err)
+		}
+	}
+	return nil
+}
+
+// addProjectPipelineSource introduces the pipeline authoring fields: the
+// source syntax (typescript / yaml / jenkinsfile) and the SCM-sourced pipeline
+// definition (repository, branch, path). It mirrors Jenkins' "Pipeline script
+// from SCM" so the same configuration can live in the repository rather than
+// the BuildWorld database. The existence guard keeps it safe to replay.
+func addProjectPipelineSource(tx *sql.Tx) error {
+	columns := []struct {
+		name string
+		ddl  string
+	}{
+		{"pipeline_format", `TEXT NOT NULL DEFAULT 'yaml'`},
+		{"pipeline_source_mode", `TEXT NOT NULL DEFAULT 'inline'`},
+		{"pipeline_scm_repo", `TEXT NOT NULL DEFAULT ''`},
+		{"pipeline_scm_branch", `TEXT NOT NULL DEFAULT ''`},
+		{"pipeline_scm_path", `TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, column := range columns {
+		exists, err := sqliteColumnExists(tx, "projects", column.name)
+		if err != nil {
+			return fmt.Errorf("inspect projects.%s: %w", column.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := tx.Exec(`ALTER TABLE projects ADD COLUMN ` + column.name + ` ` + column.ddl); err != nil {
+			return fmt.Errorf("add projects.%s: %w", column.name, err)
+		}
+	}
+	return nil
+}
+
+func addProjectEnabled(tx *sql.Tx) error {
+	exists, err := sqliteColumnExists(tx, "projects", "enabled")
+	if err != nil {
+		return fmt.Errorf("inspect projects.enabled: %w", err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := tx.Exec(`ALTER TABLE projects ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE`); err != nil {
+		return fmt.Errorf("add projects.enabled: %w", err)
 	}
 	return nil
 }

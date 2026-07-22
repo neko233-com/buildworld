@@ -25,6 +25,7 @@
   },
   "shell": {
     "workspace": "Workspace",
+    "my": "My",
     "execution": "Execution",
     "administration": "Administration",
     "searchPlaceholder": "Search projects, builds, commands",
@@ -40,11 +41,13 @@
     "notificationsDetail": "Shared delivery channels",
     "pluginsDetail": "Install Go binary plugins from GitHub",
     "navigationDetail": "Open workspace page",
+    "myDashboardDetail": "View your personalized dashboard",
     "searchLoading": "Refreshing searchable items...",
     "searchKeyboardHint": "↑ ↓ select · Enter open · Esc close",
     "language": "Language",
     "serviceUnavailable": "Build service temporarily unavailable",
-    "serviceUnavailableHint": "Read requests were retried automatically; this message clears when the service recovers."
+    "serviceUnavailableHint": "Read requests were retried automatically; this message clears when the service recovers.",
+    "quickAccess": "Quick Access"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -62,7 +65,8 @@
     "auditLog": "Audit Log",
     "apiTokens": "API Tokens",
     "buildQueue": "Builds in Progress",
-    "bigScreen": "Data Dashboard"
+    "bigScreen": "Data Dashboard",
+    "myDashboard": "My Dashboard"
   },
   "bigScreen": {
     "title": "Data Dashboard",
@@ -242,7 +246,22 @@
     "online": "online",
     "pending": "Pending",
     "latestBuild": "Latest build",
-    "viewAgents": "View agents"
+    "viewAgents": "View agents",
+    "viewLog": "View log",
+    "favorites": "Favorited",
+    "noFavorites": "No favorited projects yet"
+  },
+  "myDashboard": {
+    "title": "My Dashboard",
+    "subtitle": "A personalized view built around your role, quick-access projects and recent builds.",
+    "myProjects": "My Quick-Access Projects",
+    "myProjectsEmpty": "No quick-access projects yet. Use “Add to quick access” on a project page to pin it here.",
+    "openProject": "Open project",
+    "myAccount": "My Account",
+    "role": "Current role",
+    "quickAccess": "Quick-access projects",
+    "lastBuild": "Last build",
+    "viewAll": "View all"
   },
   "projects": {
     "title": "Projects",
@@ -269,22 +288,24 @@
     "allProjects": "All projects",
     "clearTagFilters": "Clear tag filters",
     "noTagMatches": "No projects match this tag combination.",
-    "startingBuild": "Starting..."
-    ,"openSettings": "Open project settings"
-    ,"createDescription": "Create the project first; repository and build-flow settings stay with this project."
-    ,"identityHelp": "Name, purpose, and Git repository identity."
-    ,"descriptionPlaceholder": "Explain what this project is for so teammates can identify it."
-    ,"manualRepository": "Manual repository"
-    ,"repositoryType": "Repository type"
-    ,"gitOnly": "Git (only supported type)"
-    ,"tagsHelp": "Optional labels used to filter projects."
-    ,"noExistingTags": "No existing tags yet"
-    ,"addTag": "Add a tag"
-    ,"buildFlowHelp": "This configuration belongs to the project and can be changed later in project settings."
-    ,"template": "Template"
-    ,"noTemplate": "No template"
-    ,"sourceFormat": "Source format"
-    ,"createFailed": "Failed to create project"
+    "startingBuild": "Starting...",
+    "openSettings": "Open project settings",
+    "createDescription": "Create the project first; repository and build-flow settings stay with this project.",
+    "identityHelp": "Name, purpose, and Git repository identity.",
+    "descriptionPlaceholder": "Explain what this project is for so teammates can identify it.",
+    "manualRepository": "Manual repository",
+    "repositoryType": "Repository type",
+    "gitOnly": "Git (only supported type)",
+    "tagsHelp": "Optional labels used to filter projects.",
+    "noExistingTags": "No existing tags yet",
+    "addTag": "Add a tag",
+    "buildFlowHelp": "This configuration belongs to the project and can be changed later in project settings.",
+    "sourceFormat": "Source format",
+    "createFailed": "Failed to create project",
+    "favorite": "Favorite",
+    "unfavorite": "Unfavorite",
+    "quickAccessAdd": "Add to quick access",
+    "quickAccessRemove": "Remove from quick access"
   },
   "jenkinsImport": {
     "title": "Import Jenkinsfile",
@@ -326,28 +347,60 @@
     "hour": "Hour",
     "minute": "Minute",
     "saveSchedule": "Save schedule",
-    "saving": "Saving..."
-    ,"project": "Project"
-    ,"repositoryKind": "repository"
-    ,"noDescription": "No project description"
-    ,"recentBuilds": "Recent builds"
-    ,"summary": "Project summary"
-    ,"views": "Project views"
-    ,"openEditor": "Open editor"
-    ,"repositoryUrl": "Repository URL"
-    ,"tagsPlaceholder": "Web, production"
-    ,"saved": "Project settings saved."
-    ,"updateFailed": "Failed to update project"
-    ,"deleteTitle": "Delete project"
-    ,"deleteDescription": "This removes the project and its associated configuration."
-    ,"deleteFailed": "Failed to delete project"
-    ,"invalidPipeline": "Invalid pipeline configuration"
-    ,"scheduleSaved": "Build schedule saved."
-    ,"saveScheduleFailed": "Failed to save schedule"
-    ,"projectSettings": "Project and packaging settings"
-    ,"projectSettingsHelp": "Repository, purpose, build configuration, and triggers all belong to this project."
-    ,"buildSteps": "Build steps"
-    ,"openBuildSteps": "Open pipeline source"
+    "saving": "Saving...",
+    "project": "Project",
+    "repositoryKind": "repository",
+    "noDescription": "No project description",
+    "recentBuilds": "Recent builds",
+    "summary": "Project summary",
+    "views": "Project views",
+    "openEditor": "Open editor",
+    "repositoryUrl": "Repository URL",
+    "tagsPlaceholder": "Web, production",
+    "saved": "Project settings saved.",
+    "updateFailed": "Failed to update project",
+    "deleteTitle": "Delete project",
+    "deleteDescription": "This removes the project and its associated configuration.",
+    "deleteFailed": "Failed to delete project",
+    "invalidPipeline": "Invalid pipeline configuration",
+    "scheduleSaved": "Build schedule saved.",
+    "saveScheduleFailed": "Failed to save schedule",
+    "projectSettings": "Project and packaging settings",
+    "projectSettingsHelp": "Repository, purpose, build configuration, and triggers all belong to this project.",
+    "buildSteps": "Build steps",
+    "openBuildSteps": "Open pipeline source",
+    "breadcrumb": "Project breadcrumb",
+    "jobActions": "Job actions",
+    "status": "Status",
+    "changes": "Changes",
+    "buildNow": "Build Now",
+    "deletePipeline": "Delete Pipeline",
+    "configure": "Configure",
+    "rename": "Rename",
+    "move": "Move",
+    "stages": "Stages",
+    "pipelineSyntax": "Pipeline Syntax",
+    "filterBuilds": "Filter builds...",
+    "noMatchingBuilds": "No matching builds",
+    "noBuildsYet": "No builds yet",
+    "editDescription": "Edit description",
+    "fullProjectName": "Full project name: {group}/{project}",
+    "relatedLinks": "Permalinks",
+    "latestBuild": "Last build",
+    "lastStableBuild": "Last stable build",
+    "lastSuccessfulBuild": "Last successful build",
+    "lastFailedBuild": "Last failed build",
+    "lastUnsuccessfulBuild": "Last unsuccessful build",
+    "lastCompletedBuild": "Last completed build",
+    "none": "None",
+    "definition": "Definition",
+    "pipelineScript": "Pipeline script",
+    "pipelineScriptFromSCM": "Pipeline script from SCM",
+    "scriptPath": "Script Path",
+    "autoDetect": "Auto",
+    "apply": "Apply",
+    "scmPipelineRequired": "Pipeline script from SCM requires a repository URL and script path.",
+    "triggerUnavailableForSource": "Build schedule editing is unavailable for {source}; triggers remain defined in its source configuration."
   },
   "projectGroups": {
     "title": "Project group",
@@ -597,13 +650,13 @@
     "failed": "Failed",
     "skipped": "Skipped",
     "cancelled": "Cancelled",
-    "rejected": "Rejected"
-    ,"triggerManual": "Manual"
-    ,"triggerRetry": "Retry"
-    ,"triggerWebhook": "Webhook"
-    ,"triggerSchedule": "Schedule"
-    ,"triggerHttp": "HTTP trigger"
-    ,"triggerApi": "API"
+    "rejected": "Rejected",
+    "triggerManual": "Manual",
+    "triggerRetry": "Retry",
+    "triggerWebhook": "Webhook",
+    "triggerSchedule": "Schedule",
+    "triggerHttp": "HTTP trigger",
+    "triggerApi": "API"
   },
   "plugins": {
     "name": "Plugin Name"
@@ -736,6 +789,7 @@
     "about": "About",
     "serverConfig": "Server Configuration",
     "port": "Port",
+    "portFixed": "BuildWorld control-plane port is fixed and cannot be changed.",
     "host": "Host",
     "buildDefaults": "Build Defaults",
     "timeout": "Timeout (s)",

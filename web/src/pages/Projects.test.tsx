@@ -12,7 +12,7 @@ vi.mock('../api', () => ({
     listProjects: vi.fn(),
     getProject: vi.fn(),
     listProjectGroups: vi.fn(),
-    validatePipeline: vi.fn(),
+    validateProject: vi.fn(),
     triggerBuild: vi.fn(),
     deleteProject: vi.fn(),
   },
@@ -21,7 +21,7 @@ vi.mock('../api', () => ({
 const listProjects = vi.mocked(api.listProjects)
 const getProject = vi.mocked(api.getProject)
 const listProjectGroups = vi.mocked(api.listProjectGroups)
-const validatePipeline = vi.mocked(api.validatePipeline)
+const validateProject = vi.mocked(api.validateProject)
 const triggerBuild = vi.mocked(api.triggerBuild)
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 
@@ -50,7 +50,7 @@ describe('Projects', () => {
     listProjects.mockReset()
     getProject.mockReset()
     listProjectGroups.mockReset()
-    validatePipeline.mockReset()
+    validateProject.mockReset()
     triggerBuild.mockReset()
     listProjects.mockResolvedValue([{
       id: 3,
@@ -64,7 +64,7 @@ describe('Projects', () => {
     }])
     listProjectGroups.mockResolvedValue([])
     getProject.mockImplementation(async id => ({ ...(await listProjects())[0], id }))
-    validatePipeline.mockResolvedValue({ valid: true, format: 'typescript', stages: 1, steps: 1, parameters: [], allow_long_running: false })
+    validateProject.mockResolvedValue({ valid: true, format: 'typescript', stages: 1, steps: 1, parameters: [], allow_long_running: false })
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -85,7 +85,7 @@ describe('Projects', () => {
 
     expect(container.querySelector('a[href="/projects/new"]')).not.toBeNull()
     expect(container.querySelector('a.entity-link[href="/projects/3"]')?.textContent).toContain('Packaging matrix')
-    expect(container.querySelector('a.row-settings[href="/projects/3?view=settings"]')).not.toBeNull()
+    expect(container.querySelector('a.row-settings[href="/projects/3/configure"]')).not.toBeNull()
     expect(container.querySelector('button.custom-build')).not.toBeNull()
     expect(container.querySelector('button.entity-link')).toBeNull()
     expect(container.querySelector('tr[tabindex]')).toBeNull()
@@ -103,7 +103,7 @@ export default definePipeline({ parameters: [parameter('signing_token', 'passwor
     }
     listProjects.mockResolvedValue([{ ...project, config: undefined }])
     getProject.mockResolvedValue(project)
-    validatePipeline.mockResolvedValue({ valid: true, format: 'typescript', stages: 0, steps: 0, parameters: [{ name: 'signing_token', type: 'password', required: true }], allow_long_running: false })
+    validateProject.mockResolvedValue({ valid: true, format: 'typescript', stages: 0, steps: 0, parameters: [{ name: 'signing_token', type: 'password', required: true }], allow_long_running: false })
     await act(async () => {
       root.render(<MemoryRouter><Projects /></MemoryRouter>)
     })
@@ -134,7 +134,7 @@ export default definePipeline({ parameters: [parameter('release_channel', 'choic
     }
     listProjects.mockResolvedValue([{ ...project, config: undefined }])
     getProject.mockResolvedValue(project)
-    validatePipeline.mockResolvedValue({ valid: true, format: 'typescript', stages: 0, steps: 0, parameters: [{ name: 'release_channel', type: 'choice', required: true, choices: ['staging', 'production'] }], allow_long_running: false })
+    validateProject.mockResolvedValue({ valid: true, format: 'typescript', stages: 0, steps: 0, parameters: [{ name: 'release_channel', type: 'choice', required: true, choices: ['staging', 'production'] }], allow_long_running: false })
     await act(async () => {
       root.render(<MemoryRouter><Projects /></MemoryRouter>)
     })
@@ -149,6 +149,26 @@ export default definePipeline({ parameters: [parameter('release_channel', 'choic
 
     expect(getProject).toHaveBeenCalledWith(5)
     expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('release_channel')
+  })
+
+  it('keeps disabled jobs configurable while blocking quick and parameterized builds', async () => {
+    listProjects.mockResolvedValue([{
+      id: 8,
+      enabled: false,
+      name: 'Paused deployment',
+      repo_type: 'git',
+      default_branch: 'main',
+    }])
+    await act(async () => {
+      root.render(<MemoryRouter><Projects /></MemoryRouter>)
+    })
+    await expandFolder(container)
+
+    expect(container.querySelector('a.row-settings[href="/projects/8/configure"]')).not.toBeNull()
+    expect(container.querySelector<HTMLButtonElement>('button.row-run')?.disabled).toBe(true)
+    expect(container.querySelector<HTMLButtonElement>('button.custom-build')?.disabled).toBe(true)
+    expect(container.querySelector<HTMLButtonElement>('button.row-run')?.title).toBe('Disabled')
+    expect(validateProject).not.toHaveBeenCalled()
   })
 
   it('starts folders collapsed, mounts tables on demand, and restores v2 expanded state', async () => {

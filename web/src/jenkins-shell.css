@@ -1,0 +1,56 @@
+/* Jenkins shell controls kept separate from page styling so the masthead stays
+   stable while individual pages migrate to the classic layout. */
+.app-topbar .topbar-actions .topbar-settings-link {
+  display: inline-flex;
+  height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  color: #26313c;
+  border: 1px solid #cfd9e4;
+  border-radius: 6px;
+  background: #f7f9fb;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.app-topbar .topbar-actions .topbar-settings-link:hover,
+.app-topbar .topbar-actions .topbar-settings-link.active {
+  color: #155fa9;
+  border-color: #9fbfdf;
+  background: #eaf3fc;
+}
+
+.app-topbar .topbar-actions .topbar-settings-link:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .app-topbar .topbar-actions .topbar-settings-link {
+    display: inline-flex;
+    height: 36px;
+    padding: 0 10px;
+  }
+}
+
+@media (max-width: 520px) {
+  .app-topbar .app-brand > span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .app-topbar .topbar-actions .topbar-settings-link {
+    padding: 0 8px;
+  }
+}

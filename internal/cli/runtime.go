@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -44,7 +45,7 @@ func ensureConfig(requested string) (string, *config.Config, error) {
 			return "", nil, fmt.Errorf("create BuildWorld state directory: %w", err)
 		}
 		toYAML := func(value string) string { return strings.ReplaceAll(filepath.ToSlash(value), "\\", "/") }
-		contents := fmt.Sprintf("server:\n  host: 127.0.0.1\n  port: 8700\ndatabase:\n  path: %q\nplugins:\n  path: %q\nstorage:\n  build_temp: %q\n  artifacts: %q\nworkers:\n  local:\n    max_concurrent_builds: 4\n    workspace: local\n    pool: default\n    labels: [go, nodejs, typescript]\n", toYAML(filepath.Join(directory, "buildworld.db")), toYAML(filepath.Join(directory, "plugins")), toYAML(filepath.Join(directory, "build_temp")), toYAML(filepath.Join(directory, "artifacts")))
+		contents := fmt.Sprintf("server:\n  host: 127.0.0.1\n  port: %d\ndatabase:\n  path: %q\nplugins:\n  path: %q\nstorage:\n  build_temp: %q\n  artifacts: %q\nworkers:\n  local:\n    max_concurrent_builds: 4\n    workspace: local\n    pool: default\n    labels: [go, nodejs, typescript]\n", config.ControlPlanePort, toYAML(filepath.Join(directory, "buildworld.db")), toYAML(filepath.Join(directory, "plugins")), toYAML(filepath.Join(directory, "build_temp")), toYAML(filepath.Join(directory, "artifacts")))
 		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 			return "", nil, fmt.Errorf("write default BuildWorld config: %w", err)
 		}
@@ -55,6 +56,7 @@ func ensureConfig(requested string) (string, *config.Config, error) {
 	if err != nil {
 		return "", nil, err
 	}
+	cfg.EnforceControlPlanePort()
 	return path, cfg, nil
 }
 
@@ -135,7 +137,7 @@ func stopManagedServer() (bool, error) {
 		return false, err
 	}
 	wasRunning := healthy(cfg.Server.Port)
-	pid, pidErr := readPID()
+	pid, _ := readPID()
 
 	// Service managers restart a child that is killed directly. Stop the
 	// registered service first so pause/stop actually leaves BuildWorld down.
@@ -143,40 +145,32 @@ func stopManagedServer() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if stopped && waitForServerStop(cfg.Server.Port, 12*time.Second) {
-		_ = os.Remove(pidPath())
-		return true, nil
+	terminated, err := stopExistingBuildWorldServerProcesses(expectedServerProcessName(), pid)
+	if err != nil {
+		return false, err
 	}
-
-	// A previously replaced LaunchAgent may leave an orphaned server behind.
-	// Only use the recorded BuildWorld PID, after disabling its service manager,
-	// and verify that the health endpoint actually disappears.
-	if pidErr == nil && pid > 0 {
-		process, findErr := os.FindProcess(pid)
-		if findErr == nil {
-			if killErr := stopProcess(process); killErr == nil && waitForServerStop(cfg.Server.Port, 5*time.Second) {
-				_ = os.Remove(pidPath())
-				return true, nil
-			}
-		}
-	}
+	_ = os.Remove(pidPath())
 	if healthy(cfg.Server.Port) {
-		return false, fmt.Errorf("BuildWorld is still listening on port %d; recorded PID is unavailable or stale", cfg.Server.Port)
+		return false, fmt.Errorf("port %d is responding, but its process was not identified as %s; refusing to terminate it", cfg.Server.Port, expectedServerProcessName())
 	}
-	if stopped || wasRunning {
-		_ = os.Remove(pidPath())
+	if stopped || wasRunning || terminated > 0 {
 		return true, nil
 	}
 	return false, nil
 }
 
-func waitForServerStop(port int, timeout time.Duration) bool {
+func waitForPortAvailable(host string, port int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
-	for healthy(port) {
+	address := net.JoinHostPort(host, strconv.Itoa(port))
+	for {
+		listener, err := net.Listen("tcp", address)
+		if err == nil {
+			_ = listener.Close()
+			return true
+		}
 		if time.Now().After(deadline) {
 			return false
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return true
 }

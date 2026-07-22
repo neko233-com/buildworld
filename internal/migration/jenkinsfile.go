@@ -50,6 +50,36 @@ type JenkinsfileStrategy struct{}
 
 func NewJenkinsfileStrategy() *JenkinsfileStrategy { return &JenkinsfileStrategy{} }
 
+// JenkinsfileToBuildConfig converts a Jenkinsfile directly into the canonical
+// engine.BuildConfig, bypassing the migration Result/TS-encoding wrapper. It is
+// used by the live pipeline engine (via engine.JenkinsfileConverter) so
+// Jenkinsfile becomes a first-class source format alongside TypeScript and YAML.
+func JenkinsfileToBuildConfig(source, name string) (*engine.BuildConfig, []Warning, error) {
+	result, err := NewJenkinsfileStrategy().Convert(Request{Source: source, Name: name})
+	if err != nil {
+		return nil, nil, err
+	}
+	config, err := engine.ParsePipelineConfig(result.Config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("validate converted Jenkinsfile: %w", err)
+	}
+	return config, result.Warnings, nil
+}
+
+func init() {
+	engine.JenkinsfileConverter = func(source, name string) (*engine.BuildConfig, []string, error) {
+		config, warnings, err := JenkinsfileToBuildConfig(source, name)
+		if err != nil {
+			return nil, nil, err
+		}
+		messages := make([]string, 0, len(warnings))
+		for _, warning := range warnings {
+			messages = append(messages, warning.Message)
+		}
+		return config, messages, nil
+	}
+}
+
 func (*JenkinsfileStrategy) SourceFormat() string { return "jenkinsfile" }
 
 func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
@@ -395,7 +425,7 @@ func parseJenkinsPost(source string, config *engine.BuildConfig, warnings *[]War
 			if config.Post == nil {
 				config.Post = map[string][]engine.Step{}
 			}
-			config.Post[condition] = append(config.Post[condition], engine.Step{Name: "post " + condition, Type: "shell", Command: "set -e\n\n" + strings.TrimSpace(command)})
+			config.Post[condition] = append(config.Post[condition], engine.Step{Name: "post " + condition, Type: "shell", Shell: "bash", Command: "set -e\n\n" + strings.TrimSpace(command)})
 		}
 		position = close + 1
 	}
@@ -611,6 +641,7 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			Steps: []engine.Step{{
 				Name:    strings.TrimSpace(stageName),
 				Type:    "shell",
+				Shell:   "bash",
 				Command: "set -e\n\n" + strings.TrimSpace(command),
 			}},
 		})
@@ -666,7 +697,7 @@ func parseScriptedJenkinsStages(source string, warnings *[]Warning) ([]engine.St
 			position = closeBody + 1
 			continue
 		}
-		stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Steps: []engine.Step{{Name: strings.TrimSpace(stageName), Type: "shell", Command: "set -e\n\n" + strings.TrimSpace(command)}}})
+		stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Steps: []engine.Step{{Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + strings.TrimSpace(command)}}})
 		position = closeBody + 1
 	}
 	if len(stages) == 0 {

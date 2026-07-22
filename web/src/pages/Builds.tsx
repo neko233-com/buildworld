@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
-import { ChevronLeft, ChevronRight, FileText, Pin, PinOff, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
+import { Activity, ChevronLeft, ChevronRight, FileClock, FileText, FolderTree, LayoutDashboard, Pin, PinOff, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { api } from '../api'
@@ -11,9 +11,11 @@ import { canEdit } from '../authz'
 import { PageState } from '../components/PageState'
 import { formatDuration } from '../lib/durationPresentation'
 import { activeBuildFilterCount, readBuildSearchParams } from '../lib/buildSearch'
+import JenkinsPageShell from '../components/JenkinsPageShell'
 
 const buildStatuses = ['', 'running', 'failed', 'success', 'pending', 'pending_approval', 'cancelled', 'rejected']
 const buildTriggers = ['', 'manual', 'retry', 'webhook', 'schedule', 'http', 'api']
+const ACTIVE_BUILD_STATUSES = new Set(['running', 'pending', 'pending_approval', 'queued'])
 
 export default function Builds() {
   const { t } = useI18n()
@@ -31,6 +33,7 @@ export default function Builds() {
   const projectMap = new Map((projects || []).map(project => [project.id, project.name]))
   const totalPages = Math.max(1, Math.ceil((result?.total || 0) / filters.limit))
   const filterCount = activeBuildFilterCount(filters)
+  const hasActiveBuilds = (result?.items || []).some(build => ACTIVE_BUILD_STATUSES.has(build.status))
 
   useEffect(() => {
     setQueryDraft(filters.q)
@@ -44,6 +47,14 @@ export default function Builds() {
     else next.delete('page')
     setSearchParams(next, { replace: true })
   }, [filters.page, result, searchParams, setSearchParams, totalPages])
+
+  useEffect(() => {
+    if (!hasActiveBuilds) return
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') reload()
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [hasActiveBuilds, reload])
 
   const updateFilters = (updates: Record<string, string | number | boolean>) => {
     const next = new URLSearchParams(searchParams)
@@ -98,8 +109,21 @@ export default function Builds() {
   const firstItem = result?.total ? result.offset + 1 : 0
   const lastItem = result ? Math.min(result.offset + result.items.length, result.total) : 0
 
-  return <motion.section className="operations-page build-history-page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
-    <header className="operations-heading">
+  return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+    <JenkinsPageShell
+      className="jenkins-build-history-page"
+      breadcrumbs={[{ label: t('builds.title') }]}
+      sidepanelLabel={t('builds.title')}
+      sidepanel={<nav className="jenkins-context-task-list">
+        <Link to="/"><LayoutDashboard size={20} />{t('nav.dashboard')}</Link>
+        <Link to="/projects"><FolderTree size={20} />{t('nav.projects')}</Link>
+        <Link to="/build-queue"><FileClock size={20} />{t('nav.buildQueue')}</Link>
+        <Link to="/builds" className="active" aria-current="page"><Activity size={20} />{t('nav.builds')}</Link>
+        {filterCount > 0 && <button type="button" onClick={() => { setQueryDraft(''); setBranchDraft(''); setSearchParams({}) }}><X size={20} />{t('builds.clearFilters')}</button>}
+      </nav>}
+    >
+    <div className="operations-page build-history-page">
+    <header className="jenkins-page-heading">
       <div><p>{result?.total || 0}</p><h1>{t('builds.title')}</h1></div>
       <div className="build-history-summary"><SlidersHorizontal size={15} /><span>{filterCount ? t('builds.activeFilters').replace('{count}', String(filterCount)) : t('builds.allBuilds')}</span></div>
     </header>
@@ -146,5 +170,7 @@ export default function Builds() {
         </div>
       </footer>
     </section>
-  </motion.section>
+    </div>
+    </JenkinsPageShell>
+  </motion.div>
 }

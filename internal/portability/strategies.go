@@ -18,6 +18,8 @@ func NewDefaultRegistry(data *store.Store, loaders ...*plugin.Loader) (*Registry
 	}
 	return NewRegistry(
 		credentialStrategy{store: data},
+		userStrategy{store: data},
+		apiTokenStrategy{store: data},
 		projectGroupStrategy{store: data},
 		projectStrategy{store: data},
 		settingsStrategy{store: data},

@@ -22,6 +22,7 @@ var ErrBuildNotCancellable = errors.New("build is not active")
 var ErrRequiredNotificationChannel = errors.New("required notification channel must remain enabled")
 var ErrProjectGroupNameExists = errors.New("project group name already exists")
 var ErrInvalidProjectGroupColor = errors.New("invalid project group color")
+var ErrBuildTemplateInUse = errors.New("build template is in use")
 
 const ProjectGroupColorNeutral = "neutral"
 
@@ -220,6 +221,14 @@ func (s *Store) UpdateUserRole(id int64, role string) error {
 	return err
 }
 
+// UpdateUserProfile updates the non-credential profile fields of a user. It is
+// used by the portability import path so a migrated user's identity (email,
+// avatar) stays consistent without disturbing the password hash.
+func (s *Store) UpdateUserProfile(id int64, email, avatarURL string) error {
+	_, err := s.db.Exec("UPDATE users SET email = ?, avatar_url = ? WHERE id = ?", email, avatarURL, id)
+	return err
+}
+
 func (s *Store) UpdateLastLogin(id int64) error {
 	_, err := s.db.Exec("UPDATE users SET last_login = ? WHERE id = ?", time.Now(), id)
 	return err
@@ -277,9 +286,9 @@ func (s *Store) GetProject(id int64) (*Project, error) {
 	var vcsRootID, templateID, groupID sql.NullInt64
 	var tagsJSON string
 	err := s.db.QueryRow(
-		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, created_by, created_at, updated_at FROM projects WHERE id = ?",
+		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, pipeline_format, pipeline_source_mode, pipeline_scm_repo, pipeline_scm_branch, pipeline_scm_path, created_by, created_at, updated_at, favorite, quick_access, enabled FROM projects WHERE id = ?",
 		id,
-	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
+	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.PipelineFormat, &p.PipelineSourceMode, &p.PipelineSCMRepo, &p.PipelineSCMBranch, &p.PipelineSCMPath, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Favorite, &p.QuickAccess, &p.Enabled)
 	if err != nil {
 		return nil, err
 	}
@@ -304,9 +313,9 @@ func (s *Store) GetProjectByName(name string) (*Project, error) {
 	var vcsRootID, templateID, groupID sql.NullInt64
 	var tagsJSON string
 	err := s.db.QueryRow(
-		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, created_by, created_at, updated_at FROM projects WHERE name = ?",
+		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, pipeline_format, pipeline_source_mode, pipeline_scm_repo, pipeline_scm_branch, pipeline_scm_path, created_by, created_at, updated_at, favorite, quick_access, enabled FROM projects WHERE name = ?",
 		name,
-	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
+	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.PipelineFormat, &p.PipelineSourceMode, &p.PipelineSCMRepo, &p.PipelineSCMBranch, &p.PipelineSCMPath, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Favorite, &p.QuickAccess, &p.Enabled)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +336,7 @@ func (s *Store) GetProjectByName(name string) (*Project, error) {
 }
 
 func (s *Store) ListProjects() ([]*Project, error) {
-	rows, err := s.db.Query("SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, created_by, created_at, updated_at FROM projects ORDER BY id DESC")
+	rows, err := s.db.Query("SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, pipeline_format, pipeline_source_mode, pipeline_scm_repo, pipeline_scm_branch, pipeline_scm_path, created_by, created_at, updated_at, favorite, quick_access, enabled FROM projects ORDER BY favorite DESC, quick_access DESC, id DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -337,7 +346,7 @@ func (s *Store) ListProjects() ([]*Project, error) {
 		p := &Project{}
 		var vcsRootID, templateID, groupID sql.NullInt64
 		var tagsJSON string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.PipelineFormat, &p.PipelineSourceMode, &p.PipelineSCMRepo, &p.PipelineSCMBranch, &p.PipelineSCMPath, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Favorite, &p.QuickAccess, &p.Enabled); err != nil {
 			return nil, err
 		}
 		if vcsRootID.Valid {
@@ -361,9 +370,10 @@ func (s *Store) ListProjects() ([]*Project, error) {
 func (s *Store) ListProjectSummaries() ([]*ProjectSummary, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, description, repo_url, repo_type, default_branch,
-			vcs_root_id, template_id, group_id, tags, created_by, created_at, updated_at
+			vcs_root_id, template_id, group_id, tags, pipeline_format, pipeline_source_mode,
+			created_by, created_at, updated_at, favorite, quick_access, enabled
 		FROM projects
-		ORDER BY id DESC`)
+		ORDER BY favorite DESC, quick_access DESC, id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +386,9 @@ func (s *Store) ListProjectSummaries() ([]*ProjectSummary, error) {
 		if err := rows.Scan(
 			&project.ID, &project.Name, &project.Description, &project.RepoURL,
 			&project.RepoType, &project.DefaultBranch, &vcsRootID, &templateID,
-			&groupID, &tagsJSON, &project.CreatedBy, &project.CreatedAt, &project.UpdatedAt,
+			&groupID, &tagsJSON, &project.PipelineFormat, &project.PipelineSourceMode,
+			&project.CreatedBy, &project.CreatedAt, &project.UpdatedAt,
+			&project.Favorite, &project.QuickAccess, &project.Enabled,
 		); err != nil {
 			return nil, err
 		}
@@ -401,8 +413,103 @@ func (s *Store) ListProjectSummaries() ([]*ProjectSummary, error) {
 	return projects, nil
 }
 
+// ListQuickAccessProjects returns projects flagged for quick access, ordered so
+// favorites appear first. It powers the dashboard sidebar quick-access section.
+func (s *Store) ListQuickAccessProjects() ([]*ProjectSummary, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, description, repo_url, repo_type, default_branch,
+			vcs_root_id, template_id, group_id, tags, pipeline_format, pipeline_source_mode,
+			created_by, created_at, updated_at, favorite, quick_access, enabled
+		FROM projects
+		WHERE quick_access = 1
+		ORDER BY favorite DESC, id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var projects []*ProjectSummary
+	for rows.Next() {
+		project := &ProjectSummary{}
+		var vcsRootID, templateID, groupID sql.NullInt64
+		var tagsJSON string
+		if err := rows.Scan(
+			&project.ID, &project.Name, &project.Description, &project.RepoURL,
+			&project.RepoType, &project.DefaultBranch, &vcsRootID, &templateID,
+			&groupID, &tagsJSON, &project.PipelineFormat, &project.PipelineSourceMode,
+			&project.CreatedBy, &project.CreatedAt, &project.UpdatedAt,
+			&project.Favorite, &project.QuickAccess, &project.Enabled,
+		); err != nil {
+			return nil, err
+		}
+		if vcsRootID.Valid {
+			value := vcsRootID.Int64
+			project.VCSRootID = &value
+		}
+		if templateID.Valid {
+			value := templateID.Int64
+			project.TemplateID = &value
+		}
+		if groupID.Valid {
+			value := groupID.Int64
+			project.GroupID = &value
+		}
+		project.Tags = parseProjectTags(tagsJSON)
+		projects = append(projects, project)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return projects, nil
+}
+
+// SetProjectFlags updates the favorite and quick_access booleans for a project.
+func (s *Store) SetProjectFlags(id int64, favorite, quickAccess bool) error {
+	_, err := s.db.Exec(
+		"UPDATE projects SET favorite=?, quick_access=?, updated_at=? WHERE id=?",
+		favorite, quickAccess, time.Now(), id,
+	)
+	return err
+}
+
+func (s *Store) SetProjectEnabled(id int64, enabled bool) error {
+	result, err := s.db.Exec(
+		"UPDATE projects SET enabled=?, updated_at=? WHERE id=?",
+		enabled, time.Now(), id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// SetProjectPipelineSource persists the pipeline authoring configuration for a
+// project: the source syntax (typescript / yaml / jenkinsfile) and, when the
+// pipeline definition is sourced from a repository, the SCM coordinates. It is
+// written separately from CreateProject/UpdateProject so the positional
+// signatures of those methods stay stable for the many test call sites.
+func (s *Store) SetProjectPipelineSource(id int64, format, sourceMode, scmRepo, scmBranch, scmPath string) error {
+	if format == "" {
+		format = "yaml"
+	}
+	if sourceMode == "" {
+		sourceMode = "inline"
+	}
+	_, err := s.db.Exec(
+		"UPDATE projects SET pipeline_format=?, pipeline_source_mode=?, pipeline_scm_repo=?, pipeline_scm_branch=?, pipeline_scm_path=?, updated_at=? WHERE id=?",
+		format, sourceMode, scmRepo, scmBranch, scmPath, time.Now(), id,
+	)
+	return err
+}
+
 func (s *Store) ListProjectsByVCSRoot(vcsRootID int64) ([]*Project, error) {
-	rows, err := s.db.Query("SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, created_by, created_at, updated_at FROM projects WHERE vcs_root_id = ?", vcsRootID)
+	rows, err := s.db.Query("SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, pipeline_format, pipeline_source_mode, pipeline_scm_repo, pipeline_scm_branch, pipeline_scm_path, created_by, created_at, updated_at, favorite, quick_access, enabled FROM projects WHERE vcs_root_id = ?", vcsRootID)
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +519,7 @@ func (s *Store) ListProjectsByVCSRoot(vcsRootID int64) ([]*Project, error) {
 		p := &Project{}
 		var vrid, tid, gid sql.NullInt64
 		var tagsJSON string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vrid, &tid, &gid, &tagsJSON, &p.Config, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vrid, &tid, &gid, &tagsJSON, &p.Config, &p.PipelineFormat, &p.PipelineSourceMode, &p.PipelineSCMRepo, &p.PipelineSCMBranch, &p.PipelineSCMPath, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Favorite, &p.QuickAccess, &p.Enabled); err != nil {
 			return nil, err
 		}
 		if vrid.Valid {
@@ -1730,8 +1837,23 @@ func (s *Store) UpdateBuildTemplate(id int64, name, config, description string) 
 }
 
 func (s *Store) DeleteBuildTemplate(id int64) error {
-	_, err := s.db.Exec("DELETE FROM build_templates WHERE id = ?", id)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var references int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM projects WHERE template_id = ?", id).Scan(&references); err != nil {
+		return err
+	}
+	if references > 0 {
+		return fmt.Errorf("%w: %d project(s)", ErrBuildTemplateInUse, references)
+	}
+	if _, err := tx.Exec("DELETE FROM build_templates WHERE id = ?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ---------------- Notification Channels ----------------

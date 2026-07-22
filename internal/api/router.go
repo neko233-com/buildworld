@@ -111,15 +111,18 @@ func NewRouter(d Deps) http.Handler {
 			// --- projects ---
 			r.Route("/projects", func(r chi.Router) {
 				r.Get("/", h.listProjects)
+				r.Get("/job-overview", h.listProjectBuildOverviews)
 				r.With(editors).Post("/", h.createProject)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.getProject)
 					r.With(editors).Put("/", h.updateProject)
 					r.With(editors).Post("/validate", h.validateProjectConfig)
 					r.With(editors).Delete("/", h.deleteProject)
+					r.Get("/changes", h.listProjectChanges)
 					r.Get("/builds", h.listProjectBuilds)
 					r.With(editors, auth.RequireAPITokenScope(auth.ScopeBuildTrigger)).Post("/builds", h.triggerBuild)
 					r.Get("/stats", h.getProjectStats)
+					r.With(editors).Post("/flags", h.setProjectFlags)
 				})
 			})
 
@@ -128,6 +131,9 @@ func NewRouter(d Deps) http.Handler {
 				r.With(editors).Post("/{format}", h.migratePipeline)
 			})
 			r.With(editors).Post("/pipeline-validation", h.validatePipelineSource)
+
+			// --- live Jenkins import ---
+			registerJenkinsRoutes(r, h, editors)
 
 			// --- builds ---
 			r.Route("/builds", func(r chi.Router) {

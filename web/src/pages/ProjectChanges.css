@@ -1,0 +1,128 @@
+.jenkins-changes-main > h1 {
+  margin: 0 0 22px;
+  color: #1f2831;
+  font-size: 21px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.jenkins-changes-list {
+  width: min(900px, 100%);
+}
+
+.jenkins-change-build {
+  padding: 0 0 24px;
+  border-bottom: 1px solid #e1e6eb;
+}
+
+.jenkins-change-build + .jenkins-change-build {
+  padding-top: 23px;
+}
+
+.jenkins-change-build:last-child {
+  border-bottom: 0;
+}
+
+.jenkins-change-build h2 {
+  margin: 0 0 13px;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.jenkins-change-build h2 a {
+  color: #1670cf;
+  text-decoration: none;
+}
+
+.jenkins-change-build h2 a:hover {
+  text-decoration: underline;
+}
+
+.jenkins-change-record {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 18px minmax(180px, 1fr) minmax(120px, .45fr) minmax(110px, .35fr);
+  align-items: start;
+  gap: 12px;
+  padding-left: 4px;
+  color: #46515c;
+}
+
+.jenkins-change-record > svg {
+  margin-top: 18px;
+  color: #65727e;
+}
+
+.jenkins-change-revision,
+.jenkins-change-branch,
+.jenkins-change-status {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.jenkins-change-revision > span,
+.jenkins-change-branch > span,
+.jenkins-change-status > span {
+  color: #7a8792;
+  font-size: 9px;
+}
+
+.jenkins-change-revision code {
+  overflow-wrap: anywhere;
+  color: #303b46;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.jenkins-change-branch strong,
+.jenkins-change-status strong {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: #34414c;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.jenkins-change-status strong.success { color: #188c4a; }
+.jenkins-change-status strong.failed { color: #c7353e; }
+.jenkins-change-status strong.running { color: #176fc9; }
+.jenkins-change-status strong.cancelled { color: #78848f; }
+
+.jenkins-changes-state,
+.jenkins-changes-empty {
+  display: flex;
+  width: min(900px, 100%);
+  min-height: 130px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #74808a;
+  border-top: 1px solid #e3e8ed;
+  border-bottom: 1px solid #e3e8ed;
+  font-size: 11px;
+}
+
+.jenkins-changes-state.error {
+  flex-direction: column;
+  color: #a02e37;
+}
+
+@media (max-width: 720px) {
+  .jenkins-change-record {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .jenkins-change-branch,
+  .jenkins-change-status {
+    grid-column: 2;
+  }
+
+  .jenkins-change-record > svg {
+    margin-top: 17px;
+  }
+}

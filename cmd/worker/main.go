@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/neko233-com/buildworld/internal/config"
+	_ "github.com/neko233-com/buildworld/internal/migration" // registers the Jenkinsfile -> BuildConfig converter
 	"github.com/neko233-com/buildworld/internal/worker"
 )
 
