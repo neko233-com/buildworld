@@ -559,6 +559,48 @@ pipeline {
 	}
 }
 
+func TestJenkinsfileStrategyRecognizesTailFollowWithOptionsAndRedirectPID(t *testing.T) {
+	result, err := NewJenkinsfileStrategy().Convert(Request{Source: `
+pipeline {
+  agent any
+  environment {
+    TARGET_DIR = "/srv/game"
+    PID_FILE = "game-server.pid.txt"
+    LOG_FILE = "logs_game_server/server.log"
+  }
+  stages {
+    stage('Live Log Monitor') {
+      steps {
+        sh '''
+          cd "$TARGET_DIR"
+          SERVER_PID="$(LC_ALL=C tr -cd '0-9' < "$PID_FILE")"
+          tail -n 50 -F "$LOG_FILE" &
+          TAIL_PID=$!
+          while is_server_pid_alive "$SERVER_PID"; do
+            kill -0 "$SERVER_PID" 2>/dev/null || exit 1
+            sleep 1
+          done
+        '''
+      }
+    }
+  }
+}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := engine.ParsePipelineConfig(result.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.AllowLongRunning || len(config.Stages) != 1 || len(config.Stages[0].Steps) != 1 {
+		t.Fatalf("expected one native long-running watch, got %#v", config)
+	}
+	watch := config.Stages[0].Steps[0]
+	if watch.Type != "service_watch" || watch.Config["target_dir"] != "${build.TARGET_DIR}" || watch.Config["pid_file"] != "${build.PID_FILE}" || watch.Config["log_file"] != "${build.LOG_FILE}" || watch.Config["poll_seconds"] != "1" {
+		t.Fatalf("watch = %#v", watch)
+	}
+}
+
 func TestJenkinsfileStrategyPreservesExistingCheckoutWithoutJenkinsCredential(t *testing.T) {
 	result, err := NewJenkinsfileStrategy().Convert(Request{Source: `
 pipeline {
