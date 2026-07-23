@@ -612,6 +612,35 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			r.sendBuildEventAsync(buildID, startedBuild, project, "build.started")
 		}
 	}
+	// Jenkins' "Pipeline script from SCM" checks out the same repository before
+	// executing the Jenkinsfile.  The source fetch used to read the Jenkinsfile
+	// itself must not be mistaken for that workspace checkout: shell steps still
+	// need a real .git directory and the complete repository contents.
+	if strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm") {
+		repository := strings.TrimSpace(project.PipelineSCMRepo)
+		if repository == "" {
+			r.fail(buildID, start, "SCM pipeline repository is empty", project)
+			return
+		}
+		branch := strings.TrimSpace(build.Branch)
+		if branch == "" {
+			branch = strings.TrimSpace(project.PipelineSCMBranch)
+		}
+		if branch == "" {
+			branch = strings.TrimSpace(project.DefaultBranch)
+		}
+		r.log(buildID, "SCM Checkout", fmt.Sprintf("Checking out Jenkins SCM repository %s (branch=%s)", repository, branch))
+		if err := r.gitClient.CloneContext(ctx, repository, workspace); err != nil {
+			r.fail(buildID, start, fmt.Sprintf("SCM checkout: git clone: %v", err), project)
+			return
+		}
+		if branch != "" {
+			if err := r.gitClient.CheckoutContext(ctx, workspace, branch); err != nil {
+				r.fail(buildID, start, fmt.Sprintf("SCM checkout: git checkout: %v", err), project)
+				return
+			}
+		}
+	}
 
 	env := r.buildEnvAt(build, cfg, project, workspace)
 	if r.buildEnvironment != nil {
