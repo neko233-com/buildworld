@@ -1400,7 +1400,18 @@ func (r *BuildRunner) buildEnv(build *store.Build, cfg *BuildConfig, project *st
 }
 
 func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *store.Project, workspace string) []string {
-	envMap := map[string]string{}
+	// Keep the Jenkins environment contract for Jenkinsfile pipelines.  Define
+	// these before configured environments so an explicitly configured pipeline
+	// value retains Jenkins' normal override behaviour.
+	buildNumber := strconv.FormatInt(build.Number, 10)
+	envMap := map[string]string{
+		"BUILD_NUMBER":       buildNumber,
+		"BUILD_ID":           buildNumber,
+		"BUILD_DISPLAY_NAME": "#" + buildNumber,
+		"BUILD_TAG":          "buildworld-" + project.Name + "-" + buildNumber,
+		"JOB_NAME":           project.Name,
+		"JOB_BASE_NAME":      project.Name,
+	}
 	for k, v := range cfg.Environment {
 		envMap[k] = v
 	}
