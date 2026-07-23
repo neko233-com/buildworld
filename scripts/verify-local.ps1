@@ -118,7 +118,11 @@ try {
     $bashPath = $null
     foreach ($candidate in @($bashCandidates | Select-Object -Unique)) {
         if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
-        & $candidate --version *> $null
+        try {
+            & $candidate --version *> $null
+        } catch {
+            continue
+        }
         if ($LASTEXITCODE -eq 0) {
             $bashPath = $candidate
             break

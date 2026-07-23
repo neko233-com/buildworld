@@ -12,18 +12,22 @@ import './ManagementPages.jenkins.css'
 
 type Filter = 'all' | 'enabled' | 'disabled'
 
-function stepNames(plugin: any): string[] {
-  const steps = plugin.steps || []
-  if (Array.isArray(steps)) return steps
-  if (typeof steps === 'string') {
+function capabilityNames(plugin: any): string[] {
+  const parse = (value: unknown): string[] => {
+    if (Array.isArray(value)) return value.filter(item => typeof item === 'string')
+    if (typeof value !== 'string') return []
     try {
-      const parsed = JSON.parse(steps)
+      const parsed = JSON.parse(value)
       return Array.isArray(parsed) ? parsed : []
     } catch {
       return []
     }
   }
-  return []
+  return [
+    ...parse(plugin.steps).map(step => `step:${step}`),
+    ...parse(plugin.hooks).map(hook => `hook:${hook}`),
+    ...(Array.isArray(plugin.ui_extensions) ? plugin.ui_extensions.map((extension: any) => `ui:${extension.location}`) : []),
+  ]
 }
 
 export default function Plugins() {
@@ -137,12 +141,12 @@ export default function Plugins() {
           <thead><tr><th>{t('plugins.name')}</th><th>{p('version')}</th><th>{p('capabilities')}</th><th>{p('integrity')}</th><th>{p('status')}</th><th aria-label={t('projects.actions')} /></tr></thead>
           <tbody>
             {visible.map(plugin => {
-              const steps = stepNames(plugin)
+              const capabilities = capabilityNames(plugin)
               const isReloading = reloading === plugin.name
               return <tr key={plugin.id ?? plugin.name}>
                 <td><strong>{plugin.name}</strong><small>{plugin.description || p('noDescription')}</small></td>
                 <td><code>{plugin.version || p('unversioned')}</code></td>
-                <td>{steps.length ? <div className="plugin-capabilities">{steps.map((step: string) => <code key={step}>{step}</code>)}</div> : <span className="muted">{p('noSteps')}</span>}</td>
+                <td>{capabilities.length ? <div className="plugin-capabilities">{capabilities.map(capability => <code key={capability}>{capability}</code>)}</div> : <span className="muted">{p('noSteps')}</span>}</td>
                 <td><span className="integrity"><ShieldCheck size={14} />{p('checksum')}</span></td>
                 <td><button type="button" disabled={!admin} aria-label={`${plugin.name}: ${plugin.enabled ? p('enabled') : p('disabled')}`} aria-pressed={Boolean(plugin.enabled)} className={`plugin-status ${plugin.enabled ? 'enabled' : ''}`} onClick={() => togglePlugin(plugin)}>{plugin.enabled ? p('enabled') : p('disabled')}</button></td>
                 <td><div className="plugin-actions">{admin && <><button type="button" title={`${p('reload')} ${plugin.name}`} aria-label={`${p('reload')} ${plugin.name}`} disabled={isReloading} onClick={() => reloadPlugin(plugin)}>{isReloading ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}</button><button type="button" title={`${p('remove')} ${plugin.name}`} aria-label={`${p('remove')} ${plugin.name}`} className="remove" onClick={() => setPendingDelete(plugin)}><Trash2 size={16} /></button></>}</div></td>

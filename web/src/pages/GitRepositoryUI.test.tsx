@@ -95,7 +95,7 @@ describe('Git-only repository UI', () => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
   })
 
-  it('creates Pipeline items with the supported Git repository type', async () => {
+  it('creates Jenkinsfile Pipeline items from Git SCM by default', async () => {
     await act(async () => {
       root.render(<MemoryRouter><CreateProject /></MemoryRouter>)
     })
@@ -125,7 +125,11 @@ describe('Git-only repository UI', () => {
     expect(api.createProject).toHaveBeenCalledWith(expect.objectContaining({
       name: 'standalone-project',
       repo_type: 'git',
-      pipeline_format: 'typescript',
+      config: '',
+      pipeline_format: 'jenkinsfile',
+      pipeline_source_mode: 'scm',
+      pipeline_scm_branch: 'main',
+      pipeline_scm_path: 'Jenkinsfile',
     }))
     expect(vi.mocked(api.createProject).mock.calls[0]?.[0]).not.toHaveProperty('template_id')
   })

@@ -456,7 +456,7 @@ pipeline {
 	if step.Config["target_dir"] != "${build.TARGET_DIR}" || step.Config["pid_file"] != "${build.PID_FILE}" || step.Config["log_file"] != "${build.LOG_FILE}" {
 		t.Fatalf("watch config = %#v", step.Config)
 	}
-	if step.Config["port"] != "${build.PORT}" || step.Config["heartbeat_seconds"] != "30" || step.Config["poll_seconds"] != "5" || step.Config["initial_lines"] != "10" {
+	if step.Config["port"] != "${build.PORT}" || step.Config["heartbeat_seconds"] != "300" || step.Config["poll_seconds"] != "5" || step.Config["initial_lines"] != "10" {
 		t.Fatalf("watch cadence config = %#v", step.Config)
 	}
 }
@@ -549,7 +549,7 @@ pipeline {
 	if steps[2].Config["target_dir"] != "${build.TARGET_DIR}" || steps[2].Config["pid_file"] != "${build.PID_FILE}" || steps[2].Config["log_file"] != "${build.LOG_FILE}" {
 		t.Fatalf("watch config = %#v", steps[2].Config)
 	}
-	if steps[2].Config["port"] != "${build.PORT}" || steps[2].Config["heartbeat_seconds"] != "30" || steps[2].Config["poll_seconds"] != "5" || steps[2].Config["initial_lines"] != "10" || steps[2].Config["stop_service_on_cancel"] != "true" || steps[2].Config["shutdown_timeout_seconds"] != "65" {
+	if steps[2].Config["port"] != "${build.PORT}" || steps[2].Config["heartbeat_seconds"] != "300" || steps[2].Config["poll_seconds"] != "5" || steps[2].Config["initial_lines"] != "10" || steps[2].Config["stop_service_on_cancel"] != "true" || steps[2].Config["shutdown_timeout_seconds"] != "65" {
 		t.Fatalf("watch cadence config = %#v", steps[2].Config)
 	}
 	for _, step := range steps[:2] {

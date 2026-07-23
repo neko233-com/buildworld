@@ -16,6 +16,7 @@ import {
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { dialogs } from '../components/AppDialogs'
+import PluginActionLinks from '../components/PluginActionLinks'
 import { ModalDialog } from '../components/ModalDialog'
 import { useI18n } from '../i18n'
 import { sortProjectGroups, type ProjectGroup } from '../lib/projectGroups'
@@ -170,6 +171,7 @@ export default function ProjectJobActions({
       <Link to={`/projects/${projectId}/configure#jenkins-configure-pipeline`}><Blocks size={16} />{t('projectDetail.stages')}</Link>
       <button type="button" onClick={() => setDialog('syntax')}><Code2 size={16} />{t('projectDetail.pipelineSyntax')}</button>
       {editable && <button type="button" onClick={toggleProject} disabled={busyAction !== null || deleting} aria-busy={busyAction === 'toggle' || undefined}><Power size={16} />{busyAction === 'toggle' ? t('common.loading') : t(projectEnabled ? 'projectDetail.disableProject' : 'projectDetail.enableProject')}</button>}
+      <PluginActionLinks location="project.action" projectId={projectId} />
     </nav>
 
     {dialog === 'rename' && <ModalDialog className="jenkins-project-action-dialog" ariaLabel={t('projectDetail.renameTitle')} busy={busyAction === 'rename'} closeOnBackdrop onClose={closeDialog}>
