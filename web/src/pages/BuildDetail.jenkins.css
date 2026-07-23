@@ -5,7 +5,7 @@
 
 [data-skin="jenkins"] .jenkins-run-page {
   --run-section-padding: 26px;
-  --run-side-panel-width: 340px;
+  --run-side-panel-width: 280px;
   --run-border: color-mix(in srgb, #4d545d 17.5%, #fff);
   --run-border-subtle: color-mix(in srgb, #20262d 3.5%, transparent);
   --run-muted-surface: hsl(240 20% 96.5%);
@@ -61,6 +61,8 @@
 }
 
 [data-skin="jenkins"] .jenkins-run-side-panel {
+  align-self: start;
+  height: fit-content;
   position: sticky;
   top: 66px;
   display: flex;
