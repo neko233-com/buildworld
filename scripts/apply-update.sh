@@ -36,6 +36,7 @@ write_status() {
 }
 
 finish() {
+  rm -f "$bundle"
   rm -f "$lock_path"
 }
 trap 'finish' EXIT INT TERM

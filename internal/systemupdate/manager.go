@@ -168,6 +168,12 @@ func (m *Manager) Start(ctx context.Context, request Request) (Status, error) {
 	if err := os.MkdirAll(operationDir, 0o700); err != nil {
 		return Status{}, fmt.Errorf("create update operation: %w", err)
 	}
+	accepted := false
+	defer func() {
+		if !accepted {
+			_ = os.RemoveAll(operationDir)
+		}
+	}()
 	bundlePath := filepath.Join(operationDir, "bundle.tar.gz")
 	actualChecksum, size, err := writeBundle(ctx, bundlePath, request.Bundle)
 	if err != nil {
@@ -216,6 +222,7 @@ func (m *Manager) Start(ctx context.Context, request Request) (Status, error) {
 		_ = m.writeStatus(status)
 		return Status{}, fmt.Errorf("launch update helper: %w", err)
 	}
+	accepted = true
 	locked = false
 	return status, nil
 }
