@@ -1279,3 +1279,32 @@ button:disabled { cursor: not-allowed; }
   .jenkins-job-heading .timeline-spinner,
   .jenkins-job-build .timeline-spinner { animation: none; }
 }
+
+/* Standalone logs default to the product's light surface. */
+.plain-log-page.theme-light, .plain-log-state { background: #f5f6f8; color: #20262b; }
+.plain-log-page.theme-light .plain-log-header { border-bottom-color: #d4dbe1; background: #ffffff; }
+.plain-log-page.theme-light .plain-log-identity > a { color: #5e6b75; border-color: #cbd5dc; background: #fff; }
+.plain-log-page.theme-light .plain-log-mark { color: #1f5cab; background: #e8f1fb; }
+.plain-log-page.theme-light .plain-log-identity small, .plain-log-page.theme-light .plain-log-toolbar > span, .plain-log-page.theme-light .plain-log-empty, .plain-log-page.theme-light .plain-log-footer { color: #6e7b86; }
+.plain-log-page.theme-light .plain-log-identity h1 { color: #20262b; }
+.plain-log-page.theme-light .plain-log-actions button, .plain-log-page.theme-light .plain-log-toolbar button { color: #4d5a65; border-color: #cbd5dc; background: #fff; }
+.plain-log-page.theme-light .plain-log-actions button:hover, .plain-log-page.theme-light .plain-log-actions button.selected, .plain-log-page.theme-light .plain-log-toolbar button:hover { color: #1f5cab; border-color: #7eafe1; background: #e8f1fb; }
+.plain-log-page.theme-light .plain-log-message { color: #9b2634; background: #fff2f3; }
+.plain-log-page.theme-light .plain-log-message > span { border-bottom-color: #efc3c8; }
+.plain-log-page.theme-light .plain-log-message > .retention-warning { color: #74580a; border-bottom-color: #ead28e; background: #fff8e1; }
+.plain-log-page.theme-light .plain-log-toolbar { border-bottom-color: #dbe2e7; background: #f7f9fb; }
+.plain-log-page.theme-light .plain-log-toolbar label { border-color: #cbd5dc; background: #fff; }
+.plain-log-page.theme-light .plain-log-toolbar input { color: #20262b; }
+.plain-log-page.theme-light .plain-log-toolbar kbd { color: #6e7b86; }
+.plain-log-page.theme-light .plain-log-toolbar > strong { color: #1f7a47; }
+.plain-log-page.theme-light .plain-log-viewport { scrollbar-color: #aebbc5 #f4f6f8; background: #fff; }
+.plain-log-page.theme-light .plain-log-lines > div > span { color: #7b8994; }
+.plain-log-page.theme-light .plain-log-lines code { color: #34424d; }
+.plain-log-page.theme-light .plain-log-lines .boundary code { color: #176f96; }
+.plain-log-page.theme-light .plain-log-lines .success code { color: #187252; }
+.plain-log-page.theme-light .plain-log-lines .warning code { color: #795b08; }
+.plain-log-page.theme-light .plain-log-lines .error { border-left-color: #cf3e49; background: #fff4f4; }
+.plain-log-page.theme-light .plain-log-lines .error code { color: #a8323c; }
+.plain-log-page.theme-light .plain-log-lines .active-match { background: #e8f1fb; }
+.plain-log-page.theme-light .plain-log-lines mark { color: #20262b; background: #f6d77b; }
+.plain-log-page.theme-light .plain-log-footer { border-top-color: #d4dbe1; background: #f7f9fb; }

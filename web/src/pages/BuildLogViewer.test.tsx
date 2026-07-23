@@ -146,6 +146,12 @@ describe('BuildLogViewer', () => {
     expect(wrap.getAttribute('aria-pressed')).toBe('true')
     expect(container.querySelector('.plain-log-page')?.classList.contains('wrap-lines')).toBe(true)
 
+    const themeToggle = container.querySelector<HTMLButtonElement>('button[aria-label="Switch to dark theme"]')!
+    expect(container.querySelector('.plain-log-page')?.classList.contains('theme-light')).toBe(true)
+    await act(async () => themeToggle.click())
+    expect(container.querySelector('.plain-log-page')?.classList.contains('theme-dark')).toBe(true)
+    expect(localStorage.getItem('buildworld.logs.theme')).toBe('dark')
+
     const txtDownload = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
       .find(button => button.textContent?.includes('.txt'))!
     await act(async () => txtDownload.click())
