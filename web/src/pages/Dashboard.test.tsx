@@ -221,6 +221,11 @@ describe('Dashboard Jenkins job view', () => {
     act(() => buttonNamed('快速访问').click())
     expect(visibleProjectNames()).toEqual(['Beta'])
 
+    act(() => buttonNamed('常用功能').click())
+    expect(container.querySelector('table')).toBeNull()
+    expect(container.querySelector('.jenkins-common-functions a[href="/api-tokens"]')?.textContent).toContain('API Token')
+    expect(container.querySelector('.jenkins-common-functions a[href="/settings"]')).not.toBeNull()
+
     act(() => buttonNamed('服务端').click())
     expect(visibleProjectNames()).toEqual(['Alpha', 'Zulu'])
 

@@ -261,6 +261,13 @@
     "viewAgents": "View agents",
     "viewLog": "View log",
     "favorites": "Favorited",
+    "commonFunctions": "Common tools",
+    "commonFunctionsHelp": "Shortcuts to the pages used most often for builds and administration.",
+    "commonApiTokens": "Create and manage integration credentials.",
+    "commonBuilds": "Review every build and its live log.",
+    "commonTemplates": "Maintain reusable build templates.",
+    "commonSettings": "Configure runtime, validation, and safety policies.",
+    "commonUsers": "Manage access and user roles.",
     "noFavorites": "No favorited projects yet"
   },
   "myDashboard": {

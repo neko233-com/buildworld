@@ -147,7 +147,9 @@
   color: #26313c;
   border-radius: 6px;
   font-size: 12px;
+  line-height: 1;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .account-dashboard-link:hover,
@@ -178,6 +180,7 @@
 }
 
 .notification-menu-label { display: inline; }
+.account-menu-popover .notification-bell-menu > span:not(.notification-unread-count) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .account-menu-popover .notification-bell-menu .notification-unread-count {
   position: static;
@@ -194,6 +197,17 @@
   top: calc(100% + 8px);
   right: 0;
 }
+
+.jenkins-common-functions { margin-top: 20px; overflow: hidden; border: 1px solid #dce4ed; border-radius: 8px; background: #fff; }
+.jenkins-common-functions > header { display: flex; min-height: 76px; align-items: center; padding: 0 18px; border-bottom: 1px solid #e5eaf0; background: #f8fafc; }
+.jenkins-common-functions h2 { margin: 0; color: #202a34; font-size: 15px; font-weight: 650; }
+.jenkins-common-functions p { margin: 5px 0 0; color: #697783; font-size: 11px; }
+.jenkins-common-functions > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1px; background: #e7ecf2; }
+.jenkins-common-functions a { display: grid; min-height: 112px; grid-template-columns: 38px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 11px; align-content: center; padding: 15px 17px; color: #202a34; background: #fff; text-decoration: none; }
+.jenkins-common-functions a:hover { background: #f4f8fc; }
+.jenkins-common-functions a > span { display: grid; width: 34px; height: 34px; grid-row: 1 / span 2; place-items: center; color: #1769c2; border-radius: 8px; background: #eaf2fb; }
+.jenkins-common-functions strong { font-size: 12px; font-weight: 650; }
+.jenkins-common-functions small { margin-top: 4px; color: #6f7c87; font-size: 10px; line-height: 1.4; }
 
 /* Jenkins core dashboard uses a 300px widget rail with a 1rem content gap. */
 [data-skin="jenkins"] .app-main:has(.jenkins-home) .jenkins-home {

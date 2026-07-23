@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Cloud, CloudRain, CloudSun, Folder, LoaderCircle, MoreHorizontal, Pin, Play, Plus, Star, Sun } from 'lucide-react'
+import { BookTemplate, Cloud, CloudRain, CloudSun, FileClock, Folder, KeyRound, LoaderCircle, MoreHorizontal, Pin, Play, Plus, Settings2, Star, Sun, UsersRound } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { canEdit } from '../authz'
@@ -83,7 +83,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!data) return
-    const validViews = new Set(['all', 'favorites', 'quick', ...(data.groups || []).map(group => `group-${group.id}`)])
+    const validViews = new Set(['all', 'favorites', 'quick', 'common', ...(data.groups || []).map(group => `group-${group.id}`)])
     if (validViews.has(activeView)) return
     setActiveView('all')
     localStorage.setItem(ACTIVE_VIEW_KEY, 'all')
@@ -107,12 +107,20 @@ export default function Dashboard() {
     { id: 'all', label: t('common.all'), matches: () => true },
     { id: 'favorites', label: t('dashboard.favorites'), matches: (project: any) => Boolean(project.favorite) },
     { id: 'quick', label: t('shell.quickAccess'), matches: (project: any) => Boolean(project.quick_access) },
+    { id: 'common', label: t('dashboard.commonFunctions'), matches: () => false },
     ...groups.map(group => ({ id: `group-${group.id}`, label: group.name, matches: (project: any) => project.group_id === group.id })),
   ]
   const selectedView = views.find(view => view.id === activeView) || views[0]
   const visibleProjects = projects
     .filter(selectedView.matches)
     .sort((left: any, right: any) => left.name.localeCompare(right.name, locale) * (sortDirection === 'asc' ? 1 : -1))
+  const commonLinks = [
+    { to: '/api-tokens', label: t('nav.apiTokens'), description: t('dashboard.commonApiTokens'), Icon: KeyRound },
+    { to: '/builds', label: t('nav.builds'), description: t('dashboard.commonBuilds'), Icon: FileClock },
+    { to: '/templates', label: t('nav.templates'), description: t('dashboard.commonTemplates'), Icon: BookTemplate },
+    ...(editable ? [{ to: '/settings', label: t('nav.settings'), description: t('dashboard.commonSettings'), Icon: Settings2 }] : []),
+    ...(editable ? [{ to: '/users', label: t('nav.users'), description: t('dashboard.commonUsers'), Icon: UsersRound }] : []),
+  ]
 
   const setSize = (size: IconSize) => {
     setIconSize(size)
@@ -158,7 +166,10 @@ export default function Dashboard() {
         {editable && <button type="button" className="jenkins-view-add" aria-label={t('projectGroups.newGroup')} title={t('projectGroups.newGroup')} onClick={() => setGroupsOpen(true)}><Plus size={15} /></button>}
       </nav>
 
-      <div className="jenkins-job-table-wrap">
+      {activeView === 'common' ? <section className="jenkins-common-functions" aria-label={t('dashboard.commonFunctions')}>
+        <header><div><h2>{t('dashboard.commonFunctions')}</h2><p>{t('dashboard.commonFunctionsHelp')}</p></div></header>
+        <div>{commonLinks.map(({ to, label, description, Icon }) => <Link key={to} to={to}><span><Icon size={19} /></span><strong>{label}</strong><small>{description}</small></Link>)}</div>
+      </section> : <div className="jenkins-job-table-wrap">
         <table className={`jenkins-job-table icon-${iconSize}`}>
           <thead><tr>
             <th className="jenkins-status-column"><span aria-label={t('projects.status')}>S</span></th>
@@ -196,7 +207,7 @@ export default function Dashboard() {
             })}
           </tbody>
         </table>
-      </div>
+      </div>}
 
       <footer className="jenkins-table-footer">
         <div className="jenkins-icon-size" aria-label={t('builds.size')}><span>{t('builds.size')}:</span>{(['small', 'medium', 'large'] as IconSize[]).map((size, index) => <button type="button" key={size} className={iconSize === size ? 'active' : ''} aria-pressed={iconSize === size} onClick={() => setSize(size)}>{['S', 'M', 'L'][index]}</button>)}</div>
