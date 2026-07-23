@@ -74,10 +74,13 @@ func (tc *TriggerChecker) checkCronTriggers() {
 			continue
 		}
 		for _, t := range cfg.Triggers {
-			if t.Type != "schedule" {
+			if t.Type != "schedule" && t.Type != "cron" {
 				continue
 			}
 			cronExpr := t.Config["cron"]
+			if cronExpr == "" {
+				cronExpr = t.Config["expression"]
+			}
 			if cronExpr == "" {
 				continue
 			}
@@ -194,7 +197,14 @@ func (tc *TriggerChecker) HandleBuildFinish(build *store.Build) {
 }
 
 func (tc *TriggerChecker) loadProjectConfig(p *store.Project) (*BuildConfig, error) {
-	cfg, err := ParsePipelineConfig(p.Config)
+	// SCM-backed Jenkinsfiles must use the same resolution path as a real
+	// build. Parsing p.Config directly leaves it empty, silently disabling
+	// schedule/VCS/finish triggers for the exact projects migrated from Jenkins.
+	source, err := ResolveProjectPipelineSource(context.Background(), p)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := ParsePipelineConfig(source)
 	if err != nil {
 		return nil, err
 	}
