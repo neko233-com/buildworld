@@ -189,7 +189,7 @@ actual="$(file_checksum "$tmp/$asset")"
 stage="$tmp/install"
 mkdir -p "$stage" "$bin_dir" "$(dirname "$install_dir")"
 tar -xzf "$tmp/$asset" -C "$stage"
-chmod +x "$stage/buildworld" "$stage/buildworld-server" "$stage/buildworld-worker"
+chmod +x "$stage/buildworld" "$stage/buildworld-server" "$stage/buildworld-worker" "$stage/apply-update.sh"
 
 autostart_registered() {
   case "$os" in

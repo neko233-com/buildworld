@@ -35,6 +35,10 @@ func ApplyStoredSettings(cfg *config.Config, data *store.Store) error {
 			}
 		case agentEnrollmentTokenSetting:
 			cfg.Workers.EnrollmentToken = value.Value
+		case "auto_update_enabled":
+			if parsed, parseErr := strconv.ParseBool(value.Value); parseErr == nil {
+				cfg.Updates.AutoUpdateEnabled = parsed
+			}
 		}
 	}
 	cfg.EnforceControlPlanePort()
@@ -61,6 +65,7 @@ func defaultGlobalSettings(cfg *config.Config) map[string]string {
 		"node_package_manager":    "npm",
 		"node_checks":             "install,lint,typecheck,test,build",
 		"validation_fail_fast":    "true",
+		"auto_update_enabled":     "false",
 	}
 	if cfg == nil {
 		return settings
@@ -79,6 +84,7 @@ func defaultGlobalSettings(cfg *config.Config) map[string]string {
 		settings["local_agent_concurrency"] = strconv.Itoa(cfg.Workers.Local.MaxConcurrentBuilds)
 	}
 	settings["agent_enrollment_token_configured"] = strconv.FormatBool(cfg.Workers.EnrollmentToken != "")
+	settings["auto_update_enabled"] = strconv.FormatBool(cfg.Updates.AutoUpdateEnabled)
 	return settings
 }
 
@@ -107,7 +113,7 @@ func validateGlobalSetting(name, value string) error {
 		if err != nil || parsed < 5 || parsed > 100 {
 			return fmt.Errorf("cpu_limit_percent must be between 5 and 100")
 		}
-	case "go_validation_enabled", "node_validation_enabled", "validation_fail_fast", "background_mode":
+	case "go_validation_enabled", "node_validation_enabled", "validation_fail_fast", "background_mode", "auto_update_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s must be true or false", name)
 		}

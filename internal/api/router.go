@@ -290,6 +290,12 @@ func NewRouter(d Deps) http.Handler {
 			// --- server metrics ---
 			r.With(adminOnly).Get("/metrics", h.serverMetrics)
 			r.Get("/system/storage", h.systemStorage)
+			r.Route("/system/update", func(r chi.Router) {
+				r.Use(adminOnly)
+				r.Use(auth.RequireAPITokenScope(auth.ScopeSystemUpdate))
+				r.Get("/", h.getSystemUpdate)
+				r.Post("/", h.applySystemUpdate)
+			})
 
 			// --- badge (public) ---
 			r.Get("/badge/{projectName}", h.buildBadge)
