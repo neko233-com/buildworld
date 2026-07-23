@@ -289,6 +289,7 @@ func NewRouter(d Deps) http.Handler {
 
 			// --- server metrics ---
 			r.With(adminOnly).Get("/metrics", h.serverMetrics)
+			r.Get("/system/storage", h.systemStorage)
 
 			// --- badge (public) ---
 			r.Get("/badge/{projectName}", h.buildBadge)

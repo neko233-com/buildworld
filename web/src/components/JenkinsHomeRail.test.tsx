@@ -51,6 +51,8 @@ const recentBuilds = [
   { id: 199, project_id: 1, project_name: 'Alpha', number: 11, status: 'failed', branch: 'main', started_at: '2026-07-21T10:10:00Z' },
   { id: 202, project_id: 2, project_name: 'Beta', number: 8, status: 'running', branch: 'develop', started_at: '2026-07-21T10:11:00Z' },
   { id: 198, project_id: 3, project_name: 'Gamma', number: 4, status: 'failed', started_at: '2026-07-21T10:09:00Z' },
+  { id: 197, project_id: 4, project_name: 'Delta', number: 3, status: 'test_failed', started_at: '2026-07-21T10:08:00Z' },
+  { id: 196, project_id: 5, project_name: 'Epsilon', number: 2, status: 'cancelled', started_at: '2026-07-21T10:07:00Z' },
 ]
 
 function LocationProbe() {
@@ -113,14 +115,20 @@ describe('JenkinsHomeRail', () => {
       '/vcs-roots',
     ])
     expect(container.querySelectorAll('#buildQueue .jenkins-rail-queue-item')).toHaveLength(4)
+    expect(container.querySelectorAll('#buildQueue .jenkins-rail-status-dot')).toHaveLength(4)
+    expect(container.querySelector('#buildQueue .jenkins-rail-status-dot.running')).not.toBeNull()
+    expect(container.querySelectorAll('#buildQueue .jenkins-rail-status-dot.pending')).toHaveLength(3)
     expect(container.querySelector('a[href="/builds/101"]')).not.toBeNull()
     expect(container.textContent).toContain('Delta')
     expect(container.querySelector('#buildQueue .jenkins-rail-panel-title')?.textContent).toMatch(/\(4\)$/)
     expect(container.querySelectorAll('.jenkins-rail-agent-item')).toHaveLength(0)
     expect(container.querySelector('.jenkins-rail-panel-count')).toBeNull()
     expect(container.querySelector('.jenkins-rail-capacity-progress')).toBeNull()
-    expect(container.querySelectorAll('.jenkins-rail-history-item')).toHaveLength(4)
+    expect(container.querySelectorAll('.jenkins-rail-history-item')).toHaveLength(6)
     expect(container.querySelector('.jenkins-rail-history-link')?.getAttribute('href')).toBe('/builds/201')
+    for (const tone of ['success', 'unstable', 'failed', 'running', 'cancelled']) {
+      expect(container.querySelector(`.jenkins-rail-history-status.${tone}`)).not.toBeNull()
+    }
     expect(container.querySelector('.jenkins-rail-queue-progress progress')).not.toBeNull()
     expect(container.querySelectorAll('.jenkins-rail-history-rebuild')).toHaveLength(0)
 

@@ -9,13 +9,14 @@ import { dialogs } from '../components/AppDialogs'
 import { PageState } from '../components/PageState'
 import { timelineProgress, visibleBuildLog, type BuildTimelineStep } from '../lib/buildTimeline'
 import { isNearLogBottom } from '../lib/logFollow'
-import { logTone, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
+import { logTones, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
 import { buildTriggerLabel } from '../lib/buildPresentation'
 import { canEdit } from '../authz'
 import { formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import BuildApprovalPanel from '../components/BuildApprovalPanel'
 import BuildProblemsPanel from '../components/BuildProblemsPanel'
+import PluginActionLinks from '../components/PluginActionLinks'
 import { BuildStatusBadge } from '../components/BuildStatusBadge'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import ReplayBuildDialog from '../components/ReplayBuildDialog'
@@ -96,6 +97,7 @@ export default function BuildDetail() {
   })
   const displayedLog = useMemo(() => visibleBuildLog(liveLog), [liveLog])
   const consoleLines = useMemo(() => displayedLog ? displayedLog.split(/\r?\n/) : [], [displayedLog])
+  const consoleTones = useMemo(() => logTones(consoleLines), [consoleLines])
   const logLines = useMemo(() => consoleLines.filter(Boolean), [consoleLines])
   const liveLogStatus = t(`builds.${liveLogState}`)
   const problemsPending = problemsLoading || (!!build && !problems && !problemsError)
@@ -282,6 +284,7 @@ export default function BuildDetail() {
           {editable && <button type="button" onClick={handlePin} disabled={pinning} aria-busy={pinning}>{pinning ? <LoaderCircle className="timeline-spinner" /> : build.pinned ? <PinOff /> : <Pin />}{build.pinned ? t('builds.unpin') : t('builds.pin')}</button>}
           {editable && build.status === 'failed' && <Link to={`/projects/${build.project_id}/configure`}><Settings2 />{t('builds.fixProjectSettings')}</Link>}
           {editable && isActive && <button type="button" className="danger" onClick={handleStop} disabled={stopping} aria-busy={stopping}>{stopping ? <LoaderCircle className="timeline-spinner" /> : <Square />}{stopping ? t('builds.stopping') : t('builds.stopBuild')}</button>}
+          <PluginActionLinks location="build.action" projectId={build.project_id} buildId={buildId} buildNumber={build.number} />
         </nav>
 
         <section className="jenkins-run-side-summary">
@@ -373,7 +376,7 @@ export default function BuildDetail() {
             const consoleOutput = consoleRef.current
             if (!consoleOutput) return
             if (followConsoleRef.current && !isNearLogBottom(consoleOutput)) setConsoleFollowing(false)
-          }}>{consoleLines.length ? consoleLines.map((line, index) => <span className={`jenkins-console-line ${colorizeLogs ? logTone(line) : ''}`} key={index}>{line || '\u00a0'}</span>) : t('builds.noLogs')}</pre>
+          }}>{consoleLines.length ? consoleLines.map((line, index) => <span className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''}`} key={index}>{line || '\u00a0'}</span>) : t('builds.noLogs')}</pre>
           {isExecuting && <div className="jenkins-console-progress" role="status" aria-live="polite">{followConsole ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pause size={16} />}{followConsole ? liveLogStatus : t('builds.followPaused')}</div>}
         </section>
         </div>

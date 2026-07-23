@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { BookTemplate, Cloud, CloudRain, CloudSun, FileClock, Folder, KeyRound, LoaderCircle, MoreHorizontal, Pin, Play, Plus, Settings2, Star, Sun, UsersRound } from 'lucide-react'
+import { AlertTriangle, BookTemplate, FileClock, Folder, HardDrive, KeyRound, LoaderCircle, MoreHorizontal, Pin, Play, Plus, RefreshCw, Settings2, Star, UsersRound } from 'lucide-react'
+import { IoLogoGithub } from 'react-icons/io5'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { canEdit } from '../authz'
@@ -10,23 +11,26 @@ import ProjectGroupsDialog from '../components/ProjectGroupsDialog'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
-import { formatDateTime } from '../lib/dateTime'
+import { formatDate, formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { sortProjectGroups } from '../lib/projectGroups'
 import { useJenkinsBuildFlow } from './projectBuildFlow'
 
-type IconSize = 'small' | 'medium' | 'large'
-
-const ICON_SIZE_KEY = 'buildworld.jenkins.icon-size'
 const ACTIVE_VIEW_KEY = 'buildworld.jenkins.active-view'
 const ACTIVE_BUILD_STATUSES = new Set(['running', 'pending', 'pending_approval', 'queued'])
 const ACTIVE_REFRESH_INTERVAL_MS = 2_000
 const IDLE_REFRESH_INTERVAL_MS = 15_000
-
-function initialIconSize(): IconSize {
-  const stored = typeof localStorage === 'undefined' ? null : localStorage.getItem(ICON_SIZE_KEY)
-  return stored === 'small' || stored === 'large' ? stored : 'medium'
-}
+const STORAGE_REFRESH_INTERVAL_MS = 30_000
+const PROJECT_URL = 'https://github.com/neko233-com/buildworld233'
+const WEEKDAY_KEYS = [
+  'dashboard.weekdaySunday',
+  'dashboard.weekdayMonday',
+  'dashboard.weekdayTuesday',
+  'dashboard.weekdayWednesday',
+  'dashboard.weekdayThursday',
+  'dashboard.weekdayFriday',
+  'dashboard.weekdaySaturday',
+] as const
 
 function initialActiveView() {
   if (typeof localStorage === 'undefined') return 'all'
@@ -41,14 +45,71 @@ function BuildReference({ build, emptyLabel }: { build?: any; emptyLabel: string
   </span>
 }
 
-function Health({ builds, label }: { builds: any[]; label: string }) {
-  const completed = builds.filter(build => !['running', 'pending', 'queued', 'pending_approval'].includes(build.status)).slice(0, 5)
-  if (!completed.length) return <span className="jenkins-health none" role="img" aria-label={label}><Cloud size={24} /></span>
-  const successRate = completed.filter(build => build.status === 'success').length / completed.length
-  const accessibleLabel = `${label}: ${Math.round(successRate * 100)}%`
-  if (successRate === 1) return <span className="jenkins-health excellent" role="img" aria-label={accessibleLabel}><Sun size={24} /></span>
-  if (successRate >= 0.6) return <span className="jenkins-health fair" role="img" aria-label={accessibleLabel}><CloudSun size={24} /></span>
-  return <span className="jenkins-health poor" role="img" aria-label={accessibleLabel}><CloudRain size={24} /></span>
+function formatBytes(value: number, locale: string) {
+  if (!Number.isFinite(value) || value <= 0) return '0 B'
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+  const unitIndex = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1)
+  const amount = value / 1024 ** unitIndex
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: amount >= 100 ? 0 : 1 }).format(amount)} ${units[unitIndex]}`
+}
+
+function StorageMonitor() {
+  const { t, locale } = useI18n()
+  const { data, loading, error, reload } = useApi(() => api.getStorageUsage(), [])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') reload()
+    }, STORAGE_REFRESH_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [reload])
+
+  if (loading) return <section className="jenkins-storage-monitor loading" aria-label={t('dashboard.diskUsage')} aria-busy="true">
+    <HardDrive size={17} aria-hidden="true" />
+    <span>{t('dashboard.diskLoading')}</span>
+  </section>
+  if (error || !data) return <section className="jenkins-storage-monitor error" role="alert">
+    <AlertTriangle size={17} aria-hidden="true" />
+    <span>{t('dashboard.diskUnavailable')}</span>
+    <button type="button" onClick={reload}><RefreshCw size={13} aria-hidden="true" />{t('common.retry')}</button>
+  </section>
+
+  const usedPercent = Math.min(100, Math.max(0, data.used_percent))
+  const tone = usedPercent >= 90 ? 'critical' : usedPercent >= 75 ? 'warning' : 'normal'
+  const roundedPercent = Math.round(usedPercent)
+  return <section className={`jenkins-storage-monitor ${tone}`} aria-label={t('dashboard.diskUsage')}>
+    <div className="jenkins-storage-summary">
+      <span><HardDrive size={17} aria-hidden="true" /><strong>{t('dashboard.diskUsage')}</strong><small>{data.executor} · {data.volume}</small></span>
+      <b>{roundedPercent}%</b>
+    </div>
+    <progress max={100} value={usedPercent} aria-label={`${t('dashboard.diskUsed')} ${roundedPercent}%`} />
+    <div className="jenkins-storage-detail">
+      <span>{t('dashboard.diskUsed')} <strong>{formatBytes(data.used_bytes, locale)}</strong></span>
+      <span>{t('dashboard.diskFree')} <strong>{formatBytes(data.free_bytes, locale)}</strong></span>
+      <span>{t('dashboard.diskTotal')} <strong>{formatBytes(data.total_bytes, locale)}</strong></span>
+    </div>
+  </section>
+}
+
+function ProjectFooter() {
+  const { t } = useI18n()
+  const [today, setToday] = useState(() => new Date())
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setToday(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  return <footer className="jenkins-project-footer">
+    <time dateTime={formatDate(today)}>{formatDate(today)} {t(WEEKDAY_KEYS[today.getDay()])}</time>
+    <span aria-hidden="true">·</span>
+    <span>{t('dashboard.projectStatement')}</span>
+    <span aria-hidden="true">·</span>
+    <a href={PROJECT_URL} target="_blank" rel="noreferrer">
+      <IoLogoGithub aria-hidden="true" />
+      <span>github.com/neko233-com/buildworld233</span>
+    </a>
+  </footer>
 }
 
 export default function Dashboard() {
@@ -57,17 +118,17 @@ export default function Dashboard() {
   const editable = canEdit()
   const [activeView, setActiveView] = useState(initialActiveView)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
-  const [iconSize, setIconSize] = useState<IconSize>(initialIconSize)
   const [flagBusy, setFlagBusy] = useState<{ id: number; flag: 'favorite' | 'quick_access' } | null>(null)
   const [building, setBuilding] = useState<number | null>(null)
   const [groupsOpen, setGroupsOpen] = useState(false)
   const { data, loading, error, reload } = useApi(async () => {
-    const [projects, overviews, groups] = await Promise.all([
+    const [projects, overviews, groups, builds] = await Promise.all([
       api.listProjects(),
       api.listProjectBuildOverviews(),
       api.listProjectGroups(),
+      api.listBuilds(30),
     ])
-    return { projects, overviews, groups }
+    return { projects, overviews, groups, builds }
   })
   const buildProjects = data?.projects || []
   const { isParameterized, start } = useJenkinsBuildFlow(editable ? buildProjects : [], navigate)
@@ -96,12 +157,10 @@ export default function Dashboard() {
   const groups = sortProjectGroups(data?.groups || [])
   const overviewsByProject = new Map((data?.overviews || []).map(overview => [overview.project_id, overview]))
   const projectsByID = new Map(projects.map(project => [project.id, project]))
-  const recentProjectBuilds = (data?.overviews || [])
-    .flatMap(overview => overview.latest ? [{
-      ...overview.latest,
-      project_id: overview.project_id,
-      project_name: projectsByID.get(overview.project_id)?.name || `#${overview.project_id}`,
-    }] : [])
+  const recentBuilds = (data?.builds || []).map(build => ({
+    ...build,
+    project_name: projectsByID.get(build.project_id)?.name || `#${build.project_id}`,
+  }))
 
   const views = [
     { id: 'all', label: t('common.all'), matches: () => true },
@@ -121,11 +180,6 @@ export default function Dashboard() {
     ...(editable ? [{ to: '/settings', label: t('nav.settings'), description: t('dashboard.commonSettings'), Icon: Settings2 }] : []),
     ...(editable ? [{ to: '/users', label: t('nav.users'), description: t('dashboard.commonUsers'), Icon: UsersRound }] : []),
   ]
-
-  const setSize = (size: IconSize) => {
-    setIconSize(size)
-    localStorage.setItem(ICON_SIZE_KEY, size)
-  }
 
   const toggleFlag = async (project: any, flag: 'favorite' | 'quick_access') => {
     setFlagBusy({ id: project.id, flag })
@@ -156,24 +210,27 @@ export default function Dashboard() {
 
   return <section className="jenkins-home">
     <h1 className="sr-only">{t('nav.dashboard')}</h1>
-    <JenkinsHomeRail recentBuilds={recentProjectBuilds} />
+    <JenkinsHomeRail recentBuilds={recentBuilds} />
     <div className="jenkins-home-main">
-      <nav className="jenkins-view-tabs" aria-label={t('nav.dashboard')}>
-        {views.map(view => <button key={view.id} type="button" className={view.id === selectedView.id ? 'active' : ''} aria-pressed={view.id === selectedView.id} onClick={() => {
-          setActiveView(view.id)
-          localStorage.setItem(ACTIVE_VIEW_KEY, view.id)
-        }}>{view.label}</button>)}
-        {editable && <button type="button" className="jenkins-view-add" aria-label={t('projectGroups.newGroup')} title={t('projectGroups.newGroup')} onClick={() => setGroupsOpen(true)}><Plus size={15} /></button>}
-      </nav>
+      <StorageMonitor />
+      <div className="jenkins-home-toolbar">
+        <nav className="jenkins-view-tabs" aria-label={t('nav.dashboard')}>
+          {views.map(view => <button key={view.id} type="button" className={view.id === selectedView.id ? 'active' : ''} aria-pressed={view.id === selectedView.id} onClick={() => {
+            setActiveView(view.id)
+            localStorage.setItem(ACTIVE_VIEW_KEY, view.id)
+          }}>{view.label}</button>)}
+          {editable && <button type="button" className="jenkins-view-add" aria-label={t('projectGroups.newGroup')} title={t('projectGroups.newGroup')} onClick={() => setGroupsOpen(true)}><Plus size={15} /></button>}
+        </nav>
+      </div>
 
       {activeView === 'common' ? <section className="jenkins-common-functions" aria-label={t('dashboard.commonFunctions')}>
         <header><div><h2>{t('dashboard.commonFunctions')}</h2><p>{t('dashboard.commonFunctionsHelp')}</p></div></header>
         <div>{commonLinks.map(({ to, label, description, Icon }) => <Link key={to} to={to}><span><Icon size={19} /></span><strong>{label}</strong><small>{description}</small></Link>)}</div>
       </section> : <div className="jenkins-job-table-wrap">
-        <table className={`jenkins-job-table icon-${iconSize}`}>
+        <table className="jenkins-job-table">
           <thead><tr>
+            <th className="jenkins-id-column"><span aria-label={t('projects.identifier')}>ID</span></th>
             <th className="jenkins-status-column"><span aria-label={t('projects.status')}>S</span></th>
-            <th className="jenkins-health-column"><span aria-label={t('statistics.successRate')}>W</span></th>
             <th className="jenkins-name-column" aria-sort={sortDirection === 'asc' ? 'ascending' : 'descending'}><button type="button" onClick={() => setSortDirection(value => value === 'asc' ? 'desc' : 'asc')}>{t('projects.name')} <span aria-hidden="true">{sortDirection === 'asc' ? '\u2193' : '\u2191'}</span></button></th>
             <th>{t('projectDetail.lastSuccessfulBuild')}</th>
             <th>{t('projectDetail.lastFailedBuild')}</th>
@@ -187,13 +244,12 @@ export default function Dashboard() {
               const latest = overview?.latest
               const lastSuccess = overview?.last_success
               const lastFailure = overview?.last_failure
-              const recentStatuses = (overview?.recent_statuses || []).map(status => ({ status }))
               const status = latest ? buildStatusTone(latest.status) : 'cancelled'
               const statusLabel = latest ? buildStatusLabel(t, latest.status) : t('dashboard.noBuilds')
               const buildLabel = t(isParameterized(project) ? 'builds.buildWithParameters' : 'projects.build')
               return <tr key={project.id}>
+                <td className="jenkins-project-id">{project.id}</td>
                 <td><span className={`jenkins-status-orb ${status}`} role="img" aria-label={statusLabel} title={statusLabel} /></td>
-                <td><Health builds={recentStatuses} label={`${project.name} ${t('statistics.successRate')}`} /></td>
                 <td><Link className="jenkins-job-name" to={`/projects/${project.id}`}><span><strong>{project.name}</strong>{project.default_branch && <small>{project.default_branch}</small>}</span></Link></td>
                 <td><BuildReference build={lastSuccess} emptyLabel={t('projectDetail.none')} /></td>
                 <td><BuildReference build={lastFailure} emptyLabel={t('projectDetail.none')} /></td>
@@ -210,9 +266,9 @@ export default function Dashboard() {
       </div>}
 
       <footer className="jenkins-table-footer">
-        <div className="jenkins-icon-size" aria-label={t('builds.size')}><span>{t('builds.size')}:</span>{(['small', 'medium', 'large'] as IconSize[]).map((size, index) => <button type="button" key={size} className={iconSize === size ? 'active' : ''} aria-pressed={iconSize === size} onClick={() => setSize(size)}>{['S', 'M', 'L'][index]}</button>)}</div>
         <Link to="/projects" className="jenkins-more" aria-label={t('nav.projects')} title={t('nav.projects')}><MoreHorizontal size={18} /></Link>
       </footer>
+      <ProjectFooter />
     </div>
     {groupsOpen && <ProjectGroupsDialog groups={groups} projects={projects} onReload={reload} onClose={() => setGroupsOpen(false)} />}
   </section>

@@ -20,9 +20,12 @@ export function buildStatusLabel(t: Translate, status?: string): string {
   return translatedOrFallback(t, `builds.${normalized}`, status || '-')
 }
 
-export function buildStatusTone(status?: string): 'success' | 'failed' | 'running' | 'pending' | 'cancelled' {
+export type BuildStatusTone = 'success' | 'unstable' | 'failed' | 'running' | 'pending' | 'cancelled'
+
+export function buildStatusTone(status?: string): BuildStatusTone {
   const normalized = (status || 'pending').toLowerCase()
   if (normalized === 'success' || normalized === 'passed') return 'success'
+  if (normalized === 'unstable' || normalized === 'warning' || normalized === 'test_failed' || normalized === 'tests_failed') return 'unstable'
   if (normalized === 'failed' || normalized === 'rejected' || normalized === 'error') return 'failed'
   if (normalized === 'running') return 'running'
   if (normalized === 'cancelled' || normalized === 'skipped') return 'cancelled'

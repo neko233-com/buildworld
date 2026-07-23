@@ -159,8 +159,8 @@ describe('ProjectChanges', () => {
     expect(document.querySelector('[role="dialog"][aria-label="Move project"]')).not.toBeNull()
     await act(async () => document.querySelector<HTMLButtonElement>('[role="dialog"][aria-label="Move project"] button[aria-label="Close"]')?.click())
 
-    await act(async () => button('Pipeline Syntax').click())
-    expect(document.querySelector('[role="dialog"][aria-label="Pipeline Syntax"] pre')?.textContent).toContain('jobs:')
+    await act(async () => button('Jenkinsfile Pipeline Syntax').click())
+    expect(document.querySelector('[role="dialog"][aria-label="Jenkinsfile Pipeline Syntax"] pre')?.textContent).toContain('jobs:')
   })
 
   it('shows an explicit empty state when no revisions were recorded', async () => {

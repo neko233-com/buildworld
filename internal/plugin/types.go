@@ -28,7 +28,9 @@ type BinaryManifest struct {
 	Entrypoint     string          `json:"entrypoint"`
 	Package        string          `json:"package,omitempty"`
 	ChecksumSHA256 string          `json:"checksum_sha256,omitempty"`
-	Steps          []string        `json:"steps"`
+	Steps          []string        `json:"steps,omitempty"`
+	Hooks          []string        `json:"hooks,omitempty"`
+	UI             []UIExtension   `json:"ui,omitempty"`
 	Releases       []BinaryRelease `json:"releases,omitempty"`
 }
 
@@ -48,31 +50,50 @@ type BinaryRelease struct {
 	ChecksumSHA256 string `json:"checksum_sha256"`
 }
 
+// UIExtension is a declarative, host-rendered action link. Plugins cannot
+// inject HTML, JavaScript, styles, routes, or React components.
+type UIExtension struct {
+	Location     string `json:"location"`
+	Label        string `json:"label"`
+	URL          string `json:"url"`
+	OpenInNewTab bool   `json:"open_in_new_tab,omitempty"`
+}
+
 type PluginStatus struct {
-	Loaded bool     `json:"loaded"`
-	Steps  []string `json:"steps"`
+	Loaded       bool          `json:"loaded"`
+	Steps        []string      `json:"steps"`
+	Hooks        []string      `json:"hooks"`
+	UIExtensions []UIExtension `json:"ui_extensions"`
 }
 
 // StepContext is serialized to an out-of-process plugin. It intentionally
 // contains data only; no callback or host execution bridge is exposed.
 type StepContext struct {
-	Workspace string
-	Branch    string
-	Commit    string
-	Config    map[string]string
-	Env       map[string]string
-	Outputs   map[string]string
-	Logs      []string
-	Failed    bool
-	FailMsg   string
+	Workspace   string
+	ProjectID   int64
+	ProjectName string
+	BuildID     int64
+	BuildNumber int
+	Branch      string
+	Commit      string
+	Outcome     string
+	Config      map[string]string
+	Environment map[string]string
+	Env         map[string]string
+	Outputs     map[string]string
+	Logs        []string
+	Failed      bool
+	FailMsg     string
 }
 
 type StepHandler func(ctx context.Context, sc *StepContext) error
+type HookHandler func(ctx context.Context, sc *StepContext) error
 
 type Plugin struct {
 	PluginMeta
 	Path      string
 	stepTypes map[string]StepHandler
+	hookTypes map[string]HookHandler
 	binary    *BinaryManifest
 }
 
@@ -89,6 +110,19 @@ func (p *Plugin) GetStep(name string) StepHandler {
 	return p.stepTypes[name]
 }
 
+func (p *Plugin) HookTypes() []string {
+	names := make([]string, 0, len(p.hookTypes))
+	for name := range p.hookTypes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (p *Plugin) GetHook(name string) HookHandler {
+	return p.hookTypes[name]
+}
+
 func (p *Plugin) InstallSource() string {
 	if p.binary == nil {
 		return ""
@@ -97,5 +131,9 @@ func (p *Plugin) InstallSource() string {
 }
 
 func (p *Plugin) GetStatus() PluginStatus {
-	return PluginStatus{Loaded: p.binary != nil, Steps: p.StepTypes()}
+	extensions := []UIExtension{}
+	if p.binary != nil {
+		extensions = append(extensions, p.binary.UI...)
+	}
+	return PluginStatus{Loaded: p.binary != nil, Steps: p.StepTypes(), Hooks: p.HookTypes(), UIExtensions: extensions}
 }

@@ -41,6 +41,8 @@ func TestBinaryPluginLifecycleAPIHasNoScriptRuntimeEndpoints(t *testing.T) {
 		Source:     "https://github.com/acme/alpha",
 		Entrypoint: entry,
 		Steps:      []string{"alpha:deploy"},
+		Hooks:      []string{"build.success", "build.failure"},
+		UI:         []plugin.UIExtension{{Location: "build.action", Label: "Deployment", URL: "https://deployments.example.test/builds/{buildId}"}},
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
@@ -100,7 +102,15 @@ func TestBinaryPluginLifecycleAPIHasNoScriptRuntimeEndpoints(t *testing.T) {
 	if !ok || len(steps) != 1 || steps[0] != "alpha:deploy" {
 		t.Fatalf("listed steps = %#v", plugins[0]["steps"])
 	}
-	for _, legacyField := range []string{"script_lang", "source_script", "source_ui_script", "triggers", "ui_extensions"} {
+	hooks, ok := plugins[0]["hooks"].([]any)
+	if !ok || len(hooks) != 2 || hooks[0] != "build.failure" || hooks[1] != "build.success" {
+		t.Fatalf("listed hooks = %#v", plugins[0]["hooks"])
+	}
+	extensions, ok := plugins[0]["ui_extensions"].([]any)
+	if !ok || len(extensions) != 1 {
+		t.Fatalf("listed UI extensions = %#v", plugins[0]["ui_extensions"])
+	}
+	for _, legacyField := range []string{"script_lang", "source_script", "source_ui_script", "triggers"} {
 		if _, exists := plugins[0][legacyField]; exists {
 			t.Fatalf("plugin response exposes legacy field %q", legacyField)
 		}

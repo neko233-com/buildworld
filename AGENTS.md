@@ -44,3 +44,58 @@ verification is incomplete or failing.
   database migrations, SDK fields, implementation, regression coverage, and
   release binaries. Do not remove or extend them without an explicit request.
   The Worker release contract in `Rule.md` remains mandatory.
+
+## Jenkins-inspired UI direction
+
+- Preserve Jenkins-compatible workflows and user-visible capabilities, but do
+  not pixel-copy Jenkins. New local UI work should use BuildWorld-specific
+  layout, hierarchy, spacing, and operational context.
+- The dashboard left rail is the deliberate compatibility exception: keep
+  queue and recent-build panels aligned with Jenkins' classic pane structure,
+  compact row density, collapse behavior, and status-dot semantics. Use plain
+  circles instead of weather icons: green success, yellow unstable/test
+  failure, red failure, gray cancelled, and blue animated while running.
+- Start the dashboard project table with the project's persistent unique `ID`,
+  followed by the status (`S`) column. Do not restore the Jenkins weather or
+  aggregate health (`W`) column.
+- Prefer named imports from `react-icons` for new general-purpose interface
+  icons. Do not introduce copied Jenkins image assets when the same meaning can
+  be represented by the shared icon library.
+- Treat the Jenkins-style dashboard as a desktop-only operations surface. Do
+  not spend implementation or verification effort on mobile breakpoints,
+  mobile navigation, touch-specific layout, or mobile browser QA unless the
+  user explicitly requests mobile support in the current task.
+- Use one stable default dashboard table density. Do not expose S/M/L or other
+  user-selectable density controls, and do not persist dashboard density in
+  browser storage.
+- Label the Jenkins-style project job type and its user-facing configuration
+  surfaces exactly `Jenkinsfile Pipeline`. New-item creation selects this type
+  by default and creates an SCM/VCS-sourced definition with path `Jenkinsfile`;
+  do not generate an inline pipeline as the default. Folder remains an explicit
+  alternative. Prefer a strong default over asking users to choose routine
+  presentation or job-type settings.
+- Long-running `service_watch` steps default to a 15-minute heartbeat. Jenkins
+  migration normalizes shorter heartbeat loops to at least five minutes while
+  keeping realtime appended log forwarding and process-exit checks.
+- Keep an authenticated, auto-refreshing disk-usage progress bar at the top of
+  the dashboard for the volume containing the `builtin` executor build-temp
+  cache. Disk monitoring must not add or depend on distributed Worker UI.
+- Disk usage is informational and must not block project data. Show explicit
+  loading, retryable failure, warning (75%+), and critical (90%+) states.
+
+## Browser automation
+
+- Do not use Computer Use for browser interaction in this repository.
+- Use the bundled in-app Browser plugin for browser navigation, inspection,
+  authentication-preserving interaction, and rendered-flow verification.
+
+## Plugin compatibility direction
+
+- Prefer safe, data-only native plugin capabilities that cover Jenkins build
+  steps, build wrappers, publishers, notifiers, and cleanup actions.
+- Lifecycle extensions use the declared binary hooks `build.before`,
+  `build.always`, `build.success`, `build.failure`, and `build.cleanup`.
+- UI extensions are declarative host-rendered links at `project.action` or
+  `build.action`; accept only relative BuildWorld paths or HTTPS URLs.
+- Do not restore JavaScript execution, UI injection, arbitrary routes, or
+  controller mutation as a shortcut for Jenkins plugin compatibility.

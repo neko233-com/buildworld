@@ -653,6 +653,12 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	}
 	env = append(env, executionResourceEnvironment(r.executionPolicySnapshot())...)
 	params := parseParams(build.Parameters)
+	env, err = r.runPluginHook(ctx, "build.before", "", workspace, project, build, env)
+	if err != nil {
+		r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
+		r.fail(buildID, start, fmt.Sprintf("plugin build.before hook: %v", err), project)
+		return
+	}
 
 	totalStages := len(cfg.Stages)
 	var failedSteps []string
@@ -898,9 +904,6 @@ func (r *BuildRunner) deferForProjectConcurrency(buildID, projectID int64, abort
 }
 
 func (r *BuildRunner) runPostSteps(_ context.Context, cfg *BuildConfig, outcome, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}) {
-	if len(cfg.Post) == 0 {
-		return
-	}
 	postCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	conditions := []string{"always", outcome, "cleanup"}
@@ -917,7 +920,58 @@ func (r *BuildRunner) runPostSteps(_ context.Context, cfg *BuildConfig, outcome,
 				r.log(build.ID, stage, fmt.Sprintf("ERROR: %v", err))
 			}
 		}
+		if _, err := r.runPluginHook(postCtx, "build."+condition, outcome, workspace, project, build, env); err != nil {
+			r.log(build.ID, "plugin build."+condition, fmt.Sprintf("ERROR: %v", err))
+		}
 	}
+}
+
+func (r *BuildRunner) runPluginHook(ctx context.Context, hook, outcome, workspace string, project *store.Project, build *store.Build, env []string) ([]string, error) {
+	if r.plugins == nil {
+		return env, nil
+	}
+	environment := make(map[string]string, len(env))
+	for _, entry := range env {
+		if key, value, ok := strings.Cut(entry, "="); ok {
+			environment[key] = value
+		}
+	}
+	sc := &plugin.StepContext{
+		Workspace:   workspace,
+		ProjectID:   project.ID,
+		ProjectName: project.Name,
+		BuildID:     build.ID,
+		BuildNumber: build.Number,
+		Branch:      build.Branch,
+		Commit:      build.CommitSHA,
+		Outcome:     outcome,
+		Environment: environment,
+	}
+	if err := r.plugins.RunHooks(ctx, hook, sc); err != nil {
+		return env, err
+	}
+	stage := "plugin " + hook
+	for _, line := range sc.Logs {
+		r.logBuildOutput(build.ID, stage, line)
+	}
+	keys := make([]string, 0, len(sc.Env)+len(sc.Outputs))
+	values := make(map[string]string, len(sc.Env)+len(sc.Outputs))
+	for key, value := range sc.Env {
+		keys = append(keys, key)
+		values[key] = value
+	}
+	for key, value := range sc.Outputs {
+		if _, exists := values[key]; !exists {
+			keys = append(keys, key)
+		}
+		values[key] = value
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		env = append(env, key+"="+values[key])
+	}
+	_ = r.flushBuildOutput(build.ID, stage)
+	return env, nil
 }
 
 func (r *BuildRunner) loadBuildConfig(ctx context.Context, project *store.Project) (*BuildConfig, error) {

@@ -728,17 +728,22 @@
   font-family: ui-monospace, SFMono-Regular, "SF Mono", JetBrains Mono, Consolas, monospace;
   font-size: 14px;
   line-height: 1.66;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 [data-skin="jenkins"] .jenkins-console-line {
   display: block;
+  width: max-content;
+  min-width: calc(100% + 32px);
   min-height: 1.66em;
   margin: 0 -16px;
   padding: 0 16px;
+  box-sizing: border-box;
   border-left: 3px solid transparent;
   color: inherit;
+  white-space: pre;
 }
 
 [data-skin="jenkins"] .jenkins-console-output.log-tones-enabled .jenkins-console-line.info {

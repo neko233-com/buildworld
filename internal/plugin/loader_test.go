@@ -1,10 +1,12 @@
 package plugin
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -163,5 +165,34 @@ func TestDeletePluginStaysInsideRoot(t *testing.T) {
 	}
 	if _, err := os.Stat(pluginDir); !os.IsNotExist(err) {
 		t.Fatalf("plugin directory still exists: %v", err)
+	}
+}
+
+func TestRunHooksUsesDeterministicEnabledPluginOrder(t *testing.T) {
+	loader := NewLoader(t.TempDir())
+	var calls []string
+	for _, name := range []string{"zeta", "alpha", "disabled"} {
+		pluginName := name
+		loader.plugins[name] = &Plugin{
+			PluginMeta: PluginMeta{Name: name},
+			hookTypes: map[string]HookHandler{
+				"build.success": func(_ context.Context, sc *StepContext) error {
+					calls = append(calls, pluginName)
+					sc.Logs = append(sc.Logs, pluginName)
+					return nil
+				},
+			},
+		}
+		loader.enabledPlugins[name] = name != "disabled"
+	}
+	sc := &StepContext{}
+	if err := loader.RunHooks(t.Context(), "build.success", sc); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(calls, ","); got != "alpha,zeta" {
+		t.Fatalf("hook order = %q", got)
+	}
+	if got := strings.Join(sc.Logs, ","); got != "alpha,zeta" {
+		t.Fatalf("hook output = %q", got)
 	}
 }

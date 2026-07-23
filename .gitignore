@@ -19,8 +19,16 @@ artifacts/
 # Local release staging and one-off binaries.
 release/
 output/
+/.build/
+/.workbuddy/
 /*.exe
 token.txt
+
+# Local Jenkins discovery/export snapshots can contain intranet topology,
+# account names, job metadata, and credential identifiers.
+/folder_*.json
+/jenkins_*.json
+/jenkins_*.xml
 
 # Local editor settings, OS metadata, and package-manager caches.
 .idea/

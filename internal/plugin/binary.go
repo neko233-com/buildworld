@@ -21,8 +21,8 @@ const BinaryAPIVersion = "buildworld.plugin/v1"
 const maxBinaryPluginBytes = 256 << 20
 
 type binaryRequest struct {
-	Operation, Step string
-	Context         StepContext
+	Operation, Step, Hook string
+	Context               StepContext
 }
 type binaryResponse struct {
 	Logs    []string          `json:"logs"`
@@ -53,10 +53,14 @@ func (l *Loader) loadBinary(name, pluginPath string) error {
 			return fmt.Errorf("binary plugin checksum mismatch")
 		}
 	}
-	p := &Plugin{PluginMeta: PluginMeta{Name: manifest.Name, Version: manifest.Version, Description: manifest.Description, Author: manifest.Author}, Path: pluginPath, binary: &manifest, stepTypes: map[string]StepHandler{}}
+	p := &Plugin{PluginMeta: PluginMeta{Name: manifest.Name, Version: manifest.Version, Description: manifest.Description, Author: manifest.Author}, Path: pluginPath, binary: &manifest, stepTypes: map[string]StepHandler{}, hookTypes: map[string]HookHandler{}}
 	for _, stepType := range manifest.Steps {
 		typ := stepType
-		p.stepTypes[typ] = func(ctx context.Context, sc *StepContext) error { return invokeBinary(ctx, entry, typ, sc) }
+		p.stepTypes[typ] = func(ctx context.Context, sc *StepContext) error { return invokeBinaryStep(ctx, entry, typ, sc) }
+	}
+	for _, hookType := range manifest.Hooks {
+		typ := hookType
+		p.hookTypes[typ] = func(ctx context.Context, sc *StepContext) error { return invokeBinaryHook(ctx, entry, typ, sc) }
 	}
 	l.mu.Lock()
 	for installedName, installed := range l.plugins {
@@ -86,8 +90,8 @@ func validateBinaryManifest(manifest *BinaryManifest, expectedName string) error
 	if expectedName != "" && manifest.Name != expectedName {
 		return fmt.Errorf("plugin manifest name %q does not match directory %q", manifest.Name, expectedName)
 	}
-	if strings.TrimSpace(manifest.Version) == "" || strings.TrimSpace(manifest.Entrypoint) == "" || len(manifest.Steps) == 0 {
-		return fmt.Errorf("binary plugin requires name, version, entrypoint, and steps")
+	if strings.TrimSpace(manifest.Version) == "" || strings.TrimSpace(manifest.Entrypoint) == "" || (len(manifest.Steps) == 0 && len(manifest.Hooks) == 0) {
+		return fmt.Errorf("binary plugin requires name, version, entrypoint, and at least one step or hook")
 	}
 	seenSteps := make(map[string]struct{}, len(manifest.Steps))
 	for _, step := range manifest.Steps {
@@ -99,6 +103,22 @@ func validateBinaryManifest(manifest *BinaryManifest, expectedName string) error
 			return fmt.Errorf("binary plugin step %q is duplicated", step)
 		}
 		seenSteps[step] = struct{}{}
+	}
+	seenHooks := make(map[string]struct{}, len(manifest.Hooks))
+	for _, hook := range manifest.Hooks {
+		hook = strings.TrimSpace(hook)
+		if !isSupportedHook(hook) {
+			return fmt.Errorf("binary plugin hook %q is unsupported", hook)
+		}
+		if _, duplicate := seenHooks[hook]; duplicate {
+			return fmt.Errorf("binary plugin hook %q is duplicated", hook)
+		}
+		seenHooks[hook] = struct{}{}
+	}
+	for index, extension := range manifest.UI {
+		if err := validateUIExtension(extension); err != nil {
+			return fmt.Errorf("binary plugin ui[%d]: %w", index, err)
+		}
 	}
 	if manifest.Source != "" {
 		if _, err := normalizeGitHubSource(manifest.Source); err != nil {
@@ -152,13 +172,22 @@ func isSHA256(value string) bool {
 	return true
 }
 
-func invokeBinary(ctx context.Context, entry, step string, sc *StepContext) error {
+func invokeBinaryStep(ctx context.Context, entry, step string, sc *StepContext) error {
 	input, _ := json.Marshal(binaryRequest{Operation: "execute", Step: step, Context: *sc})
+	return invokeBinary(ctx, entry, step, input, sc)
+}
+
+func invokeBinaryHook(ctx context.Context, entry, hook string, sc *StepContext) error {
+	input, _ := json.Marshal(binaryRequest{Operation: "hook", Hook: hook, Context: *sc})
+	return invokeBinary(ctx, entry, hook, input, sc)
+}
+
+func invokeBinary(ctx context.Context, entry, capability string, input []byte, sc *StepContext) error {
 	cmd := processtree.CommandContext(ctx, entry, "execute")
 	cmd.Stdin = strings.NewReader(string(input))
 	output, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("binary plugin %s: %w", step, err)
+		return fmt.Errorf("binary plugin %s: %w", capability, err)
 	}
 	var response binaryResponse
 	if err := json.Unmarshal(output, &response); err != nil {
@@ -179,6 +208,39 @@ func invokeBinary(ctx context.Context, entry, step string, sc *StepContext) erro
 	}
 	for k, v := range response.Outputs {
 		sc.Outputs[k] = v
+	}
+	return nil
+}
+
+func isSupportedHook(hook string) bool {
+	switch hook {
+	case "build.before", "build.always", "build.success", "build.failure", "build.cleanup":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateUIExtension(extension UIExtension) error {
+	label := strings.TrimSpace(extension.Label)
+	if label == "" || len(label) > 80 {
+		return fmt.Errorf("label must contain 1-80 characters")
+	}
+	switch extension.Location {
+	case "project.action", "build.action":
+	default:
+		return fmt.Errorf("location %q is unsupported", extension.Location)
+	}
+	rawURL := strings.TrimSpace(extension.URL)
+	if rawURL == "" || len(rawURL) > 2048 || strings.ContainsAny(rawURL, "\r\n\t") {
+		return fmt.Errorf("url is invalid")
+	}
+	if strings.HasPrefix(rawURL, "/") && !strings.HasPrefix(rawURL, "//") {
+		return nil
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("url must be a relative BuildWorld path or an https URL")
 	}
 	return nil
 }
