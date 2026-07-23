@@ -81,6 +81,13 @@ func extractJenkinsServiceWatch(source, name string) (engine.Step, bool) {
 			}
 		}
 	}
+	// Preserve the conventional Jenkins monitor handover protocol so a newer
+	// deployment retires its predecessor without marking it as a crash.
+	if strings.Contains(normalized, ".jenkins-monitor-owner") && strings.Contains(normalized, ".jenkins-monitor-handover") {
+		config["owner_file"] = ".jenkins-monitor-owner"
+		config["handover_file"] = ".jenkins-monitor-handover"
+		config["owner_id"] = "${build.BUILD_NUMBER}"
+	}
 	return engine.Step{Name: name, Type: "service_watch", Config: config}, true
 }
 

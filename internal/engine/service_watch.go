@@ -63,6 +63,16 @@ func WatchService(ctx context.Context, workspace string, config map[string]strin
 	if !serviceProcessRunning(pid) {
 		return reportServiceExit(pid, logPath, onOutput)
 	}
+	ownership, err := newServiceWatchOwnership(targetDir, config)
+	if err != nil {
+		return err
+	}
+	if ownership != nil {
+		if err := ownership.claim(); err != nil {
+			return err
+		}
+		defer ownership.release()
+	}
 
 	heartbeat := watchDuration(config, "heartbeat_seconds", "heartbeatSeconds", serviceWatchDefaultHeartbeat)
 	poll := watchDuration(config, "poll_seconds", "pollSeconds", serviceWatchDefaultPoll)
@@ -103,12 +113,73 @@ func WatchService(ctx context.Context, workspace string, config map[string]strin
 		case <-processChecks.C:
 			if !serviceProcessRunning(pid) {
 				follower.forward(logPath, onOutput)
+				if ownership != nil && ownership.handoverRequested() {
+					onOutput(fmt.Sprintf("Service PID %d was replaced by deployment %s; log monitor handed over.", pid, ownership.handoverID()))
+					return nil
+				}
 				return reportServiceExit(pid, logPath, onOutput)
 			}
 		case <-logTimer.C:
 			backlogged = follower.forward(logPath, onOutput)
 			logTimer.Reset(serviceLogNextInterval(backlogged))
 		}
+	}
+}
+
+// serviceWatchOwnership preserves Jenkins' monitor-handover contract. The
+// retiring monitor succeeds only when a newer deployment explicitly requested
+// it; an unexpected service exit remains a failed build.
+type serviceWatchOwnership struct {
+	ownerPath    string
+	handoverPath string
+	ownerID      string
+}
+
+func newServiceWatchOwnership(targetDir string, config map[string]string) (*serviceWatchOwnership, error) {
+	ownerFile := firstWatchConfig(config, "owner_file", "ownerFile")
+	handoverFile := firstWatchConfig(config, "handover_file", "handoverFile")
+	ownerID := firstWatchConfig(config, "owner_id", "ownerId")
+	if ownerFile == "" && handoverFile == "" && ownerID == "" {
+		return nil, nil
+	}
+	if ownerFile == "" || handoverFile == "" || ownerID == "" {
+		return nil, fmt.Errorf("service_watch owner_file, handover_file and owner_id must be configured together")
+	}
+	ownerPath, err := watchPath(targetDir, ownerFile)
+	if err != nil {
+		return nil, fmt.Errorf("service watch owner_file: %w", err)
+	}
+	handoverPath, err := watchPath(targetDir, handoverFile)
+	if err != nil {
+		return nil, fmt.Errorf("service watch handover_file: %w", err)
+	}
+	return &serviceWatchOwnership{ownerPath: ownerPath, handoverPath: handoverPath, ownerID: ownerID}, nil
+}
+
+func (o *serviceWatchOwnership) claim() error {
+	if err := os.WriteFile(o.ownerPath, []byte(o.ownerID), 0o600); err != nil {
+		return fmt.Errorf("claim service log monitor: %w", err)
+	}
+	return nil
+}
+
+func (o *serviceWatchOwnership) handoverID() string {
+	contents, err := os.ReadFile(o.handoverPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(contents))
+}
+
+func (o *serviceWatchOwnership) handoverRequested() bool {
+	requested := o.handoverID()
+	return requested != "" && requested != o.ownerID
+}
+
+func (o *serviceWatchOwnership) release() {
+	contents, err := os.ReadFile(o.ownerPath)
+	if err == nil && strings.TrimSpace(string(contents)) == o.ownerID {
+		_ = os.Remove(o.ownerPath)
 	}
 }
 
@@ -133,6 +204,9 @@ func ValidateServiceWatchConfig(config map[string]string) error {
 		"initial_lines": {}, "initialLines": {},
 		"stop_service_on_cancel": {}, "stopServiceOnCancel": {},
 		"shutdown_timeout_seconds": {}, "shutdownTimeoutSeconds": {},
+		"owner_file": {}, "ownerFile": {},
+		"handover_file": {}, "handoverFile": {},
+		"owner_id": {}, "ownerId": {},
 		"working-directory": {},
 	}
 	for key := range config {
@@ -150,6 +224,9 @@ func ValidateServiceWatchConfig(config map[string]string) error {
 		{"initial_lines", "initialLines"},
 		{"stop_service_on_cancel", "stopServiceOnCancel"},
 		{"shutdown_timeout_seconds", "shutdownTimeoutSeconds"},
+		{"owner_file", "ownerFile"},
+		{"handover_file", "handoverFile"},
+		{"owner_id", "ownerId"},
 	} {
 		if err := validateWatchAliases(config, aliases[0], aliases[1]); err != nil {
 			return err
