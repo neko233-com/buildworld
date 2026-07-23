@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	serviceWatchDefaultHeartbeat = 30 * time.Second
+	serviceWatchDefaultHeartbeat = 15 * time.Minute
 	serviceWatchMinimumHeartbeat = 5 * time.Second
 	serviceWatchMaximumHeartbeat = 24 * time.Hour
 	serviceWatchDefaultShutdown  = 65 * time.Second

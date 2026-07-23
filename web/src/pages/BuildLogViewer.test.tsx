@@ -160,20 +160,27 @@ describe('BuildLogViewer', () => {
 
   it('colors error, warning, and default info lines without filtering and persists the accessible toggle', async () => {
     getBuildLogs.mockResolvedValueOnce({
-      log: ['plain application output', '[INFO] ready', '[WARN] retrying', 'ERROR request failed'].join('\n'),
+      log: [
+        'plain application output',
+        '[INFO] ready',
+        '[WARN] retrying',
+        'ERROR request failed',
+        '[15:46:49] [Live Log Monitor] === Stack Trace ===',
+        '[15:46:49] [Live Log Monitor]   [0] logger.Error at logger233.go:985',
+      ].join('\n'),
     })
     await renderViewer()
 
     const toneToggle = container.querySelector<HTMLButtonElement>('button[aria-label="Log level colors"]')!
     expect(toneToggle.getAttribute('aria-pressed')).toBe('true')
-    expect(container.querySelectorAll('.plain-log-lines > div')).toHaveLength(4)
+    expect(container.querySelectorAll('.plain-log-lines > div')).toHaveLength(6)
     expect(container.querySelectorAll('.plain-log-lines > .info')).toHaveLength(2)
     expect(container.querySelectorAll('.plain-log-lines > .warning')).toHaveLength(1)
-    expect(container.querySelectorAll('.plain-log-lines > .error')).toHaveLength(1)
+    expect(container.querySelectorAll('.plain-log-lines > .error')).toHaveLength(3)
 
     await act(async () => toneToggle.click())
     expect(toneToggle.getAttribute('aria-pressed')).toBe('false')
-    expect(container.querySelectorAll('.plain-log-lines > div')).toHaveLength(4)
+    expect(container.querySelectorAll('.plain-log-lines > div')).toHaveLength(6)
     expect(container.querySelectorAll('.plain-log-lines > .info, .plain-log-lines > .warning, .plain-log-lines > .error')).toHaveLength(0)
     expect(container.textContent).toContain('plain application output')
     expect(container.textContent).toContain('[INFO] ready')

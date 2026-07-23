@@ -45,7 +45,7 @@ export default definePipeline({
         pidFile: 'server.pid',
         logFile: 'server.log',
         port: 8700,
-        heartbeatSeconds: 30,
+        heartbeatSeconds: 900,
         pollSeconds: 5,
         initialLines: 0,
       }),
@@ -60,7 +60,8 @@ timers, promises, Node.js APIs, file access, and network access are rejected.
 Shell commands run only when explicitly declared in pipeline steps.
 
 `watchService` is the native Jenkins `tail -f` plus PID-monitoring equivalent.
-It keeps build running, streams appended bytes, emits heartbeats, and fails with
+It keeps build running, streams appended bytes, emits low-frequency heartbeats,
+and fails with
 final log lines when process exits. Canceling build stops observer only, not
 deployed service.
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { BookTemplate, Folder, GitBranch } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
@@ -21,27 +21,14 @@ type BuildTemplate = {
   default_branch?: string
 }
 
-function defaultPipelineSource(name: string) {
-  return `import { definePipeline, shell, stage } from '@buildworld/pipeline'
-
-export default definePipeline({
-  name: ${JSON.stringify(name)},
-  stages: [
-    stage('Build', shell('Build', 'echo "Configure your pipeline"')),
-  ],
-})
-`
-}
-
 export default function CreateProject() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const nameInputRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
-  const [itemType, setItemType] = useState<NewItemType | null>(null)
+  const [itemType, setItemType] = useState<NewItemType>('pipeline')
   const [nameDirty, setNameDirty] = useState(false)
-  const [typeDirty, setTypeDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const templateParameter = (searchParams.get('template') || '').trim()
@@ -63,12 +50,9 @@ export default function CreateProject() {
     : null
   const templateUnavailable = Boolean(templateParameter && (!requestedTemplateID || !selectedTemplate))
 
-  useEffect(() => {
-    if (selectedTemplate) setItemType(current => current || 'pipeline')
-  }, [selectedTemplate])
   const trimmedName = name.trim()
   const duplicate = useMemo(() => {
-    if (!itemType || !trimmedName) return false
+    if (!trimmedName) return false
     const items = itemType === 'pipeline' ? projects : groups
     return items.some((item: any) => String(item.name || '').trim().toLocaleLowerCase() === trimmedName.toLocaleLowerCase())
   }, [groups, itemType, projects, trimmedName])
@@ -77,21 +61,18 @@ export default function CreateProject() {
     : duplicate
       ? t('projects.itemNameExists')
       : ''
-  const typeError = typeDirty && !itemType ? t('projects.itemTypeRequired') : ''
   const ready = Boolean(trimmedName && itemType && !duplicate && !(itemType === 'pipeline' && templateUnavailable))
 
   const selectType = (nextType: NewItemType) => {
     setItemType(nextType)
-    setTypeDirty(true)
     setSubmitError('')
   }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setNameDirty(true)
-    setTypeDirty(true)
     setSubmitError('')
-    if (!ready || !itemType) {
+    if (!ready) {
       if (!trimmedName || duplicate) nameInputRef.current?.focus()
       return
     }
@@ -105,22 +86,26 @@ export default function CreateProject() {
       }
 
       const template = selectedTemplate || undefined
-      const config = template?.config?.trim() ? template.config : defaultPipelineSource(trimmedName)
-      const pipelineFormat = resolvePipelineSourceLanguage(config)
-      await api.validatePipeline(config)
+      const templateConfig = template?.config || ''
+      const config = templateConfig.trim() ? templateConfig : ''
+      const useJenkinsSCM = !config
+      const pipelineFormat = useJenkinsSCM ? 'jenkinsfile' : resolvePipelineSourceLanguage(config)
+      if (!useJenkinsSCM) await api.validatePipeline(config)
+      const repository = template?.repo_url || ''
+      const branch = template?.default_branch || 'main'
       const project = await api.createProject({
         name: trimmedName,
         description: '',
-        repo_url: template?.repo_url || '',
+        repo_url: repository,
         repo_type: 'git',
-        default_branch: template?.default_branch || 'main',
+        default_branch: branch,
         config,
         tags: [],
         pipeline_format: pipelineFormat,
-        pipeline_source_mode: 'inline',
-        pipeline_scm_repo: '',
-        pipeline_scm_branch: '',
-        pipeline_scm_path: '',
+        pipeline_source_mode: useJenkinsSCM ? 'scm' : 'inline',
+        pipeline_scm_repo: useJenkinsSCM ? repository : '',
+        pipeline_scm_branch: useJenkinsSCM ? branch : '',
+        pipeline_scm_path: useJenkinsSCM ? 'Jenkinsfile' : '',
         ...(template ? {
           template_id: template.id,
           vcs_root_id: template.vcs_root_id ?? null,
@@ -190,9 +175,6 @@ export default function CreateProject() {
                   <span className="jenkins-new-item-choice-description">{t('projects.folderItemDescription')}</span>
                 </label>
               </div>
-            </div>
-            <div className="jenkins-new-item-validation" aria-live="polite">
-              {typeError && <p role="alert">{typeError}</p>}
             </div>
           </fieldset>
 

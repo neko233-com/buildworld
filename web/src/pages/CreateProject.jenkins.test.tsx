@@ -90,8 +90,9 @@ describe('Jenkins New Item flow', () => {
     expect(breadcrumbHost.textContent).toMatch(/New Item|新建任务/)
     expect(container.querySelector('.jenkins-new-item-panel')).not.toBeNull()
     expect(container.querySelectorAll('input[name="mode"]')).toHaveLength(2)
-    expect(container.querySelector<HTMLInputElement>('input[value="pipeline"]')).not.toBeNull()
+    expect(container.querySelector<HTMLInputElement>('input[value="pipeline"]')?.checked).toBe(true)
     expect(container.querySelector<HTMLInputElement>('input[value="folder"]')).not.toBeNull()
+    expect(container.textContent).toContain('Jenkinsfile Pipeline')
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true)
 
     await enterName('Existing pipeline')
@@ -106,7 +107,7 @@ describe('Jenkins New Item flow', () => {
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false)
   })
 
-  it('creates a TypeScript Pipeline then opens Jenkins Configure', async () => {
+  it('creates the default Jenkinsfile Pipeline from SCM then opens Jenkins Configure', async () => {
     let finishCreate: ((value: { id: number }) => void) | undefined
     vi.mocked(api.createProject).mockImplementation(() => new Promise(resolve => { finishCreate = resolve }))
     await renderPage()
@@ -121,12 +122,16 @@ describe('Jenkins New Item flow', () => {
 
     expect(container.querySelector('form')?.getAttribute('aria-busy')).toBe('true')
     expect(container.querySelector('.jenkins-new-item-spinner')).not.toBeNull()
-    expect(api.validatePipeline).toHaveBeenCalledWith(expect.stringContaining('definePipeline'))
+    expect(api.validatePipeline).not.toHaveBeenCalled()
     expect(api.createProject).toHaveBeenCalledWith(expect.objectContaining({
       name: 'release-pipeline',
       repo_type: 'git',
-      pipeline_format: 'typescript',
-      pipeline_source_mode: 'inline',
+      config: '',
+      pipeline_format: 'jenkinsfile',
+      pipeline_source_mode: 'scm',
+      pipeline_scm_repo: '',
+      pipeline_scm_branch: 'main',
+      pipeline_scm_path: 'Jenkinsfile',
     }))
 
     await act(async () => {

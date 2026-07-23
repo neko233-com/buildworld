@@ -15,6 +15,8 @@ var (
 	jenkinsMonitorPort      = regexp.MustCompile(`(?im)(?:\bport|端口)\s*[:：=]\s*(\\?\$\{[A-Za-z_][A-Za-z0-9_]*\})`)
 )
 
+const jenkinsMinimumHeartbeatSeconds = 5 * 60
+
 type jenkinsShellInvocation struct {
 	start int
 	end   int
@@ -67,7 +69,11 @@ func extractJenkinsServiceWatch(source, name string) (engine.Step, bool) {
 		config["port"] = normalizeJenkinsWatchValue(match[1])
 	}
 	if match := jenkinsMonitorHeartbeat.FindStringSubmatch(normalized); len(match) == 2 && jenkinsWatchSecondsInRange(match[1], 5, 86_400) {
-		config["heartbeat_seconds"] = match[1]
+		seconds, _ := strconv.Atoi(match[1])
+		if seconds < jenkinsMinimumHeartbeatSeconds {
+			seconds = jenkinsMinimumHeartbeatSeconds
+		}
+		config["heartbeat_seconds"] = strconv.Itoa(seconds)
 	}
 	if loop := strings.Index(normalized, "while "); loop >= 0 {
 		matches := jenkinsMonitorPoll.FindAllStringSubmatch(normalized[loop:], -1)

@@ -8,7 +8,7 @@ import { useBuildLogStream } from '../useBuildLogStream'
 import { useI18n } from '../i18n'
 import { visibleBuildLog } from '../lib/buildTimeline'
 import { isNearLogBottom } from '../lib/logFollow'
-import { logTone, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
+import { logTones, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
 import { PageState } from '../components/PageState'
 
 function highlightLine(line: string, query: string) {
@@ -76,6 +76,7 @@ export default function BuildLogViewer() {
   })
   const source = visibleBuildLog(streamLog)
   const lines = useMemo(() => source ? source.split('\n') : [], [source])
+  const lineTones = useMemo(() => logTones(lines), [lines])
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const matches = useMemo(() => normalizedQuery
     ? lines.flatMap((line, index) => line.toLocaleLowerCase().includes(normalizedQuery) ? [index] : [])
@@ -229,7 +230,7 @@ export default function BuildLogViewer() {
       if (viewport && followRef.current && !isNearLogBottom(viewport)) setFollowing(false)
     }}>
       {lines.length ? <div className="plain-log-lines">
-        {lines.map((line, index) => <div key={index} ref={element => { if (element) lineRefs.current.set(index, element); else lineRefs.current.delete(index) }} className={`${colorizeLogs ? logTone(line) : ''} ${matches[activeMatch] === index ? 'active-match' : ''}`}><span>{index + 1}</span><code>{highlightLine(line, normalizedQuery)}</code></div>)}
+        {lines.map((line, index) => <div key={index} ref={element => { if (element) lineRefs.current.set(index, element); else lineRefs.current.delete(index) }} className={`${colorizeLogs ? lineTones[index] : ''} ${matches[activeMatch] === index ? 'active-match' : ''}`}><span>{index + 1}</span><code>{highlightLine(line, normalizedQuery)}</code></div>)}
       </div> : <div className="plain-log-empty"><FileText size={22} /><span>{running ? t('builds.waitingForLogs') : t('builds.noLogs')}</span></div>}
     </div>
     <footer className="plain-log-footer"><span>{t('builds.outputLines')}: {lines.length}</span><span>{follow ? t('builds.followingOutput') : t('builds.followPaused')}</span><span>UTF-8</span></footer>

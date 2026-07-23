@@ -24,7 +24,7 @@ const watchOptions: ServiceWatchOptions = {
   target_dir: '/srv/typed',
   pid_file: 'server.pid',
   log_file: 'server.log',
-  heartbeat_seconds: 30,
+  heartbeat_seconds: 900,
   poll_seconds: 2,
   initial_lines: 50,
   port: 8700,

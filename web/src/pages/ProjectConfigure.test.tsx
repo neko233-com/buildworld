@@ -115,7 +115,7 @@ describe('ProjectConfigure', () => {
 
     expect(container.querySelector('h1')?.textContent).toBe('Configure')
     expect(container.querySelector('.jenkins-configure-nav a[href="#jenkins-configure-pipeline"]')).not.toBeNull()
-    expect(container.textContent).toContain('Pipeline script from SCM')
+    expect(container.textContent).toContain('Jenkinsfile Pipeline from SCM')
     expect(container.querySelector('[aria-label="Build flow source"]')).toBeNull()
     expect(container.querySelector('option[value="12"]')?.textContent).toBe('Shared pipeline')
     expect(container.querySelector<HTMLSelectElement>('#jenkins-configure-template')?.value).toBe('12')

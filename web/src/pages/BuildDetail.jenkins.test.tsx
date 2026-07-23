@@ -199,21 +199,28 @@ describe('BuildDetail Jenkins Run layout', () => {
 
   it('renders every console line with default-on level colors and can disable them without filtering output', async () => {
     vi.mocked(api.getBuildLogs).mockResolvedValueOnce({
-      log: ['plain server output', '[WARN] retrying request', 'level=ERROR request failed'].join('\n'),
+      log: [
+        'plain server output',
+        '[WARN] retrying request',
+        'level=ERROR request failed',
+        '[15:46:49] [Live Log Monitor] === Stack Trace ===',
+        '[15:46:49] [Live Log Monitor]   [0] logger.Error at logger233.go:985',
+        '[15:46:49] [Live Log Monitor]   [1] betfish_module.load.func1 at bet_fish_service.go:1076',
+      ].join('\n'),
     })
     await renderPage()
 
     const consoleOutput = container.querySelector<HTMLElement>('.jenkins-console-output')!
     const toneToggle = container.querySelector<HTMLButtonElement>('button[aria-label="Log level colors"]')!
-    expect(consoleOutput.querySelectorAll('.jenkins-console-line')).toHaveLength(3)
+    expect(consoleOutput.querySelectorAll('.jenkins-console-line')).toHaveLength(6)
     expect(consoleOutput.querySelectorAll('.jenkins-console-line.info')).toHaveLength(1)
     expect(consoleOutput.querySelectorAll('.jenkins-console-line.warning')).toHaveLength(1)
-    expect(consoleOutput.querySelectorAll('.jenkins-console-line.error')).toHaveLength(1)
+    expect(consoleOutput.querySelectorAll('.jenkins-console-line.error')).toHaveLength(4)
     expect(toneToggle.getAttribute('aria-pressed')).toBe('true')
 
     await act(async () => toneToggle.click())
     expect(toneToggle.getAttribute('aria-pressed')).toBe('false')
-    expect(consoleOutput.querySelectorAll('.jenkins-console-line')).toHaveLength(3)
+    expect(consoleOutput.querySelectorAll('.jenkins-console-line')).toHaveLength(6)
     expect(consoleOutput.querySelectorAll('.jenkins-console-line.info, .jenkins-console-line.warning, .jenkins-console-line.error')).toHaveLength(0)
     expect(consoleOutput.textContent).toContain('plain server output')
     expect(consoleOutput.textContent).toContain('[WARN] retrying request')

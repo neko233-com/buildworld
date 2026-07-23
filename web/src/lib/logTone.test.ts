@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { LOG_TONE_STORAGE_KEY, logTone, readLogTonePreference, writeLogTonePreference } from './logTone'
+import { LOG_TONE_STORAGE_KEY, logTone, logTones, readLogTonePreference, writeLogTonePreference } from './logTone'
 
 describe('logTone', () => {
   it('detects common error and warning levels and defaults every other line to info', () => {
@@ -23,5 +23,18 @@ describe('logTone', () => {
     writeLogTonePreference(false, storage)
     expect(storage.setItem).toHaveBeenCalledWith(LOG_TONE_STORAGE_KEY, 'false')
     expect(readLogTonePreference(storage)).toBe(false)
+  })
+
+  it('keeps a complete numbered stack trace in the originating error tone', () => {
+    const lines = [
+      '[15:46:49] [Live Log Monitor] ERROR room loading timed out',
+      '[15:46:49] [Live Log Monitor] === Stack Trace ===',
+      '[15:46:49] [Live Log Monitor]   [0] logger.Error at logger233.go:985',
+      '[15:46:49] [Live Log Monitor]   [1] betfish_module.load.func1 at bet_fish_service.go:1076',
+      '[15:46:49] [Live Log Monitor] ====================',
+      '[15:46:50] [Live Log Monitor] service recovered',
+    ]
+
+    expect(logTones(lines)).toEqual(['error', 'error', 'error', 'error', 'error', 'info'])
   })
 })

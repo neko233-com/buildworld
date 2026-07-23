@@ -323,6 +323,12 @@ func TestWatchServiceEmitsHeartbeatWhilePIDIsRunning(t *testing.T) {
 	}
 }
 
+func TestServiceWatchDefaultHeartbeatIsLowFrequency(t *testing.T) {
+	if got := watchDuration(nil, "heartbeat_seconds", "heartbeatSeconds", serviceWatchDefaultHeartbeat); got != 15*time.Minute {
+		t.Fatalf("default heartbeat = %s, want 15m", got)
+	}
+}
+
 func TestWatchServiceHandoverMakesExpectedReplacementSuccessful(t *testing.T) {
 	target := t.TempDir()
 	t.Setenv("BUILDWORLD_SERVICE_WATCH_HELPER", "1")

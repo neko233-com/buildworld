@@ -1,11 +1,13 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"sync"
 )
 
@@ -109,6 +111,36 @@ func (l *Loader) LookupStep(typeName string) StepHandler {
 		}
 		if handler := p.stepTypes[typeName]; handler != nil {
 			return handler
+		}
+	}
+	return nil
+}
+
+// RunHooks executes every enabled plugin registered for a lifecycle hook in
+// deterministic plugin-name order. Multiple Jenkins-style publishers and
+// notifiers may subscribe to the same build event.
+func (l *Loader) RunHooks(ctx context.Context, hook string, sc *StepContext) error {
+	if !isSupportedHook(hook) {
+		return fmt.Errorf("unsupported plugin hook %q", hook)
+	}
+	type registeredHook struct {
+		plugin  string
+		handler HookHandler
+	}
+	l.mu.RLock()
+	hooks := make([]registeredHook, 0)
+	for name, p := range l.plugins {
+		if l.enabledPlugins[name] {
+			if handler := p.hookTypes[hook]; handler != nil {
+				hooks = append(hooks, registeredHook{plugin: name, handler: handler})
+			}
+		}
+	}
+	l.mu.RUnlock()
+	sort.Slice(hooks, func(i, j int) bool { return hooks[i].plugin < hooks[j].plugin })
+	for _, registered := range hooks {
+		if err := registered.handler(ctx, sc); err != nil {
+			return fmt.Errorf("plugin %q hook %q: %w", registered.plugin, hook, err)
 		}
 	}
 	return nil

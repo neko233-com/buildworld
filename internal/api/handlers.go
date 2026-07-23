@@ -1043,8 +1043,10 @@ func (h *handlers) generateAgentToken(w http.ResponseWriter, _ *http.Request) {
 
 type pluginWithStatus struct {
 	*store.Plugin
-	Loaded bool     `json:"loaded"`
-	Steps  []string `json:"steps"`
+	Loaded       bool                 `json:"loaded"`
+	Steps        []string             `json:"steps"`
+	Hooks        []string             `json:"hooks"`
+	UIExtensions []plugin.UIExtension `json:"ui_extensions"`
 }
 
 type installGitHubPluginReq struct {
@@ -1106,13 +1108,17 @@ func (h *handlers) listPlugins(w http.ResponseWriter, _ *http.Request) {
 	}
 	result := make([]pluginWithStatus, 0, len(dbPlugins))
 	for _, stored := range dbPlugins {
-		status := plugin.PluginStatus{Steps: []string{}}
+		status := plugin.PluginStatus{Steps: []string{}, Hooks: []string{}, UIExtensions: []plugin.UIExtension{}}
 		steps := []string{}
+		hooks := []string{}
+		extensions := []plugin.UIExtension{}
 		if loaded := loadedPlugins[stored.Name]; loaded != nil {
 			status = loaded.GetStatus()
 			steps = status.Steps
+			hooks = status.Hooks
+			extensions = status.UIExtensions
 		}
-		result = append(result, pluginWithStatus{Plugin: stored, Loaded: status.Loaded, Steps: steps})
+		result = append(result, pluginWithStatus{Plugin: stored, Loaded: status.Loaded, Steps: steps, Hooks: hooks, UIExtensions: extensions})
 	}
 
 	writeJSON(w, http.StatusOK, result)

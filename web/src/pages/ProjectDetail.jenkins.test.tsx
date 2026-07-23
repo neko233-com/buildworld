@@ -223,7 +223,7 @@ describe('ProjectDetail Jenkins Job status', () => {
     expect(dialogs.confirm).toHaveBeenCalledWith(expect.stringContaining('Weather #519'), expect.any(Object))
     expect(api.stopBuild).toHaveBeenCalledWith(519)
 
-    await act(async () => button('Delete Pipeline').click())
+    await act(async () => button('Delete Jenkinsfile Pipeline').click())
     expect(dialogs.confirm).toHaveBeenLastCalledWith(expect.stringContaining('Weather'), expect.any(Object))
     expect(api.deleteProject).toHaveBeenCalledWith(7)
     expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/projects')
@@ -263,13 +263,13 @@ describe('ProjectDetail Jenkins Job status', () => {
     expect(button('Enable Project')).toBeDefined()
   })
 
-  it('opens real Pipeline Syntax source and routes to the editor', async () => {
+  it('opens real Jenkinsfile Pipeline Syntax source and routes to the editor', async () => {
     await renderPage()
 
-    await act(async () => button('Pipeline Syntax').click())
-    const syntaxDialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Pipeline Syntax"]')!
+    await act(async () => button('Jenkinsfile Pipeline Syntax').click())
+    const syntaxDialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Jenkinsfile Pipeline Syntax"]')!
     expect(syntaxDialog.querySelector('pre')?.textContent).toContain('jobs:')
-    const openEditor = Array.from(syntaxDialog.querySelectorAll<HTMLButtonElement>('button')).find(item => item.textContent === 'Open Pipeline Editor')!
+    const openEditor = Array.from(syntaxDialog.querySelectorAll<HTMLButtonElement>('button')).find(item => item.textContent === 'Open Jenkinsfile Pipeline Editor')!
     await act(async () => openEditor.click())
     expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/projects/7/configure')
   })

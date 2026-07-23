@@ -84,6 +84,15 @@ export type BuildTestResultsResponse = {
   results: TestReportSummary[]
 }
 
+export type StorageUsage = {
+  executor: 'builtin'
+  volume: string
+  total_bytes: number
+  used_bytes: number
+  free_bytes: number
+  used_percent: number
+}
+
 type RequestOptions = {
   contentType?: string
   rawBody?: boolean
@@ -496,6 +505,7 @@ export const api = {
 
   // server metrics
   getServerMetrics: () => request<any>('GET', '/metrics'),
+  getStorageUsage: () => request<StorageUsage>('GET', '/system/storage'),
 
   // bigscreen
   getBigScreenData: () => request<any>('GET', '/bigscreen'),
