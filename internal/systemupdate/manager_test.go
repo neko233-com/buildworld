@@ -97,6 +97,13 @@ func TestManagerRejectsChecksumMismatchAndReleasesLock(t *testing.T) {
 	if _, statErr := os.Stat(manager.lockPath()); !os.IsNotExist(statErr) {
 		t.Fatalf("lock remains after rejected bundle: %v", statErr)
 	}
+	operations, readErr := os.ReadDir(filepath.Join(manager.stateDir, "operations"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatal(readErr)
+	}
+	if len(operations) != 0 {
+		t.Fatalf("rejected operation directories = %d, want 0", len(operations))
+	}
 }
 
 func TestValidateBundleRejectsTraversal(t *testing.T) {
