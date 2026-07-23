@@ -426,6 +426,7 @@ button:disabled { cursor: not-allowed; }
 .data-build-table td:first-child small { margin-top: 3px; color: var(--ui-subtle); font-size: 10px; }
 .trend-panel { min-height: 300px; }
 .trend-chart { display: flex; height: 205px; align-items: stretch; justify-content: space-around; gap: 8px; padding: 24px 16px 8px; }
+.build-trend-echart { width: 100%; height: 260px; min-height: 220px; }
 .trend-column { display: flex; min-width: 24px; flex: 1; align-items: center; flex-direction: column; justify-content: flex-end; }
 .trend-values { position: relative; display: flex; width: min(34px, 80%); height: 168px; align-items: flex-end; flex-direction: column-reverse; justify-content: flex-start; overflow: visible; border-radius: 5px 5px 0 0; background: #f1f2f4; }
 .trend-values > span { position: absolute; top: -17px; left: 50%; color: var(--ui-subtle); font-size: 9px; transform: translateX(-50%); }

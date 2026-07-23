@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Activity, Boxes, CheckCircle2, Clock3, Cpu, Gauge, RefreshCw, ServerCog, XCircle } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Activity, Boxes, CheckCircle2, Clock3, Cpu, Gauge, Maximize2, Minimize2, RefreshCw, ServerCog, XCircle } from 'lucide-react'
+import { motion } from 'motion/react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { useI18n } from '../i18n'
@@ -7,8 +8,9 @@ import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { PageState } from '../components/PageState'
 import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
-import { formatDate, formatDateTime } from '../lib/dateTime'
+import { formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
+import { BuildTrendEChart } from '../components/BuildTrendEChart'
 import './ManagementPages.jenkins.css'
 
 interface DashboardData {
@@ -55,6 +57,7 @@ export default function BigScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [fullscreen, setFullscreen] = useState(false)
 
   const fetchData = useCallback(async (background = false) => {
     if (background) setRefreshing(true)
@@ -77,15 +80,29 @@ export default function BigScreen() {
     return () => window.clearInterval(timer)
   }, [fetchData])
 
-  const maxTrend = useMemo(() => Math.max(1, ...data.trend_data.map(point => point.success + point.failed + point.running)), [data.trend_data])
+  useEffect(() => {
+    const syncFullscreen = () => setFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', syncFullscreen)
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen)
+  }, [])
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen()
+      else await document.documentElement.requestFullscreen()
+    } catch {
+      setError(t('bigScreen.fullscreenFailed'))
+    }
+  }
+
   const visibleRecentBuilds = data.recent_builds.slice(0, 8)
   if (loading) return <>{breadcrumb}<section className="jenkins-management-page"><PageState /></section></>
   if (error && !lastUpdate) return <>{breadcrumb}<section className="jenkins-management-page"><PageState error={error} onRetry={() => fetchData()} /></section></>
 
-  return <>{breadcrumb}<section className="operations-page data-dashboard-page jenkins-management-page">
+  return <>{breadcrumb}<motion.section className="operations-page data-dashboard-page jenkins-management-page" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .32, ease: 'easeOut' }}>
     <header className="operations-heading data-dashboard-heading">
       <div><p>{t('bigScreen.operationsOverview')}</p><h1>{t('bigScreen.title')}</h1><small>{t('bigScreen.description')}</small></div>
-      <div><span>{t('bigScreen.lastUpdate')}: {formatDateTime(lastUpdate)}</span><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
+      <div><span>{t('bigScreen.lastUpdate')}: {formatDateTime(lastUpdate)}</span><button className="secondary-command" type="button" onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}{fullscreen ? t('bigScreen.exitFullscreen') : t('bigScreen.fullscreen')}</button><Link className="secondary-command" to="/my-dashboard"><Minimize2 size={15} />{t('bigScreen.exitWall')}</Link><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
     </header>
 
     {error && <div className="detail-notice data-dashboard-error" role="alert"><span>{error}</span><div><button className="secondary-command compact" type="button" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw size={14} />{t('common.retry')}</button><button type="button" onClick={() => setError('')} title={t('common.dismiss')} aria-label={t('common.dismiss')}>×</button></div></div>}
@@ -104,17 +121,10 @@ export default function BigScreen() {
         <div className="operations-table-wrap"><table className="operations-table data-build-table"><thead><tr><th>{t('projects.name')}</th><th>{t('builds.status')}</th><th>{t('builds.branch')}</th><th>{t('builds.duration')}</th><th>{t('projectDetail.started')}</th></tr></thead><tbody>{!visibleRecentBuilds.length && <tr><td colSpan={5} className="operations-empty">{t('common.noData')}</td></tr>}{visibleRecentBuilds.map(build => <tr key={build.id}><td><Link className="data-build-link" to={`/builds/${build.id}`}><strong>{build.project}</strong><small>#{build.number}</small></Link></td><td><span className={`build-status ${buildStatusTone(build.status)}`}>{buildStatusLabel(t, build.status)}</span></td><td><code>{build.branch || '-'}</code></td><td className="muted-cell">{formatDuration(build.duration_ms)}</td><td className="muted-cell">{formatDateTime(build.started_at)}</td></tr>)}</tbody></table></div>
       </section>
 
-      <section className="data-panel trend-panel">
+      <motion.section className="data-panel trend-panel" initial={{ opacity: 0, scale: .98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: .28, ease: 'easeOut' }}>
         <header><div><Gauge size={16} /><h2>{t('bigScreen.trend7d')}</h2></div></header>
-        {data.trend_data.length ? <div className="trend-chart" aria-label={t('bigScreen.trend7d')}>{data.trend_data.map(point => {
-          const success = point.success / maxTrend * 100
-          const failed = point.failed / maxTrend * 100
-          const running = point.running / maxTrend * 100
-          const pointLabel = `${formatDate(point.date)}: ${t('status.success')} ${point.success}, ${t('status.failed')} ${point.failed}, ${t('status.running')} ${point.running}`
-          return <div className="trend-column" key={point.date} role="img" aria-label={pointLabel}><div className="trend-values" aria-hidden="true"><span>{point.success + point.failed + point.running}</span><i className="running" style={{ height: `${running}%` }} /><i className="failed" style={{ height: `${failed}%` }} /><i className="success" style={{ height: `${success}%` }} /></div><small aria-hidden="true">{formatDate(point.date)}</small></div>
-        })}</div> : <p className="data-panel-empty">{t('common.noData')}</p>}
-        <footer className="trend-legend"><span><i className="success" />{t('status.success')}</span><span><i className="failed" />{t('status.failed')}</span><span><i className="running" />{t('status.running')}</span></footer>
-      </section>
+        {data.trend_data.length ? <BuildTrendEChart data={data.trend_data} dark /> : <p className="data-panel-empty">{t('common.noData')}</p>}
+      </motion.section>
 
       {DISTRIBUTED_WORKERS_ENABLED && <section className="data-panel worker-panel">
         <header><div><ServerCog size={16} /><h2>{t('bigScreen.agentStatus')}</h2></div><span>{data.agent_status.length}</span></header>
@@ -134,5 +144,5 @@ export default function BigScreen() {
         <dl><div><dt>{t('bigScreen.runtime')}</dt><dd>{data.system_metrics.go_version}</dd></div><div><dt>{t('bigScreen.platform')}</dt><dd>{data.system_metrics.os}/{data.system_metrics.arch}</dd></div><div><dt>CPU</dt><dd>{data.system_metrics.cpus}</dd></div><div><dt>Goroutines</dt><dd>{data.system_metrics.goroutines}</dd></div><div><dt>{t('bigScreen.uptime')}</dt><dd>{data.system_metrics.uptime}</dd></div><div><dt><Clock3 size={13} />{t('bigScreen.serverTime')}</dt><dd>{formatDateTime(data.current_time)}</dd></div></dl>
       </section>
     </div>
-  </section></>
+  </motion.section></>
 }

@@ -322,6 +322,7 @@ export function Layout() {
               <div className="account-menu-summary"><CircleUserRound size={20} /><span><strong>{t('shell.my')}</strong><small>{t(`users.role_${role}`)}</small></span></div>
               <label className="account-language"><span>{t('shell.language')}</span><select value={locale} onChange={(event) => changeLocale(event.target.value as Locale)} aria-label={t('shell.language')}>{locales.map((item) => <option key={item} value={item}>{localeLabels[item]}</option>)}</select></label>
               <NavLink to="/my-dashboard" className="account-dashboard-link" onClick={() => closeAccount()}><Gauge size={16} /><span>{t('nav.myDashboard')}</span></NavLink>
+              <NavLink to="/bigscreen" className="account-dashboard-link" onClick={() => closeAccount()}><LayoutDashboard size={16} /><span>{t('bigScreen.openWall')}</span></NavLink>
               <InAppNotifications menu menuOpen={accountOpen} />
               <button type="button" className="account-logout" onClick={handleLogout}><LogOut size={16} /><span>{t('shell.logout')}</span></button>
             </div>

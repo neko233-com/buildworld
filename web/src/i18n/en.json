@@ -69,6 +69,11 @@
     "myDashboard": "My Dashboard"
   },
   "bigScreen": {
+    "openWall": "Open wallboard",
+    "exitWall": "Exit wallboard",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit fullscreen",
+    "fullscreenFailed": "Fullscreen is unavailable in this browser.",
     "title": "Data Dashboard",
     "totalBuilds": "Total Builds",
     "running": "Running",
