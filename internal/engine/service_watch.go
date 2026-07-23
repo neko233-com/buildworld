@@ -16,6 +16,8 @@ const (
 	serviceWatchDefaultHeartbeat = 30 * time.Second
 	serviceWatchMinimumHeartbeat = 5 * time.Second
 	serviceWatchMaximumHeartbeat = 24 * time.Hour
+	serviceWatchDefaultShutdown  = 65 * time.Second
+	serviceWatchMaximumShutdown  = 10 * time.Minute
 	serviceWatchDefaultPoll      = 500 * time.Millisecond
 	serviceWatchMinimumPoll      = time.Second
 	serviceWatchMaximumPoll      = time.Hour
@@ -85,6 +87,16 @@ func WatchService(ctx context.Context, workspace string, config map[string]strin
 	for {
 		select {
 		case <-ctx.Done():
+			if watchBool(config, "stop_service_on_cancel", "stopServiceOnCancel") {
+				onOutput(fmt.Sprintf("Build cancellation requested; gracefully stopping service PID: %d", pid))
+				shutdown := watchDuration(config, "shutdown_timeout_seconds", "shutdownTimeoutSeconds", serviceWatchDefaultShutdown)
+				if err := terminateServiceProcess(pid, shutdown); err != nil {
+					onOutput(fmt.Sprintf("❌ Service PID %d did not stop cleanly: %v", pid, err))
+					return err
+				}
+				follower.forward(logPath, onOutput)
+				onOutput(fmt.Sprintf("Service PID %d stopped after build cancellation.", pid))
+			}
 			return ctx.Err()
 		case <-heartbeats.C:
 			onOutput(fmt.Sprintf("[heartbeat %s] service is running (PID: %d%s)", time.Now().Format("2006-01-02 15:04:05"), pid, watchPortLabel(port)))
@@ -119,6 +131,8 @@ func ValidateServiceWatchConfig(config map[string]string) error {
 		"heartbeat_seconds": {}, "heartbeatSeconds": {},
 		"poll_seconds": {}, "pollSeconds": {},
 		"initial_lines": {}, "initialLines": {},
+		"stop_service_on_cancel": {}, "stopServiceOnCancel": {},
+		"shutdown_timeout_seconds": {}, "shutdownTimeoutSeconds": {},
 		"working-directory": {},
 	}
 	for key := range config {
@@ -134,6 +148,8 @@ func ValidateServiceWatchConfig(config map[string]string) error {
 		{"heartbeat_seconds", "heartbeatSeconds"},
 		{"poll_seconds", "pollSeconds"},
 		{"initial_lines", "initialLines"},
+		{"stop_service_on_cancel", "stopServiceOnCancel"},
+		{"shutdown_timeout_seconds", "shutdownTimeoutSeconds"},
 	} {
 		if err := validateWatchAliases(config, aliases[0], aliases[1]); err != nil {
 			return err
@@ -154,6 +170,12 @@ func ValidateServiceWatchConfig(config map[string]string) error {
 		return err
 	}
 	if err := validateWatchInteger(config, "initial_lines", "initialLines", 0, serviceWatchMaximumInitial); err != nil {
+		return err
+	}
+	if err := validateWatchBool(config, "stop_service_on_cancel", "stopServiceOnCancel"); err != nil {
+		return err
+	}
+	if err := validateWatchInteger(config, "shutdown_timeout_seconds", "shutdownTimeoutSeconds", 1, int(serviceWatchMaximumShutdown/time.Second)); err != nil {
 		return err
 	}
 	return nil
@@ -234,6 +256,22 @@ func watchDuration(config map[string]string, snake, camel string, fallback time.
 		return fallback
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+func watchBool(config map[string]string, snake, camel string) bool {
+	value, err := strconv.ParseBool(firstWatchConfig(config, snake, camel))
+	return err == nil && value
+}
+
+func validateWatchBool(config map[string]string, snake, camel string) error {
+	value := firstWatchConfig(config, snake, camel)
+	if value == "" {
+		return nil
+	}
+	if _, err := strconv.ParseBool(value); err != nil {
+		return fmt.Errorf("service_watch %s must be true or false", snake)
+	}
+	return nil
 }
 
 func watchInt(config map[string]string, snake, camel string, fallback int) int {
