@@ -323,6 +323,57 @@ func TestWatchServiceEmitsHeartbeatWhilePIDIsRunning(t *testing.T) {
 	}
 }
 
+func TestWatchServiceHandoverMakesExpectedReplacementSuccessful(t *testing.T) {
+	target := t.TempDir()
+	t.Setenv("BUILDWORLD_SERVICE_WATCH_HELPER", "1")
+	process := exec.Command(os.Args[0], "-test.run=^TestWatchServiceProcessHelper$")
+	if err := process.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if serviceProcessRunning(process.Process.Pid) {
+			_ = process.Process.Kill()
+		}
+		_ = process.Wait()
+	}()
+	if err := os.WriteFile(filepath.Join(target, "server.pid"), []byte(strconv.Itoa(process.Process.Pid)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "server.log"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	output := make(chan string, 32)
+	go func() {
+		result <- WatchService(context.Background(), target, map[string]string{
+			"pid_file": "server.pid", "log_file": "server.log", "poll_seconds": "1",
+			"owner_file": ".jenkins-monitor-owner", "handover_file": ".jenkins-monitor-handover", "owner_id": "41",
+		}, func(line string) { output <- line })
+	}()
+	waitForWatchOutput(t, output, "continuously following")
+	if contents, err := os.ReadFile(filepath.Join(target, ".jenkins-monitor-owner")); err != nil || strings.TrimSpace(string(contents)) != "41" {
+		t.Fatalf("monitor owner = %q, %v", contents, err)
+	}
+	if err := os.WriteFile(filepath.Join(target, ".jenkins-monitor-handover"), []byte("42"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := process.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = process.Wait()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("WatchService() error = %v, want successful handover", err)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("WatchService did not complete after handover")
+	}
+	if _, err := os.Stat(filepath.Join(target, ".jenkins-monitor-owner")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("monitor owner was not released: %v", err)
+	}
+}
+
 func TestWatchServiceStopsMigratedServiceOnCancellation(t *testing.T) {
 	target := t.TempDir()
 	pidFile := filepath.Join(target, "server.pid")
