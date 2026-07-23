@@ -261,6 +261,13 @@
     "viewAgents": "查看 Worker",
     "viewLog": "查看日志",
     "favorites": "收藏项目",
+    "commonFunctions": "常用功能",
+    "commonFunctionsHelp": "集中放置构建和管理中最常用的入口。",
+    "commonApiTokens": "创建和管理集成凭据。",
+    "commonBuilds": "查看全部构建与实时日志。",
+    "commonTemplates": "维护可复用的构建模板。",
+    "commonSettings": "配置运行时、校验与安全策略。",
+    "commonUsers": "管理访问权限与用户角色。",
     "noFavorites": "还没有收藏的项目"
   },
   "myDashboard": {
