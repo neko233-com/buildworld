@@ -14,6 +14,8 @@ vi.mock('../api', () => ({
     listProjects: vi.fn(),
     listProjectBuildOverviews: vi.fn(),
     listProjectGroups: vi.fn(),
+    listBuilds: vi.fn(),
+    getStorageUsage: vi.fn(),
     listBuildQueue: vi.fn(),
     listAgents: vi.fn(),
     setProjectFlags: vi.fn(),
@@ -33,6 +35,8 @@ vi.mock('../authz', () => ({ canEdit: () => true, isAdmin: () => false }))
 const listProjects = vi.mocked(api.listProjects)
 const listProjectBuildOverviews = vi.mocked(api.listProjectBuildOverviews)
 const listProjectGroups = vi.mocked(api.listProjectGroups)
+const listBuilds = vi.mocked(api.listBuilds)
+const getStorageUsage = vi.mocked(api.getStorageUsage)
 const listBuildQueue = vi.mocked(api.listBuildQueue)
 const listAgents = vi.mocked(api.listAgents)
 const setProjectFlags = vi.mocked(api.setProjectFlags)
@@ -94,6 +98,19 @@ describe('Dashboard Jenkins job view', () => {
     listProjects.mockReset().mockResolvedValue(projects)
     listProjectBuildOverviews.mockReset().mockResolvedValue(overviews)
     listProjectGroups.mockReset().mockResolvedValue(groups)
+    listBuilds.mockReset().mockResolvedValue([
+      { id: 112, project_id: 1, number: 12, status: 'running', started_at: '2026-07-21T10:12:00Z' },
+      { id: 204, project_id: 2, number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
+      { id: 110, project_id: 1, number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
+    ])
+    getStorageUsage.mockReset().mockResolvedValue({
+      executor: 'builtin',
+      volume: 'D:',
+      total_bytes: 1_000,
+      used_bytes: 760,
+      free_bytes: 240,
+      used_percent: 76,
+    })
     listBuildQueue.mockReset().mockResolvedValue([])
     listAgents.mockReset().mockResolvedValue([])
     setProjectFlags.mockReset().mockResolvedValue({})
@@ -161,34 +178,48 @@ describe('Dashboard Jenkins job view', () => {
   it('shows every project in Jenkins columns with build history, duration, links, and name sorting', async () => {
     await renderDashboard()
 
-    expect(listProjects).toHaveBeenCalledOnce()
+    expect(listProjects).toHaveBeenCalledTimes(2)
     expect(listProjectBuildOverviews).toHaveBeenCalledOnce()
     expect(listProjectGroups).toHaveBeenCalledOnce()
+    expect(listBuilds).toHaveBeenCalledWith(30)
+    expect(getStorageUsage).toHaveBeenCalledOnce()
     expect(listBuildQueue).toHaveBeenCalledOnce()
     expect(listAgents).not.toHaveBeenCalled()
     expect(container.querySelector('a[href="/agents"]')).toBeNull()
-    expect(container.querySelectorAll('.jenkins-rail-history-item')).toHaveLength(2)
+    expect(container.querySelectorAll('.jenkins-rail-history-item')).toHaveLength(3)
     expect(Array.from(container.querySelectorAll<HTMLAnchorElement>('.jenkins-rail-history-link')).map(link => link.getAttribute('href'))).toEqual([
       '/builds/112',
+      '/builds/110',
       '/builds/204',
     ])
     expect(retryBuild).not.toHaveBeenCalled()
 
+    const storage = container.querySelector('.jenkins-storage-monitor.warning')
+    expect(storage?.textContent).toContain('本机缓存磁盘')
+    expect(storage?.textContent).toContain('76%')
+    expect(storage?.querySelector('progress')?.value).toBe(76)
+    const toolbar = container.querySelector('.jenkins-home-toolbar')
+    expect(toolbar?.querySelector('.jenkins-view-tabs')).not.toBeNull()
+    expect(toolbar?.querySelector('.jenkins-icon-size')).toBeNull()
+
     const table = container.querySelector('table')
     expect(table).not.toBeNull()
+    expect(table?.className).toBe('jenkins-job-table')
     const headings = Array.from(table!.querySelectorAll('thead th')).map(cell => cell.textContent?.replace(/\s+/g, ' ').trim())
-    expect(headings[0]).toBe('S')
-    expect(headings[1]).toBe('W')
+    expect(headings[0]).toBe('ID')
+    expect(headings[1]).toBe('S')
     expect(headings[2]).toContain('名称')
     expect(headings.slice(3)).toEqual(['最近成功构建', '最近失败构建', '耗时', ''])
+    expect(table!.querySelector('[aria-label="项目 ID"]')?.textContent).toBe('ID')
     expect(table!.querySelector('[aria-label="状态"]')?.textContent).toBe('S')
-    expect(table!.querySelector('[aria-label="成功率"]')?.textContent).toBe('W')
+    expect(table!.querySelector('[aria-label="成功率"]')).toBeNull()
     const nameSort = table!.querySelector<HTMLButtonElement>('th[aria-sort="ascending"] button')
     expect(nameSort).not.toBeNull()
 
     expect(visibleProjectNames()).toEqual(['Alpha', 'Beta', 'Zulu'])
 
     const alpha = rowFor(1)
+    expect(alpha.cells[0].textContent).toBe('1')
     expect(alpha.cells[3].textContent).toContain('#11')
     expect(alpha.cells[3].querySelector('a')?.getAttribute('href')).toBe('/builds/111')
     expect(alpha.cells[4].textContent).toContain('#10')
@@ -196,20 +227,56 @@ describe('Dashboard Jenkins job view', () => {
     expect(alpha.cells[5].textContent).toBe('1m 5s')
 
     const beta = rowFor(2)
+    expect(beta.cells[0].textContent).toBe('2')
     expect(beta.cells[3].textContent).toContain('#4')
     expect(beta.cells[4].textContent).toBe('无')
     expect(beta.cells[5].textContent).toBe('2.5s')
+    expect(beta.querySelector('.jenkins-status-orb.success')).not.toBeNull()
 
     const zulu = rowFor(3)
+    expect(zulu.cells[0].textContent).toBe('3')
     expect(zulu.cells[3].textContent).toBe('无')
     expect(zulu.cells[4].textContent).toBe('无')
     expect(zulu.cells[5].textContent).toBe('-')
     expect(zulu.querySelector('[role="img"][aria-label="暂无构建活动。"]')).not.toBeNull()
-    expect(zulu.querySelector('[role="img"][aria-label="Zulu 成功率"]')).not.toBeNull()
+    expect(zulu.querySelector('.jenkins-health-dot')).toBeNull()
+
+    const projectFooter = container.querySelector('.jenkins-project-footer')
+    expect(projectFooter?.textContent).toMatch(/\d{4}-\d{2}-\d{2} 星期[一二三四五六日]/)
+    expect(projectFooter?.textContent).toContain('BuildWorld · 开源持续集成与构建项目')
+    expect(projectFooter?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/neko233-com/buildworld233')
 
     act(() => nameSort!.click())
     expect(visibleProjectNames()).toEqual(['Zulu', 'Beta', 'Alpha'])
     expect(container.querySelector('th[aria-sort="descending"]')).not.toBeNull()
+  })
+
+  it('uses one stable table density without user controls or stored preferences', async () => {
+    localStorage.setItem('buildworld.jenkins.icon-size', 'large')
+    await renderDashboard()
+
+    expect(container.querySelector('.jenkins-icon-size')).toBeNull()
+    expect(container.querySelector('.jenkins-job-table')?.className).toBe('jenkins-job-table')
+    expect(Array.from(container.querySelectorAll('button')).some(button => ['小尺寸', '中尺寸', '大尺寸'].includes(button.getAttribute('aria-label') || ''))).toBe(false)
+  })
+
+  it('keeps project data available when disk monitoring fails and offers retry', async () => {
+    getStorageUsage.mockRejectedValueOnce(new Error('disk unavailable')).mockResolvedValue({
+      executor: 'builtin',
+      volume: 'D:',
+      total_bytes: 1_000,
+      used_bytes: 500,
+      free_bytes: 500,
+      used_percent: 50,
+    })
+    await renderDashboard()
+
+    expect(container.querySelector('.jenkins-job-table')).not.toBeNull()
+    expect(container.querySelector('.jenkins-storage-monitor.error')?.textContent).toContain('暂时无法读取本机缓存磁盘')
+
+    await act(async () => buttonNamed('重试').click())
+    expect(getStorageUsage).toHaveBeenCalledTimes(2)
+    expect(container.querySelector('.jenkins-storage-monitor.normal progress')).not.toBeNull()
   })
 
   it('filters favorite, quick-access, and project-group views and persists both project flags', async () => {
@@ -330,6 +397,20 @@ describe('Dashboard Jenkins job view', () => {
     listProjectBuildOverviews.mockReset()
       .mockResolvedValueOnce(idleOverviews)
       .mockResolvedValue(overviews)
+    listBuilds.mockReset()
+      .mockResolvedValueOnce([
+        { id: 204, project_id: 2, number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
+        { id: 110, project_id: 1, number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
+      ])
+      .mockResolvedValueOnce([
+        { id: 204, project_id: 2, number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
+        { id: 110, project_id: 1, number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
+      ])
+      .mockResolvedValue([
+        { id: 112, project_id: 1, number: 12, status: 'running', started_at: '2026-07-21T10:12:00Z' },
+        { id: 204, project_id: 2, number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
+        { id: 110, project_id: 1, number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
+      ])
 
     await renderDashboard()
     expect(listProjectBuildOverviews).toHaveBeenCalledTimes(1)

@@ -8,6 +8,33 @@ export function logTone(line: string): LogTone {
   return 'info'
 }
 
+function logMessage(line: string): string {
+  return line.replace(/^(?:\[[^\]]+\]\s*){0,2}/, '')
+}
+
+function isStackTraceHeader(line: string): boolean {
+  return /^\s*(?:=+\s*)?stack trace(?:\s*=+)?\s*$/i.test(logMessage(line))
+}
+
+function isStackFrame(line: string): boolean {
+  return /^\s*(?:\[\d+\]\s+|at\s+|caused by:|suppressed:|\.{3}\s+\d+\s+more|=+\s*$)/i.test(logMessage(line))
+}
+
+export function logTones(lines: readonly string[]): LogTone[] {
+  let errorStack = false
+
+  return lines.map((line, index) => {
+    const directTone = logTone(line)
+    if (isStackTraceHeader(line) && index > 0 && logTone(lines[index - 1]) === 'error') {
+      errorStack = true
+      return 'error'
+    }
+    if (errorStack && isStackFrame(line)) return 'error'
+    errorStack = false
+    return directTone
+  })
+}
+
 function browserStorage(): Pick<Storage, 'getItem' | 'setItem'> | undefined {
   try {
     return typeof window === 'undefined' ? undefined : window.localStorage

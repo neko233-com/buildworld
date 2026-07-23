@@ -107,7 +107,7 @@ func main() {
 		t.Fatalf("build fixture: %v: %s", err, output)
 	}
 	stepContext := &StepContext{Workspace: root, Config: map[string]string{"target": "test"}}
-	if err := invokeBinary(t.Context(), entry, "fixture:step", stepContext); err != nil {
+	if err := invokeBinaryStep(t.Context(), entry, "fixture:step", stepContext); err != nil {
 		t.Fatal(err)
 	}
 	if len(stepContext.Logs) != 1 || stepContext.Logs[0] != "binary-ran" || stepContext.Env["REGION"] != "local" || stepContext.Outputs["IMAGE"] != "app:1" {
@@ -141,6 +141,52 @@ func TestValidateBinaryManifestRejectsDuplicateStepsAndInvalidSource(t *testing.
 	manifest.Source = "https://example.com/acme/echo"
 	if err := validateBinaryManifest(manifest, "echo"); err == nil {
 		t.Fatal("non-GitHub plugin source was accepted")
+	}
+}
+
+func TestValidateBinaryManifestAcceptsHooksOnlyAndRejectsUnknownHooks(t *testing.T) {
+	manifest := &BinaryManifest{
+		APIVersion: BinaryAPIVersion,
+		Name:       "publisher",
+		Version:    "1.0.0",
+		Entrypoint: "publisher",
+		Hooks:      []string{"build.before", "build.always", "build.success", "build.failure", "build.cleanup"},
+	}
+	if err := validateBinaryManifest(manifest, "publisher"); err != nil {
+		t.Fatalf("hooks-only plugin rejected: %v", err)
+	}
+	manifest.Hooks = []string{"build.success", "build.success"}
+	if err := validateBinaryManifest(manifest, "publisher"); err == nil {
+		t.Fatal("duplicate plugin hooks were accepted")
+	}
+	manifest.Hooks = []string{"controller.mutate"}
+	if err := validateBinaryManifest(manifest, "publisher"); err == nil {
+		t.Fatal("unsupported plugin hook was accepted")
+	}
+}
+
+func TestValidateBinaryManifestAcceptsDeclarativeUIAndRejectsExecutableURLs(t *testing.T) {
+	manifest := &BinaryManifest{
+		APIVersion: BinaryAPIVersion,
+		Name:       "links",
+		Version:    "1.0.0",
+		Entrypoint: "links",
+		Hooks:      []string{"build.success"},
+		UI: []UIExtension{
+			{Location: "project.action", Label: "Project report", URL: "/projects/{projectId}/report"},
+			{Location: "build.action", Label: "Deployment", URL: "https://deployments.example.test/builds/{buildId}", OpenInNewTab: true},
+		},
+	}
+	if err := validateBinaryManifest(manifest, "links"); err != nil {
+		t.Fatalf("declarative UI rejected: %v", err)
+	}
+	manifest.UI[0].URL = "javascript:alert(1)"
+	if err := validateBinaryManifest(manifest, "links"); err == nil {
+		t.Fatal("executable UI URL was accepted")
+	}
+	manifest.UI[0] = UIExtension{Location: "controller.route", Label: "Unsafe", URL: "/unsafe"}
+	if err := validateBinaryManifest(manifest, "links"); err == nil {
+		t.Fatal("unsupported UI location was accepted")
 	}
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildStatusLabel, buildTriggerLabel } from './buildPresentation'
+import { buildStatusLabel, buildStatusTone, buildTriggerLabel } from './buildPresentation'
 
 const copy: Record<string, string> = {
   'builds.success': '已成功',
@@ -21,5 +21,13 @@ describe('build presentation helpers', () => {
     expect(buildTriggerLabel(t, 'retry')).toBe('重试')
     expect(buildTriggerLabel(t, 'custom-hook')).toBe('custom-hook')
     expect(buildTriggerLabel(t)).toBe('-')
+  })
+
+  it('uses simple Jenkins-style status colors without weather semantics', () => {
+    expect(buildStatusTone('success')).toBe('success')
+    expect(buildStatusTone('test_failed')).toBe('unstable')
+    expect(buildStatusTone('failed')).toBe('failed')
+    expect(buildStatusTone('cancelled')).toBe('cancelled')
+    expect(buildStatusTone('running')).toBe('running')
   })
 })

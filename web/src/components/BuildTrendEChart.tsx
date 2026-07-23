@@ -11,6 +11,9 @@ type TrendPoint = { date: string; success: number; failed: number; running: numb
 
 export function BuildTrendEChart({ data, dark = false }: { data: TrendPoint[]; dark?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
+  const accessibleSummary = data.length
+    ? data.map(point => `${formatDate(point.date)} 成功 ${point.success} 失败 ${point.failed} 运行中 ${point.running}`).join('；')
+    : '暂无数据'
 
   useEffect(() => {
     const element = ref.current
@@ -35,5 +38,5 @@ export function BuildTrendEChart({ data, dark = false }: { data: TrendPoint[]; d
     return () => { observer.disconnect(); chart.dispose() }
   }, [dark, data])
 
-  return <div ref={ref} className="build-trend-echart" role="img" aria-label="构建趋势图" />
+  return <div ref={ref} className="build-trend-echart" role="img" aria-label={`构建趋势图：${accessibleSummary}`} />
 }
