@@ -97,7 +97,8 @@ func applySCM(def *JobDefinition, raw string) {
 		def.RepoURL = def.SCMRepo
 	}
 	if m := gitBranchRe.FindStringSubmatch(raw); m != nil {
-		def.SCMBranch = strings.TrimSpace(m[1])
+		def.SCMBranch = normalizeSCMBranch(m[1])
+		def.DefaultBranch = def.SCMBranch
 	}
 	if m := scriptPathRe.FindStringSubmatch(raw); m != nil {
 		def.SCMPath = strings.TrimSpace(m[1])
@@ -108,13 +109,26 @@ func applySCM(def *JobDefinition, raw string) {
 			def.SCMRepo = m[1]
 		}
 		if m := envBranchRe.FindStringSubmatch(def.Script); m != nil {
-			def.DefaultBranch = m[1]
-			def.SCMBranch = m[1]
+			def.DefaultBranch = normalizeSCMBranch(m[1])
+			def.SCMBranch = def.DefaultBranch
 		}
 	}
 	if def.RepoURL == "" {
 		def.Warnings = append(def.Warnings, "no git repository detected; set repo_url to enable SCM-triggered builds")
 	}
+}
+
+// normalizeSCMBranch turns Jenkins Git BranchSpec patterns into the concrete
+// branch names accepted by git clone --branch. Jenkins emits */main for the
+// common "any remote main" selector; preserving that pattern makes a migrated
+// Pipeline script from SCM fail before its Jenkinsfile can be read.
+func normalizeSCMBranch(value string) string {
+	branch := strings.TrimSpace(value)
+	branch = strings.TrimPrefix(branch, "*/")
+	branch = strings.TrimPrefix(branch, "refs/heads/")
+	branch = strings.TrimPrefix(branch, "refs/remotes/origin/")
+	branch = strings.TrimPrefix(branch, "origin/")
+	return branch
 }
 
 func freestyleToYAML(name string, steps []string) string {
