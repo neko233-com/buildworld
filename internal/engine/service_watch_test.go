@@ -323,6 +323,62 @@ func TestWatchServiceEmitsHeartbeatWhilePIDIsRunning(t *testing.T) {
 	}
 }
 
+func TestWatchServiceStopsMigratedServiceOnCancellation(t *testing.T) {
+	target := t.TempDir()
+	pidFile := filepath.Join(target, "server.pid")
+	logFile := filepath.Join(target, "server.log")
+	t.Setenv("BUILDWORLD_SERVICE_WATCH_HELPER", "1")
+	process := exec.Command(os.Args[0], "-test.run=^TestWatchServiceProcessHelper$")
+	if err := process.Start(); err != nil {
+		t.Fatal(err)
+	}
+	reaped := make(chan error, 1)
+	go func() { reaped <- process.Wait() }()
+	defer func() {
+		if serviceProcessRunning(process.Process.Pid) {
+			_ = process.Process.Kill()
+		}
+		select {
+		case <-reaped:
+		case <-time.After(3 * time.Second):
+		}
+	}()
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(process.Process.Pid)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	output := make(chan string, 64)
+	result := make(chan error, 1)
+	go func() {
+		result <- WatchService(ctx, target, map[string]string{
+			"pid_file": "server.pid", "log_file": "server.log",
+			"stop_service_on_cancel": "true", "shutdown_timeout_seconds": "3",
+		}, func(line string) { output <- line })
+	}()
+	waitForWatchOutput(t, output, "continuously following")
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("WatchService() error = %v, want context canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("WatchService did not stop the service after cancellation")
+	}
+	if serviceProcessRunning(process.Process.Pid) {
+		t.Fatalf("service PID %d survived cancellation", process.Process.Pid)
+	}
+	select {
+	case <-reaped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("terminated service process was not reaped")
+	}
+}
+
 func TestWatchServiceProcessHelper(t *testing.T) {
 	if os.Getenv("BUILDWORLD_SERVICE_WATCH_HELPER") != "1" {
 		t.Skip("helper process")

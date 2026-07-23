@@ -54,6 +54,11 @@ func extractJenkinsServiceWatch(source, name string) (engine.Step, bool) {
 		"pid_file":      normalizeJenkinsWatchValue(pid[1]),
 		"log_file":      normalizeJenkinsWatchValue(tail[1]),
 		"initial_lines": "10",
+		// BuildWorld owns this monitor after cutover. Unlike Jenkins' monitor
+		// handover, explicitly cancelling the BuildWorld build must not leave
+		// the deployed Go process behind.
+		"stop_service_on_cancel":   "true",
+		"shutdown_timeout_seconds": "65",
 	}
 	if target != "" {
 		config["target_dir"] = target
