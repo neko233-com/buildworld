@@ -79,6 +79,33 @@ buildworld status
 
 更新顺序：下载 -> SHA-256 校验 -> `pause` -> bundle 移至 `.previous` -> 解压新 bundle -> 重新启用自启动 -> `start` 健康检查。数据库、工作区、制品与配置不在 bundle 内，因此更新不会覆盖它们。
 
+### HTTP 调用更新
+
+macOS/Linux 支持管理员显式上传完整 release bundle。API Token 必须属于管理员并仅授予 `system:update`；不要把 Token 写进 URL、仓库、脚本或构建日志。
+
+```sh
+export BUILDWORLD_UPDATE_TOKEN='bw_...'
+BUNDLE='release/v1.0.1/buildworld-darwin-arm64.tar.gz'
+SHA256="$(shasum -a 256 "$BUNDLE" | awk '{print $1}')"
+
+curl -fsS \
+  -H "Authorization: Bearer $BUILDWORLD_UPDATE_TOKEN" \
+  -F mode=manual \
+  -F version=1.0.1 \
+  -F sha256="$SHA256" \
+  -F bundle=@"$BUNDLE" \
+  http://127.0.0.1:8080/api/system/update/
+```
+
+接口校验大小、SHA-256、归档路径、完整 CLI/server/worker/Web/SDK 和更新助手后返回 `202`，再后台事务更新。使用同一 Token 轮询：
+
+```sh
+curl -fsS -H "Authorization: Bearer $BUILDWORLD_UPDATE_TOKEN" \
+  http://127.0.0.1:8080/api/system/update/
+```
+
+全新安装的 `auto_update_enabled` 固定默认为 `false`。`mode=automatic` 默认返回 `409 automatic_updates_disabled`；管理员在运行设置中显式启用后，外部受控调度器才能调用。BuildWorld 自身不会轮询 GitHub，人工 `mode=manual` 更新不受该开关影响。
+
 生产更新前检查：
 
 1. 导出或备份配置目录和 SQLite 数据库。

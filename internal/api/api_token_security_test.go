@@ -69,6 +69,49 @@ func TestViewerCannotCreateBuildTriggerToken(t *testing.T) {
 	}
 }
 
+func TestSystemUpdateScopeRequiresAdministratorOwnerAndExplicitTokenScope(t *testing.T) {
+	database, err := store.New(filepath.Join(t.TempDir(), "system-update-token.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	developer, err := database.CreateUser("update-developer", "update-developer@example.test", "unused", "developer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, err := database.CreateUser("update-admin", "update-admin@example.test", "unused", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwt := auth.NewJWT("system-update-token-test-secret")
+	developerSession, err := jwt.Generate(developer.ID, developer.Role, developer.SessionVersion, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(Deps{
+		Cfg:     &config.Config{},
+		Store:   database,
+		JWT:     jwt,
+		Updater: &fakeUpdateService{},
+	})
+
+	response := apiTokenRequest(router, http.MethodPost, "/api/api-tokens/", developerSession, `{"name":"denied","scopes":["system:update"]}`)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("developer scope grant status = %d, want %d; body=%s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+
+	noScopeRaw := "bw_88888888888888888888888888888888"
+	updateScopeRaw := "bw_99999999999999999999999999999999"
+	persistAPIToken(t, database, admin.ID, noScopeRaw, `[]`)
+	persistAPIToken(t, database, admin.ID, updateScopeRaw, `["system:update"]`)
+	if got := apiTokenRequest(router, http.MethodGet, "/api/system/update/", noScopeRaw, "").Code; got != http.StatusForbidden {
+		t.Fatalf("unscoped update status = %d, want %d", got, http.StatusForbidden)
+	}
+	if got := apiTokenRequest(router, http.MethodGet, "/api/system/update/", updateScopeRaw, "").Code; got != http.StatusOK {
+		t.Fatalf("scoped update status = %d, want %d", got, http.StatusOK)
+	}
+}
+
 func TestBuildTriggerRequiresCurrentEditorRoleAndExplicitScope(t *testing.T) {
 	database, err := store.New(filepath.Join(t.TempDir(), "trigger-token.db"))
 	if err != nil {

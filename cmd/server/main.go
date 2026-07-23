@@ -12,16 +12,19 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/neko233-com/buildworld/internal/api"
 	"github.com/neko233-com/buildworld/internal/auth"
+	"github.com/neko233-com/buildworld/internal/buildinfo"
 	"github.com/neko233-com/buildworld/internal/config"
 	"github.com/neko233-com/buildworld/internal/engine"
 	"github.com/neko233-com/buildworld/internal/plugin"
 	"github.com/neko233-com/buildworld/internal/store"
+	"github.com/neko233-com/buildworld/internal/systemupdate"
 	"github.com/neko233-com/buildworld/internal/ws"
 )
 
@@ -147,6 +150,24 @@ func main() {
 		}
 	}
 
+	var updater systemupdate.Service
+	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+		resolvedConfigPath, resolveErr := filepath.Abs(*configPath)
+		if resolveErr != nil {
+			log.Printf("System update unavailable: failed to resolve config path: %v", resolveErr)
+		} else {
+			updateManager, updateErr := systemupdate.NewManager(systemupdate.Options{
+				CurrentVersion: buildinfo.Version,
+				ConfigPath:     resolvedConfigPath,
+			})
+			if updateErr != nil {
+				log.Printf("System update unavailable: %v", updateErr)
+			} else {
+				updater = updateManager
+			}
+		}
+	}
+
 	server := api.NewServer(api.Deps{
 		Cfg:        cfg,
 		Store:      db,
@@ -160,6 +181,7 @@ func main() {
 		Statistics: statisticsService,
 		Approval:   approvalService,
 		BigScreen:  bigScreenService,
+		Updater:    updater,
 	})
 
 	// Graceful shutdown.

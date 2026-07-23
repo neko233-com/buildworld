@@ -45,7 +45,7 @@ func ensureConfig(requested string) (string, *config.Config, error) {
 			return "", nil, fmt.Errorf("create BuildWorld state directory: %w", err)
 		}
 		toYAML := func(value string) string { return strings.ReplaceAll(filepath.ToSlash(value), "\\", "/") }
-		contents := fmt.Sprintf("server:\n  host: 127.0.0.1\n  port: %d\ndatabase:\n  path: %q\nplugins:\n  path: %q\nstorage:\n  build_temp: %q\n  artifacts: %q\nworkers:\n  local:\n    max_concurrent_builds: 4\n    workspace: local\n    pool: default\n    labels: [go, nodejs, typescript]\n", config.ControlPlanePort, toYAML(filepath.Join(directory, "buildworld.db")), toYAML(filepath.Join(directory, "plugins")), toYAML(filepath.Join(directory, "build_temp")), toYAML(filepath.Join(directory, "artifacts")))
+		contents := fmt.Sprintf("server:\n  host: 127.0.0.1\n  port: %d\ndatabase:\n  path: %q\nplugins:\n  path: %q\nstorage:\n  build_temp: %q\n  artifacts: %q\nworkers:\n  local:\n    max_concurrent_builds: 4\n    workspace: local\n    pool: default\n    labels: [go, nodejs, typescript]\nupdates:\n  auto_update_enabled: false\n", config.ControlPlanePort, toYAML(filepath.Join(directory, "buildworld.db")), toYAML(filepath.Join(directory, "plugins")), toYAML(filepath.Join(directory, "build_temp")), toYAML(filepath.Join(directory, "artifacts")))
 		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 			return "", nil, fmt.Errorf("write default BuildWorld config: %w", err)
 		}

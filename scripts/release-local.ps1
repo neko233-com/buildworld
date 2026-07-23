@@ -64,10 +64,10 @@ function New-UnixReleaseArchive([string]$Stage, [string]$Archive) {
     $tarStage = $Stage.Replace('\', '/')
     $tarArchive = $Archive.Replace('\', '/')
     $tarTemporary = $temporaryTar.Replace('\', '/')
-    $binaries = @('./buildworld', './buildworld-server', './buildworld-worker')
+    $binaries = @('./buildworld', './buildworld-server', './buildworld-worker', './apply-update.sh')
     try {
         & $gnuTar --force-local --format=ustar '--mode=u=rwX,go=rX' `
-            '--exclude=./buildworld' '--exclude=./buildworld-server' '--exclude=./buildworld-worker' `
+            '--exclude=./buildworld' '--exclude=./buildworld-server' '--exclude=./buildworld-worker' '--exclude=./apply-update.sh' `
             -C $tarStage -cf $tarTemporary .
         if ($LASTEXITCODE -ne 0) {
             throw "tar content archive failed with exit code $LASTEXITCODE"
@@ -161,6 +161,7 @@ try {
         Write-Host "Packaging $os/$arch ..."
         New-Item -ItemType Directory -Force -Path (Join-Path $stage 'web') | Out-Null
         New-Item -ItemType Directory -Force -Path (Join-Path $stage 'sdk\pipeline') | Out-Null
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'apply-update.sh') -Destination (Join-Path $stage 'apply-update.sh') -Force
         $env:GOOS = $os
         $env:GOARCH = $arch
         $ldflags = "-s -w -X github.com/neko233-com/buildworld/internal/buildinfo.Version=$Version"
@@ -183,6 +184,7 @@ try {
             (Join-Path $stage "buildworld$extension"),
             (Join-Path $stage "buildworld-server$extension"),
             (Join-Path $stage "buildworld-worker$extension"),
+            (Join-Path $stage 'apply-update.sh'),
             (Join-Path $stage 'web\dist\index.html'),
             (Join-Path $stage 'web\dist\script-api.html'),
             (Join-Path $stage 'sdk\pipeline\index.d.ts'),

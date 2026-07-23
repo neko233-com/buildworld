@@ -131,7 +131,11 @@ try {
     if (-not $bashPath) {
         throw 'A functional bash installation is required to validate scripts/install.sh'
     }
-    Invoke-Checked 'Shell installer syntax' { & $bashPath -n scripts/install.sh }
+    Invoke-Checked 'Shell installer syntax' {
+        & $bashPath -n scripts/install.sh
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & $bashPath -n scripts/apply-update.sh
+    }
     Invoke-Checked 'Git whitespace validation' { git diff HEAD --check }
 } finally {
     Pop-Location
