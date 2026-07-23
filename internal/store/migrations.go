@@ -332,6 +332,11 @@ var schemaMigrations = []schemaMigration{
 		name:    "project-enabled",
 		up:      addProjectEnabled,
 	},
+	{
+		version: 11,
+		name:    "project-display-order",
+		up:      addProjectDisplayOrder,
+	},
 }
 
 func runSchemaMigrations(db *sql.DB, migrations []schemaMigration) error {
@@ -626,6 +631,29 @@ func addProjectEnabled(tx *sql.Tx) error {
 		return fmt.Errorf("add projects.enabled: %w", err)
 	}
 	return nil
+}
+
+func addProjectDisplayOrder(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS project_display_order (
+		project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+		position INTEGER NOT NULL CHECK(position >= 0)
+	)`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO project_display_order (project_id, position)
+		SELECT project.id, (
+			SELECT COUNT(*)
+			FROM projects candidate
+			WHERE candidate.favorite > project.favorite
+				OR (candidate.favorite = project.favorite AND candidate.quick_access > project.quick_access)
+				OR (candidate.favorite = project.favorite AND candidate.quick_access = project.quick_access AND candidate.id > project.id)
+		)
+		FROM projects project`); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_project_display_order_position
+		ON project_display_order(position)`)
+	return err
 }
 
 func removeInertDeploymentAndProjectHooks(tx *sql.Tx) error {

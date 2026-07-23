@@ -1136,11 +1136,20 @@ button:disabled { cursor: not-allowed; }
 .jenkins-job-table th:nth-child(4),
 .jenkins-job-table th:nth-child(5) { width: 19%; }
 .jenkins-job-table th:nth-child(6) { width: 12%; }
-.jenkins-job-table th:nth-child(7) { width: 105px; }
+.jenkins-job-table th:nth-child(7) { width: 205px; }
 .jenkins-job-table th button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 0; color: inherit; border: 0; background: transparent; font: inherit; font-weight: inherit; }
 .jenkins-job-table td { height: 43px; padding: 0 13px; border-bottom: 1px solid #e9edf2; background: #ffffff; vertical-align: middle; }
 .jenkins-job-table tbody tr:last-child td { border-bottom: 0; }
 .jenkins-job-table tbody tr:hover td { background: #f7faff; }
+.jenkins-job-table tbody tr.dragging td { opacity: .55; background: #edf5ff; }
+.jenkins-project-id > div { display: flex; align-items: center; justify-content: space-between; gap: 3px; }
+.jenkins-project-drag { display: inline-grid; width: 20px; height: 26px; place-items: center; padding: 0; color: #73808c; border: 0; border-radius: 5px; background: transparent; cursor: grab; }
+.jenkins-project-drag:hover,
+.jenkins-project-drag:focus-visible { color: #1769c2; background: #eaf2fb; }
+.jenkins-project-drag:active { cursor: grabbing; }
+.jenkins-job-actions button.danger { color: #c42b32; }
+.jenkins-job-actions button.danger:hover,
+.jenkins-job-actions button.danger:focus-visible { color: #a51f25; background: #fff0f0; }
 .jenkins-id-column,
 .jenkins-status-column,
 .jenkins-project-id { text-align: center !important; }

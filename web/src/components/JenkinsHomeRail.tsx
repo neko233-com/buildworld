@@ -5,7 +5,10 @@ import {
   IoChevronDown,
   IoFolderOutline,
   IoGitBranchOutline,
+  IoKeyOutline,
+  IoPeopleOutline,
   IoReload,
+  IoSettingsOutline,
   IoTimeOutline,
 } from 'react-icons/io5'
 import { Link, useNavigate } from 'react-router-dom'
@@ -245,6 +248,9 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
     { to: '/templates', label: t('nav.templates'), Icon: IoAlbumsOutline, editOnly: false },
     { to: '/projects', label: t('nav.projects'), Icon: IoFolderOutline, editOnly: false },
     { to: '/vcs-roots', label: t('nav.vcsRoots'), Icon: IoGitBranchOutline, editOnly: false },
+    { to: '/api-tokens', label: t('nav.apiTokens'), Icon: IoKeyOutline, editOnly: false },
+    { to: '/settings', label: t('nav.settings'), Icon: IoSettingsOutline, editOnly: true },
+    { to: '/users', label: t('nav.users'), Icon: IoPeopleOutline, editOnly: true },
   ]
   const queueList = (queue || []).filter(item => item.build_id !== undefined && item.build_id !== null)
   const activeCapacity = (agents || []).reduce((total, agent) => total + count(agent.active_builds), 0)

@@ -58,6 +58,11 @@ verification is incomplete or failing.
 - Start the dashboard project table with the project's persistent unique `ID`,
   followed by the status (`S`) column. Do not restore the Jenkins weather or
   aggregate health (`W`) column.
+- Keep project order server-persisted. Editors can drag rows or use keyboard
+  move controls, and can delete projects from dashboard only after explicit
+  confirmation.
+- Keep common operational links in dashboard left rail. Do not restore a
+  top-level "Common tools" view tab or a separate shortcut-card panel.
 - Prefer named imports from `react-icons` for new general-purpose interface
   icons. Do not introduce copied Jenkins image assets when the same meaning can
   be represented by the shared icon library.

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, BookTemplate, FileClock, Folder, HardDrive, KeyRound, LoaderCircle, MoreHorizontal, Pin, Play, Plus, RefreshCw, Settings2, Star, UsersRound } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Folder, GripVertical, HardDrive, LoaderCircle, MoreHorizontal, Pin, Play, Plus, RefreshCw, Star, Trash2 } from 'lucide-react'
 import { IoLogoGithub } from 'react-icons/io5'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -113,11 +113,14 @@ function ProjectFooter() {
 }
 
 export default function Dashboard() {
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const navigate = useNavigate()
   const editable = canEdit()
   const [activeView, setActiveView] = useState(initialActiveView)
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [projectOrder, setProjectOrder] = useState<number[]>([])
+  const [draggingID, setDraggingID] = useState<number | null>(null)
+  const [reordering, setReordering] = useState(false)
+  const [deleting, setDeleting] = useState<number | null>(null)
   const [flagBusy, setFlagBusy] = useState<{ id: number; flag: 'favorite' | 'quick_access' } | null>(null)
   const [building, setBuilding] = useState<number | null>(null)
   const [groupsOpen, setGroupsOpen] = useState(false)
@@ -144,7 +147,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!data) return
-    const validViews = new Set(['all', 'favorites', 'quick', 'common', ...(data.groups || []).map(group => `group-${group.id}`)])
+    setProjectOrder(data.projects.map(project => project.id))
+    const validViews = new Set(['all', 'favorites', 'quick', ...(data.groups || []).map(group => `group-${group.id}`)])
     if (validViews.has(activeView)) return
     setActiveView('all')
     localStorage.setItem(ACTIVE_VIEW_KEY, 'all')
@@ -166,20 +170,13 @@ export default function Dashboard() {
     { id: 'all', label: t('common.all'), matches: () => true },
     { id: 'favorites', label: t('dashboard.favorites'), matches: (project: any) => Boolean(project.favorite) },
     { id: 'quick', label: t('shell.quickAccess'), matches: (project: any) => Boolean(project.quick_access) },
-    { id: 'common', label: t('dashboard.commonFunctions'), matches: () => false },
     ...groups.map(group => ({ id: `group-${group.id}`, label: group.name, matches: (project: any) => project.group_id === group.id })),
   ]
   const selectedView = views.find(view => view.id === activeView) || views[0]
+  const orderIndex = new Map(projectOrder.map((id, index) => [id, index]))
   const visibleProjects = projects
     .filter(selectedView.matches)
-    .sort((left: any, right: any) => left.name.localeCompare(right.name, locale) * (sortDirection === 'asc' ? 1 : -1))
-  const commonLinks = [
-    { to: '/api-tokens', label: t('nav.apiTokens'), description: t('dashboard.commonApiTokens'), Icon: KeyRound },
-    { to: '/builds', label: t('nav.builds'), description: t('dashboard.commonBuilds'), Icon: FileClock },
-    { to: '/templates', label: t('nav.templates'), description: t('dashboard.commonTemplates'), Icon: BookTemplate },
-    ...(editable ? [{ to: '/settings', label: t('nav.settings'), description: t('dashboard.commonSettings'), Icon: Settings2 }] : []),
-    ...(editable ? [{ to: '/users', label: t('nav.users'), description: t('dashboard.commonUsers'), Icon: UsersRound }] : []),
-  ]
+    .sort((left: any, right: any) => (orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER))
 
   const toggleFlag = async (project: any, flag: 'favorite' | 'quick_access') => {
     setFlagBusy({ id: project.id, flag })
@@ -208,6 +205,66 @@ export default function Dashboard() {
     }
   }
 
+  const persistVisibleOrder = async (nextVisibleIDs: number[]) => {
+    if (reordering) return
+    const previousOrder = projectOrder.length ? projectOrder : projects.map(project => project.id)
+    const visibleIDs = new Set(visibleProjects.map(project => project.id))
+    let visibleIndex = 0
+    const nextOrder = previousOrder.map(id => visibleIDs.has(id) ? nextVisibleIDs[visibleIndex++] : id)
+    setProjectOrder(nextOrder)
+    setReordering(true)
+    try {
+      await api.reorderProjects(nextOrder)
+      await reload()
+    } catch (reason: any) {
+      setProjectOrder(previousOrder)
+      dialogs.notify(reason.message || t('dashboard.reorderFailed'))
+    } finally {
+      setReordering(false)
+    }
+  }
+
+  const moveProject = (projectID: number, direction: -1 | 1) => {
+    const visibleIDs = visibleProjects.map(project => project.id)
+    const from = visibleIDs.indexOf(projectID)
+    const to = from + direction
+    if (from < 0 || to < 0 || to >= visibleIDs.length) return
+    const next = [...visibleIDs]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    void persistVisibleOrder(next)
+  }
+
+  const dropProject = (targetID: number) => {
+    if (draggingID === null || draggingID === targetID) return
+    const visibleIDs = visibleProjects.map(project => project.id)
+    const from = visibleIDs.indexOf(draggingID)
+    const to = visibleIDs.indexOf(targetID)
+    if (from < 0 || to < 0) return
+    const next = [...visibleIDs]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    setDraggingID(null)
+    void persistVisibleOrder(next)
+  }
+
+  const deleteProject = async (project: any) => {
+    if (!await dialogs.confirm(`${project.name}\n\n${t('projects.deleteConfirm')}`, {
+      title: t('projects.removeTitle'),
+      action: t('projects.delete'),
+    })) return
+    setDeleting(project.id)
+    try {
+      await api.deleteProject(project.id)
+      dialogs.notify(`${project.name} · ${t('projects.deleted')}`, 'success')
+      await reload()
+    } catch (reason: any) {
+      dialogs.notify(reason.message || t('projects.removeFailed'))
+    } finally {
+      setDeleting(null)
+    }
+  }
+
   return <section className="jenkins-home">
     <h1 className="sr-only">{t('nav.dashboard')}</h1>
     <JenkinsHomeRail recentBuilds={recentBuilds} />
@@ -223,15 +280,12 @@ export default function Dashboard() {
         </nav>
       </div>
 
-      {activeView === 'common' ? <section className="jenkins-common-functions" aria-label={t('dashboard.commonFunctions')}>
-        <header><div><h2>{t('dashboard.commonFunctions')}</h2><p>{t('dashboard.commonFunctionsHelp')}</p></div></header>
-        <div>{commonLinks.map(({ to, label, description, Icon }) => <Link key={to} to={to}><span><Icon size={19} /></span><strong>{label}</strong><small>{description}</small></Link>)}</div>
-      </section> : <div className="jenkins-job-table-wrap">
+      <div className="jenkins-job-table-wrap">
         <table className="jenkins-job-table">
           <thead><tr>
             <th className="jenkins-id-column"><span aria-label={t('projects.identifier')}>ID</span></th>
             <th className="jenkins-status-column"><span aria-label={t('projects.status')}>S</span></th>
-            <th className="jenkins-name-column" aria-sort={sortDirection === 'asc' ? 'ascending' : 'descending'}><button type="button" onClick={() => setSortDirection(value => value === 'asc' ? 'desc' : 'asc')}>{t('projects.name')} <span aria-hidden="true">{sortDirection === 'asc' ? '\u2193' : '\u2191'}</span></button></th>
+            <th className="jenkins-name-column">{t('projects.name')}</th>
             <th>{t('projectDetail.lastSuccessfulBuild')}</th>
             <th>{t('projectDetail.lastFailedBuild')}</th>
             <th>{t('builds.duration')}</th>
@@ -247,8 +301,34 @@ export default function Dashboard() {
               const status = latest ? buildStatusTone(latest.status) : 'cancelled'
               const statusLabel = latest ? buildStatusLabel(t, latest.status) : t('dashboard.noBuilds')
               const buildLabel = t(isParameterized(project) ? 'builds.buildWithParameters' : 'projects.build')
-              return <tr key={project.id}>
-                <td className="jenkins-project-id">{project.id}</td>
+              const visibleIndex = visibleProjects.findIndex(candidate => candidate.id === project.id)
+              return <tr
+                key={project.id}
+                className={draggingID === project.id ? 'dragging' : ''}
+                onDragOver={event => {
+                  if (!editable || reordering) return
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'move'
+                }}
+                onDrop={event => {
+                  event.preventDefault()
+                  dropProject(project.id)
+                }}
+              >
+                <td className="jenkins-project-id"><div><span>{project.id}</span>{editable && <button
+                  type="button"
+                  className="jenkins-project-drag"
+                  draggable={!reordering}
+                  disabled={reordering}
+                  aria-label={`${t('dashboard.dragProject')} ${project.name}`}
+                  title={t('dashboard.dragProject')}
+                  onDragStart={event => {
+                    setDraggingID(project.id)
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', String(project.id))
+                  }}
+                  onDragEnd={() => setDraggingID(null)}
+                ><GripVertical size={14} /></button>}</div></td>
                 <td><span className={`jenkins-status-orb ${status}`} role="img" aria-label={statusLabel} title={statusLabel} /></td>
                 <td><Link className="jenkins-job-name" to={`/projects/${project.id}`}><span><strong>{project.name}</strong>{project.default_branch && <small>{project.default_branch}</small>}</span></Link></td>
                 <td><BuildReference build={lastSuccess} emptyLabel={t('projectDetail.none')} /></td>
@@ -257,13 +337,16 @@ export default function Dashboard() {
                 <td><div className="jenkins-job-actions">
                   <button type="button" className={project.favorite ? 'active' : ''} disabled={flagBusy !== null} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'favorite'} aria-label={`${project.favorite ? t('projects.unfavorite') : t('projects.favorite')} ${project.name}`} title={project.favorite ? t('projects.unfavorite') : t('projects.favorite')} onClick={() => toggleFlag(project, 'favorite')}>{flagBusy?.id === project.id && flagBusy?.flag === 'favorite' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Star size={15} />}</button>
                   <button type="button" className={project.quick_access ? 'active' : ''} disabled={flagBusy !== null} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'quick_access'} aria-label={`${project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} ${project.name}`} title={project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} onClick={() => toggleFlag(project, 'quick_access')}>{flagBusy?.id === project.id && flagBusy?.flag === 'quick_access' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Pin size={15} />}</button>
+                  {editable && <button type="button" disabled={reordering || visibleIndex === 0} aria-label={`${t('buildQueue.moveUp')} ${project.name}`} title={t('buildQueue.moveUp')} onClick={() => moveProject(project.id, -1)}><ArrowUp size={15} /></button>}
+                  {editable && <button type="button" disabled={reordering || visibleIndex === visibleProjects.length - 1} aria-label={`${t('buildQueue.moveDown')} ${project.name}`} title={t('buildQueue.moveDown')} onClick={() => moveProject(project.id, 1)}><ArrowDown size={15} /></button>}
                   {editable && <button type="button" disabled={building !== null || project.enabled === false} aria-busy={building === project.id} aria-label={`${buildLabel} ${project.name}`} title={project.enabled === false ? t('common.disabled') : buildLabel} onClick={() => handleBuild(project)}>{building === project.id ? <LoaderCircle className="timeline-spinner" size={15} /> : <Play size={15} />}</button>}
+                  {editable && <button type="button" className="danger" disabled={deleting !== null} aria-busy={deleting === project.id} aria-label={`${t('projects.delete')} ${project.name}`} title={t('projects.delete')} onClick={() => deleteProject(project)}>{deleting === project.id ? <LoaderCircle className="timeline-spinner" size={15} /> : <Trash2 size={15} />}</button>}
                 </div></td>
               </tr>
             })}
           </tbody>
         </table>
-      </div>}
+      </div>
 
       <footer className="jenkins-table-footer">
         <Link to="/projects" className="jenkins-more" aria-label={t('nav.projects')} title={t('nav.projects')}><MoreHorizontal size={18} /></Link>

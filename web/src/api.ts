@@ -321,6 +321,8 @@ export const api = {
   listQuickAccess: () => request<any[]>('GET', '/projects/?quick_access=1'),
   setProjectFlags: (id: number, favorite: boolean, quickAccess: boolean) =>
     request<any>('POST', `/projects/${id}/flags`, { favorite, quick_access: quickAccess }),
+  reorderProjects: (orderedIds: number[]) =>
+    request<any>('PUT', '/projects/order', { ordered_ids: orderedIds }),
   getProject: (id: number) => request<any>('GET', `/projects/${id}`),
   createProject: (data: any) => request('POST', '/projects/', data),
   updateProject: (id: number, data: any) => request('PUT', `/projects/${id}`, data),

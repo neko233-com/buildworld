@@ -19,6 +19,8 @@ vi.mock('../api', () => ({
     listBuildQueue: vi.fn(),
     listAgents: vi.fn(),
     setProjectFlags: vi.fn(),
+    reorderProjects: vi.fn(),
+    deleteProject: vi.fn(),
     getProject: vi.fn(),
     validateProject: vi.fn(),
     triggerBuild: vi.fn(),
@@ -40,6 +42,8 @@ const getStorageUsage = vi.mocked(api.getStorageUsage)
 const listBuildQueue = vi.mocked(api.listBuildQueue)
 const listAgents = vi.mocked(api.listAgents)
 const setProjectFlags = vi.mocked(api.setProjectFlags)
+const reorderProjects = vi.mocked(api.reorderProjects)
+const deleteProject = vi.mocked(api.deleteProject)
 const getProject = vi.mocked(api.getProject)
 const validateProject = vi.mocked(api.validateProject)
 const triggerBuild = vi.mocked(api.triggerBuild)
@@ -114,6 +118,8 @@ describe('Dashboard Jenkins job view', () => {
     listBuildQueue.mockReset().mockResolvedValue([])
     listAgents.mockReset().mockResolvedValue([])
     setProjectFlags.mockReset().mockResolvedValue({})
+    reorderProjects.mockReset().mockResolvedValue({})
+    deleteProject.mockReset().mockResolvedValue({})
     getProject.mockReset().mockResolvedValue({ ...projects[1], config: 'stages:\n  - name: build' })
     validateProject.mockReset().mockResolvedValue({
       valid: true,
@@ -175,7 +181,7 @@ describe('Dashboard Jenkins job view', () => {
     return button as HTMLButtonElement
   }
 
-  it('shows every project in Jenkins columns with build history, duration, links, and name sorting', async () => {
+  it('shows every project in persisted Jenkins order with build history, duration, links, and reorder controls', async () => {
     await renderDashboard()
 
     expect(listProjects).toHaveBeenCalledTimes(2)
@@ -213,10 +219,9 @@ describe('Dashboard Jenkins job view', () => {
     expect(table!.querySelector('[aria-label="项目 ID"]')?.textContent).toBe('ID')
     expect(table!.querySelector('[aria-label="状态"]')?.textContent).toBe('S')
     expect(table!.querySelector('[aria-label="成功率"]')).toBeNull()
-    const nameSort = table!.querySelector<HTMLButtonElement>('th[aria-sort="ascending"] button')
-    expect(nameSort).not.toBeNull()
+    expect(table!.querySelector('th[aria-sort]')).toBeNull()
 
-    expect(visibleProjectNames()).toEqual(['Alpha', 'Beta', 'Zulu'])
+    expect(visibleProjectNames()).toEqual(['Zulu', 'Alpha', 'Beta'])
 
     const alpha = rowFor(1)
     expect(alpha.cells[0].textContent).toBe('1')
@@ -246,9 +251,8 @@ describe('Dashboard Jenkins job view', () => {
     expect(projectFooter?.textContent).toContain('BuildWorld · 开源持续集成与构建项目')
     expect(projectFooter?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/neko233-com/buildworld233')
 
-    act(() => nameSort!.click())
-    expect(visibleProjectNames()).toEqual(['Zulu', 'Beta', 'Alpha'])
-    expect(container.querySelector('th[aria-sort="descending"]')).not.toBeNull()
+    await act(async () => buttonNamed('下移 Zulu').click())
+    expect(reorderProjects).toHaveBeenCalledWith([1, 3, 2])
   })
 
   it('uses one stable table density without user controls or stored preferences', async () => {
@@ -288,13 +292,12 @@ describe('Dashboard Jenkins job view', () => {
     act(() => buttonNamed('快速访问').click())
     expect(visibleProjectNames()).toEqual(['Beta'])
 
-    act(() => buttonNamed('常用功能').click())
-    expect(container.querySelector('table')).toBeNull()
-    expect(container.querySelector('.jenkins-common-functions a[href="/api-tokens"]')?.textContent).toContain('API Token')
-    expect(container.querySelector('.jenkins-common-functions a[href="/settings"]')).not.toBeNull()
+    expect(container.querySelector('button[aria-label="常用功能"]')).toBeNull()
+    expect(container.querySelector('.jenkins-rail-links a[href="/api-tokens"]')?.textContent).toContain('API Token')
+    expect(container.querySelector('.jenkins-rail-links a[href="/settings"]')).not.toBeNull()
 
     act(() => buttonNamed('服务端').click())
-    expect(visibleProjectNames()).toEqual(['Alpha', 'Zulu'])
+    expect(visibleProjectNames()).toEqual(['Zulu', 'Alpha'])
 
     await act(async () => buttonNamed('收藏 Zulu').click())
     expect(setProjectFlags).toHaveBeenCalledWith(3, true, false)

@@ -29,6 +29,7 @@ func TestSchemaMigrationsCreateFreshDatabase(t *testing.T) {
 		"8:project-favorite-quick-access",
 		"9:project-pipeline-source",
 		"10:project-enabled",
+		"11:project-display-order",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("migration ledger = %v, want %v", got, want)
 	}
@@ -52,6 +53,9 @@ func TestSchemaMigrationsCreateFreshDatabase(t *testing.T) {
 		if databaseTableExists(t, data.db, table) {
 			t.Fatalf("fresh database contains removed table %q", table)
 		}
+	}
+	if !databaseTableExists(t, data.db, "project_display_order") {
+		t.Fatal("fresh database missing project_display_order")
 	}
 	for _, column := range []string{"id", "name", "version", "description", "author", "enabled", "config", "path", "source", "installed_at", "updated_at"} {
 		if !databaseColumnExists(t, data.db, "plugins", column) {
@@ -111,6 +115,7 @@ func TestUserSessionVersionMigrationUpgradesVersionedDatabase(t *testing.T) {
 		"8:project-favorite-quick-access",
 		"9:project-pipeline-source",
 		"10:project-enabled",
+		"11:project-display-order",
 	}) {
 		t.Fatalf("migration ledger = %v", got)
 	}
@@ -153,7 +158,7 @@ func TestRemovedFeatureSchemaMigrationDropsTablesAndIndexes(t *testing.T) {
 			t.Fatalf("removed %s %q still exists", object.kind, object.name)
 		}
 	}
-	if got := readMigrationLedger(t, db); got[len(got)-1] != "10:project-enabled" {
+	if got := readMigrationLedger(t, db); got[len(got)-1] != "11:project-display-order" {
 		t.Fatalf("migration ledger = %v", got)
 	}
 }
@@ -223,7 +228,7 @@ func TestSSHKeysSchemaMigrationDropsDeadTableAndPreservesRepositoryCredentials(t
 	if credentialType != "ssh_key" || privateKey != "private-value" || publicKey != "ssh-ed25519 active" {
 		t.Fatalf("repository credential changed: type=%q private=%q public=%q", credentialType, privateKey, publicKey)
 	}
-	if got := readMigrationLedger(t, db); got[len(got)-1] != "10:project-enabled" {
+	if got := readMigrationLedger(t, db); got[len(got)-1] != "11:project-display-order" {
 		t.Fatalf("migration ledger = %v", got)
 	}
 }

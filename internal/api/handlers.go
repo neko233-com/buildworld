@@ -447,6 +447,23 @@ func (h *handlers) deleteProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+type reorderProjectsReq struct {
+	OrderedIDs []int64 `json:"ordered_ids"`
+}
+
+func (h *handlers) reorderProjects(w http.ResponseWriter, r *http.Request) {
+	var req reorderProjectsReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := h.d.Store.ReorderProjects(req.OrderedIDs); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // ---------------------------------------------------------------------------
 // builds
 // ---------------------------------------------------------------------------

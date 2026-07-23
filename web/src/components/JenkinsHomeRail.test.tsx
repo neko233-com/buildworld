@@ -113,6 +113,7 @@ describe('JenkinsHomeRail', () => {
       '/templates',
       '/projects',
       '/vcs-roots',
+      '/api-tokens',
     ])
     expect(container.querySelectorAll('#buildQueue .jenkins-rail-queue-item')).toHaveLength(4)
     expect(container.querySelectorAll('#buildQueue .jenkins-rail-status-dot')).toHaveLength(4)

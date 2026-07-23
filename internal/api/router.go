@@ -112,6 +112,7 @@ func NewRouter(d Deps) http.Handler {
 			r.Route("/projects", func(r chi.Router) {
 				r.Get("/", h.listProjects)
 				r.Get("/job-overview", h.listProjectBuildOverviews)
+				r.With(editors).Put("/order", h.reorderProjects)
 				r.With(editors).Post("/", h.createProject)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.getProject)

@@ -336,7 +336,13 @@ func (s *Store) GetProjectByName(name string) (*Project, error) {
 }
 
 func (s *Store) ListProjects() ([]*Project, error) {
-	rows, err := s.db.Query("SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, pipeline_format, pipeline_source_mode, pipeline_scm_repo, pipeline_scm_branch, pipeline_scm_path, created_by, created_at, updated_at, favorite, quick_access, enabled FROM projects ORDER BY favorite DESC, quick_access DESC, id DESC")
+	rows, err := s.db.Query(`SELECT p.id, p.name, p.description, p.repo_url, p.repo_type, p.default_branch,
+		p.vcs_root_id, p.template_id, p.group_id, p.tags, p.config, p.pipeline_format,
+		p.pipeline_source_mode, p.pipeline_scm_repo, p.pipeline_scm_branch, p.pipeline_scm_path,
+		p.created_by, p.created_at, p.updated_at, p.favorite, p.quick_access, p.enabled
+		FROM projects p
+		LEFT JOIN project_display_order project_order ON project_order.project_id=p.id
+		ORDER BY project_order.position IS NULL, project_order.position, p.id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +379,8 @@ func (s *Store) ListProjectSummaries() ([]*ProjectSummary, error) {
 			vcs_root_id, template_id, group_id, tags, pipeline_format, pipeline_source_mode,
 			created_by, created_at, updated_at, favorite, quick_access, enabled
 		FROM projects
-		ORDER BY favorite DESC, quick_access DESC, id DESC`)
+		LEFT JOIN project_display_order project_order ON project_order.project_id=projects.id
+		ORDER BY project_order.position IS NULL, project_order.position, projects.id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -421,8 +428,9 @@ func (s *Store) ListQuickAccessProjects() ([]*ProjectSummary, error) {
 			vcs_root_id, template_id, group_id, tags, pipeline_format, pipeline_source_mode,
 			created_by, created_at, updated_at, favorite, quick_access, enabled
 		FROM projects
+		LEFT JOIN project_display_order project_order ON project_order.project_id=projects.id
 		WHERE quick_access = 1
-		ORDER BY favorite DESC, id DESC`)
+		ORDER BY project_order.position IS NULL, project_order.position, projects.id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -469,6 +477,59 @@ func (s *Store) SetProjectFlags(id int64, favorite, quickAccess bool) error {
 		favorite, quickAccess, time.Now(), id,
 	)
 	return err
+}
+
+// ReorderProjects replaces global dashboard order. Requiring every current
+// project exactly once prevents filtered views or stale clients from silently
+// dropping projects from the ordering set.
+func (s *Store) ReorderProjects(orderedIDs []int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query("SELECT id FROM projects")
+	if err != nil {
+		return err
+	}
+	current := make(map[int64]struct{})
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		current[id] = struct{}{}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(orderedIDs) != len(current) {
+		return fmt.Errorf("project order must contain all %d projects", len(current))
+	}
+	seen := make(map[int64]struct{}, len(orderedIDs))
+	for _, id := range orderedIDs {
+		if _, exists := current[id]; !exists {
+			return fmt.Errorf("project %d not found", id)
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return fmt.Errorf("project %d appears more than once", id)
+		}
+		seen[id] = struct{}{}
+	}
+	if _, err := tx.Exec("DELETE FROM project_display_order"); err != nil {
+		return err
+	}
+	for position, id := range orderedIDs {
+		if _, err := tx.Exec(
+			"INSERT INTO project_display_order (project_id, position) VALUES (?, ?)",
+			id, position,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) SetProjectEnabled(id int64, enabled bool) error {
@@ -666,6 +727,9 @@ func (s *Store) DeleteProject(id int64) error {
 		return err
 	}
 	if err := exec("environment variables", "DELETE FROM env_vars WHERE project_id=?", id); err != nil {
+		return err
+	}
+	if err := exec("display order", "DELETE FROM project_display_order WHERE project_id=?", id); err != nil {
 		return err
 	}
 	if err := exec("builds", "DELETE FROM builds WHERE project_id=?", id); err != nil {
