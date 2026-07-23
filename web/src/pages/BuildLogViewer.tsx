@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import { ArrowDown, ArrowLeft, ArrowUp, Download, FileText, LoaderCircle, Palette, Pause, Play, Search, WrapText } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Download, FileText, LoaderCircle, Moon, Palette, Pause, Play, Search, Sun, WrapText } from 'lucide-react'
 import { api } from '../api'
 import { useApi } from '../hooks'
 import { useBuildLogStream } from '../useBuildLogStream'
@@ -28,6 +28,13 @@ function highlightLine(line: string, query: string) {
   return fragments
 }
 
+const logViewerThemeStorageKey = 'buildworld.logs.theme'
+type LogViewerTheme = 'light' | 'dark'
+
+function readLogViewerTheme(): LogViewerTheme {
+  return typeof window !== 'undefined' && window.localStorage.getItem(logViewerThemeStorageKey) === 'dark' ? 'dark' : 'light'
+}
+
 export default function BuildLogViewer() {
   const { t } = useI18n()
   const { id } = useParams<{ id: string }>()
@@ -48,6 +55,7 @@ export default function BuildLogViewer() {
   const [follow, setFollow] = useState(true)
   const [wrap, setWrap] = useState(false)
   const [colorizeLogs, setColorizeLogs] = useState(readLogTonePreference)
+  const [theme, setTheme] = useState<LogViewerTheme>(readLogViewerTheme)
   const [downloading, setDownloading] = useState<'' | 'txt' | 'json'>('')
   const [downloadError, setDownloadError] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
@@ -151,6 +159,14 @@ export default function BuildLogViewer() {
     return () => window.removeEventListener('keydown', handleKeyboard)
   }, [query, setFollowing])
 
+  useEffect(() => {
+    const syncTheme = (event: StorageEvent) => {
+      if (event.key === logViewerThemeStorageKey) setTheme(readLogViewerTheme())
+    }
+    window.addEventListener('storage', syncTheme)
+    return () => window.removeEventListener('storage', syncTheme)
+  }, [])
+
   if (!authenticated) return <Navigate to="/login" replace />
   if (!validBuildID) return <Navigate to="/builds" replace />
   if ((buildLoading && !build) || (logsLoading && !logs)) return <div className="plain-log-state"><PageState /></div>
@@ -172,7 +188,13 @@ export default function BuildLogViewer() {
     }
   }
 
-  return <main className={`plain-log-page ${wrap ? 'wrap-lines' : ''}`}>
+  const toggleTheme = () => setTheme(current => {
+    const next = current === 'dark' ? 'light' : 'dark'
+    window.localStorage.setItem(logViewerThemeStorageKey, next)
+    return next
+  })
+
+  return <main className={`plain-log-page theme-${theme} ${wrap ? 'wrap-lines' : ''}`}>
     <header className="plain-log-header">
       <div className="plain-log-identity">
         <Link to={`/builds/${buildID}`} aria-label={t('builds.backToBuild')}><ArrowLeft size={17} /></Link>
@@ -181,6 +203,7 @@ export default function BuildLogViewer() {
         <span className={`build-status ${build.status}`}>{t(`builds.${build.status}`)}</span>
       </div>
       <div className="plain-log-actions">
+        <button type="button" className={theme === 'dark' ? 'selected' : ''} aria-label={theme === 'dark' ? t('builds.useLightTheme') : t('builds.useDarkTheme')} title={theme === 'dark' ? t('builds.useLightTheme') : t('builds.useDarkTheme')} aria-pressed={theme === 'dark'} onClick={toggleTheme}>{theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}{theme === 'dark' ? t('builds.lightTheme') : t('builds.darkTheme')}</button>
         <button type="button" className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollowing(!follow)}>{follow ? <Pause size={14} /> : <Play size={14} />}{follow ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>
         <button type="button" className={wrap ? 'selected' : ''} aria-pressed={wrap} onClick={() => setWrap(value => !value)}><WrapText size={14} />{t('builds.wrapLines')}</button>
         <button type="button" className={colorizeLogs ? 'selected' : ''} aria-label={t('builds.colorizeLogs')} title={t('builds.colorizeLogs')} aria-pressed={colorizeLogs} onClick={() => setColorizeLogs(current => { const next = !current; writeLogTonePreference(next); return next })}><Palette size={14} />{t('builds.colorizeLogs')}</button>
