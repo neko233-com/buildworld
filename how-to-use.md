@@ -1,6 +1,6 @@
 # BuildWorld233 使用手册
 
-本文覆盖生产安装、更新、回滚、macOS 生命周期、Jenkins 并行迁移和飞书通知。默认服务端口为 `8700`，初始账号为 `root/root`。首次登录后立刻改密码。
+本文覆盖生产安装、更新、回滚、macOS 生命周期、Jenkins 并行迁移和飞书通知。默认服务端口为 `8080`，保留 Jenkins 端口为 `8081`；初始账号为 `root/root`。首次登录后立刻改密码。
 
 ## 安装
 
@@ -13,7 +13,7 @@ Apple Silicon 与 Intel 自动识别：
 ```sh
 curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | sh
 buildworld status
-open http://127.0.0.1:8700
+open http://127.0.0.1:8080
 ```
 
 安装器写入 `~/.zprofile`，安装完整 bundle 到 `~/.local/lib/buildworld`，创建 `~/.local/bin/buildworld`，并启用 `com.buildworld.server` LaunchAgent。新 SSH/Terminal 会话自动获得 CLI PATH；当前会话可执行：
@@ -38,7 +38,7 @@ buildworld status
 ```powershell
 irm https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.ps1 | iex
 buildworld status
-Start-Process http://127.0.0.1:8700
+Start-Process http://127.0.0.1:8080
 ```
 
 默认安装到 `%LOCALAPPDATA%\BuildWorld`，注册登录启动任务，并写入用户 PATH。
@@ -116,7 +116,7 @@ Move-Item "$env:LOCALAPPDATA\BuildWorld.previous" "$env:LOCALAPPDATA\BuildWorld"
 
 ## Jenkins 并行迁移
 
-BuildWorld `8700` 与 Jenkins `8080` 可在同一 Mac Mini 并存。迁移期不要让两个工具对同一生产目标自动部署。
+BuildWorld `8080` 与 Jenkins `8081` 可在同一 Mac Mini 并存。切换后只允许 BuildWorld 对生产目标自动部署。
 
 1. 从 Jenkins 导出每个 Pipeline 的 `config.xml` / Jenkinsfile，并记录分组、仓库、分支、参数、cron、凭据和飞书行为。
 2. 在 BuildWorld 创建同名分组和项目，导入 Jenkinsfile。转换器 warning 必须逐项处理，尤其 `credentials`、共享库、`post`、动态 Groovy、复杂 `if`。
@@ -138,7 +138,7 @@ BuildWorld 飞书通道由 Go 原生服务发送，不运行 Python。创建通�
 ## 安全基线
 
 - 立即替换 `root/root`：`printf '%s\n' '至少12位新密码' | buildworld reset-root-password --password-stdin`。
-- 仅用反向代理/TLS 或可信内网公开 `8700`；限制来源 IP。
+- 仅用反向代理/TLS 或可信内网公开 `8080`；限制来源 IP。
 - 数据库含构建所需的凭据原文：限制服务账号和备份权限，并使用磁盘/备份加密。
 - Git 密钥、飞书 webhook、token 只放凭据/通知配置，不提交 Jenkinsfile、Pipeline 或仓库。
 - 每次更新前备份 SQLite 数据库与配置目录；定期校验制品存储。

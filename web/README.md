@@ -1,6 +1,6 @@
 # BuildWorld Web
 
-BuildWorld 的 React + TypeScript 管理界面。生产构建由 Go 控制面提供，默认地址为 `http://127.0.0.1:8700`。
+BuildWorld 的 React + TypeScript 管理界面。生产构建由 Go 控制面提供，默认地址为 `http://127.0.0.1:8080`。
 
 ## 本地开发
 
@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Vite 开发服务器监听 `http://127.0.0.1:8701`，并将 `/api` 与 `/ws` 代理到 `http://127.0.0.1:8700`。可通过 `BUILDWORLD_API_TARGET` 覆盖后端地址。
+Vite 开发服务器监听 `http://127.0.0.1:8701`，并将 `/api` 与 `/ws` 代理到 `http://127.0.0.1:8080`。可通过 `BUILDWORLD_API_TARGET` 覆盖后端地址。
 
 HTML、CSS、JavaScript 和 TypeScript 修改由 Vite 热更新，无需重新启动开发服务器。
 

@@ -19,8 +19,8 @@ func TestEnsureConfigCreatesSelfContainedDefault(t *testing.T) {
 	if written != path {
 		t.Fatalf("config path = %q, want %q", written, path)
 	}
-	if cfg.Server.Port != 8700 {
-		t.Fatalf("default port = %d, want 8700", cfg.Server.Port)
+	if cfg.Server.Port != 8080 {
+		t.Fatalf("default port = %d, want 8080", cfg.Server.Port)
 	}
 	if cfg.Database.Path == "" || cfg.Storage.BuildTemp == "" || cfg.Plugins.Path == "" {
 		t.Fatalf("default config is incomplete: %#v", cfg)

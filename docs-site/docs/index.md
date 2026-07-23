@@ -38,7 +38,7 @@ gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld
 buildworld start
 
 # Open browser
-open http://localhost:8700
+open http://localhost:8080
 ```
 
 Default login: `root` / `root`

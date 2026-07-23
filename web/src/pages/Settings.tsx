@@ -54,7 +54,7 @@ const editableKeys = [
 ]
 
 const defaults: SettingsMap = {
-  host: '0.0.0.0', port: '8700', build_timeout: '1800',
+  host: '0.0.0.0', port: '8080', build_timeout: '1800',
   build_concurrency: '2', local_agent_concurrency: '1', cpu_limit_percent: '25',
   background_mode: 'true', retry_policy: 'failed_once',
   artifacts_path: './artifacts', build_temp_path: './build_temp',
@@ -64,7 +64,7 @@ const defaults: SettingsMap = {
 }
 
 function normalizeSettings(value: SettingsMap | null | undefined): SettingsMap {
-  return value ? { ...defaults, ...value, port: '8700' } : { ...defaults }
+  return value ? { ...defaults, ...value, port: '8080' } : { ...defaults }
 }
 
 function parseChecks(value: string): string[] {
@@ -629,7 +629,7 @@ ${steps.join(',\n')}
 
         {section === 'runtime' && <div className="settings-pane">
           <SectionHeading icon={Server} title={t('settings.runtimeStorage')} description={t('settings.runtimeStorageDescription')} />
-          <section className="settings-form-section"><header><Network size={15} /><div><h3>{t('settings.serverConfig')}</h3><p>{t('settings.serverConfigHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.host')} value={draft.host} onChange={value => set('host', value)} /><SettingField label={t('settings.port')} hint={t('settings.portFixed')} type="number" value="8700" readOnly onChange={() => undefined} /></div></section>
+          <section className="settings-form-section"><header><Network size={15} /><div><h3>{t('settings.serverConfig')}</h3><p>{t('settings.serverConfigHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.host')} value={draft.host} onChange={value => set('host', value)} /><SettingField label={t('settings.port')} hint={t('settings.portFixed')} type="number" value="8080" readOnly onChange={() => undefined} /></div></section>
           <section className="settings-form-section"><header><Database size={15} /><div><h3>{t('settings.storagePaths')}</h3><p>{t('settings.storageHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.artifactsPath')} value={draft.artifacts_path} onChange={value => set('artifacts_path', value)} /><SettingField label={t('settings.buildTempPath')} hint={t('settings.buildTempHint')} value={draft.build_temp_path} onChange={value => set('build_temp_path', value)} /></div><div className="settings-inline-note"><Info size={14} /><span>{t('settings.buildTempNote')}</span></div></section>
           <section className="settings-form-section"><header><Activity size={15} /><div><h3>{t('settings.resourceControl')}</h3><p>{t('settings.resourceControlHelp')}</p></div></header><div className="settings-form-grid three"><SettingField label={t('settings.cpuLimit')} hint={t('settings.cpuLimitHelp')} type="number" min={5} max={100} suffix="%" value={draft.cpu_limit_percent} onChange={value => set('cpu_limit_percent', value)} /><SettingField label={t('settings.localConcurrency')} type="number" min={1} max={256} value={draft.local_agent_concurrency} onChange={value => set('local_agent_concurrency', value)} /><Toggle label={t('settings.backgroundMode')} description={t('settings.backgroundModeHelp')} checked={draft.background_mode === 'true'} onChange={value => set('background_mode', String(value))} /></div><div className="settings-inline-note"><Info size={14} /><span>{t('settings.resourceHotReloadHelp')}</span></div></section>
         </div>}

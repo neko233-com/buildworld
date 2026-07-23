@@ -850,7 +850,7 @@
     "about": "关于",
     "serverConfig": "服务器配置",
     "port": "端口",
-    "portFixed": "BuildWorld 控制面端口固定为 8700，不可修改。",
+    "portFixed": "BuildWorld 控制面端口固定为 8080，不可修改。",
     "host": "主机",
     "buildDefaults": "构建默认配置",
     "timeout": "超时时间(秒)",

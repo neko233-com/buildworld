@@ -62,7 +62,7 @@ buildworld enable-autostart
 
 ## First Login
 
-1. Open browser to `http://localhost:8700`
+1. Open browser to `http://localhost:8080`
 2. Login with default credentials:
    - Username: `root`
    - Password: `root`
@@ -97,7 +97,7 @@ docker pull neko233/buildworld:latest
 
 # Run container
 docker run -d \
-  -p 8700:8700 \
+  -p 8080:8080 \
   -v buildworld-data:/data \
   --name buildworld \
   neko233/buildworld:latest

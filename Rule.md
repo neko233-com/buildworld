@@ -18,9 +18,10 @@
 
 ## Default networking
 
-- BuildWorld's default control-plane HTTP port is `8700`. The Vite development
-  server uses `8701` and proxies to that control plane to avoid a local port
-  collision. Document and test any intentional exception explicitly.
+- BuildWorld's default control-plane HTTP port is `8080`; retained Jenkins
+  listens on `8081`. The Vite development server uses `8701` and proxies to
+  that control plane to avoid a local port collision. This intentional cutover
+  exception is documented and covered by configuration tests.
 
 ## Release and installation contract
 

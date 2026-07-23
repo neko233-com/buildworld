@@ -101,13 +101,13 @@ func TestControlPlanePortCannotBeOverriddenByStoredSettings(t *testing.T) {
 	if err := json.NewDecoder(settings.Body).Decode(&values); err != nil {
 		t.Fatal(err)
 	}
-	if values["port"] != "8700" {
-		t.Fatalf("settings port = %q, want 8700", values["port"])
+	if values["port"] != "8080" {
+		t.Fatalf("settings port = %q, want 8080", values["port"])
 	}
 
 	response := httptest.NewRecorder()
 	handler.updateGlobalSettings(response, httptest.NewRequest("PUT", "/api/settings", strings.NewReader(`{"port":"6050"}`)))
-	if response.Code != 400 || !strings.Contains(response.Body.String(), "fixed at 8700") {
+	if response.Code != 400 || !strings.Contains(response.Body.String(), "fixed at 8080") {
 		t.Fatalf("override status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
@@ -116,7 +116,7 @@ func TestResourceSettingsDefaultLowAndHotReloadWithoutRestart(t *testing.T) {
 	defaults := defaultGlobalSettings(nil)
 	if defaults["cpu_limit_percent"] != "25" || defaults["background_mode"] != "true" ||
 		defaults["local_agent_concurrency"] != "1" || defaults["build_concurrency"] != "2" ||
-		defaults["port"] != "8700" {
+		defaults["port"] != "8080" {
 		t.Fatalf("low-resource defaults = %#v", defaults)
 	}
 	for _, removed := range []string{"tls", "logs_path"} {

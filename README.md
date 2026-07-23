@@ -1,8 +1,8 @@
 # BuildWorld233
 
-BuildWorld233 是面向生产构建、发布与通知的 Jenkins 替代项目。它提供 Web 控制台、CLI、持久化构建队列、分布式 Worker、制品管理和飞书通知。迁移期间可与 Jenkins 并行运行：BuildWorld 默认 `8700`，Jenkins 通常为 `8080`。
+BuildWorld233 是面向生产构建、发布与通知的 Jenkins 替代项目。它提供 Web 控制台、CLI、持久化构建队列、分布式 Worker、制品管理和飞书通知。生产切换后 BuildWorld 固定为 `8080`，保留的 Jenkins 固定为 `8081`。
 
-首次登录账号：`root`  密码：`root`。首次进入控制台必须立即修改密码；生产环境不要把 `8700` 直接暴露到公网。
+首次登录账号：`root`  密码：`root`。首次进入控制台必须立即修改密码；生产环境不要把 `8080` 直接暴露到公网。
 
 ## 先安装 / 更新
 
@@ -31,7 +31,7 @@ Jenkins 与 BuildWorld 在 macOS 中拥有独立的隐私权限；Jenkins Java �
 
 | 项目 | 默认值 |
 | --- | --- |
-| 控制台 / API | `http://127.0.0.1:8700` |
+| 控制台 / API | `http://127.0.0.1:8080` |
 | 默认管理员 | `root` / `root` |
 | macOS bundle | `~/.local/lib/buildworld` |
 | macOS CLI | `~/.local/bin/buildworld` |
