@@ -116,7 +116,7 @@ func TestResourceSettingsDefaultLowAndHotReloadWithoutRestart(t *testing.T) {
 	defaults := defaultGlobalSettings(nil)
 	if defaults["cpu_limit_percent"] != "25" || defaults["background_mode"] != "true" ||
 		defaults["local_agent_concurrency"] != "1" || defaults["build_concurrency"] != "2" ||
-		defaults["port"] != "8080" {
+		defaults["port"] != "8080" || defaults["auto_update_enabled"] != "false" {
 		t.Fatalf("low-resource defaults = %#v", defaults)
 	}
 	for _, removed := range []string{"tls", "logs_path"} {

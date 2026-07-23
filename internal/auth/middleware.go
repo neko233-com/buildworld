@@ -23,7 +23,10 @@ const (
 	CtxAPITokenScopes contextKey = "api_token_scopes"
 )
 
-const ScopeBuildTrigger = "build:trigger"
+const (
+	ScopeBuildTrigger = "build:trigger"
+	ScopeSystemUpdate = "system:update"
+)
 
 // APITokenPrincipal is resolved from persisted token metadata and its current
 // owner. Role is deliberately read from users on every request so deletion or

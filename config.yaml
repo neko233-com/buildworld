@@ -28,3 +28,8 @@ workers:
 # Matching repository pushes create normal project builds.
 automation:
   github_webhook_secret: ""
+
+# Manual authenticated bundle updates remain available through the API.
+# Automated callers are rejected unless this is explicitly enabled.
+updates:
+  auto_update_enabled: false

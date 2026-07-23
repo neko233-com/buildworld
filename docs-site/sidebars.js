@@ -3,6 +3,7 @@ const sidebars = {
   docsSidebar: [
     'index',
     'installation',
+    'system-updates',
     'local-publishing',
     'jenkins-migration-macos',
     'configuration',

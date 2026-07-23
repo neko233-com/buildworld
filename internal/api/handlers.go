@@ -2358,6 +2358,10 @@ func (h *handlers) createAPIToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "current role cannot grant build:trigger")
 		return
 	}
+	if hasAPITokenScope(scopes, auth.ScopeSystemUpdate) && owner.Role != "admin" {
+		writeErr(w, http.StatusForbidden, "only administrators can grant system:update")
+		return
+	}
 	// 生成 bw_<32hex> 明文 token，仅返回一次
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {

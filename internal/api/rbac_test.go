@@ -77,6 +77,12 @@ func TestRouterRoleAuthorization(t *testing.T) {
 	if got := request(http.MethodGet, "/api/system/storage", "viewer", "").Code; got != http.StatusOK {
 		t.Fatalf("viewer system storage status = %d, want %d", got, http.StatusOK)
 	}
+	if got := request(http.MethodGet, "/api/system/update/", "developer", "").Code; got != http.StatusForbidden {
+		t.Fatalf("developer system update status = %d, want %d", got, http.StatusForbidden)
+	}
+	if got := request(http.MethodGet, "/api/system/update/", "admin", "").Code; got != http.StatusOK {
+		t.Fatalf("admin system update status = %d, want %d", got, http.StatusOK)
+	}
 	if got := request(http.MethodGet, "/api/notifications/in-app", "viewer", "").Code; got != http.StatusOK {
 		t.Fatalf("viewer in-app notifications status = %d, want %d", got, http.StatusOK)
 	}
