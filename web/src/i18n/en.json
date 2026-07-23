@@ -447,7 +447,9 @@
     "autoDetect": "Auto",
     "apply": "Apply",
     "scmPipelineRequired": "Pipeline script from SCM requires a repository URL and script path.",
-    "triggerUnavailableForSource": "Build schedule editing is unavailable for {source}; triggers remain defined in its source configuration."
+    "triggerUnavailableForSource": "Build schedule editing is unavailable for {source}; triggers remain defined in its source configuration.",
+    "triggerManagedByJenkinsfileTitle": "Jenkinsfile triggers are active",
+    "triggerManagedByJenkinsfile": "BuildWorld reads triggers { cron(...) } from this SCM Jenkinsfile and runs them on the same schedule. Edit the Jenkinsfile to change trigger rules."
   },
   "projectGroups": {
     "title": "Project group",

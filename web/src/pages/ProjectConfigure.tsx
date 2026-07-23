@@ -134,6 +134,7 @@ export default function ProjectConfigure() {
     ? resolvePipelineSourceLanguage(form.config)
     : form?.pipeline_format || 'yaml'
   const scheduleSupported = form?.pipeline_source_mode === 'inline' && effectiveFormat !== 'jenkinsfile'
+  const scmJenkinsfileTriggers = form?.pipeline_source_mode === 'scm' && effectiveFormat === 'jenkinsfile'
   const pipelineReady = form?.pipeline_source_mode === 'scm'
     || Boolean(form && isPipelineValidationReady(pipelineValidation, form.config))
   const pipelineBlockedMessage = pipelineValidation.message || t('config.resolveErrors')
@@ -404,7 +405,7 @@ export default function ProjectConfigure() {
           {scheduleSupported ? <fieldset className="jenkins-configure-trigger" disabled={!editable}>
             <label className="jenkins-configure-check"><input type="checkbox" checked={scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} /><span>{t('projectDetail.scheduleBuilds')}</span></label>
             {scheduleEnabled && <label><span>Cron</span><input id="jenkins-configure-schedule-cron" required aria-invalid={validationErrors.schedule || undefined} aria-describedby={validationErrors.schedule ? 'jenkins-configure-form-error' : undefined} value={scheduleCron} onChange={event => { setScheduleCron(event.target.value); clearValidationError('schedule') }} placeholder="0 2 * * *" /><small>{t('projectDetail.scheduleDescription')}</small></label>}
-          </fieldset> : <div className="jenkins-configure-disabled"><TimerReset size={18} /><div><strong>{t('common.disabled')}</strong><p>{t('projectDetail.triggerUnavailableForSource').replace('{source}', form.pipeline_source_mode === 'scm' ? t('projectDetail.pipelineScriptFromSCM') : 'Jenkinsfile')}</p></div></div>}
+          </fieldset> : scmJenkinsfileTriggers ? <div className="jenkins-configure-disabled"><TimerReset size={18} /><div><strong>{t('projectDetail.triggerManagedByJenkinsfileTitle')}</strong><p>{t('projectDetail.triggerManagedByJenkinsfile')}</p></div></div> : <div className="jenkins-configure-disabled"><TimerReset size={18} /><div><strong>{t('common.disabled')}</strong><p>{t('projectDetail.triggerUnavailableForSource').replace('{source}', form.pipeline_source_mode === 'scm' ? t('projectDetail.pipelineScriptFromSCM') : 'Jenkinsfile')}</p></div></div>}
         </section>
 
         <section id="jenkins-configure-pipeline" className="jenkins-configure-section" aria-labelledby="jenkins-configure-pipeline-title">
