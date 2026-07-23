@@ -35,11 +35,14 @@ type jenkinsStepTitle struct {
 // cancellable observer instead of retaining an opaque infinite shell loop.
 func extractJenkinsServiceWatch(source, name string) (engine.Step, bool) {
 	normalized := expandGroovyShellVariables(source)
-	if !strings.Contains(normalized, "tail -f") || !strings.Contains(normalized, "while true") || !strings.Contains(normalized, "kill -0") {
+	if !jenkinsMonitorTail.MatchString(normalized) || !strings.Contains(normalized, "while ") || !strings.Contains(normalized, "kill -0") {
 		return engine.Step{}, false
 	}
 	tail := jenkinsMonitorTail.FindStringSubmatch(normalized)
 	pid := jenkinsMonitorPID.FindStringSubmatch(normalized)
+	if len(pid) != 2 {
+		pid = jenkinsMonitorPIDRead.FindStringSubmatch(normalized)
+	}
 	if len(tail) != 2 || len(pid) != 2 {
 		return engine.Step{}, false
 	}
@@ -61,7 +64,7 @@ func extractJenkinsServiceWatch(source, name string) (engine.Step, bool) {
 	if match := jenkinsMonitorHeartbeat.FindStringSubmatch(normalized); len(match) == 2 && jenkinsWatchSecondsInRange(match[1], 5, 86_400) {
 		config["heartbeat_seconds"] = match[1]
 	}
-	if loop := strings.Index(normalized, "while true"); loop >= 0 {
+	if loop := strings.Index(normalized, "while "); loop >= 0 {
 		matches := jenkinsMonitorPoll.FindAllStringSubmatch(normalized[loop:], -1)
 		if len(matches) > 0 {
 			// The final sleep controls PID/process polling only. Native log
@@ -328,6 +331,7 @@ func normalizeJenkinsWatchValue(value string) string {
 	value = strings.Trim(strings.TrimSpace(value), "'\"")
 	value = strings.TrimPrefix(value, `\`)
 	value = groovyVariableRef.ReplaceAllString(value, `${build.$1}`)
+	value = shellVariableRef.ReplaceAllString(value, `${build.$1}`)
 	return value
 }
 

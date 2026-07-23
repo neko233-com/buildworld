@@ -26,11 +26,16 @@ var (
 	paramsReference       = regexp.MustCompile(`\$\{params\.([A-Za-z_][A-Za-z0-9_]*)\}`)
 	groovyAssignment      = regexp.MustCompile(`(?m)\bdef\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*`)
 	groovyVariableRef     = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+	shellVariableRef      = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
 	bareShellVariable     = regexp.MustCompile(`(?m)(\bsh\s+)([A-Za-z_][A-Za-z0-9_]*)\s*$`)
 	artifactDeclaration   = regexp.MustCompile(`(?s)\barchiveArtifacts\s*(?:\(\s*)?artifacts\s*:\s*`)
 	persistentTailMonitor = regexp.MustCompile(`(?s)\n\s*tail\s+-f[^\n]*&\s*\n\s*TAIL_PID=\$!\s*\n\s*while\s+true;\s+do.*\n\s*done\s*$`)
-	jenkinsMonitorTail    = regexp.MustCompile(`(?m)\btail\s+-f\s+([^\s;&|]+)`)
+	// Jenkins accepts both `tail -f log` and `tail -n 50 -F log`.  The
+	// latter is common for production monitors because it emits recent context
+	// before following the file.
+	jenkinsMonitorTail    = regexp.MustCompile(`(?im)\btail\s+(?:(?:-[^\s]+)(?:\s+\d+)?\s+)*-[^\s]*f[^\s]*\s+([^\s;&|]+)`)
 	jenkinsMonitorPID     = regexp.MustCompile(`(?m)\bSERVER_PID\s*=\s*\\?\$?\(\s*cat\s+([^\s)]+)`)
+	jenkinsMonitorPIDRead = regexp.MustCompile(`(?m)\bSERVER_PID\s*=.*<\s*([^\s)]+)`)
 	jenkinsMonitorTarget  = regexp.MustCompile(`(?m)^\s*cd\s+([^\s;&|]+)`)
 	foregroundService     = regexp.MustCompile(`(?m)^(\s*)(go\s+run\s+\./cmd/server/main\.go|\./\$?\{?(?:BINARY_NAME|BINARY_NAME)\}?)[ \t]+2>&1[ \t]*\|[ \t]*tee[ \t]+([^\r\n]+)$`)
 	teamResourcesFallback = regexp.MustCompile(`(?s)if\s+\[\s+-f\s+\./update-team-resources\.sh\s+\];\s+then(.*?)\n\s*else(.*?)\n\s*fi`)
