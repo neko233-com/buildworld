@@ -447,7 +447,9 @@
     "autoDetect": "自动检测",
     "apply": "应用",
     "scmPipelineRequired": "来自 SCM 的 Pipeline 脚本必须填写仓库地址和脚本路径。",
-    "triggerUnavailableForSource": "{source} 暂不支持在此编辑调度；触发规则继续由源配置定义。"
+    "triggerUnavailableForSource": "{source} 暂不支持在此编辑调度；触发规则继续由源配置定义。",
+    "triggerManagedByJenkinsfileTitle": "Jenkinsfile 触发器已启用",
+    "triggerManagedByJenkinsfile": "BuildWorld 会从此 SCM Jenkinsfile 的 triggers { cron(...) } 读取并按同一规则执行。修改 Jenkinsfile 即可修改触发规则。"
   },
   "projectGroups": {
     "title": "项目分组",
