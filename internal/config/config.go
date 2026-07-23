@@ -8,7 +8,8 @@ import (
 )
 
 // ControlPlanePort is the fixed local HTTP port used by BuildWorld.
-const ControlPlanePort = 8700
+// 8080 is the production cutover endpoint; legacy Jenkins is retained on 8081.
+const ControlPlanePort = 8080
 
 type Config struct {
 	Server     ServerConfig     `yaml:"server"`

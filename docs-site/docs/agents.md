@@ -42,7 +42,7 @@ machine:
 
 ```bash
 ~/.local/lib/buildworld/buildworld-worker \
-  --server http://buildworld.example:8700 \
+  --server http://buildworld.example:8080 \
   --token 'bw_enroll_…' \
   --listen :6051 \
   --advertise worker-01.example:6051 \
@@ -55,7 +55,7 @@ machine:
 
 `--advertise` must be an address that `buildworld-server` can reach. Allow
 inbound TCP `6051` from the server, or choose another port in both `--listen`
-and `--advertise`. The HTTP control plane remains on `8700`.
+and `--advertise`. The HTTP control plane remains on `8080`.
 
 The v1 worker RPC transport is authenticated but not encrypted and does not
 provide mTLS. Run it only on a trusted private network or VPN, bind/firewall the

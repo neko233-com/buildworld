@@ -4,8 +4,9 @@ sidebar_position: 3
 
 # Jenkins Migration On macOS
 
-Keep Jenkins running during migration. BuildWorld listens on `8700`; Jenkins
-normally uses `8080`, so both services can run on the same Mac Mini.
+Keep Jenkins available for rollback during migration. BuildWorld listens on
+`8080`; retained Jenkins listens on `8081`, so both services can run on the
+same Mac Mini without a listener conflict.
 
 ## Install BuildWorld
 
@@ -18,7 +19,7 @@ buildworld start
 buildworld status
 ```
 
-Open `http://127.0.0.1:8700`. The installer selects `darwin/arm64` on Apple
+Open `http://127.0.0.1:8080`. The installer selects `darwin/arm64` on Apple
 Silicon and `darwin/amd64` on Intel Macs, installs all three binaries plus the
 web bundle, verifies the release checksum, and adds `buildworld` to zsh login
 PATH. It also enables a per-user LaunchAgent unless

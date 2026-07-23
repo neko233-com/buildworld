@@ -23,7 +23,7 @@ This example contains the current bootstrap fields:
 ```yaml
 server:
   host: 127.0.0.1
-  port: 8700
+  port: 8080
 
 database:
   path: "./data/buildworld.db"

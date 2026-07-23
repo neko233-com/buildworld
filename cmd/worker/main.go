@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	server := flag.String("server", "http://localhost:8700", "Server address")
+	server := flag.String("server", "http://localhost:8080", "Server address")
 	token := flag.String("token", "", "Registration token")
 	listen := flag.String("listen", ":6051", "Worker gRPC listen address")
 	advertise := flag.String("advertise", "", "Worker address reachable from buildworld-server")

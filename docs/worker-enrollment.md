@@ -7,7 +7,7 @@ a remote worker only when its agent requirements select a pool or label.
 2. Run a worker with its reachable address:
 
 ```powershell
-buildworld-worker --server http://world.internal:8700 --token <enrollment-token> --listen :6051 --advertise 10.0.0.24:6051
+buildworld-worker --server http://world.internal:8080 --token <enrollment-token> --listen :6051 --advertise 10.0.0.24:6051
 ```
 
 3. Start another worker on the same host with another port, for example `:6052`.
