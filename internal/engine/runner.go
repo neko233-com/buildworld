@@ -1403,7 +1403,7 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 	// Keep the Jenkins environment contract for Jenkinsfile pipelines.  Define
 	// these before configured environments so an explicitly configured pipeline
 	// value retains Jenkins' normal override behaviour.
-	buildNumber := strconv.FormatInt(build.Number, 10)
+	buildNumber := strconv.Itoa(build.Number)
 	envMap := map[string]string{
 		"BUILD_NUMBER":       buildNumber,
 		"BUILD_ID":           buildNumber,
