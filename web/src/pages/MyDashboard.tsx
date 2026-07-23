@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Activity, Boxes, CheckCircle2, Gauge, LoaderCircle, RefreshCw, ServerCog, UserRound, XCircle } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Activity, Boxes, CheckCircle2, Gauge, LoaderCircle, Maximize2, RefreshCw, ServerCog, UserRound, XCircle } from 'lucide-react'
+import { motion } from 'motion/react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { PageState } from '../components/PageState'
-import { formatDate, formatDateTime } from '../lib/dateTime'
+import { formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { currentRole, isAdmin } from '../authz'
 import JenkinsHomeRail from '../components/JenkinsHomeRail'
 import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
+import { BuildTrendEChart } from '../components/BuildTrendEChart'
 
 interface DashboardData {
   summary: {
@@ -79,7 +81,6 @@ export default function MyDashboard() {
     return () => window.clearInterval(timer)
   }, [fetchData])
 
-  const maxTrend = useMemo(() => Math.max(1, ...data.trend_data.map(point => point.success + point.failed + point.running)), [data.trend_data])
   const visibleRecentBuilds = data.recent_builds.slice(0, 8)
   if (loading) return <PageState />
 
@@ -89,7 +90,7 @@ export default function MyDashboard() {
     <div className="operations-page data-dashboard-page">
     <header className="jenkins-page-heading data-dashboard-heading">
       <div><p>{t('nav.myDashboard')}</p><h1>{t('myDashboard.title')}</h1><small>{t('myDashboard.subtitle')}</small></div>
-      <div><span>{t('bigScreen.lastUpdate')}: {formatDateTime(lastUpdate)}</span><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
+      <div><span>{t('bigScreen.lastUpdate')}: {formatDateTime(lastUpdate)}</span><Link className="secondary-command" to="/bigscreen"><Maximize2 size={15} />{t('bigScreen.openWall')}</Link><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
     </header>
 
     {error && !lastUpdate && <PageState error={error} onRetry={() => fetchData()} />}
@@ -109,17 +110,10 @@ export default function MyDashboard() {
         <div className="operations-table-wrap"><table className="operations-table data-build-table"><caption className="sr-only">{t('bigScreen.recentBuilds')}</caption><thead><tr><th>{t('projects.name')}</th><th>{t('builds.status')}</th><th>{t('builds.branch')}</th><th>{t('builds.duration')}</th><th>{t('projectDetail.started')}</th></tr></thead><tbody>{!visibleRecentBuilds.length && <tr><td colSpan={5} className="operations-empty">{t('common.noData')}</td></tr>}{visibleRecentBuilds.map(build => { const tone = buildStatusTone(build.status); return <tr key={build.id}><td><Link className="data-build-link" to={`/builds/${build.id}`}><strong>{build.project}</strong><small>#{build.number}</small></Link></td><td><span className={`jenkins-build-state ${tone}`}>{tone === 'running' ? <LoaderCircle className="timeline-spinner" size={20} aria-hidden="true" /> : <i aria-hidden="true" />}<span>{buildStatusLabel(t, build.status)}</span></span></td><td><code>{build.branch || '-'}</code></td><td className="muted-cell">{formatDuration(build.duration_ms)}</td><td className="muted-cell">{formatDateTime(build.started_at)}</td></tr>})}</tbody></table></div>
       </section>
 
-      <section className="data-panel trend-panel">
+      <motion.section className="data-panel trend-panel" initial={{ opacity: 0, scale: .98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: .28, ease: 'easeOut' }}>
         <header><div><Gauge size={16} /><h2>{t('bigScreen.trend7d')}</h2></div></header>
-        {data.trend_data.length ? <div className="trend-chart" aria-label={t('bigScreen.trend7d')}>{data.trend_data.map(point => {
-          const success = point.success / maxTrend * 100
-          const failed = point.failed / maxTrend * 100
-          const running = point.running / maxTrend * 100
-          const pointLabel = `${formatDate(point.date)}: ${t('status.success')} ${point.success}, ${t('status.failed')} ${point.failed}, ${t('status.running')} ${point.running}`
-          return <div className="trend-column" key={point.date} role="img" aria-label={pointLabel}><div className="trend-values" aria-hidden="true"><span>{point.success + point.failed + point.running}</span><i className="running" style={{ height: `${running}%` }} /><i className="failed" style={{ height: `${failed}%` }} /><i className="success" style={{ height: `${success}%` }} /></div><small aria-hidden="true">{formatDate(point.date)}</small></div>
-        })}</div> : <p className="data-panel-empty">{t('common.noData')}</p>}
-        <footer className="trend-legend"><span><i className="success" />{t('status.success')}</span><span><i className="failed" />{t('status.failed')}</span><span><i className="running" />{t('status.running')}</span></footer>
-      </section>
+        {data.trend_data.length ? <BuildTrendEChart data={data.trend_data} /> : <p className="data-panel-empty">{t('common.noData')}</p>}
+      </motion.section>
 
       <section className="data-panel my-projects-panel" style={{ gridColumn: '1 / -1' }}>
         <header><div><Boxes size={16} /><h2>{t('myDashboard.myProjects')}</h2></div><span>{projects.length}</span></header>
