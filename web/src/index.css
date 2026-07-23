@@ -1054,6 +1054,12 @@ button:disabled { cursor: not-allowed; }
 .jenkins-rail-queue-link:hover .jenkins-rail-queue-name { color: #1769c2; text-decoration: underline; }
 .jenkins-rail-queue-name { display: block; overflow: hidden; font-size: 12px; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
 .jenkins-rail-queue-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; color: #586572; font-size: 12px; }
+.jenkins-rail-queue-progress { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; margin-top: 6px; }
+.jenkins-rail-queue-progress progress { width: 100%; height: 5px; overflow: hidden; appearance: none; border: 0; border-radius: 999px; background: #dce8f4; }
+.jenkins-rail-queue-progress progress::-webkit-progress-bar { border-radius: 999px; background: #dce8f4; }
+.jenkins-rail-queue-progress progress::-webkit-progress-value { border-radius: 999px; background: #2587d8; }
+.jenkins-rail-queue-progress progress::-moz-progress-bar { border-radius: 999px; background: #2587d8; }
+.jenkins-rail-queue-progress small { overflow: hidden; color: #3971a5; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .jenkins-rail-capacity { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; padding: 8px 16px; color: #0d1117; font-size: 12px; }
 .jenkins-rail-capacity-progress { width: 100%; height: 6px; grid-column: 1 / -1; accent-color: #1769c2; }
 .jenkins-rail-agent-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; padding: 7px 0; font-size: 12px; }

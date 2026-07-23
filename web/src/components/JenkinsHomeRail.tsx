@@ -1,14 +1,13 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import {
-  BookTemplate,
-  ChevronDown,
-  FolderKanban,
-  GitBranch,
-  History,
-  LoaderCircle,
-  Plus,
-  RotateCw,
-} from 'lucide-react'
+  IoAdd,
+  IoAlbumsOutline,
+  IoChevronDown,
+  IoFolderOutline,
+  IoGitBranchOutline,
+  IoReload,
+  IoTimeOutline,
+} from 'react-icons/io5'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { canEdit } from '../authz'
@@ -16,6 +15,7 @@ import { dialogs } from './AppDialogs'
 import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
+import { timelineProgress, type BuildTimeline } from '../lib/buildTimeline'
 import { formatDateTime } from '../lib/dateTime'
 
 type JenkinsHomeRailProps = {
@@ -50,6 +50,11 @@ type Agent = {
   max_concurrent_builds?: number
 }
 
+type RunningBuildProgress = {
+  percent: number
+  stage: string
+}
+
 const BUILD_QUEUE_COLLAPSED_KEY = 'buildworld.jenkins.pane.buildQueue.collapsed'
 const RECENT_BUILDS_COLLAPSED_KEY = 'buildworld.jenkins.pane.recentBuilds.collapsed'
 const ACTIVE_BUILD_STATUSES = new Set(['running', 'pending', 'pending_approval', 'queued'])
@@ -82,6 +87,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
   const agentsPanelId = useId()
   const recentBuildsPanelId = useId()
   const [queue, setQueue] = useState<QueueItem[] | null>(null)
+  const [history, setHistory] = useState<JenkinsRecentBuild[] | null>(null)
   const [agents, setAgents] = useState<Agent[] | null>(DISTRIBUTED_WORKERS_ENABLED ? null : [])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -90,6 +96,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
   const [recentBuildsOpen, setRecentBuildsOpen] = useState(initialRecentBuildsOpen)
   const [agentsOpen, setAgentsOpen] = useState(true)
   const [rebuilding, setRebuilding] = useState<number | null>(null)
+  const [runningProgress, setRunningProgress] = useState<Record<number, RunningBuildProgress>>({})
 
   useEffect(() => {
     let active = true
@@ -112,15 +119,43 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
       inFlight = true
       setError('')
       try {
-        const [nextQueue, nextAgents] = await Promise.all([
+        const [nextQueue, nextAgents, nextBuilds, nextProjects] = await Promise.all([
           api.listBuildQueue(),
           DISTRIBUTED_WORKERS_ENABLED ? api.listAgents() : Promise.resolve([]),
+          api.listBuilds(30),
+          api.listProjects(),
         ])
         if (!active) return
         const normalizedQueue = Array.isArray(nextQueue) ? nextQueue : []
+        const runningIDs = normalizedQueue
+          .filter(item => item.status === 'running')
+          .map(item => Number(item.build_id))
+          .filter(Number.isFinite)
+          .slice(0, 4)
+        const progressEntries = await Promise.all(runningIDs.map(async buildID => {
+          try {
+            const timeline = await api.getBuildTimeline(buildID) as BuildTimeline
+            const step = timeline.steps.find(candidate => candidate.status === 'running')
+            return [buildID, { percent: timelineProgress(timeline), stage: step?.stage || step?.name || '' }] as const
+          } catch {
+            return null
+          }
+        }))
         const normalizedAgents = Array.isArray(nextAgents) ? nextAgents : []
+        const projectNames = new Map((Array.isArray(nextProjects) ? nextProjects : []).map(project => [Number(project.id), String(project.name || `#${project.id}`)]))
+        const normalizedHistory = (Array.isArray(nextBuilds) ? nextBuilds : []).map(build => ({
+          id: Number(build.id),
+          project_id: Number(build.project_id),
+          project_name: projectNames.get(Number(build.project_id)) || `#${build.project_id}`,
+          number: Number(build.number),
+          status: String(build.status || 'pending'),
+          branch: build.branch,
+          started_at: build.started_at,
+        }))
         setQueue(normalizedQueue)
         setAgents(normalizedAgents)
+        setHistory(normalizedHistory)
+        setRunningProgress(Object.fromEntries(progressEntries.filter((entry): entry is readonly [number, RunningBuildProgress] => entry !== null)))
         setLoading(false)
         schedule()
       } catch (reason) {
@@ -170,21 +205,15 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
     })
   }
 
-  const recentProjectBuilds = useMemo(() => {
-    const seenProjects = new Set<number>()
-    return [...recentBuilds]
+  const recentBuildHistory = useMemo(() => {
+    return [...(history || recentBuilds)]
       .sort((left, right) => {
         const leftStarted = left.started_at ? Date.parse(left.started_at) : 0
         const rightStarted = right.started_at ? Date.parse(right.started_at) : 0
         return (rightStarted || right.id) - (leftStarted || left.id)
       })
-      .filter(build => {
-        if (seenProjects.has(build.project_id)) return false
-        seenProjects.add(build.project_id)
-        return true
-      })
       .slice(0, 8)
-  }, [recentBuilds])
+  }, [history, recentBuilds])
 
   const rebuild = async (build: JenkinsRecentBuild) => {
     if (ACTIVE_BUILD_STATUSES.has(build.status) || rebuilding !== null) return
@@ -211,11 +240,11 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
   }
 
   const quickLinks = [
-    { to: '/projects/new', label: t('projects.newProject'), Icon: Plus, editOnly: true },
-    { to: '/builds', label: t('nav.builds'), Icon: History, editOnly: false },
-    { to: '/templates', label: t('nav.templates'), Icon: BookTemplate, editOnly: false },
-    { to: '/projects', label: t('nav.projects'), Icon: FolderKanban, editOnly: false },
-    { to: '/vcs-roots', label: t('nav.vcsRoots'), Icon: GitBranch, editOnly: false },
+    { to: '/projects/new', label: t('projects.newProject'), Icon: IoAdd, editOnly: true },
+    { to: '/builds', label: t('nav.builds'), Icon: IoTimeOutline, editOnly: false },
+    { to: '/templates', label: t('nav.templates'), Icon: IoAlbumsOutline, editOnly: false },
+    { to: '/projects', label: t('nav.projects'), Icon: IoFolderOutline, editOnly: false },
+    { to: '/vcs-roots', label: t('nav.vcsRoots'), Icon: IoGitBranchOutline, editOnly: false },
   ]
   const queueList = (queue || []).filter(item => item.build_id !== undefined && item.build_id !== null)
   const activeCapacity = (agents || []).reduce((total, agent) => total + count(agent.active_builds), 0)
@@ -235,7 +264,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
 
       {loading && queue === null && (
         <div className="jenkins-rail-loading" role="status" aria-live="polite">
-          <LoaderCircle size={16} aria-hidden="true" />
+          <IoReload size={16} aria-hidden="true" />
           <span className="jenkins-rail-loading-label">{t('common.loading')}</span>
         </div>
       )}
@@ -244,13 +273,13 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
         <div className="jenkins-rail-error" role="alert">
           <p className="jenkins-rail-error-message">{error}</p>
           <button className="jenkins-rail-retry" type="button" onClick={retry}>
-            <RotateCw size={14} aria-hidden="true" />
+            <IoReload size={14} aria-hidden="true" />
             <span className="jenkins-rail-retry-label">{t('common.retry')}</span>
           </button>
         </div>
       )}
 
-      {(queue !== null || recentProjectBuilds.length > 0 || (DISTRIBUTED_WORKERS_ENABLED && agents !== null)) && (
+      {(queue !== null || recentBuildHistory.length > 0 || (DISTRIBUTED_WORKERS_ENABLED && agents !== null)) && (
         <div className="jenkins-rail-panels">
           <section className={`jenkins-rail-panel ${queueOpen ? 'expanded' : 'collapsed'}`} id="buildQueue">
             <header className="jenkins-rail-panel-header">
@@ -265,7 +294,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                 aria-expanded={queueOpen}
                 onClick={toggleQueue}
               >
-                <ChevronDown size={15} aria-hidden="true" />
+                <IoChevronDown size={15} aria-hidden="true" />
               </button>
             </header>
             {queueOpen && (
@@ -274,12 +303,24 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                   <ul className="jenkins-rail-queue-list">
                     {queueList.map((item, index) => (
                       <li className="jenkins-rail-queue-item" key={item.id ?? item.build_id ?? index}>
+                        <span
+                          className={`jenkins-rail-status-dot ${buildStatusTone(item.status === 'queued' ? 'pending' : item.status)}`}
+                          role="img"
+                          aria-label={buildStatusLabel(t, item.status === 'queued' ? 'pending' : item.status)}
+                        />
                         <Link className="jenkins-rail-queue-link" to={`/builds/${item.build_id}`}>
                           <span className="jenkins-rail-queue-name">{item.project_name || `#${item.project_id ?? item.build_id}`}</span>
                           <small className="jenkins-rail-queue-meta">
                             <span className="jenkins-rail-queue-number">#{item.build_number ?? item.build_id}</span>
                             <span className="jenkins-rail-queue-status">{buildStatusLabel(t, item.status === 'queued' ? 'pending' : item.status)}</span>
                           </small>
+                          {item.status === 'running' && (() => {
+                            const progress = runningProgress[Number(item.build_id)]
+                            return <span className="jenkins-rail-queue-progress">
+                              <progress aria-label={`${item.project_name || item.build_id} ${t('builds.progress')}`} value={progress?.percent || undefined} max={100} />
+                              <small>{progress?.stage || (progress ? `${progress.percent}%` : t('buildQueue.reasonRunning'))}</small>
+                            </span>
+                          })()}
                         </Link>
                       </li>
                     ))}
@@ -294,7 +335,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
           <section className={`jenkins-rail-panel jenkins-rail-history ${recentBuildsOpen ? 'expanded' : 'collapsed'}`}>
             <header className="jenkins-rail-panel-header">
               <Link className="jenkins-rail-panel-link" to="/builds">
-                <span className="jenkins-rail-panel-title">{t('dashboard.recentProjects')} ({recentProjectBuilds.length})</span>
+                <span className="jenkins-rail-panel-title">{t('dashboard.recentProjects')} ({recentBuildHistory.length})</span>
               </Link>
               <button
                 className="jenkins-rail-panel-toggle"
@@ -304,14 +345,14 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                 aria-expanded={recentBuildsOpen}
                 onClick={toggleRecentBuilds}
               >
-                <ChevronDown size={15} aria-hidden="true" />
+                <IoChevronDown size={15} aria-hidden="true" />
               </button>
             </header>
             {recentBuildsOpen && (
               <div className="jenkins-rail-panel-body" id={recentBuildsPanelId}>
-                {recentProjectBuilds.length ? (
+                {recentBuildHistory.length ? (
                   <ul className="jenkins-rail-queue-list jenkins-rail-history-list">
-                    {recentProjectBuilds.map(build => {
+                    {recentBuildHistory.map(build => {
                       const active = ACTIVE_BUILD_STATUSES.has(build.status)
                       const retrying = rebuilding === build.id
                       const statusLabel = buildStatusLabel(t, build.status)
@@ -324,7 +365,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                             aria-label={statusLabel}
                             title={statusLabel}
                           >
-                            {active && <LoaderCircle aria-hidden="true" />}
+                            {active && <IoReload aria-hidden="true" />}
                           </span>
                           <Link className="jenkins-rail-queue-link jenkins-rail-history-link" to={`/builds/${build.id}`}>
                             <span className="jenkins-rail-queue-name jenkins-rail-history-name">{build.project_name}</span>
@@ -347,8 +388,8 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                               onClick={() => rebuild(build)}
                             >
                               {retrying
-                                ? <LoaderCircle className="timeline-spinner" size={14} aria-hidden="true" />
-                                : <RotateCw size={14} aria-hidden="true" />}
+                                ? <IoReload className="timeline-spinner" size={14} aria-hidden="true" />
+                                : <IoReload size={14} aria-hidden="true" />}
                             </button>
                           )}
                         </li>
@@ -376,7 +417,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                 aria-expanded={agentsOpen}
                 onClick={() => setAgentsOpen(open => !open)}
               >
-                <ChevronDown size={15} aria-hidden="true" />
+                <IoChevronDown size={15} aria-hidden="true" />
               </button>
             </header>
             {agentsOpen && (

@@ -13,6 +13,9 @@ vi.mock('../api', () => ({
   api: {
     listBuildQueue: vi.fn(),
     listAgents: vi.fn(),
+    listBuilds: vi.fn(),
+    listProjects: vi.fn(),
+    getBuildTimeline: vi.fn(),
     retryBuild: vi.fn(),
   },
 }))
@@ -22,6 +25,9 @@ vi.mock('./AppDialogs', () => ({ dialogs: { confirm: vi.fn(), notify: vi.fn() } 
 
 const listBuildQueue = vi.mocked(api.listBuildQueue)
 const listAgents = vi.mocked(api.listAgents)
+const listBuilds = vi.mocked(api.listBuilds)
+const listProjects = vi.mocked(api.listProjects)
+const getBuildTimeline = vi.mocked(api.getBuildTimeline)
 const retryBuild = vi.mocked(api.retryBuild)
 const mockedCanEdit = vi.mocked(canEdit)
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -61,6 +67,9 @@ describe('JenkinsHomeRail', () => {
     mockedCanEdit.mockReset().mockReturnValue(false)
     listBuildQueue.mockReset().mockResolvedValue(queue)
     listAgents.mockReset().mockResolvedValue(agents)
+    listBuilds.mockReset().mockResolvedValue(recentBuilds)
+    listProjects.mockReset().mockResolvedValue([{ id: 1, name: 'Alpha' }, { id: 2, name: 'Beta' }, { id: 3, name: 'Gamma' }])
+    getBuildTimeline.mockReset().mockResolvedValue({ build_status: 'running', current_step: 1, total_steps: 4, completed_steps: 1, steps: [{ index: 1, stage: 'Compile', name: 'Compile', status: 'running' }] })
     retryBuild.mockReset().mockResolvedValue({ id: 301 })
     vi.mocked(dialogs.confirm).mockReset().mockResolvedValue(false)
     vi.mocked(dialogs.notify).mockReset()
@@ -95,6 +104,8 @@ describe('JenkinsHomeRail', () => {
     }
     expect(container.querySelector('a[href="/agents"]')).toBeNull()
     expect(listAgents).not.toHaveBeenCalled()
+    expect(listBuilds).toHaveBeenCalledWith(30)
+    expect(listProjects).toHaveBeenCalledOnce()
     expect(Array.from(container.querySelectorAll<HTMLAnchorElement>('.jenkins-rail-links a')).map(link => link.getAttribute('href'))).toEqual([
       '/builds',
       '/templates',
@@ -107,9 +118,10 @@ describe('JenkinsHomeRail', () => {
     expect(container.querySelector('#buildQueue .jenkins-rail-panel-title')?.textContent).toMatch(/\(4\)$/)
     expect(container.querySelectorAll('.jenkins-rail-agent-item')).toHaveLength(0)
     expect(container.querySelector('.jenkins-rail-panel-count')).toBeNull()
-    expect(container.querySelector('progress')).toBeNull()
-    expect(container.querySelectorAll('.jenkins-rail-history-item')).toHaveLength(3)
+    expect(container.querySelector('.jenkins-rail-capacity-progress')).toBeNull()
+    expect(container.querySelectorAll('.jenkins-rail-history-item')).toHaveLength(4)
     expect(container.querySelector('.jenkins-rail-history-link')?.getAttribute('href')).toBe('/builds/201')
+    expect(container.querySelector('.jenkins-rail-queue-progress progress')).not.toBeNull()
     expect(container.querySelectorAll('.jenkins-rail-history-rebuild')).toHaveLength(0)
 
     const queueToggle = container.querySelector<HTMLButtonElement>('.jenkins-rail-panel-toggle')!
