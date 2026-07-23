@@ -162,4 +162,15 @@ describe('Settings Jenkins directory', () => {
     expect(pipeline?.textContent).toContain('definePipeline')
     expect(pipeline?.textContent).not.toContain('agentRequirements')
   })
+
+  it('keeps automatic system updates visibly disabled by default', async () => {
+    await renderSettings('/settings?section=runtime')
+
+    const updateSwitch = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="switch"]'))
+      .find(item => item.getAttribute('aria-labelledby') &&
+        document.getElementById(item.getAttribute('aria-labelledby') || '')?.textContent === '允许自动更新请求')
+    expect(updateSwitch).toBeDefined()
+    expect(updateSwitch?.getAttribute('aria-checked')).toBe('false')
+    expect(container.textContent).toContain('人工更新')
+  })
 })

@@ -14,6 +14,7 @@ import (
 	"github.com/neko233-com/buildworld/internal/engine"
 	"github.com/neko233-com/buildworld/internal/plugin"
 	"github.com/neko233-com/buildworld/internal/store"
+	"github.com/neko233-com/buildworld/internal/systemupdate"
 	"github.com/neko233-com/buildworld/internal/ws"
 )
 
@@ -40,6 +41,7 @@ type Deps struct {
 	Statistics *engine.StatisticsService
 	Approval   *engine.ApprovalService
 	BigScreen  *engine.BigScreenService
+	Updater    systemupdate.Service
 }
 
 func NewServer(d Deps) *Server {

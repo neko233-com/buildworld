@@ -89,6 +89,18 @@ verification is incomplete or failing.
 - Use the bundled in-app Browser plugin for browser navigation, inspection,
   authentication-preserving interaction, and rendered-flow verification.
 
+## System update safety
+
+- Automatic system-update requests default to disabled. Do not add background
+  GitHub polling or silently enable `auto_update_enabled`.
+- Manual macOS/Linux updates use the authenticated `/api/system/update/`
+  bundle flow. Keep administrator role enforcement, the exact `system:update`
+  API-token scope, upload limits, SHA-256 verification, archive path checks,
+  single-operation locking, readiness checks, audit logging, and transactional
+  rollback.
+- Never accept server-local bundle paths, arbitrary installer commands, bearer
+  tokens in URLs, or unverified remote download URLs through the update API.
+
 ## Plugin compatibility direction
 
 - Prefer safe, data-only native plugin capabilities that cover Jenkins build
