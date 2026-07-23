@@ -18,6 +18,7 @@ import { useJenkinsBuildFlow } from './projectBuildFlow'
 type IconSize = 'small' | 'medium' | 'large'
 
 const ICON_SIZE_KEY = 'buildworld.jenkins.icon-size'
+const ACTIVE_VIEW_KEY = 'buildworld.jenkins.active-view'
 const ACTIVE_BUILD_STATUSES = new Set(['running', 'pending', 'pending_approval', 'queued'])
 const ACTIVE_REFRESH_INTERVAL_MS = 2_000
 const IDLE_REFRESH_INTERVAL_MS = 15_000
@@ -25,6 +26,11 @@ const IDLE_REFRESH_INTERVAL_MS = 15_000
 function initialIconSize(): IconSize {
   const stored = typeof localStorage === 'undefined' ? null : localStorage.getItem(ICON_SIZE_KEY)
   return stored === 'small' || stored === 'large' ? stored : 'medium'
+}
+
+function initialActiveView() {
+  if (typeof localStorage === 'undefined') return 'all'
+  return localStorage.getItem(ACTIVE_VIEW_KEY) || 'all'
 }
 
 function BuildReference({ build, emptyLabel }: { build?: any; emptyLabel: string }) {
@@ -49,7 +55,7 @@ export default function Dashboard() {
   const { t, locale } = useI18n()
   const navigate = useNavigate()
   const editable = canEdit()
-  const [activeView, setActiveView] = useState('all')
+  const [activeView, setActiveView] = useState(initialActiveView)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [iconSize, setIconSize] = useState<IconSize>(initialIconSize)
   const [flagBusy, setFlagBusy] = useState<{ id: number; flag: 'favorite' | 'quick_access' } | null>(null)
@@ -74,6 +80,14 @@ export default function Dashboard() {
     }, refreshInterval)
     return () => window.clearInterval(timer)
   }, [hasActiveBuilds, reload])
+
+  useEffect(() => {
+    if (!data) return
+    const validViews = new Set(['all', 'favorites', 'quick', ...(data.groups || []).map(group => `group-${group.id}`)])
+    if (validViews.has(activeView)) return
+    setActiveView('all')
+    localStorage.setItem(ACTIVE_VIEW_KEY, 'all')
+  }, [activeView, data])
 
   if (loading) return <PageState />
   if (error) return <PageState error={error} onRetry={reload} />
@@ -137,7 +151,10 @@ export default function Dashboard() {
     <JenkinsHomeRail recentBuilds={recentProjectBuilds} />
     <div className="jenkins-home-main">
       <nav className="jenkins-view-tabs" aria-label={t('nav.dashboard')}>
-        {views.map(view => <button key={view.id} type="button" className={view.id === selectedView.id ? 'active' : ''} aria-pressed={view.id === selectedView.id} onClick={() => setActiveView(view.id)}>{view.label}</button>)}
+        {views.map(view => <button key={view.id} type="button" className={view.id === selectedView.id ? 'active' : ''} aria-pressed={view.id === selectedView.id} onClick={() => {
+          setActiveView(view.id)
+          localStorage.setItem(ACTIVE_VIEW_KEY, view.id)
+        }}>{view.label}</button>)}
         {editable && <button type="button" className="jenkins-view-add" aria-label={t('projectGroups.newGroup')} title={t('projectGroups.newGroup')} onClick={() => setGroupsOpen(true)}><Plus size={15} /></button>}
       </nav>
 
