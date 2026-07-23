@@ -633,6 +633,13 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			position = closeBody + 1
 			continue
 		}
+		if command, ok := translateJenkinsPIDStopStage(stepSource); ok {
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, Steps: []engine.Step{{
+				Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + command,
+			}}})
+			position = closeBody + 1
+			continue
+		}
 		command, commandWarnings := translateJenkinsShell(stepSource)
 		for _, warning := range commandWarnings {
 			*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
@@ -660,6 +667,35 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 		return nil, fmt.Errorf("Jenkinsfile has no stages with supported executable commands")
 	}
 	return stages, nil
+}
+
+// translateJenkinsPIDStopStage preserves the common declarative Jenkins
+// pattern where a Groovy script captures `sh(returnStdout: true)` into oldPid
+// before terminating the previous daemon.  BuildWorld does not execute Groovy,
+// so flattening the inner sh blocks loses the captured value and can leave the
+// old process bound to the service port.  Translate that idiom directly to its
+// shell equivalent.
+func translateJenkinsPIDStopStage(source string) (string, bool) {
+	normalized := expandGroovyShellVariables(source)
+	if !strings.Contains(normalized, "oldPid") || !strings.Contains(normalized, "PID_FILE") || !strings.Contains(normalized, "kill -TERM") {
+		return "", false
+	}
+	return `cd "${TARGET_DIR:?missing TARGET_DIR}" || exit 0
+OLD_PID=""
+if [ -f "${PID_FILE:?missing PID_FILE}" ]; then
+    OLD_PID="$(LC_ALL=C tr -cd '0-9' < "$PID_FILE" | head -c 20 || true)"
+fi
+if printf '%s' "$OLD_PID" | grep -Eq '^[1-9][0-9]*$' && kill -0 "$OLD_PID" 2>/dev/null; then
+    echo "Sending SIGTERM to previous server PID=$OLD_PID"
+    kill -TERM "$OLD_PID"
+    for i in $(seq 1 325); do
+        kill -0 "$OLD_PID" 2>/dev/null || exit 0
+        sleep 0.2
+    done
+    echo 'Previous server did not exit within 65 seconds. Deployment is aborted without SIGKILL.' >&2
+    exit 1
+fi
+echo 'No valid live PID was found. The next server overwrites the stale PID file.'`, true
 }
 
 func parseScriptedJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, error) {
