@@ -685,17 +685,56 @@ OLD_PID=""
 if [ -f "${PID_FILE:?missing PID_FILE}" ]; then
     OLD_PID="$(LC_ALL=C tr -cd '0-9' < "$PID_FILE" | head -c 20 || true)"
 fi
-if printf '%s' "$OLD_PID" | grep -Eq '^[1-9][0-9]*$' && kill -0 "$OLD_PID" 2>/dev/null; then
-    echo "Sending SIGTERM to previous server PID=$OLD_PID"
-    kill -TERM "$OLD_PID"
-    for i in $(seq 1 325); do
-        kill -0 "$OLD_PID" 2>/dev/null || exit 0
-        sleep 0.2
-    done
-    echo 'Previous server did not exit within 65 seconds. Deployment is aborted without SIGKILL.' >&2
-    exit 1
+if ! printf '%s' "$OLD_PID" | grep -Eq '^[1-9][0-9]*$'; then
+    echo 'No valid live PID was found. The next server overwrites the stale PID file.'
+    exit 0
 fi
-echo 'No valid live PID was found. The next server overwrites the stale PID file.'`, true
+if ! kill -0 "$OLD_PID" 2>/dev/null; then
+    echo "Previous server PID=$OLD_PID no longer exists; removing stale PID file."
+    rm -f "$PID_FILE"
+    exit 0
+fi
+OLD_PROCESS_COMMAND="$(ps -p "$OLD_PID" -o command= 2>/dev/null || true)"
+case "$OLD_PROCESS_COMMAND" in
+    *"${BINARY_NAME:?missing BINARY_NAME}"*) ;;
+    *)
+        echo "PID=$OLD_PID belongs to a non-game process; removing stale PID file without signaling it. command=$OLD_PROCESS_COMMAND"
+        rm -f "$PID_FILE"
+        exit 0
+        ;;
+esac
+# Development game servers must either leave cleanly in this bounded window or
+# be replaced. Do not inherit a stale deployment environment timeout here.
+MAX_WAIT_SECONDS=10
+POLL_INTERVAL_MS=200
+MAX_WAIT_ATTEMPTS="$((MAX_WAIT_SECONDS * 1000 / POLL_INTERVAL_MS))"
+POLL_INTERVAL_SECONDS=0.2
+echo "Sending SIGTERM to previous server PID=$OLD_PID; maxWaitSeconds=$MAX_WAIT_SECONDS"
+kill -TERM "$OLD_PID"
+LAST_REMAINING_SECONDS=-1
+for i in $(seq 1 "$MAX_WAIT_ATTEMPTS"); do
+    kill -0 "$OLD_PID" 2>/dev/null || exit 0
+    ELAPSED_MS="$(((i - 1) * POLL_INTERVAL_MS))"
+    REMAINING_SECONDS="$(((MAX_WAIT_SECONDS * 1000 - ELAPSED_MS + 999) / 1000))"
+    if [ "$REMAINING_SECONDS" -ne "$LAST_REMAINING_SECONDS" ]; then
+        echo "Graceful shutdown countdown: ${REMAINING_SECONDS}s remaining."
+        LAST_REMAINING_SECONDS="$REMAINING_SECONDS"
+    fi
+    sleep "$POLL_INTERVAL_SECONDS"
+done
+echo "ERROR: Previous server did not exit within $MAX_WAIT_SECONDS seconds; final database flush is considered failed." >&2
+if [ -n "${LOG_FILE:-}" ] && [ -f "$LOG_FILE" ]; then
+    echo 'Last 240 lines of previous server log:' >&2
+    tail -n 240 "$LOG_FILE" >&2 || true
+fi
+echo "Sending SIGKILL to previous server PID=$OLD_PID after graceful shutdown timeout." >&2
+kill -KILL "$OLD_PID" 2>/dev/null || true
+for i in $(seq 1 25); do
+    kill -0 "$OLD_PID" 2>/dev/null || exit 0
+    sleep "$POLL_INTERVAL_SECONDS"
+done
+echo "ERROR: Previous server PID=$OLD_PID remained alive after SIGKILL; refusing to start a conflicting replacement." >&2
+exit 1`, true
 }
 
 func parseScriptedJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, error) {
@@ -1062,7 +1101,40 @@ ${1}`+jenkinsGitSafetyEnv+` ${2} || echo "WARNING: BuildWorld: git fetch unavail
 	command = jenkinsGitPull.ReplaceAllString(command, `${1}echo "BuildWorld: starting non-interactive git pull (60s HTTP idle timeout)"
 ${1}`+jenkinsGitSafetyEnv+` ${2} || echo "WARNING: BuildWorld: git pull unavailable; using stale existing checkout"`)
 	command = jenkinsGitResetRemote.ReplaceAllString(command, `${1} || git reset --hard HEAD`)
-	return command
+	return normalizeJenkinsWorkspaceClone(command)
+}
+
+// Pipeline script from SCM already creates a fresh Git checkout before the
+// migrated Jenkinsfile executes. Older jobs sometimes repeat that work with
+// `git clone ... .`, which fails because the workspace is no longer empty.
+// Preserve inline-pipeline behavior while making that legacy SCM form
+// idempotent.
+func normalizeJenkinsWorkspaceClone(command string) string {
+	lines := strings.Split(command, "\n")
+	normalized := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !isJenkinsWorkspaceCloneCommand(trimmed) {
+			normalized = append(normalized, line)
+			continue
+		}
+		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		normalized = append(normalized,
+			indent+`if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then`,
+			indent+`  echo "BuildWorld: workspace already contains the SCM checkout; skipping legacy git clone into ."`,
+			indent+`else`,
+			indent+`  `+trimmed,
+			indent+`fi`,
+		)
+	}
+	return strings.Join(normalized, "\n")
+}
+
+func isJenkinsWorkspaceCloneCommand(command string) bool {
+	if !strings.HasPrefix(command, "git clone ") {
+		return false
+	}
+	return strings.HasSuffix(command, " .") || strings.HasSuffix(command, " \".\"") || strings.HasSuffix(command, " '.'")
 }
 
 // Jenkins deployment jobs commonly reserve their executor forever by tailing a

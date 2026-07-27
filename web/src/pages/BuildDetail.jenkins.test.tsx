@@ -4,8 +4,12 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { api } from '../api'
 import BuildDetail from './BuildDetail'
+
+const buildDetailStyles = readFileSync(resolve(process.cwd(), 'src/pages/BuildDetail.jenkins.css'), 'utf8')
 
 vi.mock('../api', () => ({
   api: {
@@ -154,6 +158,63 @@ describe('BuildDetail Jenkins Run layout', () => {
     expect(currentPanel.hidden).toBe(false)
     expect(problemsPanel.hidden).toBe(true)
     expect(artifactsPanel.hidden).toBe(true)
+  })
+
+  it('shows a fixed stage rail with one copyable stage name per stage', async () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const longStageName = 'Prepare release package with a deliberately long stage name for inspection'
+    vi.mocked(api.getBuildLogs).mockResolvedValueOnce({ log: `[07:00:36] [Build] compiling\n[07:00:37] [${longStageName}] packaging\n` })
+    vi.mocked(api.getBuildTimeline).mockResolvedValueOnce({
+      total_steps: 3,
+      completed_steps: 2,
+      steps: [
+        { index: 0, stage: 'Build', name: 'Compile', status: 'success' },
+        { index: 1, stage: 'Build', name: 'Unit tests', status: 'success' },
+        { index: 2, stage: longStageName, name: 'Package', status: 'running' },
+      ],
+    })
+    await renderPage({ ...build, status: 'running', finished_at: null })
+
+    expect(container.querySelector('.build-timeline')).toBeNull()
+    const rail = container.querySelector<HTMLElement>('.build-stage-rail')!
+    expect(rail).not.toBeNull()
+    const stageItems = rail.querySelectorAll<HTMLButtonElement>('.build-stage-rail-item')
+    expect(stageItems).toHaveLength(2)
+    expect(stageItems[0].textContent).toBe('Build')
+    expect(stageItems[1].textContent).toBe(longStageName)
+    expect(stageItems[1].title).toBe(longStageName)
+
+    await act(async () => stageItems[1].click())
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+
+    await act(async () => rail.querySelector<HTMLButtonElement>('.build-stage-rail-copy')?.click())
+    expect(writeText).toHaveBeenCalledWith('Build')
+
+    const toggle = rail.querySelector<HTMLButtonElement>('.build-stage-rail-toggle')!
+    await act(async () => toggle.click())
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(rail.querySelector('ol')).toBeNull()
+    expect(container.querySelector('.jenkins-run-page')?.classList.contains('has-collapsed-stage-rail')).toBe(true)
+  })
+
+  it('uses an HTTP-safe copy fallback for stage names', async () => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+    const execCommand = vi.fn(() => true)
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand })
+    await renderPage()
+
+    const copy = container.querySelector<HTMLButtonElement>('.build-stage-rail-copy')!
+    await act(async () => copy.click())
+    expect(execCommand).toHaveBeenCalledWith('copy')
+    expect(document.querySelector('textarea[readonly]')).toBeNull()
+  })
+
+  it('reserves space for the fixed stage rail instead of covering log content', () => {
+    expect(buildDetailStyles).toMatch(/\.jenkins-run-page\.has-expanded-stage-rail\s*\{[\s\S]*?padding-right:\s*calc\(var\(--run-stage-rail-width\)/)
+    expect(buildDetailStyles).toMatch(/\.jenkins-run-page\.has-collapsed-stage-rail\s*\{[\s\S]*?padding-right:\s*calc\(38px/)
   })
 
   it('keeps Jenkins-visible loading feedback while a build is running', async () => {

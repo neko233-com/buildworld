@@ -3,6 +3,7 @@ package migration
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -159,6 +160,147 @@ func TestJenkinsfileStrategyConvertsServerDeploymentPipeline(t *testing.T) {
 	startCommand := config.Stages[4].Steps[0].Command
 	if !strings.Contains(startCommand, "SERVER_PID=$!") || !strings.Contains(startCommand, "echo ${SERVER_PID}") {
 		t.Fatalf("background process variables were not preserved:\n%s", startCommand)
+	}
+}
+
+func TestTranslateJenkinsPIDStopStageUsesDevelopmentShutdownRules(t *testing.T) {
+	command, ok := translateJenkinsPIDStopStage(`
+script {
+    def oldPid = sh(returnStdout: true, script: 'cat "$PID_FILE"').trim()
+    sh "kill -TERM ${oldPid}"
+}`)
+	if !ok {
+		t.Fatal("expected PID stop stage to translate")
+	}
+	for _, expected := range []string{
+		`MAX_WAIT_SECONDS=10`,
+		`POLL_INTERVAL_MS=200`,
+		`Graceful shutdown countdown: ${REMAINING_SECONDS}s remaining.`,
+		`Last 240 lines of previous server log:`,
+		`Sending SIGKILL to previous server PID=$OLD_PID after graceful shutdown timeout.`,
+		`belongs to a non-game process; removing stale PID file without signaling it.`,
+	} {
+		if !strings.Contains(command, expected) {
+			t.Fatalf("translated stop command is missing %q:\n%s", expected, command)
+		}
+	}
+	if strings.Contains(command, "seq 1 325") || strings.Contains(command, "65 seconds") {
+		t.Fatalf("translated stop command still contains the obsolete 65-second timeout:\n%s", command)
+	}
+}
+
+func TestTranslateJenkinsPIDStopStageRemovesStalePIDFile(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("POSIX shell is not available")
+	}
+	command, ok := translateJenkinsPIDStopStage(`
+script {
+    def oldPid = sh(returnStdout: true, script: 'cat "$PID_FILE"').trim()
+    sh "kill -TERM ${oldPid}"
+}`)
+	if !ok {
+		t.Fatal("expected PID stop stage to translate")
+	}
+	targetDir := t.TempDir()
+	pidFile := filepath.Join(targetDir, "game-server.pid.txt")
+	if err := os.WriteFile(pidFile, []byte("999999999\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shell := exec.Command("sh", "-c", command)
+	shell.Dir = targetDir
+	shell.Env = append(os.Environ(),
+		"TARGET_DIR="+filepath.ToSlash(targetDir),
+		"PID_FILE=game-server.pid.txt",
+		"BINARY_NAME=server-game-sf",
+	)
+	output, err := shell.CombinedOutput()
+	if err != nil {
+		t.Fatalf("stale PID handling failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "no longer exists; removing stale PID file") {
+		t.Fatalf("stale PID diagnostic missing:\n%s", output)
+	}
+	if _, err := os.Stat(pidFile); !os.IsNotExist(err) {
+		t.Fatalf("stale PID file remains: %v", err)
+	}
+}
+
+func TestTranslateJenkinsPIDStopStagePrintsLogTailBeforeForcedTermination(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("POSIX shell is not available")
+	}
+	command, ok := translateJenkinsPIDStopStage(`
+script {
+    def oldPid = sh(returnStdout: true, script: 'cat "$PID_FILE"').trim()
+    sh "kill -TERM ${oldPid}"
+}`)
+	if !ok {
+		t.Fatal("expected PID stop stage to translate")
+	}
+	targetDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(targetDir, "game-server.pid.txt"), []byte("321\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "server.log"), []byte("LAST_LOG_LINE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(targetDir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mockedProcessControl := `
+kill() {
+    case "$1" in
+        -0) [ -f "$STATE_DIR/killed" ] && return 1; return 0 ;;
+        -TERM) : > "$STATE_DIR/term"; return 0 ;;
+        -KILL) : > "$STATE_DIR/killed"; return 0 ;;
+        *) return 1 ;;
+    esac
+}
+ps() { printf '%s\n' 'server-game-sf'; }
+sleep() { printf '%s\n' "$1" >> "$STATE_DIR/sleeps"; }
+`
+	shell := exec.Command("sh", "-c", mockedProcessControl+command)
+	shell.Dir = targetDir
+	shell.Env = append(os.Environ(),
+		"STATE_DIR="+filepath.ToSlash(stateDir),
+		"TARGET_DIR="+filepath.ToSlash(targetDir),
+		"PID_FILE=game-server.pid.txt",
+		"LOG_FILE=server.log",
+		"BINARY_NAME=server-game-sf",
+		// A stale deployment environment must not extend the fixed 10-second
+		// development shutdown window. sleep is mocked, so this remains fast.
+		"GRACEFUL_SHUTDOWN_MAX_WAIT_SECONDS=65",
+		"GRACEFUL_SHUTDOWN_POLL_INTERVAL_MS=5000",
+	)
+	output, err := shell.CombinedOutput()
+	if err != nil {
+		t.Fatalf("forced termination path failed: %v\n%s", err, output)
+	}
+	for _, expected := range []string{
+		"Sending SIGTERM to previous server PID=321",
+		"Graceful shutdown countdown: 10s remaining.",
+		"Last 240 lines of previous server log:",
+		"LAST_LOG_LINE",
+		"Sending SIGKILL to previous server PID=321",
+	} {
+		if !strings.Contains(string(output), expected) {
+			t.Fatalf("forced termination output missing %q:\n%s", expected, output)
+		}
+	}
+	for _, name := range []string{"term", "killed"} {
+		if _, err := os.Stat(filepath.Join(stateDir, name)); err != nil {
+			t.Fatalf("missing %s signal marker: %v", name, err)
+		}
+	}
+	sleepCalls, err := os.ReadFile(filepath.Join(stateDir, "sleeps"))
+	if err != nil {
+		t.Fatalf("read sleep calls: %v", err)
+	}
+	for _, value := range strings.Fields(string(sleepCalls)) {
+		if value != "0.2" {
+			t.Fatalf("poll sleep = %q, want 0.2 seconds", value)
+		}
 	}
 }
 
@@ -634,6 +776,127 @@ pipeline {
 		if !strings.Contains(command, expected) {
 			t.Fatalf("missing %q:\n%s", expected, command)
 		}
+	}
+}
+
+func TestJenkinsfileStrategyMakesLegacyWorkspaceCloneIdempotent(t *testing.T) {
+	result, err := NewJenkinsfileStrategy().Convert(Request{Source: `
+pipeline {
+  agent any
+  stages {
+    stage('Checkout Latest Main') {
+      steps {
+        deleteDir()
+        checkout scm
+        sh '''
+          set -eu
+          cd "$WORKSPACE"
+          git clone --depth 1 --branch main 'https://example.invalid/game.git' .
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
+        '''
+      }
+    }
+  }
+}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := engine.ParsePipelineConfig(result.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Stages) != 1 || len(config.Stages[0].Steps) != 1 {
+		t.Fatalf("stages = %#v", config.Stages)
+	}
+	command := config.Stages[0].Steps[0].Command
+	for _, expected := range []string{
+		`if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then`,
+		`BuildWorld: workspace already contains the SCM checkout; skipping legacy git clone into .`,
+		`git clone --depth 1 --branch main 'https://example.invalid/game.git' .`,
+		`SOURCE_COMMIT="$(git rev-parse HEAD)"`,
+	} {
+		if !strings.Contains(command, expected) {
+			t.Fatalf("missing %q:\n%s", expected, command)
+		}
+	}
+	if strings.Contains(command, "deleteDir()") || strings.Contains(command, "checkout scm") {
+		t.Fatalf("Jenkins SCM directives must not run after BuildWorld prepares the workspace:\n%s", command)
+	}
+	if strings.Index(command, "if git rev-parse --is-inside-work-tree") > strings.Index(command, "git clone --depth 1") {
+		t.Fatalf("legacy clone appears before the workspace guard:\n%s", command)
+	}
+}
+
+func TestNormalizeJenkinsWorkspaceCloneLeavesNonWorkspaceDestinationsUnchanged(t *testing.T) {
+	command := `git clone --depth 1 https://example.invalid/resources.git "$RESOURCE_DIR"`
+	if got := normalizeJenkinsWorkspaceClone(command); got != command {
+		t.Fatalf("resource clone = %q, want unchanged %q", got, command)
+	}
+}
+
+func TestJenkinsfileStrategyLegacyWorkspaceCloneRunsAfterSCMCheckout(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not available")
+	}
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("POSIX shell is not available")
+	}
+
+	root := t.TempDir()
+	sourceRepository := filepath.Join(root, "source")
+	runJenkinsMigrationGit(t, "init", sourceRepository)
+	runJenkinsMigrationGit(t, "-C", sourceRepository, "config", "user.email", "buildworld-test@example.invalid")
+	runJenkinsMigrationGit(t, "-C", sourceRepository, "config", "user.name", "BuildWorld Test")
+	if err := os.WriteFile(filepath.Join(sourceRepository, "marker.txt"), []byte("source\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runJenkinsMigrationGit(t, "-C", sourceRepository, "add", "marker.txt")
+	runJenkinsMigrationGit(t, "-C", sourceRepository, "commit", "-m", "initial")
+	runJenkinsMigrationGit(t, "-C", sourceRepository, "branch", "-M", "main")
+
+	workspace := filepath.Join(root, "workspace")
+	runJenkinsMigrationGit(t, "clone", "--branch", "main", sourceRepository, workspace)
+	cloneURL := strings.ReplaceAll(filepath.ToSlash(sourceRepository), "'", "'\\''")
+	result, err := NewJenkinsfileStrategy().Convert(Request{Source: fmt.Sprintf(`
+pipeline {
+  agent any
+  stages {
+    stage('Checkout Latest Main') {
+      steps { sh '''
+        set -eu
+        cd "$WORKSPACE"
+        git clone --depth 1 --branch main '%s' .
+        test -f marker.txt
+      ''' }
+    }
+  }
+}`, cloneURL)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := engine.ParsePipelineConfig(result.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := config.Stages[0].Steps[0].Command
+	shell := exec.Command("sh", "-c", command)
+	shell.Dir = workspace
+	shell.Env = append(os.Environ(), "WORKSPACE="+filepath.ToSlash(workspace))
+	output, err := shell.CombinedOutput()
+	if err != nil {
+		t.Fatalf("migrated legacy SCM checkout failed: %v\n%s\n%s", err, command, output)
+	}
+	if !strings.Contains(string(output), "workspace already contains the SCM checkout") {
+		t.Fatalf("legacy clone did not report reuse:\n%s", output)
+	}
+}
+
+func runJenkinsMigrationGit(t *testing.T, arguments ...string) {
+	t.Helper()
+	command := exec.Command("git", arguments...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(arguments, " "), err, output)
 	}
 }
 

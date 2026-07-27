@@ -98,6 +98,26 @@
   letter-spacing: 0;
 }
 
+.jenkins-configure-group-heading {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 8px 12px;
+  border-left: 3px solid #0b6ee5;
+  background: #f3f7fc;
+}
+
+.jenkins-configure-group-heading svg {
+  flex: 0 0 auto;
+  color: #0b63ce;
+}
+
+.jenkins-configure-group-heading h2 {
+  margin: 0;
+}
+
 .jenkins-configure-general-heading {
   display: flex;
   align-items: center;
@@ -189,8 +209,9 @@
 
 .jenkins-configure-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 1fr));
-  gap: 18px 24px;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 960px;
+  gap: 18px;
 }
 
 .jenkins-configure-fields label,
@@ -209,7 +230,9 @@
 .jenkins-configure-fields select,
 .jenkins-configure-trigger input[type="text"],
 .jenkins-configure-trigger label > input:not([type="checkbox"]) {
+  box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   min-height: 36px;
   padding: 7px 9px;
   border: 1px solid #c8d1dc;
@@ -432,11 +455,7 @@
   }
 
   .jenkins-configure-fields {
-    grid-template-columns: 1fr;
-  }
-
-  .jenkins-configure-wide {
-    grid-column: auto;
+    max-width: none;
   }
 
   .jenkins-configure-section-heading {

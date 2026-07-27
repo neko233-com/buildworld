@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Activity, AlertTriangle, Ban, Check, Circle, CircleDot, Download, ExternalLink, FileText, FlaskConical, GitBranch, GitCommitHorizontal, LoaderCircle, Package, Palette, Pause, Pin, PinOff, Play, RotateCcw, Settings2, SlidersHorizontal, Square, Upload, UserRound, Workflow, X } from 'lucide-react'
+import { Activity, AlertTriangle, Ban, Check, Circle, Copy, Download, ExternalLink, FileText, FlaskConical, GitBranch, GitCommitHorizontal, LoaderCircle, Package, Palette, PanelRightClose, PanelRightOpen, Pause, Pin, PinOff, Play, RotateCcw, Settings2, SlidersHorizontal, Square, Upload, UserRound, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
@@ -53,6 +53,39 @@ function TimelineStatusIcon({ status }: { status: BuildTimelineStep['status'] })
   return <Circle size={12} />
 }
 
+interface StageRailItem {
+  name: string
+  status: BuildTimelineStep['status']
+}
+
+const stageStatusPriority: Record<BuildTimelineStep['status'], number> = {
+  skipped: 0,
+  success: 1,
+  pending: 2,
+  cancelled: 3,
+  running: 4,
+  failed: 5,
+}
+
+// The build timeline records individual steps. The compact rail is stage-only,
+// so preserve first-seen order while exposing the most actionable stage state.
+function stageRailItems(steps: BuildTimelineStep[]): StageRailItem[] {
+  const items = new Map<string, StageRailItem>()
+  for (const step of steps) {
+    const name = (step.stage || step.name).trim()
+    if (!name) continue
+    const existing = items.get(name)
+    if (!existing) {
+      items.set(name, { name, status: step.status })
+      continue
+    }
+    if (stageStatusPriority[step.status] > stageStatusPriority[existing.status]) {
+      existing.status = step.status
+    }
+  }
+  return [...items.values()]
+}
+
 type BuildDetailTab = 'current' | 'problems' | 'artifacts'
 
 export default function BuildDetail() {
@@ -84,6 +117,9 @@ export default function BuildDetail() {
   const activeBuildRef = useRef<number | null>(null)
   const [followConsole, setFollowConsole] = useState(true)
   const [colorizeLogs, setColorizeLogs] = useState(readLogTonePreference)
+  const [stageRailExpanded, setStageRailExpanded] = useState(() => typeof window === 'undefined' || !window.matchMedia?.('(max-width: 1180px)').matches)
+  const requestedStageLogRef = useRef<string | null>(null)
+  const stageRail = useMemo(() => stageRailItems(timeline?.steps || []), [timeline?.steps])
 
   const isExecuting = build?.status === 'running'
   const isActive = isExecuting || build?.status === 'pending' || build?.status === 'queued' || build?.status === 'pending_approval'
@@ -162,6 +198,23 @@ export default function BuildDetail() {
     return () => consoleOutput.removeEventListener('wheel', pauseFollowing)
   }, [activeTab, build?.id])
 
+  useEffect(() => {
+    const stageName = requestedStageLogRef.current
+    if (activeTab !== 'current' || !stageName) return
+    scrollToStageLog(stageName)
+  }, [activeTab, consoleLines])
+
+  useEffect(() => {
+    if (!window.matchMedia) return
+    const media = window.matchMedia('(max-width: 1180px)')
+    const collapseForNarrowView = () => {
+      if (media.matches) setStageRailExpanded(false)
+    }
+    collapseForNarrowView()
+    media.addEventListener?.('change', collapseForNarrowView)
+    return () => media.removeEventListener?.('change', collapseForNarrowView)
+  }, [])
+
   const setConsoleFollowing = (next: boolean) => {
     followConsoleRef.current = next
     setFollowConsole(next)
@@ -173,6 +226,46 @@ export default function BuildDetail() {
     }
     scrollToLatest()
     window.requestAnimationFrame(scrollToLatest)
+  }
+
+  const scrollToStageLog = (stageName: string) => {
+    const stagePattern = new RegExp(`^\\[[^\\]]+\\] \\[${stageName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\]`)
+    const lineIndex = consoleLines.findIndex(line => stagePattern.test(line))
+    const logLine = lineIndex >= 0 ? document.getElementById(`build-log-line-${lineIndex}`) : null
+    if (!logLine) return false
+    requestedStageLogRef.current = null
+    followConsoleRef.current = false
+    setFollowConsole(false)
+    logLine.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    return true
+  }
+
+  const handleStageLogNavigation = (stageName: string) => {
+    if (activeTab === 'current' && scrollToStageLog(stageName)) return
+    requestedStageLogRef.current = stageName
+    selectTab('current')
+  }
+
+  const copyStageName = async (stageName: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(stageName)
+      } else {
+        const fallback = document.createElement('textarea')
+        fallback.value = stageName
+        fallback.setAttribute('readonly', '')
+        fallback.style.position = 'fixed'
+        fallback.style.opacity = '0'
+        document.body.append(fallback)
+        fallback.select()
+        const copied = document.execCommand('copy')
+        fallback.remove()
+        if (!copied) throw new Error('copy failed')
+      }
+      dialogs.notify(t('common.copied'), 'success')
+    } catch {
+      dialogs.notify(t('common.copyFailed'))
+    }
   }
 
   const selectTab = (tab: BuildDetailTab) => {
@@ -267,10 +360,11 @@ export default function BuildDetail() {
     reloadLogs()
     reloadTimeline()
   }
+  const stageRailClass = stageRail.length === 0 ? '' : stageRailExpanded ? 'has-expanded-stage-rail' : 'has-collapsed-stage-rail'
 
   return <>
     <JenkinsHeaderBreadcrumb breadcrumbs={[{ label: projectName, to: `/projects/${build.project_id}` }, { label: `#${build.number}` }]} />
-    <section className="jenkins-run-page">
+    <section className={`jenkins-run-page ${stageRailClass}`}>
     <div className="jenkins-run-layout">
       <aside className="jenkins-run-side-panel" aria-label={t('builds.build')}>
         <nav className="jenkins-run-tasks">
@@ -344,23 +438,6 @@ export default function BuildDetail() {
           <dl>{parameters.map(([name, value]) => <div key={name}><dt>{name}</dt><dd><code>{parameterValue(name, value)}</code></dd></div>)}</dl>
         </section>}
 
-        <section className="build-timeline jenkins-run-section" aria-label={t('builds.timeline')}>
-          <header>
-            <div><Workflow size={17} /><div><h2>{t('builds.timeline')}</h2><p>{t('builds.linearFlow')}</p></div></div>
-            <strong>{progressCopy}</strong>
-          </header>
-          <div className="timeline-progress" aria-hidden="true"><i style={{ width: `${progress}%` }} /></div>
-          {timelineSteps.length
-            ? <ol className="timeline-track">
-                {timelineSteps.map(step => <li key={step.index} className={`timeline-step ${step.status}`} aria-current={step.status === 'running' ? 'step' : undefined}>
-                  <span className="timeline-status"><TimelineStatusIcon status={step.status} /></span>
-                  <div><small>{step.stage}</small><strong>{step.name}</strong><em>{t(`builds.${step.status}`)}</em></div>
-                  {step.index < timelineSteps.length - 1 ? <span className="timeline-connector" aria-hidden="true" /> : null}
-                </li>)}
-              </ol>
-            : <div className="timeline-empty"><CircleDot size={15} />{t('builds.waitingForPlan')}</div>}
-        </section>
-
         <section className="jenkins-run-section jenkins-console-section" id="console">
           <header className="jenkins-run-section-heading">
             <h2><FileText size={20} />{t('builds.logs')}</h2>
@@ -376,7 +453,7 @@ export default function BuildDetail() {
             const consoleOutput = consoleRef.current
             if (!consoleOutput) return
             if (followConsoleRef.current && !isNearLogBottom(consoleOutput)) setConsoleFollowing(false)
-          }}>{consoleLines.length ? consoleLines.map((line, index) => <span className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''}`} key={index}>{line || '\u00a0'}</span>) : t('builds.noLogs')}</pre>
+          }}>{consoleLines.length ? consoleLines.map((line, index) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''}`} key={index}>{line || '\u00a0'}</span>) : t('builds.noLogs')}</pre>
           {isExecuting && <div className="jenkins-console-progress" role="status" aria-live="polite">{followConsole ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pause size={16} />}{followConsole ? liveLogStatus : t('builds.followPaused')}</div>}
         </section>
         </div>
@@ -401,6 +478,26 @@ export default function BuildDetail() {
         </div>
       </div>
     </div>
+    {stageRail.length > 0 && <aside className={`build-stage-rail ${stageRailExpanded ? 'is-expanded' : 'is-collapsed'}`} aria-label={t('builds.timeline')}>
+      <header>
+        {stageRailExpanded && <strong>{progressCopy}</strong>}
+        <button type="button" className="build-stage-rail-toggle" onClick={() => setStageRailExpanded(expanded => !expanded)} aria-expanded={stageRailExpanded} aria-label={stageRailExpanded ? t('builds.collapseStages') : t('builds.expandStages')} title={stageRailExpanded ? t('builds.collapseStages') : t('builds.expandStages')}>
+          {stageRailExpanded ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+        </button>
+      </header>
+      {stageRailExpanded && <ol>
+        {stageRail.map(stage => {
+          const stageName = stage.name
+          return <li key={stageName} className={stage.status}>
+            <button type="button" className="build-stage-rail-item" onClick={() => handleStageLogNavigation(stageName)} aria-current={stage.status === 'running' ? 'step' : undefined} title={stageName}>
+              <span className="build-stage-rail-status"><TimelineStatusIcon status={stage.status} /></span>
+              <span>{stageName}</span>
+            </button>
+            <button type="button" className="build-stage-rail-copy" onClick={() => copyStageName(stageName)} aria-label={`${t('common.copy')} ${stageName}`} title={t('common.copy')}><Copy size={14} /></button>
+          </li>
+        })}
+      </ol>}
+    </aside>}
     </section>
     {replayOpen && <ReplayBuildDialog
       target={{ id: buildId, number: build.number, projectId: build.project_id, projectName, branch: build.branch, parameters: build.parameters }}

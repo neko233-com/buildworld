@@ -146,6 +146,38 @@ describe('ProjectConfigure', () => {
     })
   })
 
+  it('presents trigger and advanced settings as explicit single-column groups', async () => {
+    vi.mocked(api.getProject).mockResolvedValue({
+      id: 48,
+      enabled: true,
+      name: 'scm-job',
+      description: '',
+      repo_url: 'https://git.example.test/scm-job.git',
+      repo_type: 'git',
+      default_branch: 'main',
+      tags: [],
+      config: '',
+      pipeline_format: 'jenkinsfile',
+      pipeline_source_mode: 'scm',
+      pipeline_scm_repo: 'https://git.example.test/scm-job.git',
+      pipeline_scm_branch: 'main',
+      pipeline_scm_path: 'server_game/.jenkins/Jenkinsfile_GameServer',
+    })
+
+    await act(async () => {
+      root.render(<MemoryRouter initialEntries={['/projects/48/configure']}><Routes><Route path="/projects/:id/configure" element={<ProjectConfigure />} /></Routes></MemoryRouter>)
+    })
+    await flushRequests()
+
+    expect(container.querySelector('#jenkins-configure-triggers.jenkins-configure-group .jenkins-configure-group-heading h2')?.textContent).toBe('Trigger')
+    expect(container.querySelector('#jenkins-configure-advanced.jenkins-configure-group .jenkins-configure-group-heading h2')?.textContent).toBe('Advanced configuration')
+    expect(container.querySelectorAll('#jenkins-configure-advanced .jenkins-configure-fields > label')).toHaveLength(7)
+
+    const styles = readFileSync(resolve(process.cwd(), 'src/pages/ProjectConfigure.css'), 'utf8')
+    expect(styles).toMatch(/\.jenkins-configure-fields\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/)
+    expect(styles).toMatch(/\.jenkins-configure-fields input,[\s\S]*?box-sizing:\s*border-box;[\s\S]*?width:\s*100%;[\s\S]*?min-width:\s*0;/)
+  })
+
   it('lets editors change the linked build template and persists template_id', async () => {
     vi.mocked(api.listTemplates).mockResolvedValue([
       { id: 12, name: 'Shared pipeline', config: 'jobs:\n  build:\n    steps: []\n' },

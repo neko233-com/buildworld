@@ -10,16 +10,16 @@
   padding: 0;
 }
 
-[data-skin="jenkins"] .jenkins-job-layout {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-layout {
   grid-template-columns: 340px minmax(0, 1fr);
   gap: 0;
 }
 
-[data-skin="jenkins"] .jenkins-job-sidebar {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-sidebar {
   padding: 0 0 26px;
 }
 
-[data-skin="jenkins"] .jenkins-job-actions {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-actions {
   display: flex;
   width: auto;
   align-items: stretch;
@@ -30,8 +30,8 @@
   padding: 0;
 }
 
-[data-skin="jenkins"] .jenkins-job-actions a,
-[data-skin="jenkins"] .jenkins-job-actions button {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-actions a,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-actions button {
   width: 100%;
   min-height: 38px;
   justify-content: flex-start;
@@ -41,12 +41,12 @@
   font-size: 14px;
 }
 
-[data-skin="jenkins"] .jenkins-job-actions svg {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-actions svg {
   width: 20px;
   height: 20px;
 }
 
-[data-skin="jenkins"] .jenkins-job-builds {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-builds {
   width: 330px;
   margin-left: 10px;
   border-width: 2px;
@@ -54,22 +54,22 @@
   border-radius: 10px;
 }
 
-[data-skin="jenkins"] .jenkins-job-builds > header {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-builds > header {
   height: 42px;
   padding: 0 16px;
 }
 
-[data-skin="jenkins"] .jenkins-job-builds > header a {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-builds > header a {
   font-size: 14px;
 }
 
-[data-skin="jenkins"] .jenkins-job-builds > header span,
-[data-skin="jenkins"] .jenkins-job-build-filter input,
-[data-skin="jenkins"] .jenkins-job-build > a {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-builds > header span,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-build-filter input,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-build > a {
   font-size: 12px;
 }
 
-[data-skin="jenkins"] .jenkins-job-build-filter {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-build-filter {
   height: 38px;
   margin: 10px;
   padding: 0 10px;
@@ -77,77 +77,77 @@
   border-radius: 7px;
 }
 
-[data-skin="jenkins"] .jenkins-job-build > a {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-build > a {
   min-height: 48px;
   grid-template-columns: 18px 42px minmax(0, 1fr) auto;
   padding: 0 34px 0 12px;
 }
 
-[data-skin="jenkins"] .jenkins-job-build strong,
-[data-skin="jenkins"] .jenkins-job-build time {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-build strong,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-build time {
   font-size: 12px;
 }
 
-[data-skin="jenkins"] .jenkins-job-build small,
-[data-skin="jenkins"] .jenkins-job-build-group > h3 {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-build small,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-build-group > h3 {
   font-size: 11px;
 }
 
-[data-skin="jenkins"] .jenkins-job-main {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-main {
   padding: 26px 26px 60px;
   font-size: 14px;
 }
 
-[data-skin="jenkins"] .jenkins-job-heading h1 {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-heading h1 {
   font-size: 24px;
 }
 
-[data-skin="jenkins"] .jenkins-job-heading p,
-[data-skin="jenkins"] .jenkins-job-full-name,
-[data-skin="jenkins"] .jenkins-job-description,
-[data-skin="jenkins"] .jenkins-job-related li,
-[data-skin="jenkins"] .jenkins-job-source > a,
-[data-skin="jenkins"] .jenkins-job-source > span,
-[data-skin="jenkins"] .jenkins-job-source dd {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-heading p,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-full-name,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-description,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-related li,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-source > a,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-source > span,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-source dd {
   font-size: 14px;
 }
 
-[data-skin="jenkins"] .jenkins-job-related h2,
-[data-skin="jenkins"] .jenkins-job-source h2 {
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-related h2,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-source h2 {
   font-size: 22px;
 }
 
 @media (max-width: 900px) {
-  [data-skin="jenkins"] .jenkins-job-layout {
+  [data-skin="jenkins"] .jenkins-job-page .jenkins-job-layout {
     grid-template-columns: 260px minmax(0, 1fr);
   }
 
-  [data-skin="jenkins"] .jenkins-job-actions {
+  [data-skin="jenkins"] .jenkins-job-page .jenkins-job-actions {
     margin-left: 18px;
   }
 
-  [data-skin="jenkins"] .jenkins-job-builds {
+  [data-skin="jenkins"] .jenkins-job-page .jenkins-job-builds {
     width: 250px;
   }
 }
 
 @media (max-width: 700px) {
-  [data-skin="jenkins"] .jenkins-job-layout {
+  [data-skin="jenkins"] .jenkins-job-page .jenkins-job-layout {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  [data-skin="jenkins"] .jenkins-job-actions {
+  [data-skin="jenkins"] .jenkins-job-page .jenkins-job-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin: 8px 0;
   }
 
-  [data-skin="jenkins"] .jenkins-job-builds {
+  [data-skin="jenkins"] .jenkins-job-page .jenkins-job-builds {
     width: auto;
     margin: 0;
   }
 
-  [data-skin="jenkins"] .jenkins-job-main {
+  [data-skin="jenkins"] .jenkins-job-page .jenkins-job-main {
     padding: 20px 4px 50px;
   }
 }

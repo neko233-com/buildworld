@@ -400,8 +400,11 @@ export default function ProjectConfigure() {
           </div>
         </section>
 
-        <section id="jenkins-configure-triggers" className="jenkins-configure-section" aria-labelledby="jenkins-configure-triggers-title">
-          <h2 id="jenkins-configure-triggers-title">{t('builds.trigger')}</h2>
+        <section id="jenkins-configure-triggers" className="jenkins-configure-section jenkins-configure-group" aria-labelledby="jenkins-configure-triggers-title">
+          <div className="jenkins-configure-group-heading">
+            <TimerReset size={19} aria-hidden="true" />
+            <h2 id="jenkins-configure-triggers-title">{t('builds.trigger')}</h2>
+          </div>
           {scheduleSupported ? <fieldset className="jenkins-configure-trigger" disabled={!editable}>
             <label className="jenkins-configure-check"><input type="checkbox" checked={scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} /><span>{t('projectDetail.scheduleBuilds')}</span></label>
             {scheduleEnabled && <label><span>Cron</span><input id="jenkins-configure-schedule-cron" required aria-invalid={validationErrors.schedule || undefined} aria-describedby={validationErrors.schedule ? 'jenkins-configure-form-error' : undefined} value={scheduleCron} onChange={event => { setScheduleCron(event.target.value); clearValidationError('schedule') }} placeholder="0 2 * * *" /><small>{t('projectDetail.scheduleDescription')}</small></label>}
@@ -413,8 +416,11 @@ export default function ProjectConfigure() {
           {form.pipeline_source_mode === 'inline' ? <div ref={pipelineEditorRef} className="jenkins-configure-editor" tabIndex={-1} aria-invalid={validationErrors.pipeline || undefined} aria-describedby={validationErrors.pipeline ? 'jenkins-configure-form-error' : undefined}><PipelineSourceEditor ariaLabel={t('pipeline.sourceLabel')} value={form.config} readOnly={!editable} language={effectiveFormat} onChange={config => { setForm(current => current ? { ...current, config } : current); setPipelineValidation(pendingPipelineValidation(config)); clearValidationError('pipeline') }} onValidationChange={setPipelineValidation} statusId="jenkins-configure-pipeline-status" height={440} /></div> : <div className="jenkins-configure-disabled"><GitBranch size={18} /><div><strong>{t('projectDetail.pipelineScriptFromSCM')}</strong><p>{form.pipeline_scm_path || t('common.noData')}</p></div></div>}
         </section>
 
-        <section id="jenkins-configure-advanced" className="jenkins-configure-section" aria-labelledby="jenkins-configure-advanced-title">
-          <h2 id="jenkins-configure-advanced-title">{t('vcsRoots.config')}</h2>
+        <section id="jenkins-configure-advanced" className="jenkins-configure-section jenkins-configure-group" aria-labelledby="jenkins-configure-advanced-title">
+          <div className="jenkins-configure-group-heading">
+            <Wrench size={19} aria-hidden="true" />
+            <h2 id="jenkins-configure-advanced-title">{t('vcsRoots.config')}</h2>
+          </div>
           <div className="jenkins-configure-fields">
             <label><span>{t('projects.repositoryType')}</span><input id="jenkins-configure-repository-type" value={t('projects.gitOnly')} readOnly aria-readonly="true" /></label>
             <label><span>{t('projectDetail.definition')}</span><select disabled={!editable} value={form.pipeline_source_mode} onChange={setSourceMode}><option value="inline">{t('projectDetail.pipelineScript')}</option><option value="scm">{t('projectDetail.pipelineScriptFromSCM')}</option></select></label>

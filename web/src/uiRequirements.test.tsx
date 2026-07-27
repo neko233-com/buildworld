@@ -13,6 +13,7 @@ import { PROJECT_GROUP_COLORS } from './lib/projectGroups'
 const indexStyles = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
 const jenkinsPageStyles = readFileSync(resolve(process.cwd(), 'src/jenkins-pages.css'), 'utf8')
 const jenkinsShellStyles = readFileSync(resolve(process.cwd(), 'src/jenkins-shell.css'), 'utf8')
+const projectJobActionStyles = readFileSync(resolve(process.cwd(), 'src/pages/ProjectJobActions.css'), 'utf8')
 const settingsStyles = readFileSync(resolve(process.cwd(), 'src/settings.css'), 'utf8')
 const styles = `${indexStyles}\n${jenkinsPageStyles}\n${jenkinsShellStyles}`
 const documentTemplate = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
@@ -94,6 +95,58 @@ describe('requested UI contracts', () => {
     expect(styles).toMatch(/\.jenkins-job-table-wrap\s*\{[^}]*overflow-x:\s*auto[^}]*background:\s*#ffffff/)
     expect(styles).toMatch(/\.jenkins-job-table\s*\{[^}]*min-width:\s*920px[^}]*table-layout:\s*fixed/)
     expect(styles).toMatch(/\.jenkins-job-table td\s*\{[^}]*height:\s*43px/)
+  })
+
+  it('keeps dashboard action geometry stable after project detail styles load', () => {
+    document.documentElement.dataset.skin = 'jenkins'
+    installStyles(styles)
+
+    const homeMain = document.createElement('main')
+    homeMain.className = 'jenkins-home-main'
+    const actions = document.createElement('div')
+    actions.className = 'jenkins-job-actions'
+    const button = document.createElement('button')
+    actions.appendChild(button)
+    homeMain.appendChild(actions)
+    document.body.appendChild(homeMain)
+
+    const geometry = () => {
+      const actionStyle = getComputedStyle(actions)
+      const buttonStyle = getComputedStyle(button)
+      return {
+        action: {
+          display: actionStyle.display,
+          flexDirection: actionStyle.flexDirection,
+          gap: actionStyle.gap,
+          margin: actionStyle.margin,
+          padding: actionStyle.padding,
+        },
+        button: {
+          width: buttonStyle.width,
+          height: buttonStyle.height,
+          minHeight: buttonStyle.minHeight,
+          padding: buttonStyle.padding,
+        },
+      }
+    }
+
+    const beforeLazyProjectStyles = geometry()
+    installStyles(projectJobActionStyles)
+
+    expect(geometry()).toEqual(beforeLazyProjectStyles)
+
+    const projectPage = document.createElement('section')
+    projectPage.className = 'jenkins-job-page'
+    const projectActions = document.createElement('nav')
+    projectActions.className = 'jenkins-job-actions'
+    const projectAction = document.createElement('button')
+    projectActions.appendChild(projectAction)
+    projectPage.appendChild(projectActions)
+    document.body.appendChild(projectPage)
+
+    expect(getComputedStyle(projectActions).flexDirection).toBe('column')
+    expect(getComputedStyle(projectActions).margin).toBe('0px 8px 26px 26px')
+    expect(getComputedStyle(projectAction).minHeight).toBe('38px')
   })
 
   it('collapses the Jenkins home layout cleanly at tablet and phone widths', () => {

@@ -6,6 +6,8 @@
 [data-skin="jenkins"] .jenkins-run-page {
   --run-section-padding: 26px;
   --run-side-panel-width: 280px;
+  --run-stage-rail-width: 310px;
+  --run-stage-rail-inset: 20px;
   --run-border: color-mix(in srgb, #4d545d 17.5%, #fff);
   --run-border-subtle: color-mix(in srgb, #20262d 3.5%, transparent);
   --run-muted-surface: hsl(240 20% 96.5%);
@@ -19,6 +21,14 @@
   font-family: system-ui, "Segoe UI", roboto, "Noto Sans", oxygen, ubuntu, cantarell, "Helvetica Neue", arial, sans-serif;
   font-size: 14px;
   line-height: 1.5;
+}
+
+[data-skin="jenkins"] .jenkins-run-page.has-expanded-stage-rail {
+  padding-right: calc(var(--run-stage-rail-width) + var(--run-stage-rail-inset) + 4px);
+}
+
+[data-skin="jenkins"] .jenkins-run-page.has-collapsed-stage-rail {
+  padding-right: calc(38px + var(--run-stage-rail-inset) + 4px);
 }
 
 [data-skin="jenkins"] .jenkins-run-breadcrumb {
@@ -796,7 +806,6 @@
   font-size: 12px;
 }
 
-[data-skin="jenkins"] .jenkins-run-page .build-timeline,
 [data-skin="jenkins"] .jenkins-run-page .detail-panel,
 [data-skin="jenkins"] .jenkins-run-page .build-chain-panel,
 [data-skin="jenkins"] .jenkins-run-page .build-approval-panel {
@@ -805,8 +814,146 @@
   box-shadow: none;
 }
 
-[data-skin="jenkins"] .jenkins-run-page .build-timeline {
-  margin-bottom: 26px;
+[data-skin="jenkins"] .build-stage-rail {
+  position: fixed;
+  z-index: 6;
+  top: 118px;
+  right: var(--run-stage-rail-inset);
+  bottom: 24px;
+  display: flex;
+  width: min(var(--run-stage-rail-width), calc(100vw - 48px));
+  max-height: calc(100dvh - 142px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--run-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 28px rgb(35 43 54 / 16%);
+}
+
+[data-skin="jenkins"] .build-stage-rail.is-collapsed {
+  width: 38px;
+  bottom: auto;
+}
+
+[data-skin="jenkins"] .build-stage-rail > header {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 7px 0 12px;
+  border-bottom: 1px solid var(--run-border-subtle);
+  color: var(--run-secondary);
+  font-size: 12px;
+}
+
+[data-skin="jenkins"] .build-stage-rail.is-collapsed > header {
+  min-height: 38px;
+  padding: 0;
+  border-bottom: 0;
+}
+
+[data-skin="jenkins"] .build-stage-rail > header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--run-text);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .build-stage-rail-toggle,
+[data-skin="jenkins"] .build-stage-rail-copy {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--run-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+[data-skin="jenkins"] .build-stage-rail.is-collapsed .build-stage-rail-toggle {
+  width: 38px;
+  height: 38px;
+  flex-basis: 38px;
+}
+
+[data-skin="jenkins"] .build-stage-rail-toggle:hover,
+[data-skin="jenkins"] .build-stage-rail-toggle:focus-visible,
+[data-skin="jenkins"] .build-stage-rail-copy:hover,
+[data-skin="jenkins"] .build-stage-rail-copy:focus-visible {
+  outline: none;
+  color: #155ca1;
+  background: #eaf4ff;
+}
+
+[data-skin="jenkins"] .build-stage-rail > ol {
+  display: grid;
+  min-height: 0;
+  margin: 0;
+  padding: 6px;
+  gap: 2px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+[data-skin="jenkins"] .build-stage-rail > ol > li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+}
+
+[data-skin="jenkins"] .build-stage-rail-item {
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 7px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  color: var(--run-text);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+[data-skin="jenkins"] .build-stage-rail-item > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .build-stage-rail-status {
+  display: inline-flex;
+  width: 16px;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+}
+
+[data-skin="jenkins"] .build-stage-rail > ol > li.success .build-stage-rail-status { color: #287940; }
+[data-skin="jenkins"] .build-stage-rail > ol > li.failed .build-stage-rail-status { color: #b4313b; }
+[data-skin="jenkins"] .build-stage-rail > ol > li.running .build-stage-rail-status { color: #1569c2; }
+[data-skin="jenkins"] .build-stage-rail > ol > li.skipped .build-stage-rail-status,
+[data-skin="jenkins"] .build-stage-rail > ol > li.cancelled .build-stage-rail-status { color: #77818b; }
+
+[data-skin="jenkins"] .build-stage-rail-item:hover,
+[data-skin="jenkins"] .build-stage-rail-item:focus-visible,
+[data-skin="jenkins"] .build-stage-rail-item[aria-current="step"] {
+  outline: none;
+  background: #edf6ff;
 }
 
 [data-skin="jenkins"] .jenkins-run-page .build-log-workbench {
@@ -871,6 +1018,7 @@
 @media (max-width: 760px) {
   [data-skin="jenkins"] .jenkins-run-page {
     --run-section-padding: 20px;
+    --run-stage-rail-inset: 12px;
     min-height: calc(100vh - 50px);
   }
 

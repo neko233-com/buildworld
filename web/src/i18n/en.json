@@ -695,6 +695,8 @@
     "retrying": "Retrying...",
     "pinned": "Pinned",
     "timeline": "Execution timeline",
+    "collapseStages": "Collapse stages",
+    "expandStages": "Expand stages",
     "linearFlow": "Runs one step at a time in this exact order",
     "progress": "{completed} of {total} steps complete · {percent}%",
     "waitingForPlan": "Waiting for the build plan.",

@@ -695,6 +695,8 @@
     "retrying": "正在重试...",
     "pinned": "已置顶",
     "timeline": "执行时间线",
+    "collapseStages": "收起阶段列表",
+    "expandStages": "展开阶段列表",
     "linearFlow": "严格按此顺序逐步执行，同一时刻只运行一个步骤",
     "progress": "已完成 {completed}/{total} 步 · {percent}%",
     "waitingForPlan": "正在等待生成构建计划。",
