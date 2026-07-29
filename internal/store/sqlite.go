@@ -677,7 +677,16 @@ func (s *Store) DeleteProject(id int64) error {
 		return fmt.Errorf("begin project deletion: %w", err)
 	}
 	defer tx.Rollback()
+	if err := deleteProjectTx(tx, id); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit project deletion: %w", err)
+	}
+	return nil
+}
 
+func deleteProjectTx(tx *sql.Tx, id int64) error {
 	exec := func(label, query string, args ...interface{}) error {
 		if _, err := tx.Exec(query, args...); err != nil {
 			return fmt.Errorf("delete project %s: %w", label, err)
@@ -739,9 +748,6 @@ func (s *Store) DeleteProject(id int64) error {
 	// shared resources. Deleting only the project row preserves them.
 	if err := exec("row", "DELETE FROM projects WHERE id=?", id); err != nil {
 		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit project deletion: %w", err)
 	}
 	return nil
 }
@@ -2782,6 +2788,13 @@ func isProjectGroupNameConstraint(err error) bool {
 }
 
 func (s *Store) DeleteProjectGroup(id int64) error {
+	return s.DeleteProjectGroupWithProjects(id, false)
+}
+
+// DeleteProjectGroupWithProjects removes a project group. By default its
+// projects are deliberately retained and become ungrouped. Removing projects
+// is opt-in and happens in the same transaction as removing the group.
+func (s *Store) DeleteProjectGroupWithProjects(id int64, deleteProjects bool) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -2791,7 +2804,33 @@ func (s *Store) DeleteProjectGroup(id int64) error {
 	if err := tx.QueryRow("SELECT id FROM project_groups WHERE id = ?", id).Scan(&existingID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec("UPDATE projects SET group_id=NULL, updated_at=? WHERE group_id=?", time.Now(), id); err != nil {
+	if deleteProjects {
+		rows, err := tx.Query("SELECT id FROM projects WHERE group_id=? ORDER BY id", id)
+		if err != nil {
+			return err
+		}
+		var projectIDs []int64
+		for rows.Next() {
+			var projectID int64
+			if err := rows.Scan(&projectID); err != nil {
+				rows.Close()
+				return err
+			}
+			projectIDs = append(projectIDs, projectID)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		for _, projectID := range projectIDs {
+			if err := deleteProjectTx(tx, projectID); err != nil {
+				return err
+			}
+		}
+	} else if _, err := tx.Exec("UPDATE projects SET group_id=NULL, updated_at=? WHERE group_id=?", time.Now(), id); err != nil {
 		return err
 	}
 	if _, err := tx.Exec("DELETE FROM project_groups WHERE id = ?", id); err != nil {

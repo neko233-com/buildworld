@@ -2736,7 +2736,15 @@ func (h *handlers) deleteProjectGroup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := h.d.Store.DeleteProjectGroup(id); err != nil {
+	deleteProjects := false
+	if raw := r.URL.Query().Get("delete_projects"); raw != "" {
+		deleteProjects, err = strconv.ParseBool(raw)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "delete_projects must be a boolean")
+			return
+		}
+	}
+	if err := h.d.Store.DeleteProjectGroupWithProjects(id, deleteProjects); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeErr(w, http.StatusNotFound, "project group not found")
 			return
@@ -2744,8 +2752,12 @@ func (h *handlers) deleteProjectGroup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.audit(r, "delete", "project_group", fmt.Sprintf("%d", id), "")
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	detail := "projects moved to all"
+	if deleteProjects {
+		detail = "projects deleted"
+	}
+	h.audit(r, "delete", "project_group", fmt.Sprintf("%d", id), detail)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "delete_projects": deleteProjects})
 }
 
 // ---------------------------------------------------------------------------
@@ -2760,6 +2772,35 @@ func (h *handlers) listBuildQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+// getBuildQueueCapacity exposes the builtin executor limit needed to interpret
+// the dashboard queue. It deliberately returns no administrator-only settings.
+func (h *handlers) getBuildQueueCapacity(w http.ResponseWriter, _ *http.Request) {
+	maxConcurrentBuilds := 1
+	if h.d.Cfg != nil && h.d.Cfg.Workers.Local.MaxConcurrentBuilds > 0 {
+		maxConcurrentBuilds = h.d.Cfg.Workers.Local.MaxConcurrentBuilds
+	}
+	if h.d.Store != nil {
+		settings, err := h.d.Store.ListEnvVars("system", nil)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, setting := range settings {
+			if setting.Name != "local_agent_concurrency" {
+				continue
+			}
+			if value, err := strconv.Atoi(setting.Value); err == nil && value > 0 {
+				maxConcurrentBuilds = value
+			}
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"executor":              "builtin",
+		"max_concurrent_builds": maxConcurrentBuilds,
+	})
 }
 
 func (h *handlers) reorderBuildQueue(w http.ResponseWriter, r *http.Request) {

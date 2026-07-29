@@ -3,7 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -144,6 +146,41 @@ func TestProjectGroupAPIRejectsInvalidColors(t *testing.T) {
 	}
 	if unchanged.Color != "blue" {
 		t.Fatalf("rejected updates changed group: %#v", unchanged)
+	}
+}
+
+func TestDeleteProjectGroupCanExplicitlyDeleteItsProjects(t *testing.T) {
+	data, err := store.New(filepath.Join(t.TempDir(), "project-group-delete-projects.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	group, err := data.CreateProjectGroup("game servers", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := data.CreateProject("remove with group", "", "", "git", "main", "{}", 0, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := data.SetProjectGroup(project.ID, &group.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := &handlers{d: Deps{Store: data}}
+	request := projectGroupRequestWithID(t, http.MethodDelete, group.ID, "")
+	request.URL.RawQuery = "delete_projects=true"
+	response := httptest.NewRecorder()
+	handler.deleteProjectGroup(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if _, err := data.GetProject(project.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("project deletion error = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := data.GetProjectGroup(group.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("group deletion error = %v, want sql.ErrNoRows", err)
 	}
 }
 

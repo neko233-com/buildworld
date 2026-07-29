@@ -12,6 +12,7 @@ import JenkinsHomeRail from './JenkinsHomeRail'
 vi.mock('../api', () => ({
   api: {
     listBuildQueue: vi.fn(),
+    getBuildQueueCapacity: vi.fn(),
     listAgents: vi.fn(),
     listBuilds: vi.fn(),
     listProjects: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('../authz', () => ({ canEdit: vi.fn() }))
 vi.mock('./AppDialogs', () => ({ dialogs: { confirm: vi.fn(), notify: vi.fn() } }))
 
 const listBuildQueue = vi.mocked(api.listBuildQueue)
+const getBuildQueueCapacity = vi.mocked(api.getBuildQueueCapacity)
 const listAgents = vi.mocked(api.listAgents)
 const listBuilds = vi.mocked(api.listBuilds)
 const listProjects = vi.mocked(api.listProjects)
@@ -68,6 +70,7 @@ describe('JenkinsHomeRail', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
     mockedCanEdit.mockReset().mockReturnValue(false)
     listBuildQueue.mockReset().mockResolvedValue(queue)
+    getBuildQueueCapacity.mockReset().mockResolvedValue({ executor: 'builtin', max_concurrent_builds: 4 })
     listAgents.mockReset().mockResolvedValue(agents)
     listBuilds.mockReset().mockResolvedValue(recentBuilds)
     listProjects.mockReset().mockResolvedValue([{ id: 1, name: 'Alpha' }, { id: 2, name: 'Beta' }, { id: 3, name: 'Gamma' }])
@@ -122,8 +125,8 @@ describe('JenkinsHomeRail', () => {
     expect(container.querySelector('a[href="/builds/101"]')).not.toBeNull()
     expect(container.textContent).toContain('Delta')
     expect(container.querySelector('#buildQueue .jenkins-rail-panel-title')?.textContent).toMatch(/\(4\)$/)
+    expect(container.querySelector('#buildQueue .jenkins-rail-panel-count')?.textContent).toBe('builtin 1 / 4')
     expect(container.querySelectorAll('.jenkins-rail-agent-item')).toHaveLength(0)
-    expect(container.querySelector('.jenkins-rail-panel-count')).toBeNull()
     expect(container.querySelector('.jenkins-rail-capacity-progress')).toBeNull()
     expect(container.querySelectorAll('.jenkins-rail-history-item')).toHaveLength(6)
     expect(container.querySelector('.jenkins-rail-history-link')?.getAttribute('href')).toBe('/builds/201')

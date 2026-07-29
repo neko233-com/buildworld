@@ -12,7 +12,7 @@ import {
   IoTimeOutline,
 } from 'react-icons/io5'
 import { Link, useNavigate } from 'react-router-dom'
-import { api } from '../api'
+import { api, type BuildQueueCapacity } from '../api'
 import { canEdit } from '../authz'
 import { dialogs } from './AppDialogs'
 import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
@@ -90,6 +90,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
   const agentsPanelId = useId()
   const recentBuildsPanelId = useId()
   const [queue, setQueue] = useState<QueueItem[] | null>(null)
+  const [builtinCapacity, setBuiltinCapacity] = useState<BuildQueueCapacity>({ executor: 'builtin', max_concurrent_builds: 1 })
   const [history, setHistory] = useState<JenkinsRecentBuild[] | null>(null)
   const [agents, setAgents] = useState<Agent[] | null>(DISTRIBUTED_WORKERS_ENABLED ? null : [])
   const [loading, setLoading] = useState(true)
@@ -122,8 +123,9 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
       inFlight = true
       setError('')
       try {
-        const [nextQueue, nextAgents, nextBuilds, nextProjects] = await Promise.all([
+        const [nextQueue, nextCapacity, nextAgents, nextBuilds, nextProjects] = await Promise.all([
           api.listBuildQueue(),
+          api.getBuildQueueCapacity().catch(() => null),
           DISTRIBUTED_WORKERS_ENABLED ? api.listAgents() : Promise.resolve([]),
           api.listBuilds(30),
           api.listProjects(),
@@ -156,6 +158,9 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
           started_at: build.started_at,
         }))
         setQueue(normalizedQueue)
+        if (nextCapacity && count(nextCapacity.max_concurrent_builds)) {
+          setBuiltinCapacity(nextCapacity)
+        }
         setAgents(normalizedAgents)
         setHistory(normalizedHistory)
         setRunningProgress(Object.fromEntries(progressEntries.filter((entry): entry is readonly [number, RunningBuildProgress] => entry !== null)))
@@ -253,6 +258,11 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
     { to: '/users', label: t('nav.users'), Icon: IoPeopleOutline, editOnly: true },
   ]
   const queueList = (queue || []).filter(item => item.build_id !== undefined && item.build_id !== null)
+  const runningBuilds = queueList.filter(item => item.status === 'running').length
+  const builtinLimit = Math.max(count(builtinCapacity.max_concurrent_builds), 1)
+  const builtinCapacityLabel = t('buildQueue.builtinCapacity')
+    .replace('{active}', String(runningBuilds))
+    .replace('{limit}', String(builtinLimit))
   const activeCapacity = (agents || []).reduce((total, agent) => total + count(agent.active_builds), 0)
   const totalCapacity = (agents || []).reduce((total, agent) => total + count(agent.max_concurrent_builds), 0)
   const agentList = (agents || []).filter(agent => count(agent.active_builds) > 0).slice(0, 3)
@@ -291,6 +301,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
             <header className="jenkins-rail-panel-header">
               <Link className="jenkins-rail-panel-link" to="/build-queue">
                 <span className="jenkins-rail-panel-title">{t('nav.buildQueue')} ({queueList.length})</span>
+                <span className="jenkins-rail-panel-count" title={builtinCapacityLabel}>{builtinCapacityLabel}</span>
               </Link>
               <button
                 className="jenkins-rail-panel-toggle"

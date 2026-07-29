@@ -17,10 +17,12 @@ vi.mock('../api', () => ({
     listBuilds: vi.fn(),
     getStorageUsage: vi.fn(),
     listBuildQueue: vi.fn(),
+    getBuildQueueCapacity: vi.fn(),
     listAgents: vi.fn(),
     setProjectFlags: vi.fn(),
     reorderProjects: vi.fn(),
     deleteProject: vi.fn(),
+    deleteProjectGroup: vi.fn(),
     getProject: vi.fn(),
     validateProject: vi.fn(),
     triggerBuild: vi.fn(),
@@ -40,10 +42,12 @@ const listProjectGroups = vi.mocked(api.listProjectGroups)
 const listBuilds = vi.mocked(api.listBuilds)
 const getStorageUsage = vi.mocked(api.getStorageUsage)
 const listBuildQueue = vi.mocked(api.listBuildQueue)
+const getBuildQueueCapacity = vi.mocked(api.getBuildQueueCapacity)
 const listAgents = vi.mocked(api.listAgents)
 const setProjectFlags = vi.mocked(api.setProjectFlags)
 const reorderProjects = vi.mocked(api.reorderProjects)
 const deleteProject = vi.mocked(api.deleteProject)
+const deleteProjectGroup = vi.mocked(api.deleteProjectGroup)
 const getProject = vi.mocked(api.getProject)
 const validateProject = vi.mocked(api.validateProject)
 const triggerBuild = vi.mocked(api.triggerBuild)
@@ -116,10 +120,12 @@ describe('Dashboard Jenkins job view', () => {
       used_percent: 76,
     })
     listBuildQueue.mockReset().mockResolvedValue([])
+    getBuildQueueCapacity.mockReset().mockResolvedValue({ executor: 'builtin', max_concurrent_builds: 1 })
     listAgents.mockReset().mockResolvedValue([])
     setProjectFlags.mockReset().mockResolvedValue({})
     reorderProjects.mockReset().mockResolvedValue({})
     deleteProject.mockReset().mockResolvedValue({})
+    deleteProjectGroup.mockReset().mockResolvedValue({})
     getProject.mockReset().mockResolvedValue({ ...projects[1], config: 'stages:\n  - name: build' })
     validateProject.mockReset().mockResolvedValue({
       valid: true,
@@ -283,14 +289,14 @@ describe('Dashboard Jenkins job view', () => {
     expect(container.querySelector('.jenkins-storage-monitor.normal progress')).not.toBeNull()
   })
 
-  it('filters favorite, quick-access, and project-group views and persists both project flags', async () => {
+  it('filters highlighted favorites and project groups without exposing quick access', async () => {
     await renderDashboard()
 
-    act(() => buttonNamed('收藏项目').click())
+    const favorites = buttonNamed('收藏项目')
+    expect(favorites.className).toContain('jenkins-view-favorites')
+    expect(Array.from(container.querySelectorAll('button')).some(button => button.textContent?.trim() === '快速访问')).toBe(false)
+    act(() => favorites.click())
     expect(visibleProjectNames()).toEqual(['Alpha'])
-
-    act(() => buttonNamed('快速访问').click())
-    expect(visibleProjectNames()).toEqual(['Beta'])
 
     expect(container.querySelector('button[aria-label="常用功能"]')).toBeNull()
     expect(container.querySelector('.jenkins-rail-links a[href="/api-tokens"]')?.textContent).toContain('API Token')
@@ -302,8 +308,32 @@ describe('Dashboard Jenkins job view', () => {
     await act(async () => buttonNamed('收藏 Zulu').click())
     expect(setProjectFlags).toHaveBeenCalledWith(3, true, false)
 
-    await act(async () => buttonNamed('加入快速访问 Alpha').click())
-    expect(setProjectFlags).toHaveBeenCalledWith(1, true, true)
+    expect(container.querySelector('button[aria-label="加入快速访问 Alpha"]')).toBeNull()
+  })
+
+  it('offers an enhanced group right-click delete flow that keeps projects by default and can delete them explicitly', async () => {
+    await renderDashboard()
+
+    const groupTab = buttonNamed('服务端')
+    await act(async () => {
+      groupTab.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 420, clientY: 220 }))
+    })
+    const menuDelete = Array.from(container.querySelectorAll<HTMLButtonElement>('.jenkins-group-context-menu button'))[0]
+    expect(menuDelete).not.toBeUndefined()
+    expect(menuDelete?.textContent).toContain('删除此分组')
+
+    await act(async () => menuDelete?.click())
+    const deleteProjects = document.querySelector<HTMLInputElement>('input[name="delete-group-projects"]')
+    expect(deleteProjects?.checked).toBe(false)
+    expect(document.querySelector('.project-group-delete-dialog-body')?.textContent).toContain('全部')
+
+    await act(async () => deleteProjects?.click())
+    expect(deleteProjects?.checked).toBe(true)
+    const confirmDelete = document.querySelector<HTMLButtonElement>('.project-group-delete-dialog .danger-command')
+    await act(async () => confirmDelete?.click())
+
+    expect(deleteProjectGroup).toHaveBeenCalledWith(20, true)
+    expect(localStorage.getItem('buildworld.jenkins.active-view')).toBe('all')
   })
 
   it('keeps build action busy while validating and triggering, then opens the queued build', async () => {

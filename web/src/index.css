@@ -1095,8 +1095,27 @@ button:disabled { cursor: not-allowed; }
 .jenkins-view-tabs button { display: inline-flex; height: 25px; flex: 0 0 auto; align-items: center; justify-content: center; padding: 0 13px; color: #37414c; border: 0; border-radius: 13px; background: transparent; font-size: 10px; white-space: nowrap; }
 .jenkins-view-tabs button:hover { color: #1769c2; background: #eaf1f8; }
 .jenkins-view-tabs button.active { color: #20262d; background: #ffffff; box-shadow: 0 1px 3px rgba(31, 43, 56, .14); font-weight: 650; }
+.jenkins-view-tabs button.jenkins-view-favorites { gap: 4px; color: #8c5a00; background: #fff4c7; font-weight: 650; }
+.jenkins-view-tabs button.jenkins-view-favorites:hover { color: #704800; background: #ffe89a; }
+.jenkins-view-tabs button.jenkins-view-favorites.active { color: #4f3500; background: #f7ca4a; box-shadow: 0 1px 3px rgba(126, 83, 0, .24); }
 .jenkins-view-tabs .jenkins-view-add { width: 28px; padding: 0; }
 .jenkins-home-toolbar { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
+.jenkins-group-context-menu { position: fixed; z-index: 30; min-width: 190px; padding: 5px; border: 1px solid #d7dde5; border-radius: 8px; background: #fff; box-shadow: 0 8px 24px rgba(26, 38, 51, .18); }
+.jenkins-group-context-menu button { display: flex; width: 100%; height: 32px; align-items: center; gap: 7px; padding: 0 9px; color: var(--ui-danger); border: 0; border-radius: 5px; background: transparent; font-size: 11px; text-align: left; }
+.jenkins-group-context-menu button:hover, .jenkins-group-context-menu button:focus-visible { outline: none; background: #fff0f1; }
+.project-group-delete-dialog { width: min(480px, 100%); }
+.project-group-delete-dialog > header > div { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.project-group-delete-dialog > header > div > svg { color: var(--ui-danger); }
+.project-group-delete-dialog h2 { margin: 0; color: var(--ui-ink); font-size: 14px; }
+.project-group-delete-dialog header p { margin: 3px 0 0; color: var(--ui-muted); font-size: 11px; }
+.project-group-delete-dialog-body { display: grid; gap: 12px; padding: 18px; }
+.project-group-delete-dialog-body > p { margin: 0; color: var(--ui-ink-secondary); font-size: 12px; line-height: 1.5; }
+.project-group-delete-dialog-body > label { display: flex; align-items: flex-start; gap: 8px; padding: 10px; color: #6c292e; border: 1px solid #efc9cd; border-radius: 7px; background: #fff7f7; font-size: 12px; line-height: 1.4; }
+.project-group-delete-dialog-body input { width: 15px; height: 15px; margin: 1px 0 0; accent-color: #bd333d; }
+.project-group-delete-dialog-body .warning { color: #a12832; font-weight: 650; }
+.project-group-delete-dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--ui-border-soft); }
+.project-group-delete-dialog .danger-command { display: inline-flex; min-height: 32px; align-items: center; gap: 6px; padding: 0 12px; color: #fff; border: 1px solid #b9303a; border-radius: 6px; background: #bd333d; font-size: 11px; font-weight: 650; }
+.project-group-delete-dialog .danger-command:disabled { opacity: .62; }
 
 .jenkins-storage-monitor { box-sizing: border-box; width: 100%; min-height: 79px; padding: 14px 16px 12px; color: #294152; border: 1px solid #cee2ec; border-radius: 12px; background: linear-gradient(115deg, #f4fbfe 0%, #f8fbff 55%, #f2f7ff 100%); box-shadow: 0 6px 20px rgba(32, 86, 116, .06); }
 .jenkins-storage-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

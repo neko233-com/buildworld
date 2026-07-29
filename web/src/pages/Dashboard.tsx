@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, Folder, GripVertical, HardDrive, LoaderCircle, MoreHorizontal, Pin, Play, Plus, RefreshCw, Star, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Folder, GripVertical, HardDrive, LoaderCircle, MoreHorizontal, Play, Plus, RefreshCw, Star, Trash2, X } from 'lucide-react'
 import { IoLogoGithub } from 'react-icons/io5'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { canEdit } from '../authz'
 import { dialogs } from '../components/AppDialogs'
 import JenkinsHomeRail from '../components/JenkinsHomeRail'
+import { ModalDialog } from '../components/ModalDialog'
 import { PageState } from '../components/PageState'
 import ProjectGroupsDialog from '../components/ProjectGroupsDialog'
 import { useApi } from '../hooks'
@@ -13,7 +14,7 @@ import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { formatDate, formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
-import { sortProjectGroups } from '../lib/projectGroups'
+import { sortProjectGroups, type ProjectGroup } from '../lib/projectGroups'
 import { useJenkinsBuildFlow } from './projectBuildFlow'
 
 const ACTIVE_VIEW_KEY = 'buildworld.jenkins.active-view'
@@ -31,6 +32,12 @@ const WEEKDAY_KEYS = [
   'dashboard.weekdayFriday',
   'dashboard.weekdaySaturday',
 ] as const
+
+type GroupContextMenu = {
+  group: ProjectGroup
+  x: number
+  y: number
+}
 
 function initialActiveView() {
   if (typeof localStorage === 'undefined') return 'all'
@@ -121,9 +128,13 @@ export default function Dashboard() {
   const [draggingID, setDraggingID] = useState<number | null>(null)
   const [reordering, setReordering] = useState(false)
   const [deleting, setDeleting] = useState<number | null>(null)
-  const [flagBusy, setFlagBusy] = useState<{ id: number; flag: 'favorite' | 'quick_access' } | null>(null)
+  const [flagBusy, setFlagBusy] = useState<{ id: number; flag: 'favorite' } | null>(null)
   const [building, setBuilding] = useState<number | null>(null)
   const [groupsOpen, setGroupsOpen] = useState(false)
+  const [groupContextMenu, setGroupContextMenu] = useState<GroupContextMenu | null>(null)
+  const [groupPendingDeletion, setGroupPendingDeletion] = useState<ProjectGroup | null>(null)
+  const [deleteGroupProjects, setDeleteGroupProjects] = useState(false)
+  const [deletingGroup, setDeletingGroup] = useState<number | null>(null)
   const { data, loading, error, reload } = useApi(async () => {
     const [projects, overviews, groups, builds] = await Promise.all([
       api.listProjects(),
@@ -148,11 +159,28 @@ export default function Dashboard() {
   useEffect(() => {
     if (!data) return
     setProjectOrder(data.projects.map(project => project.id))
-    const validViews = new Set(['all', 'favorites', 'quick', ...(data.groups || []).map(group => `group-${group.id}`)])
+    const validViews = new Set(['all', 'favorites', ...(data.groups || []).map(group => `group-${group.id}`)])
     if (validViews.has(activeView)) return
     setActiveView('all')
     localStorage.setItem(ACTIVE_VIEW_KEY, 'all')
   }, [activeView, data])
+
+  useEffect(() => {
+    if (!groupContextMenu) return
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest('.jenkins-group-context-menu')) return
+      setGroupContextMenu(null)
+    }
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setGroupContextMenu(null)
+    }
+    window.addEventListener('pointerdown', dismiss)
+    window.addEventListener('keydown', dismissOnEscape)
+    return () => {
+      window.removeEventListener('pointerdown', dismiss)
+      window.removeEventListener('keydown', dismissOnEscape)
+    }
+  }, [groupContextMenu])
 
   if (loading) return <PageState />
   if (error) return <PageState error={error} onRetry={reload} />
@@ -167,10 +195,9 @@ export default function Dashboard() {
   }))
 
   const views = [
-    { id: 'all', label: t('common.all'), matches: () => true },
-    { id: 'favorites', label: t('dashboard.favorites'), matches: (project: any) => Boolean(project.favorite) },
-    { id: 'quick', label: t('shell.quickAccess'), matches: (project: any) => Boolean(project.quick_access) },
-    ...groups.map(group => ({ id: `group-${group.id}`, label: group.name, matches: (project: any) => project.group_id === group.id })),
+    { id: 'all', label: t('common.all'), group: undefined, favorite: false, matches: () => true },
+    { id: 'favorites', label: t('dashboard.favorites'), group: undefined, favorite: true, matches: (project: any) => Boolean(project.favorite) },
+    ...groups.map(group => ({ id: `group-${group.id}`, label: group.name, group, favorite: false, matches: (project: any) => project.group_id === group.id })),
   ]
   const selectedView = views.find(view => view.id === activeView) || views[0]
   const orderIndex = new Map(projectOrder.map((id, index) => [id, index]))
@@ -178,13 +205,14 @@ export default function Dashboard() {
     .filter(selectedView.matches)
     .sort((left: any, right: any) => (orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER))
 
-  const toggleFlag = async (project: any, flag: 'favorite' | 'quick_access') => {
+  const toggleFavorite = async (project: any) => {
+    const flag = 'favorite' as const
     setFlagBusy({ id: project.id, flag })
     try {
       await api.setProjectFlags(
         project.id,
-        flag === 'favorite' ? !project.favorite : project.favorite,
-        flag === 'quick_access' ? !project.quick_access : project.quick_access,
+        !project.favorite,
+        Boolean(project.quick_access),
       )
       reload()
     } catch (reason: any) {
@@ -265,6 +293,30 @@ export default function Dashboard() {
     }
   }
 
+  const openGroupDeletion = (group: ProjectGroup) => {
+    setGroupContextMenu(null)
+    setDeleteGroupProjects(false)
+    setGroupPendingDeletion(group)
+  }
+
+  const deleteGroup = async () => {
+    const group = groupPendingDeletion
+    if (!group || deletingGroup !== null) return
+    setDeletingGroup(group.id)
+    try {
+      await api.deleteProjectGroup(group.id, deleteGroupProjects)
+      setActiveView('all')
+      localStorage.setItem(ACTIVE_VIEW_KEY, 'all')
+      setGroupPendingDeletion(null)
+      dialogs.notify(t(deleteGroupProjects ? 'projectGroups.deletedWithProjects' : 'projectGroups.deleted'), 'success')
+      await reload()
+    } catch (reason: any) {
+      dialogs.notify(reason.message || t('projectGroups.deleteFailed'))
+    } finally {
+      setDeletingGroup(null)
+    }
+  }
+
   return <section className="jenkins-home">
     <h1 className="sr-only">{t('nav.dashboard')}</h1>
     <JenkinsHomeRail recentBuilds={recentBuilds} />
@@ -272,10 +324,19 @@ export default function Dashboard() {
       <StorageMonitor />
       <div className="jenkins-home-toolbar">
         <nav className="jenkins-view-tabs" aria-label={t('nav.dashboard')}>
-          {views.map(view => <button key={view.id} type="button" className={view.id === selectedView.id ? 'active' : ''} aria-pressed={view.id === selectedView.id} onClick={() => {
+          {views.map(view => <button key={view.id} type="button" className={[view.id === selectedView.id && 'active', view.favorite && 'jenkins-view-favorites'].filter(Boolean).join(' ')} aria-pressed={view.id === selectedView.id} aria-haspopup={view.group && editable ? 'menu' : undefined} onClick={() => {
             setActiveView(view.id)
             localStorage.setItem(ACTIVE_VIEW_KEY, view.id)
-          }}>{view.label}</button>)}
+          }} onContextMenu={event => {
+            if (!editable || !view.group) return
+            event.preventDefault()
+            setGroupContextMenu({ group: view.group, x: event.clientX, y: event.clientY })
+          }} onKeyDown={event => {
+            if (!editable || !view.group || (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))) return
+            event.preventDefault()
+            const rect = event.currentTarget.getBoundingClientRect()
+            setGroupContextMenu({ group: view.group, x: rect.left, y: rect.bottom + 4 })
+          }}>{view.favorite && <Star size={12} fill="currentColor" aria-hidden="true" />}{view.label}</button>)}
           {editable && <button type="button" className="jenkins-view-add" aria-label={t('projectGroups.newGroup')} title={t('projectGroups.newGroup')} onClick={() => setGroupsOpen(true)}><Plus size={15} /></button>}
         </nav>
       </div>
@@ -335,8 +396,7 @@ export default function Dashboard() {
                 <td><BuildReference build={lastFailure} emptyLabel={t('projectDetail.none')} /></td>
                 <td className="jenkins-duration">{formatDuration(latest?.duration_ms)}</td>
                 <td><div className="jenkins-job-actions">
-                  <button type="button" className={project.favorite ? 'active' : ''} disabled={flagBusy !== null} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'favorite'} aria-label={`${project.favorite ? t('projects.unfavorite') : t('projects.favorite')} ${project.name}`} title={project.favorite ? t('projects.unfavorite') : t('projects.favorite')} onClick={() => toggleFlag(project, 'favorite')}>{flagBusy?.id === project.id && flagBusy?.flag === 'favorite' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Star size={15} />}</button>
-                  <button type="button" className={project.quick_access ? 'active' : ''} disabled={flagBusy !== null} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'quick_access'} aria-label={`${project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} ${project.name}`} title={project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} onClick={() => toggleFlag(project, 'quick_access')}>{flagBusy?.id === project.id && flagBusy?.flag === 'quick_access' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Pin size={15} />}</button>
+                  <button type="button" className={project.favorite ? 'active' : ''} disabled={flagBusy !== null} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'favorite'} aria-label={`${project.favorite ? t('projects.unfavorite') : t('projects.favorite')} ${project.name}`} title={project.favorite ? t('projects.unfavorite') : t('projects.favorite')} onClick={() => toggleFavorite(project)}>{flagBusy?.id === project.id && flagBusy?.flag === 'favorite' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Star size={15} />}</button>
                   {editable && <button type="button" disabled={reordering || visibleIndex === 0} aria-label={`${t('buildQueue.moveUp')} ${project.name}`} title={t('buildQueue.moveUp')} onClick={() => moveProject(project.id, -1)}><ArrowUp size={15} /></button>}
                   {editable && <button type="button" disabled={reordering || visibleIndex === visibleProjects.length - 1} aria-label={`${t('buildQueue.moveDown')} ${project.name}`} title={t('buildQueue.moveDown')} onClick={() => moveProject(project.id, 1)}><ArrowDown size={15} /></button>}
                   {editable && <button type="button" disabled={building !== null || project.enabled === false} aria-busy={building === project.id} aria-label={`${buildLabel} ${project.name}`} title={project.enabled === false ? t('common.disabled') : buildLabel} onClick={() => handleBuild(project)}>{building === project.id ? <LoaderCircle className="timeline-spinner" size={15} /> : <Play size={15} />}</button>}
@@ -353,6 +413,18 @@ export default function Dashboard() {
       </footer>
       <ProjectFooter />
     </div>
+    {groupContextMenu && <div className="jenkins-group-context-menu" role="menu" aria-label={groupContextMenu.group.name} style={{ left: `min(${groupContextMenu.x}px, calc(100vw - 220px))`, top: `min(${groupContextMenu.y}px, calc(100dvh - 60px))` }}>
+      <button type="button" role="menuitem" onClick={() => openGroupDeletion(groupContextMenu.group)}><Trash2 size={15} />{t('projectGroups.deleteGroup')}</button>
+    </div>}
+    {groupPendingDeletion && <ModalDialog className="project-group-delete-dialog" ariaLabel={t('projectGroups.deleteTitle')} busy={deletingGroup !== null} onClose={() => { if (deletingGroup === null) setGroupPendingDeletion(null) }}>
+      <header><div><Trash2 size={18} /><div><h2>{t('projectGroups.deleteTitle')}</h2><p>{t('projectGroups.deleteConfirm').replace('{name}', groupPendingDeletion.name)}</p></div></div><button type="button" onClick={() => setGroupPendingDeletion(null)} disabled={deletingGroup !== null} title={t('common.close')} aria-label={t('common.close')}><X size={18} /></button></header>
+      <div className="project-group-delete-dialog-body">
+        <p>{t('projectGroups.deleteMoveToAll').replace('{count}', String(projects.filter(project => project.group_id === groupPendingDeletion.id).length))}</p>
+        <label><input type="checkbox" name="delete-group-projects" checked={deleteGroupProjects} disabled={deletingGroup !== null} onChange={event => setDeleteGroupProjects(event.target.checked)} />{t('projectGroups.deleteProjectsOption').replace('{count}', String(projects.filter(project => project.group_id === groupPendingDeletion.id).length))}</label>
+        {deleteGroupProjects && <p className="warning">{t('projectGroups.deleteProjectsWarning')}</p>}
+      </div>
+      <footer><button type="button" className="secondary-command" disabled={deletingGroup !== null} onClick={() => setGroupPendingDeletion(null)}>{t('common.cancel')}</button><button type="button" className="danger-command" disabled={deletingGroup !== null} aria-busy={deletingGroup !== null} onClick={() => void deleteGroup()}>{deletingGroup !== null ? <LoaderCircle className="timeline-spinner" size={15} /> : <Trash2 size={15} />}{t('common.delete')}</button></footer>
+    </ModalDialog>}
     {groupsOpen && <ProjectGroupsDialog groups={groups} projects={projects} onReload={reload} onClose={() => setGroupsOpen(false)} />}
   </section>
 }

@@ -67,6 +67,11 @@ export type TestReportSummary = {
   created_at: string
 }
 
+export type BuildQueueCapacity = {
+  executor: 'builtin'
+  max_concurrent_builds: number
+}
+
 export type TestCaseResult = {
   name: string
   classname?: string
@@ -463,10 +468,12 @@ export const api = {
   listProjectGroups: () => request<any[]>('GET', '/project-groups/'),
   createProjectGroup: (data: any) => request('POST', '/project-groups/', data),
   updateProjectGroup: (id: number, data: any) => request('PUT', `/project-groups/${id}`, data),
-  deleteProjectGroup: (id: number) => request('DELETE', `/project-groups/${id}`),
+  deleteProjectGroup: (id: number, deleteProjects = false) =>
+    request('DELETE', `/project-groups/${id}?delete_projects=${deleteProjects}`),
 
   // build queue
   listBuildQueue: () => request<any[]>('GET', '/build-queue'),
+  getBuildQueueCapacity: () => request<BuildQueueCapacity>('GET', '/build-queue/capacity'),
   reorderBuildQueue: (id: number, operation: QueueMoveOperation) =>
     request<{ version: number; status: string; operation: string; position: number; items: any[] }>('PUT', `/build-queue/${id}`, { operation }),
 

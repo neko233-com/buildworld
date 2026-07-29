@@ -12,6 +12,34 @@ import (
 	"github.com/neko233-com/buildworld/internal/store"
 )
 
+func TestBuildQueueCapacityUsesStoredBuiltinLimit(t *testing.T) {
+	data, err := store.New(filepath.Join(t.TempDir(), "queue-capacity.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	if err := data.SetEnvVar("system", nil, "local_agent_concurrency", "3", false, ""); err != nil {
+		t.Fatalf("set builtin concurrency: %v", err)
+	}
+
+	handler := &handlers{d: Deps{Store: data}}
+	response := httptest.NewRecorder()
+	handler.getBuildQueueCapacity(response, httptest.NewRequest(http.MethodGet, "/api/build-queue/capacity", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Executor            string `json:"executor"`
+		MaxConcurrentBuilds int    `json:"max_concurrent_builds"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode capacity: %v", err)
+	}
+	if payload.Executor != "builtin" || payload.MaxConcurrentBuilds != 3 {
+		t.Fatalf("capacity = %#v, want builtin / 3", payload)
+	}
+}
+
 func TestReorderBuildQueueUsesVersionedOperation(t *testing.T) {
 	data, err := store.New(filepath.Join(t.TempDir(), "queue-api.db"))
 	if err != nil {

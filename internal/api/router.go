@@ -270,6 +270,7 @@ func NewRouter(d Deps) http.Handler {
 			// --- build queue ---
 			r.Route("/build-queue", func(r chi.Router) {
 				r.Get("/", h.listBuildQueue)
+				r.Get("/capacity", h.getBuildQueueCapacity)
 				r.With(editors).Put("/{id}", h.reorderBuildQueue)
 			})
 
