@@ -47,6 +47,8 @@ type BuildRunner struct {
 	remoteWaitMu            sync.Mutex
 	remoteWaiting           map[int64]bool
 	workerDispatchToken     string
+	poolCursorMu            sync.Mutex
+	poolCursor              map[string]int // round-robin index per pool key
 	policyMu                sync.Mutex
 	executionPolicy         ExecutionPolicy
 	activeBuilds            int
@@ -91,6 +93,7 @@ func NewBuildRunner(s *store.Store, hub *ws.Hub, wsRoot string, plugins *plugin.
 		runs:             make(map[int64]context.CancelFunc),
 		queueWake:        make(chan struct{}, 1),
 		remoteWaiting:    make(map[int64]bool),
+		poolCursor:       make(map[string]int),
 		executionPolicy: ExecutionPolicy{
 			DefaultTimeoutSec:        1800,
 			MaxConcurrentBuilds:      2,
@@ -1024,7 +1027,8 @@ func (r *BuildRunner) matchAgent(build *store.Build, project *store.Project) boo
 
 // selectRemoteWorker only dispatches when a pipeline explicitly asks for an
 // agent label/pool. Empty requirements intentionally keep Buildworld's embedded
-// local worker as the default scheduler.
+// local worker as the default scheduler. When multiple workers in the same pool
+// match, round-robin distributes builds across them.
 func (r *BuildRunner) selectRemoteWorker(cfg *BuildConfig) *store.Worker {
 	if len(cfg.AgentRequirements) == 0 {
 		return nil
@@ -1034,13 +1038,32 @@ func (r *BuildRunner) selectRemoteWorker(cfg *BuildConfig) *store.Worker {
 	if err != nil {
 		return nil
 	}
-	for _, worker := range workers {
-		if r.workerMatchesRequirements(worker, cfg.AgentRequirements) && worker.ActiveBuilds < worker.MaxConcurrentBuilds {
-			acquired, err := r.store.TryAcquireWorker(worker.ID)
-			if err == nil && acquired {
-				worker.ActiveBuilds++
-				return worker
-			}
+	var candidates []*store.Worker
+	for _, w := range workers {
+		if r.workerMatchesRequirements(w, cfg.AgentRequirements) && w.ActiveBuilds < w.MaxConcurrentBuilds {
+			candidates = append(candidates, w)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	// Build a stable pool key from the requirements so round-robin state is
+	// shared across identical agent_requirements values.
+	poolKey := strings.Join(cfg.AgentRequirements, "|")
+	startIdx := 0
+	if len(candidates) > 1 {
+		r.poolCursorMu.Lock()
+		startIdx = r.poolCursor[poolKey] % len(candidates)
+		r.poolCursor[poolKey] = startIdx + 1
+		r.poolCursorMu.Unlock()
+	}
+	for i := 0; i < len(candidates); i++ {
+		idx := (startIdx + i) % len(candidates)
+		w := candidates[idx]
+		acquired, err := r.store.TryAcquireWorker(w.ID)
+		if err == nil && acquired {
+			w.ActiveBuilds++
+			return w
 		}
 	}
 	return nil
