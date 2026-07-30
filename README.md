@@ -1,126 +1,280 @@
-# BuildWorld233
+<p align="center">
+  <h1 align="center">BuildWorld</h1>
+  <p align="center"><strong>生产级 CI/CD 服务器 — Jenkins 现代替代方案</strong></p>
+  <p align="center">
+    TypeScript DSL · 分布式 Worker · React 仪表盘 · 飞书通知 · 28+ 插件
+  </p>
+</p>
 
-BuildWorld233 是面向生产构建、发布与通知的 Jenkins 替代项目。它提供 Web 控制台、CLI、持久化构建队列、分布式 Worker、制品管理和飞书通知。生产切换后 BuildWorld 固定为 `8080`，保留的 Jenkins 固定为 `8081`。
+<p align="center">
+  <a href="https://github.com/neko233-com/buildworld/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/neko233-com/buildworld"></a>
+  <a href="https://github.com/neko233-com/buildworld/blob/main/README_EN.md"><img alt="English" src="https://img.shields.io/badge/English-README_EN.md-blue"></a>
+</p>
 
-首次登录账号：`root`  密码：`root`。首次进入控制台必须立即修改密码；生产环境不要把 `8080` 直接暴露到公网。
+---
 
-## 先安装 / 更新
+## 一键安装
 
-同一安装命令同时用于首次安装和服务器更新。安装器下载本机平台完整 bundle（CLI、server、worker、Web）、校验 SHA-256、暂停旧服务、保留上个 bundle、替换、启动并启用用户级自启动。
+> 前置：已安装 [GitHub CLI](https://cli.github.com/) 并完成 `gh auth login`。
 
-当前仓库为私有仓库，先完成一次 `gh auth login`。macOS / Linux：
+<table>
+<tr>
+<td><strong>macOS / Linux</strong></td>
+<td><strong>Windows PowerShell</strong></td>
+</tr>
+<tr>
+<td>
 
 ```sh
-gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld233/contents/scripts/install.sh | sh
+gh api -H "Accept: application/vnd.github.raw+json" \
+  repos/neko233-com/buildworld/contents/scripts/install.sh | sh
 buildworld status
 ```
 
-Windows PowerShell：
+</td>
+<td>
 
 ```powershell
-& ([scriptblock]::Create((gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld233/contents/scripts/install.ps1 | Out-String)))
+& ([scriptblock]::Create((
+  gh api -H "Accept: application/vnd.github.raw+json" `
+    repos/neko233-com/buildworld/contents/scripts/install.ps1 | Out-String
+)))
 buildworld status
 ```
 
-安装器自动使用 `GH_TOKEN`、`GITHUB_TOKEN` 或本机 `gh auth` 凭据读取私有 Release；仓库公开后也兼容匿名下载。指定版本：shell 脚本第一个参数为版本，例如 `sh install.sh 1.0.0`；PowerShell 使用 `-Version 1.0.0`。内网部署可将本仓库 `release/vX.Y.Z/` 中的 `install.sh` / `install.ps1` 与 bundle、`checksums.txt` 一起发布到可信下载地址。
+</td>
+</tr>
+</table>
 
-macOS 一键安装默认创建 `LaunchAgent`，登录后自动运行。意外重启或更新中断的 `running` 构建会默认重新排队并恢复；用户主动取消的构建不会重跑。
-Jenkins 与 BuildWorld 在 macOS 中拥有独立的隐私权限；Jenkins Java 已获授权不代表 BuildWorld 自动获得 `Desktop`、`Documents` 或 `Downloads` 访问权。引用的工作区、文件、脚本和可执行程序优先放在非受保护目录；必须保留原路径时，优先在“隐私与安全性 → 文件与文件夹”中只开放所需目录。没有更小权限且当前 macOS 允许添加可执行文件时，才为可信的实际安装 server（默认 `~/.local/lib/buildworld/buildworld-server`）手工开启可读取全部受保护用户数据的“完全磁盘访问权限”。无法添加或授权不生效时，应迁出所有受保护路径。安装器不会修改或绕过 TCC。
+浏览器打开 `http://127.0.0.1:8080`，默认账号 `root` / `root`，**首次登录后立即修改密码**。
 
-## 默认地址
-
-| 项目 | 默认值 |
-| --- | --- |
-| 控制台 / API | `http://127.0.0.1:8080` |
-| 默认管理员 | `root` / `root` |
-| macOS bundle | `~/.local/lib/buildworld` |
-| macOS CLI | `~/.local/bin/buildworld` |
-| 数据与日志 | `~/Library/Application Support/buildworld` |
-
-局域网访问时，把 `server.host` 改为受控网卡地址或使用反向代理/TLS；同时限制防火墙来源。不要把默认管理员密码、飞书 webhook 或 Git 凭据写入仓库。
-
-## 常用运维
+<details>
+<summary>指定版本 / 内网离线安装</summary>
 
 ```sh
-buildworld start
-buildworld status
-buildworld pause
-buildworld resume
-buildworld restart
-buildworld enable-autostart
-buildworld disable-autostart
+# macOS / Linux
+sh install.sh 1.15.0
+
+# Windows
+.\install.ps1 -Version 1.15.0
+```
+
+内网部署：将 `release/vX.Y.Z/` 中的安装脚本、bundle 与 `checksums.txt` 一起发布到可信下载地址。
+</details>
+
+---
+
+## 架构总览
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      BuildWorld Server                       │
+│                    Go · Chi · SQLite · JWT                    │
+│                                                              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  │
+│  │ REST API │  │ WebSocket│  │  gRPC    │  │  Webhooks  │  │
+│  │ /api/*   │  │ 实时日志  │  │ Worker   │  │ GH/GL/Gitea│  │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └─────┬──────┘  │
+│       │              │              │               │         │
+│  ┌────┴──────────────┴──────────────┴───────────────┴──────┐ │
+│  │                    Build Engine                          │ │
+│  │   调度 · 队列 · 执行 · 插件 · 日志 · 制品 · 通知       │ │
+│  └────────────────────────┬────────────────────────────────┘ │
+│                           │                                   │
+│  ┌────────────────────────┴────────────────────────────────┐ │
+│  │                  SQLite + Migrations                     │ │
+│  └──────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+         │                              │
+    REST / WS                        gRPC
+         │                              │
+┌────────┴────────┐          ┌──────────┴──────────┐
+│   React SPA     │          │   Distributed       │
+│   Dashboard     │          │   Workers           │
+│   Vite + Monaco │          │   cmd/worker        │
+└─────────────────┘          └─────────────────────┘
+```
+
+**核心组件：**
+
+| 组件 | 目录 | 职责 |
+|------|------|------|
+| **Server** | `cmd/server` | HTTP API、WebSocket 实时日志、gRPC Worker 管理、构建引擎调度 |
+| **CLI** | `cmd/cli` | 用户交互：start / stop / restart / status / reset-password |
+| **Worker** | `cmd/worker` + `sdk/` | 分布式构建执行器，通过 gRPC 自动注册到 Server |
+| **Frontend** | `web/` | React SPA — Jenkins 风格仪表盘，Monaco 编辑器，实时日志 |
+| **Plugins** | `plugins/` | 28+ 构建/部署/通知插件，运行时动态加载 |
+| **Migrator** | `internal/jenkins` | Jenkinsfile → TypeScript DSL 自动转换 |
+
+---
+
+## 核心功能
+
+### Pipeline DSL
+
+支持 **TypeScript** 和 **YAML** 两种声明式 Pipeline：
+
+```typescript
+// TypeScript DSL — Monaco 编辑器提供校验与补全
+pipeline({
+  stages: [
+    stage("Build", async () => {
+      await sh("go build -o app ./cmd/server");
+    }),
+    stage("Test", async () => {
+      await sh("go test ./...");
+    }),
+    stage("Deploy", async () => {
+      await notify({ type: "feishu", message: "部署完成" });
+    }),
+  ],
+});
+```
+
+TypeScript Pipeline 在受限沙箱中执行，**禁止 `eval` 和 `new Function`**。
+
+### 分布式 Worker
+
+- 内置 `builtin` 执行器：单机即可运行
+- 远程 Worker 通过 gRPC 自动注册，支持水平扩展
+- Worker SDK (`sdk/`) 支持自定义 Worker 实现
+- 构建隔离：每次构建使用独立工作空间，自动清理
+
+### Web 控制台
+
+Jenkins 风格但更现代化的 React 仪表盘：
+
+- **Dashboard** — 项目列表、状态总览、左侧队列/最近构建面板
+- **Build Queue** — 实时构建队列，支持取消与重排
+- **Build Detail** — 实时日志流、制品列表、环境变量、变更集
+- **Project Configure** — 可视化配置 Pipeline、触发器、凭证
+- **Big Screen** — 大屏监控模式
+- **Credentials** — 凭证管理（用户名密码、SSH Key、API Token）
+- **Audit Log** — 操作审计日志
+- **Statistics** — 构建统计与趋势分析
+
+### 插件生态
+
+28+ 开箱即用的插件，覆盖主流构建工具与平台：
+
+| 类别 | 插件 |
+|------|------|
+| **构建工具** | Go, Cargo, Gradle, Maven, npm, pip, .NET, Shell, PowerShell |
+| **容器/部署** | Docker, Kubernetes, Helm, ArgoCD, Terraform, Ansible |
+| **SCM** | GitHub, GitLab, Gitea, SVN, Mercurial |
+| **通知** | Feishu (飞书), Slack, Discord, Telegram, Webhook |
+| **制品/安全** | S3, Vault, SonarQube |
+
+### Jenkins 迁移
+
+支持渐进式从 Jenkins 迁移，零停机切换：
+
+1. **导入** — 自动解析 Jenkinsfile，生成 TypeScript DSL
+2. **双跑** — 同一 commit 同时在 Jenkins 和 BuildWorld 执行
+3. **对比** — 比对环境变量、制品、通知、部署结果
+4. **切换** — 连续一致后关闭 Jenkins 触发器
+
+### 飞书通知
+
+原生 Go 实现，无外部依赖：
+
+```json
+{
+  "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/REDACTED"
+}
+```
+
+支持构建开始、成功、失败事件，发送富文本卡片消息。
+
+---
+
+## 运维速查
+
+```sh
+buildworld start              # 启动服务
+buildworld stop               # 停止服务
+buildworld restart            # 重启
+buildworld status             # 查看状态
+buildworld pause              # 暂停（卸载后台服务，防止自动拉起）
+buildworld resume             # 恢复
+buildworld enable-autostart   # 开机自启
+buildworld disable-autostart  # 关闭自启
+```
+
+```sh
+# 重置管理员密码
 printf '%s\n' 'new-strong-password' | buildworld reset-root-password --password-stdin
 ```
 
-`pause` 会先卸载后台服务，避免 macOS LaunchAgent 立即拉起旧进程；`resume` 和 `restart` 恢复服务。更新失败时，上个 bundle 保留在安装目录同级的 `.previous` 目录，按 [how-to-use.md](how-to-use.md#回滚) 回滚。
+更新失败时，上个 bundle 保留在 `.previous` 目录，可随时回滚。
 
-## Jenkins 并行迁移
+---
 
-1. 保持 Jenkins 原项目和触发器不变，BuildWorld 项目先使用手动触发或测试环境。
-2. 导入 Jenkinsfile，由迁移器生成受限 TypeScript 配置并处理所有转换 warning。凭据、共享库、`post`、复杂脚本条件必须人工复核。
-3. 同一 commit 分别运行两个工具，比较环境变量、工具链、签名、日志、制品、飞书消息与部署结果。
-4. 连续多次一致后，先关闭 Jenkins 对应触发器，再启用 BuildWorld 触发器。保留 Jenkins 配置用于回滚。
+## 默认配置
 
-详细操作见 [how-to-use.md](how-to-use.md) 和 [macOS Jenkins 迁移说明](docs-site/docs/jenkins-migration-macos.md)。
+| 项目 | 默认值 |
+|------|--------|
+| 控制台 / API | `http://127.0.0.1:8080` |
+| 默认管理员 | `root` / `root` |
+| 数据库 | SQLite (`data/buildworld.db`) |
+| macOS bundle | `~/.local/lib/buildworld` |
+| macOS CLI | `~/.local/bin/buildworld` |
+| 数据与日志 | `~/Library/Application Support/buildworld` (macOS) |
 
-## 飞书通知
+局域网访问时，将 `server.host` 改为受控网卡地址或使用反向代理 + TLS。**不要将密码、webhook 或 Git 凭据写入仓库。**
 
-BuildWorld 原生 Go 服务发送飞书机器人卡片，不依赖 Python。控制台中创建 `feishu` 通知通道，配置为：
+---
 
-```json
-{"webhook_url":"https://open.feishu.cn/open-apis/bot/v2/hook/REDACTED"}
-```
+## 开发
 
-用一个无副作用项目先验证成功、失败和开始事件。Webhook 视为秘密：仅保存在通知通道或密钥管理系统，泄露后立刻在飞书侧重置。
-
-## 本地验证与发布
-
-仓库不使用 GitHub Actions。测试、文档构建与发布、六平台打包及 Release
-上传都在受控机器本地完成。文档脚本默认只构建和校验，不写 Git：
-
-```powershell
-.\scripts\publish-docs-local.ps1
-```
-
-先显式运行规范化本地门禁；确认最终提交已推送到 `main`、工作区干净后，
-再发布静态站点到 `gh-pages`：
-
-```powershell
-.\scripts\verify-local.ps1
-.\scripts\publish-docs-local.ps1 -Publish
-```
-
-发布脚本会再次强制执行同一本地门禁与双语言文档构建，请求高影响操作
-确认，使用临时 worktree、写入 `.nojekyll`，再配置 GitHub Pages 从分支
-根目录发布。它只接受指向 `neko233-com/buildworld233` 的 GitHub fetch 与
-push URL，并等待本次发布 commit 对应的 Pages 构建成功。
-
-所有平台二进制同样必须本地打包：
-
-```powershell
-.\scripts\release-local.ps1 -Version 1.0.0
-```
-
-产物位于 `release/v1.0.0/`，包括 Windows、Linux、macOS 的 amd64/arm64 完整 bundle、安装脚本、可校验分片和 `checksums.txt`。
-
-本地发布器默认只执行完整门禁、打包和校验，不写 GitHub。确认提交已推送且
-生产验证通过后，显式替换 `v1.0.0` 并删除其他旧 Release（二进制删除，
-旧源码 tag 保留）：
-
-```powershell
-.\scripts\publish-release-local.ps1 -Version 1.0.0
-.\scripts\publish-release-local.ps1 -Version 1.0.0 -Publish -ReplaceExisting -PruneOtherReleases
-```
-
-正式发布需要高影响操作确认；上传先进入 draft，远端资产名称与大小全部
-匹配后才公开为 Latest。
-
-## 开发验证
-
-```powershell
+```bash
+# 后端测试
 go test ./...
-Set-Location web; npm ci; npm test -- --run; npm run build
-Set-Location ..\docs-site; npm ci; npm run build
+
+# 前端测试与构建
+cd web && npm ci && npm test -- --run && npm run build
+
+# 文档站构建
+cd docs-site && npm ci && npm run build
 ```
 
-Unity/Tuanjie 构建不在自动验证范围内；仅按项目实际工具链手动验证。
+### 本地发布
+
+```powershell
+# 完整门禁验证
+.\scripts\verify-local.ps1
+
+# 六平台打包 (Windows / Linux / macOS × amd64 / arm64)
+.\scripts\release-local.ps1 -Version 1.15.0
+
+# 发布到 GitHub Release
+.\scripts\publish-release-local.ps1 -Version 1.15.0 -Publish -ReplaceExisting
+```
+
+所有 CI、测试、打包和发布均在本地完成，不使用 GitHub Actions。
+
+---
+
+## 项目结构
+
+```
+buildworld/
+├── cmd/
+│   ├── cli/          # CLI 入口
+│   ├── server/       # 服务端入口
+│   └── worker/       # 分布式 Worker 入口
+├── internal/         # 核心业务逻辑 (API · Engine · Store · Auth · Plugin)
+├── web/              # React SPA (Vite · TypeScript · Monaco)
+├── plugins/          # 28+ 插件 (构建 · 部署 · 通知 · SCM)
+├── proto/            # gRPC 协议定义
+├── sdk/              # Worker SDK
+├── scripts/          # 安装 · 发布 · 验证脚本
+├── docs-site/        # Docusaurus 文档站
+└── integration/      # 集成测试
+```
+
+---
+
+<p align="center">
+  <a href="README_EN.md">English Version →</a>
+</p>

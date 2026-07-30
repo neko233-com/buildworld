@@ -1,41 +1,87 @@
+# --- Build outputs ---
 bin/
+dist/
+output/
+release/
+artifacts/
+/build/
+/.build/
+web/dist/
+web/dist-ssr/
+
+# --- Binary / packaged files ---
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.a
+*.tar.gz
+*.zip
+*.tgz
+*.war
+*.jar
+
+# --- Runtime data & databases ---
 data/
 *.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+/uploads/
+
+# --- Agent / AI tool directories ---
+/.agents/
+/.workbuddy/
+/.mimocode/
+/.playwright-cli/
+/.trae-html-share-packages/
+/.claude/
+/.codex/
+
+# --- Environment & secrets (privacy-sensitive) ---
+.env
+.env.*
+!.env.example
 config.local.yaml
+*.local.yaml
+token.txt
+*.key
+*.pem
+credentials.json
+secret*.json
+
+# --- Local intranet / topology data ---
 .buildworld233-intranet.local.yaml
 .buildworld233-intranet/
-.env
-docs-site/node_modules/
-web/node_modules/
 
-# Generated documentation, local test traces, and runtime artifacts.
-docs-site/.docusaurus/
-docs-site/build/
-.playwright-cli/
-.trae-html-share-packages/
-.uploads/
-artifacts/
-
-# Local release staging and one-off binaries.
-release/
-output/
-/.build/
-/.workbuddy/
-/*.exe
-token.txt
-
-# Local Jenkins discovery/export snapshots can contain intranet topology,
-# account names, job metadata, and credential identifiers.
+# --- Jenkins discovery/export snapshots (intranet topology,
+#      account names, job metadata, credential identifiers) ---
 /folder_*.json
 /jenkins_*.json
 /jenkins_*.xml
 
-# Local editor settings, OS metadata, and package-manager caches.
+# --- Generated docs & caches ---
+docs-site/node_modules/
+docs-site/.docusaurus/
+docs-site/build/
+docs-site/.cache/
+web/node_modules/
+web/.vite/
+.npm/
+.pnpm-store/
+
+# --- Editor settings & OS metadata ---
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
-.npm/
-.pnpm-store/
-docs-site/.cache/
-web/.vite/
+
+# --- Logs ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
