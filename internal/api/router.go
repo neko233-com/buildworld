@@ -234,6 +234,7 @@ func NewRouter(d Deps) http.Handler {
 			})
 
 			// --- webhooks (public) ---
+			r.Post("/trigger/projects/{id}/{token}", h.projectHTTPTriggerBuild)
 			r.Route("/webhooks", func(r chi.Router) {
 				r.Post("/github", h.githubWebhook)
 				r.Post("/gitlab", h.gitlabWebhook)

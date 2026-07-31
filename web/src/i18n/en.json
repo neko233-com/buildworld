@@ -482,7 +482,16 @@
     "scmPipelineRequired": "Jenkinsfile Pipeline from SCM requires a repository URL and script path.",
     "triggerUnavailableForSource": "Build schedule editing is unavailable for {source}; triggers remain defined in its source configuration.",
     "triggerManagedByJenkinsfileTitle": "Jenkinsfile triggers are active",
-    "triggerManagedByJenkinsfile": "BuildWorld reads triggers { cron(...) } from this SCM Jenkinsfile and runs them on the same schedule. Edit the Jenkinsfile to change trigger rules."
+    "triggerManagedByJenkinsfile": "BuildWorld reads triggers { cron(...) } from this SCM Jenkinsfile and runs them on the same schedule. Edit the Jenkinsfile to change trigger rules.",
+    "enableHTTPTrigger": "Enable external HTTP rebuild",
+    "httpTriggerURL": "HTTP API URL",
+    "httpTriggerSaveHelp": "Save settings to generate the callable URL.",
+    "httpTriggerHelp": "POST only. This URL contains an access credential; store it only in controlled integrations such as a Unity extension. Disabling revokes it; enabling again creates a new URL.",
+    "httpTriggerCopied": "HTTP API URL copied.",
+    "httpTriggerCopyFailed": "Unable to copy HTTP API URL. Copy it manually.",
+    "httpTriggerAPI": "HTTP API",
+    "httpTriggerDisabled": "Not enabled",
+    "configureHTTPTrigger": "Configure HTTP rebuild"
   },
   "projectGroups": {
     "title": "Project group",

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Braces, FileCode2, FileInput, GitBranch, Settings2, TimerReset, Wrench } from 'lucide-react'
+import { Braces, Copy, FileCode2, FileInput, GitBranch, Settings2, TimerReset, Wrench } from 'lucide-react'
 import { api, type PipelineMigrationResult } from '../api'
 import { canEdit } from '../authz'
 import { dialogs } from '../components/AppDialogs'
@@ -22,6 +22,7 @@ type ValidationField = 'name' | 'schedule' | 'pipeline' | 'scmRepo' | 'scmPath'
 
 type ProjectConfigureForm = {
   enabled: boolean
+  http_trigger_enabled: boolean
   name: string
   description: string
   repo_url: string
@@ -49,6 +50,7 @@ function normalizePipelineFormat(project: any): PipelineFormat {
 function projectToForm(project: any): ProjectConfigureForm {
   return {
     enabled: project.enabled !== false,
+    http_trigger_enabled: project.http_trigger_enabled === true,
     name: project.name || '',
     description: project.description || '',
     repo_url: project.repo_url || '',
@@ -110,6 +112,7 @@ export default function ProjectConfigure() {
   const [formError, setFormError] = useState('')
   const [notice, setNotice] = useState('')
   const [savedSnapshot, setSavedSnapshot] = useState('')
+  const [httpTriggerURL, setHTTPTriggerURL] = useState('')
   const [validationErrors, setValidationErrors] = useState<Partial<Record<ValidationField, boolean>>>({})
   const pipelineEditorRef = useRef<HTMLDivElement>(null)
 
@@ -124,6 +127,7 @@ export default function ProjectConfigure() {
     setScheduleCron(cron || '0 2 * * *')
     setPipelineValidation(pendingPipelineValidation(next.config))
     setSavedSnapshot(configureSnapshot(next, Boolean(cron), cron || '0 2 * * *'))
+    setHTTPTriggerURL(project.http_trigger_url || '')
     setValidationErrors({})
   }, [project])
 
@@ -235,6 +239,23 @@ export default function ProjectConfigure() {
     }
   }
 
+  const copyHTTPTriggerURL = async () => {
+    if (!httpTriggerURL) return
+    try {
+      await navigator.clipboard.writeText(httpTriggerURL)
+      setNotice(t('projectDetail.httpTriggerCopied'))
+    } catch {
+      const input = document.getElementById('jenkins-configure-http-trigger-url') as HTMLInputElement | null
+      input?.focus()
+      input?.select()
+      if (document.execCommand('copy')) {
+        setNotice(t('projectDetail.httpTriggerCopied'))
+        return
+      }
+      setFormError(t('projectDetail.httpTriggerCopyFailed'))
+    }
+  }
+
   const applyJenkinsMigration = (result: PipelineMigrationResult) => {
     const cron = readScheduleFromPipeline(result.config)
     setForm(current => current ? {
@@ -303,6 +324,7 @@ export default function ProjectConfigure() {
       }
       const payload = {
         enabled: form.enabled,
+        http_trigger_enabled: form.http_trigger_enabled,
         name: form.name,
         description: form.description,
         repo_url: form.repo_url,
@@ -319,7 +341,8 @@ export default function ProjectConfigure() {
         pipeline_scm_branch: form.pipeline_scm_branch,
         pipeline_scm_path: form.pipeline_scm_path,
       }
-      await api.updateProject(projectID, payload)
+      const updated = await api.updateProject(projectID, payload) as { http_trigger_url?: string }
+      setHTTPTriggerURL(updated.http_trigger_url || '')
       const savedForm = { ...form, config }
       setForm(savedForm)
       setSavedSnapshot(configureSnapshot(savedForm, scheduleEnabled, scheduleCron))
@@ -409,6 +432,13 @@ export default function ProjectConfigure() {
             <label className="jenkins-configure-check"><input type="checkbox" checked={scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} /><span>{t('projectDetail.scheduleBuilds')}</span></label>
             {scheduleEnabled && <label><span>Cron</span><input id="jenkins-configure-schedule-cron" required aria-invalid={validationErrors.schedule || undefined} aria-describedby={validationErrors.schedule ? 'jenkins-configure-form-error' : undefined} value={scheduleCron} onChange={event => { setScheduleCron(event.target.value); clearValidationError('schedule') }} placeholder="0 2 * * *" /><small>{t('projectDetail.scheduleDescription')}</small></label>}
           </fieldset> : scmJenkinsfileTriggers ? <div className="jenkins-configure-disabled"><TimerReset size={18} /><div><strong>{t('projectDetail.triggerManagedByJenkinsfileTitle')}</strong><p>{t('projectDetail.triggerManagedByJenkinsfile')}</p></div></div> : <div className="jenkins-configure-disabled"><TimerReset size={18} /><div><strong>{t('common.disabled')}</strong><p>{t('projectDetail.triggerUnavailableForSource').replace('{source}', form.pipeline_source_mode === 'scm' ? t('projectDetail.pipelineScriptFromSCM') : 'Jenkinsfile')}</p></div></div>}
+          <fieldset className="jenkins-configure-trigger jenkins-configure-http-trigger" disabled={!editable}>
+            <label className="jenkins-configure-check"><input type="checkbox" checked={form.http_trigger_enabled} onChange={event => { setForm(current => current ? { ...current, http_trigger_enabled: event.target.checked } : current); setFormError('') }} /><span>{t('projectDetail.enableHTTPTrigger')}</span></label>
+            {form.http_trigger_enabled && <>
+              {httpTriggerURL ? <label><span>{t('projectDetail.httpTriggerURL')}</span><span className="jenkins-configure-http-trigger-url"><input id="jenkins-configure-http-trigger-url" readOnly value={httpTriggerURL} /><button type="button" onClick={() => void copyHTTPTriggerURL()}><Copy size={14} aria-hidden="true" />{t('common.copy')}</button></span></label> : <p className="jenkins-configure-http-trigger-help">{t('projectDetail.httpTriggerSaveHelp')}</p>}
+              <p className="jenkins-configure-http-trigger-help">{t('projectDetail.httpTriggerHelp')}</p>
+            </>}
+          </fieldset>
         </section>
 
         <section id="jenkins-configure-pipeline" className="jenkins-configure-section" aria-labelledby="jenkins-configure-pipeline-title">

@@ -112,6 +112,14 @@
   font-size: 14px;
 }
 
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-http-trigger > span,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-http-trigger > a,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-http-trigger-url code,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-http-trigger-url input,
+[data-skin="jenkins"] .jenkins-job-page .jenkins-job-http-trigger-url button {
+  font-size: 14px;
+}
+
 [data-skin="jenkins"] .jenkins-job-page .jenkins-job-related h2,
 [data-skin="jenkins"] .jenkins-job-page .jenkins-job-source h2 {
   font-size: 22px;

@@ -1339,6 +1339,16 @@ button:disabled { cursor: not-allowed; }
 .jenkins-job-source dl div { display: grid; gap: 4px; }
 .jenkins-job-source dt { color: #7d8994; font-size: 9px; }
 .jenkins-job-source dd { margin: 0; color: #313b45; font-size: 11px; }
+.jenkins-job-http-trigger { margin-top: 18px; }
+.jenkins-job-http-trigger h3 { margin: 0 0 7px; color: #313b45; font-size: 12px; }
+.jenkins-job-http-trigger > span { color: #7c8791; font-size: 11px; }
+.jenkins-job-http-trigger > a { margin-left: 10px; color: #1670cf; font-size: 11px; text-decoration: none; }
+.jenkins-job-http-trigger > a:hover { text-decoration: underline; }
+.jenkins-job-http-trigger-url { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.jenkins-job-http-trigger-url code { color: #58728b; font-size: 10px; }
+.jenkins-job-http-trigger-url input { flex: 1; min-width: 0; height: 29px; padding: 0 8px; border: 1px solid #cbd6df; border-radius: 3px; color: #40505f; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.jenkins-job-http-trigger-url button { display: inline-flex; align-items: center; gap: 4px; height: 29px; padding: 0 8px; border: 1px solid #88b7e7; border-radius: 3px; background: #fff; color: #1670cf; font-size: 10px; white-space: nowrap; }
+.jenkins-job-http-trigger-url button:hover { background: #f1f8ff; }
 
 @media (max-width: 900px) {
   .jenkins-job-layout { grid-template-columns: 225px minmax(0, 1fr); gap: 14px; }

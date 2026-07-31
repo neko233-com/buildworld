@@ -3,6 +3,7 @@ import {
   CircleCheckBig,
   CircleDashed,
   CircleX,
+  Copy,
   LoaderCircle,
   Pencil,
   Search,
@@ -153,6 +154,23 @@ export default function ProjectDetail() {
     setBuildPage(0)
   }
 
+  const copyHTTPTriggerURL = async () => {
+    if (!project.http_trigger_url) return
+    try {
+      await navigator.clipboard.writeText(project.http_trigger_url)
+      dialogs.notify(t('projectDetail.httpTriggerCopied'))
+    } catch {
+      const input = document.getElementById('jenkins-job-http-trigger-url') as HTMLInputElement | null
+      input?.focus()
+      input?.select()
+      if (document.execCommand('copy')) {
+        dialogs.notify(t('projectDetail.httpTriggerCopied'))
+        return
+      }
+      dialogs.notify(t('projectDetail.httpTriggerCopyFailed'))
+    }
+  }
+
   const relatedBuild = (label: string, build: any) => build
     ? <li><Link to={`/builds/${build.id}`}>{label} (#{build.number})</Link><small>{formatDateTime(build.started_at)}</small></li>
     : <li><span>{label}</span><small>{t('projectDetail.none')}</small></li>
@@ -228,6 +246,11 @@ export default function ProjectDetail() {
           <h2>{t('projectDetail.repository')}</h2>
           {project.repo_url ? <a href={project.repo_url} target="_blank" rel="noreferrer">{project.repo_url}</a> : <span>{t('projectDetail.none')}</span>}
           <dl><div><dt>{t('builds.branch')}</dt><dd>{project.default_branch || '-'}</dd></div><div><dt>{t('projectGroups.title')}</dt><dd>{groupName}</dd></div></dl>
+          <div className="jenkins-job-http-trigger">
+            <h3>{t('projectDetail.httpTriggerAPI')}</h3>
+            {project.http_trigger_enabled && project.http_trigger_url ? <div className="jenkins-job-http-trigger-url"><code>POST</code><input id="jenkins-job-http-trigger-url" readOnly value={project.http_trigger_url} aria-label={t('projectDetail.httpTriggerURL')} /><button type="button" onClick={() => void copyHTTPTriggerURL()}><Copy size={14} aria-hidden="true" />{t('common.copy')}</button></div> : <span>{project.http_trigger_enabled ? t('common.enabled') : t('projectDetail.httpTriggerDisabled')}</span>}
+            {editable && <Link to={`/projects/${projectId}/configure#jenkins-configure-triggers`}>{t('projectDetail.configureHTTPTrigger')}</Link>}
+          </div>
         </section>
       </div>
     </div>

@@ -128,6 +128,7 @@ describe('ProjectConfigure', () => {
 
     expect(api.updateProject).toHaveBeenCalledWith(42, {
       enabled: true,
+      http_trigger_enabled: false,
       name: 'weather-service',
       description: 'GAME Server',
       repo_url: 'https://git.example.test/game.git',
@@ -150,6 +151,7 @@ describe('ProjectConfigure', () => {
     vi.mocked(api.getProject).mockResolvedValue({
       id: 48,
       enabled: true,
+      http_trigger_enabled: false,
       name: 'scm-job',
       description: '',
       repo_url: 'https://git.example.test/scm-job.git',

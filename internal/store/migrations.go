@@ -41,6 +41,8 @@ var currentSchemaStatements = []string{
 		pipeline_scm_branch TEXT NOT NULL DEFAULT '',
 		pipeline_scm_path TEXT NOT NULL DEFAULT '',
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
+		http_trigger_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+		http_trigger_token TEXT NOT NULL DEFAULT '',
 		created_by INTEGER REFERENCES users(id),
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -337,6 +339,11 @@ var schemaMigrations = []schemaMigration{
 		name:    "project-display-order",
 		up:      addProjectDisplayOrder,
 	},
+	{
+		version: 12,
+		name:    "project-http-trigger",
+		up:      addProjectHTTPTrigger,
+	},
 }
 
 func runSchemaMigrations(db *sql.DB, migrations []schemaMigration) error {
@@ -629,6 +636,31 @@ func addProjectEnabled(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`ALTER TABLE projects ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE`); err != nil {
 		return fmt.Errorf("add projects.enabled: %w", err)
+	}
+	return nil
+}
+
+// addProjectHTTPTrigger adds an opt-in, per-project external trigger. Its
+// opaque URL token is a credential and intentionally never serializes in API
+// responses; handlers expose a complete URL only to authenticated editors.
+func addProjectHTTPTrigger(tx *sql.Tx) error {
+	for _, column := range []struct {
+		name string
+		ddl  string
+	}{
+		{"http_trigger_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"},
+		{"http_trigger_token", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		exists, err := sqliteColumnExists(tx, "projects", column.name)
+		if err != nil {
+			return fmt.Errorf("inspect projects.%s: %w", column.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := tx.Exec(`ALTER TABLE projects ADD COLUMN ` + column.name + ` ` + column.ddl); err != nil {
+			return fmt.Errorf("add projects.%s: %w", column.name, err)
+		}
 	}
 	return nil
 }

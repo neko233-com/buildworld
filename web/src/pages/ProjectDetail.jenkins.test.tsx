@@ -126,6 +126,24 @@ describe('ProjectDetail Jenkins Job status', () => {
     expect(filteredBuildList?.querySelector('a[href="/builds/518"]')).toBeNull()
   })
 
+  it('shows the saved HTTP API below the repository and copies its URL', async () => {
+    vi.mocked(api.getProject).mockResolvedValue({
+      ...project,
+      http_trigger_enabled: true,
+      http_trigger_url: 'https://build.example.test/api/trigger/projects/7/secret',
+    })
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
+    await renderPage()
+
+    const trigger = container.querySelector('.jenkins-job-http-trigger')!
+    expect(trigger.textContent).toContain('HTTP API')
+    expect(trigger.textContent).toContain('POST')
+    expect(trigger.querySelector<HTMLInputElement>('input')?.value).toBe('https://build.example.test/api/trigger/projects/7/secret')
+    await act(async () => button('Copy').click())
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://build.example.test/api/trigger/projects/7/secret')
+    expect(dialogs.notify).toHaveBeenCalledWith('HTTP API URL copied.')
+  })
+
   it('groups build history by day and pages 30 loaded builds at a time', async () => {
     const today = new Date()
     today.setHours(12, 0, 0, 0)

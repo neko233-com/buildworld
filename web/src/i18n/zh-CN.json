@@ -433,7 +433,7 @@
     "changes": "变更历史",
     "buildNow": "立即构建",
     "deletePipeline": "删除 Jenkinsfile Pipeline",
-    "configure": "Configure",
+    "configure": "配置",
     "rename": "重命名",
     "move": "移动",
     "stages": "Stages",
@@ -482,7 +482,16 @@
     "scmPipelineRequired": "来自 SCM 的 Jenkinsfile Pipeline 必须填写仓库地址和脚本路径。",
     "triggerUnavailableForSource": "{source} 暂不支持在此编辑调度；触发规则继续由源配置定义。",
     "triggerManagedByJenkinsfileTitle": "Jenkinsfile 触发器已启用",
-    "triggerManagedByJenkinsfile": "BuildWorld 会从此 SCM Jenkinsfile 的 triggers { cron(...) } 读取并按同一规则执行。修改 Jenkinsfile 即可修改触发规则。"
+    "triggerManagedByJenkinsfile": "BuildWorld 会从此 SCM Jenkinsfile 的 triggers { cron(...) } 读取并按同一规则执行。修改 Jenkinsfile 即可修改触发规则。",
+    "enableHTTPTrigger": "开启外部 HTTP 重新构建",
+    "httpTriggerURL": "HTTP API 地址",
+    "httpTriggerSaveHelp": "保存后自动生成可调用地址。",
+    "httpTriggerHelp": "仅支持 POST。此地址含访问凭据；请仅保存到 Unity 扩展等受控环境。关闭后立即失效，再次开启会生成新地址。",
+    "httpTriggerCopied": "HTTP API 地址已复制。",
+    "httpTriggerCopyFailed": "无法复制 HTTP API 地址，请手动复制。",
+    "httpTriggerAPI": "HTTP API",
+    "httpTriggerDisabled": "未开启",
+    "configureHTTPTrigger": "配置 HTTP 重新构建"
   },
   "projectGroups": {
     "title": "项目分组",

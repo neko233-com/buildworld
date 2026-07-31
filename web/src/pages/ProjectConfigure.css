@@ -296,6 +296,58 @@
   accent-color: #0b6ee5;
 }
 
+.jenkins-configure-http-trigger {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #e0e5ec;
+}
+
+.jenkins-configure-http-trigger-url {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+}
+
+.jenkins-configure-http-trigger-url input {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.jenkins-configure-http-trigger-url button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 36px;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid #b8c3cf;
+  border-radius: 4px;
+  color: #242b34;
+  background: #f5f7f9;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jenkins-configure-http-trigger-url button:hover,
+.jenkins-configure-http-trigger-url button:focus-visible {
+  border-color: #8f9ba8;
+  background: #e9edf2;
+}
+
+.jenkins-configure-http-trigger-help {
+  max-width: 720px;
+  margin: -5px 0 0;
+  color: #677384;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .jenkins-configure-tools {
   display: flex;
   flex-wrap: wrap;

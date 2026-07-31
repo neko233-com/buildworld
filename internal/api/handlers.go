@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -197,6 +198,56 @@ type createProjectReq struct {
 	PipelineSCMBranch  string   `json:"pipeline_scm_branch"`
 	PipelineSCMPath    string   `json:"pipeline_scm_path"`
 	Enabled            *bool    `json:"enabled"`
+	HTTPTriggerEnabled *bool    `json:"http_trigger_enabled"`
+}
+
+func newHTTPTriggerToken() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+func httpTriggerURL(r *http.Request, project *store.Project) string {
+	if project == nil || !project.HTTPTriggerEnabled || project.HTTPTriggerToken == "" || r.Host == "" {
+		return ""
+	}
+	scheme := "http"
+	if requestUsesHTTPS(r) {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s/api/trigger/projects/%d/%s", scheme, r.Host, project.ID, project.HTTPTriggerToken)
+}
+
+// publicProject removes the opaque trigger credential from the model. The
+// complete URL is visible only to editors, matching Configure access; viewers
+// can read project details but must never receive this build capability.
+func publicProject(r *http.Request, project *store.Project) *store.Project {
+	if project == nil {
+		return nil
+	}
+	result := *project
+	if canTriggerBuildRole(auth.RoleFromContext(r.Context())) {
+		result.HTTPTriggerURL = httpTriggerURL(r, project)
+	}
+	result.HTTPTriggerToken = ""
+	return &result
+}
+
+func (h *handlers) setProjectHTTPTrigger(id int64, enabled bool, previousToken string) error {
+	token := ""
+	if enabled {
+		token = previousToken
+		if token == "" {
+			generated, err := newHTTPTriggerToken()
+			if err != nil {
+				return fmt.Errorf("generate HTTP trigger credential: %w", err)
+			}
+			token = generated
+		}
+	}
+	return h.d.Store.SetProjectHTTPTrigger(id, enabled, token)
 }
 
 func (h *handlers) listProjects(w http.ResponseWriter, r *http.Request) {
@@ -296,8 +347,14 @@ func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if req.HTTPTriggerEnabled != nil {
+		if err := h.setProjectHTTPTrigger(p.ID, *req.HTTPTriggerEnabled, ""); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	p, _ = h.d.Store.GetProject(p.ID)
-	writeJSON(w, http.StatusCreated, p)
+	writeJSON(w, http.StatusCreated, publicProject(r, p))
 }
 
 func (h *handlers) getProject(w http.ResponseWriter, r *http.Request) {
@@ -311,7 +368,7 @@ func (h *handlers) getProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	writeJSON(w, http.StatusOK, publicProject(r, p))
 }
 
 func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
@@ -345,6 +402,11 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	existing, err := h.d.Store.GetProject(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "project not found")
+		return
+	}
 	if err := h.d.Store.UpdateProject(id, req.Name, req.Description, req.RepoURL, req.RepoType,
 		req.DefaultBranch, req.Config, req.VCSRootID, req.TemplateID, req.Tags); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -365,12 +427,18 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if req.HTTPTriggerEnabled != nil {
+		if err := h.setProjectHTTPTrigger(id, *req.HTTPTriggerEnabled, existing.HTTPTriggerToken); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	p, err := h.d.Store.GetProject(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	writeJSON(w, http.StatusOK, publicProject(r, p))
 }
 
 type validatePipelineReq struct {
@@ -2843,6 +2911,65 @@ func (h *handlers) reorderBuildQueue(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 // HTTP Trigger (公开，使用 API Token 认证)
 // ---------------------------------------------------------------------------
+
+// projectHTTPTriggerBuild starts an enabled project through its generated
+// opaque URL. It only accepts POST, preventing browser prefetchers and link
+// scanners from starting builds. The token is deliberately checked in constant
+// time and failures are indistinguishable so a disabled project's state is not
+// exposed to an external caller.
+func (h *handlers) projectHTTPTriggerBuild(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDInt64(r)
+	if err != nil || id <= 0 {
+		writeErr(w, http.StatusNotFound, "trigger not found")
+		return
+	}
+	project, err := h.d.Store.GetProject(id)
+	if err != nil || !project.HTTPTriggerEnabled || project.HTTPTriggerToken == "" ||
+		subtle.ConstantTimeCompare([]byte(project.HTTPTriggerToken), []byte(chi.URLParam(r, "token"))) != 1 {
+		writeErr(w, http.StatusNotFound, "trigger not found")
+		return
+	}
+	if !project.Enabled {
+		writeCodedErr(w, http.StatusConflict, "project_disabled", "project is disabled")
+		return
+	}
+	req, err := decodeTriggerBuildRequest(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	branch := strings.TrimSpace(req.Branch)
+	if branch == "" {
+		branch = project.DefaultBranch
+	}
+	paramsJSON, err := h.resolveProjectBuildParameters(project, req.Parameters)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	number, err := h.d.Store.NextBuildNumber(project.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	build, err := h.d.Store.CreateBuild(project.ID, number, "http", branch, "", paramsJSON, nil, nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := h.requestBuildApproval(project, build, 0); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = h.d.Store.CreateAuditLog(0, "", "trigger", "project", strconv.FormatInt(project.ID, 10), fmt.Sprintf("build #%d via project HTTP trigger", build.Number), clientIP(r))
+	if h.d.Runner != nil {
+		if err := h.d.Runner.Enqueue(build.ID); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusCreated, h.publicBuild(build))
+}
 
 func (h *handlers) httpTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	projectName := chi.URLParam(r, "projectName")
