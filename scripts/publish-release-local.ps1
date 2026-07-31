@@ -9,7 +9,7 @@ param(
     [switch]$PruneOtherReleases,
 
     [ValidatePattern('^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')]
-    [string]$Repository = 'neko233-com/buildworld233'
+    [string]$Repository = 'neko233-com/buildworld'
 )
 
 Set-StrictMode -Version Latest

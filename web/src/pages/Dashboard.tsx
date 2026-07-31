@@ -22,7 +22,7 @@ const ACTIVE_BUILD_STATUSES = new Set(['running', 'pending', 'pending_approval',
 const ACTIVE_REFRESH_INTERVAL_MS = 2_000
 const IDLE_REFRESH_INTERVAL_MS = 15_000
 const STORAGE_REFRESH_INTERVAL_MS = 30_000
-const PROJECT_URL = 'https://github.com/neko233-com/buildworld233'
+const PROJECT_URL = 'https://github.com/neko233-com/buildworld'
 const WEEKDAY_KEYS = [
   'dashboard.weekdaySunday',
   'dashboard.weekdayMonday',
@@ -114,7 +114,7 @@ function ProjectFooter() {
     <span aria-hidden="true">·</span>
     <a href={PROJECT_URL} target="_blank" rel="noreferrer">
       <IoLogoGithub aria-hidden="true" />
-      <span>github.com/neko233-com/buildworld233</span>
+      <span>github.com/neko233-com/buildworld</span>
     </a>
   </footer>
 }

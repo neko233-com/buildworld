@@ -1,4 +1,4 @@
-# BuildWorld233 使用手册
+# buildworld 使用手册
 
 本文覆盖生产安装、更新、回滚、macOS 生命周期、Jenkins 并行迁移和飞书通知。默认服务端口为 `8080`，保留 Jenkins 端口为 `8081`；初始账号为 `root/root`。首次登录后立刻改密码。
 
@@ -11,7 +11,7 @@
 Apple Silicon 与 Intel 自动识别：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | sh
 buildworld status
 open http://127.0.0.1:8080
 ```
@@ -25,7 +25,7 @@ export PATH="$HOME/.local/bin:$PATH"
 ### Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | sh
 buildworld status
 ```
 
@@ -36,7 +36,7 @@ buildworld status
 在 PowerShell 执行：
 
 ```powershell
-irm https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.ps1 | iex
 buildworld status
 Start-Process http://127.0.0.1:8080
 ```
@@ -68,12 +68,12 @@ launchctl print "gui/$(id -u)/com.buildworld.server"
 先在测试机验证指定版本，再在生产环境执行相同安装器：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.sh | sh -s -- 1.0.0
+curl -fsSL https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | sh -s -- 1.0.0
 buildworld status
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/neko233-com/buildworld233/main/scripts/install.ps1))) -Version 1.0.0
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.ps1))) -Version 1.0.0
 buildworld status
 ```
 
@@ -170,3 +170,4 @@ BuildWorld 飞书通道由 Go 原生服务发送，不运行 Python。创建通�
 - Git 密钥、飞书 webhook、token 只放凭据/通知配置，不提交 Jenkinsfile、Pipeline 或仓库。
 - 每次更新前备份 SQLite 数据库与配置目录；定期校验制品存储。
 - 把生产部署配置为审批或人工触发，直到双工具并行验证结束。
+

@@ -32,7 +32,7 @@ SSH 身份密钥表。
 
 ```bash
 # 安装
-gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld233/contents/scripts/install.sh | sh
+gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld/contents/scripts/install.sh | sh
 
 # 启动服务器
 buildworld start
@@ -78,3 +78,4 @@ open http://localhost:8080
 - [配置指南](./configuration) - 配置你的实例
 - [流水线指南](./pipelines) - 创建构建流水线
 - [Go 二进制插件](./plugins) - 扩展流水线步骤类型
+

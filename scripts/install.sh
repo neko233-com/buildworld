@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-REPO="neko233-com/buildworld233"
+REPO="neko233-com/buildworld"
 VERSION="${1:-latest}"
 NO_AUTOSTART="${BUILDWORLD_NO_AUTOSTART:-0}"
 GITHUB_AUTH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"

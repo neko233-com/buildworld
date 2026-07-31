@@ -255,7 +255,7 @@ describe('Dashboard Jenkins job view', () => {
     const projectFooter = container.querySelector('.jenkins-project-footer')
     expect(projectFooter?.textContent).toMatch(/\d{4}-\d{2}-\d{2} 星期[一二三四五六日]/)
     expect(projectFooter?.textContent).toContain('BuildWorld · 开源持续集成与构建项目')
-    expect(projectFooter?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/neko233-com/buildworld233')
+    expect(projectFooter?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/neko233-com/buildworld')
 
     await act(async () => buttonNamed('下移 Zulu').click())
     expect(reorderProjects).toHaveBeenCalledWith([1, 3, 2])

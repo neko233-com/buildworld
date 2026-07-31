@@ -12,13 +12,13 @@ the installer then reuses `GH_TOKEN`, `GITHUB_TOKEN`, or the GitHub CLI token.
 ### Linux/macOS
 
 ```bash
-gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld233/contents/scripts/install.sh | sh
+gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld/contents/scripts/install.sh | sh
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-& ([scriptblock]::Create((gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld233/contents/scripts/install.ps1 | Out-String)))
+& ([scriptblock]::Create((gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld/contents/scripts/install.ps1 | Out-String)))
 ```
 
 Both commands continue to work if the repository becomes public. The
@@ -28,7 +28,7 @@ installers also support anonymous public-release downloads.
 
 ### Download Binary
 
-Download the latest release from [GitHub Releases](https://github.com/neko233-com/buildworld233/releases). Every release contains a checksum-verified CLI, server, worker, and web UI bundle.
+Download the latest release from [GitHub Releases](https://github.com/neko233-com/buildworld/releases). Every release contains a checksum-verified CLI, server, worker, and web UI bundle.
 
 ### Available Binaries
 
@@ -107,3 +107,4 @@ docker run -d \
 
 - [Configuration](./configuration.md) - Configure your instance
 - [Pipeline Guide](./pipelines.md) - Create build pipelines
+

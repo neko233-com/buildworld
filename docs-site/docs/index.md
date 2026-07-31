@@ -32,7 +32,7 @@ does not generate or retain a separate per-user SSH identity registry.
 
 ```bash
 # Install
-gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld233/contents/scripts/install.sh | sh
+gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld/contents/scripts/install.sh | sh
 
 # Start server
 buildworld start
@@ -79,3 +79,4 @@ Default login: `root` / `root`
 - [Configuration](./configuration.md) - Configure your instance
 - [Pipeline Guide](./pipelines.md) - Create build pipelines
 - [Go binary plugins](./plugins.md) - Extend pipeline step types
+

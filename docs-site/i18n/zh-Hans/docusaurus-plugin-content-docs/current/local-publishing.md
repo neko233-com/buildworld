@@ -12,7 +12,7 @@ BuildWorld 不使用 GitHub Actions。CI 检查、文档构建与 GitHub Pages �
 - Node.js 24 与 npm；
 - Git 与 PowerShell；
 - 已通过 `gh auth login` 登录 GitHub CLI；
-- 拥有 `neko233-com/buildworld233` 的管理员或维护者权限。
+- 拥有 `neko233-com/buildworld` 的管理员或维护者权限。
 
 即使仓库为私有，GitHub Pages 仍公开可见。文档源码中禁止放入密钥、私有
 主机名、Token 或凭据。
@@ -80,3 +80,4 @@ Release 发布器同样默认 dry-run：执行完整本地门禁、构建六平�
 正式发布需要高影响操作确认。脚本先创建 draft，本地分批上传，逐项核对
 远端资产名称与大小，全部正确后才公开为 Latest。`-PruneOtherReleases`
 删除旧 Release 二进制，但保留旧源码 tag。全程不使用 GitHub Actions。
+

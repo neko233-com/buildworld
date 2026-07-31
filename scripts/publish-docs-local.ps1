@@ -10,7 +10,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $remote = 'origin'
-$repository = 'neko233-com/buildworld233'
+$repository = 'neko233-com/buildworld'
 $sourceBranch = 'main'
 $pagesBranch = 'gh-pages'
 
@@ -125,8 +125,8 @@ function Assert-DocumentationOutput([string]$BuildRoot) {
     }
 
     $rootHtml = Get-Content -LiteralPath (Join-Path $BuildRoot 'index.html') -Raw
-    if (-not $rootHtml.Contains('/buildworld233/')) {
-        throw 'Documentation output does not use the required /buildworld233/ base URL.'
+    if (-not $rootHtml.Contains('/buildworld/')) {
+        throw 'Documentation output does not use the required /buildworld/ base URL.'
     }
 
     $outputItems = @(Get-ChildItem -LiteralPath $BuildRoot -Recurse -Force)

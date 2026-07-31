@@ -13,7 +13,7 @@ controlled local machine.
 - Node.js 24 and npm;
 - Git and PowerShell;
 - GitHub CLI authenticated with `gh auth login`;
-- admin or maintainer access to `neko233-com/buildworld233`.
+- admin or maintainer access to `neko233-com/buildworld`.
 
 GitHub Pages is public even while the repository is private. Never put secrets,
 private hostnames, tokens, or credentials in the documentation source.
@@ -88,3 +88,4 @@ This requires a high-impact confirmation. The script creates a draft, uploads
 assets in local batches, compares every remote name and size, and only then
 publishes it as Latest. `-PruneOtherReleases` deletes old Release binaries but
 keeps their source tags. GitHub Actions is never used.
+

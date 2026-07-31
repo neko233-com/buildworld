@@ -6,9 +6,9 @@ const config = {
   tagline: 'A modern CI/CD server - Jenkins alternative',
   favicon: 'img/favicon.svg',
   url: 'https://neko233-com.github.io',
-  baseUrl: '/buildworld233/',
+  baseUrl: '/buildworld/',
   organizationName: 'neko233-com',
-  projectName: 'buildworld233',
+  projectName: 'buildworld',
   onBrokenLinks: 'throw',
   markdown: {
     hooks: {
@@ -67,7 +67,7 @@ const config = {
             position: 'right',
           },
           {
-            href: 'https://github.com/neko233-com/buildworld233',
+            href: 'https://github.com/neko233-com/buildworld',
             label: 'GitHub',
             position: 'right',
           },
@@ -98,11 +98,11 @@ const config = {
             items: [
               {
                 label: 'GitHub',
-                href: 'https://github.com/neko233-com/buildworld233',
+                href: 'https://github.com/neko233-com/buildworld',
               },
               {
                 label: 'Issues',
-                href: 'https://github.com/neko233-com/buildworld233/issues',
+                href: 'https://github.com/neko233-com/buildworld/issues',
               },
             ],
           },
@@ -111,11 +111,11 @@ const config = {
             items: [
               {
                 label: 'Changelog',
-                href: 'https://github.com/neko233-com/buildworld233/blob/main/CHANGELOG.md',
+                href: 'https://github.com/neko233-com/buildworld/blob/main/CHANGELOG.md',
               },
               {
                 label: 'License',
-                href: 'https://github.com/neko233-com/buildworld233/blob/main/LICENSE',
+                href: 'https://github.com/neko233-com/buildworld/blob/main/LICENSE',
               },
             ],
           },

@@ -14,7 +14,7 @@ Run as the macOS account that owns the build tools and signing keychain:
 
 ```bash
 gh auth login
-gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld233/contents/scripts/install.sh | sh
+gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld/contents/scripts/install.sh | sh
 buildworld start
 buildworld status
 ```
@@ -130,3 +130,4 @@ An entry containing `deny ... file-read-data` for the pipeline executable, with
 `buildworld-server` shown as the responsible process, identifies a macOS
 privacy denial for that access. Investigate unrelated build failures
 separately.
+

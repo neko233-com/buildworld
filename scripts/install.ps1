@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
-$Repo = "neko233-com/buildworld233"
+$Repo = "neko233-com/buildworld"
 $InstallDir = if ($env:BUILDWORLD_INSTALL_DIR) { $env:BUILDWORLD_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "BuildWorld" }
 $PreviousDir = "$InstallDir.previous"
 $script:ReleaseMetadata = $null
