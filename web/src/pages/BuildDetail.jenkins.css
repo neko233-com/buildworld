@@ -126,6 +126,11 @@
   color: #c4001d;
 }
 
+[data-skin="jenkins"] .jenkins-run-tasks .rebuild-action {
+  color: #0b63a5;
+  font-weight: 600;
+}
+
 [data-skin="jenkins"] .jenkins-run-tasks a svg,
 [data-skin="jenkins"] .jenkins-run-tasks button svg {
   width: 20px;
@@ -285,6 +290,16 @@
 [data-skin="jenkins"] .jenkins-run-controls .danger {
   color: #fff;
   background: #c4001d;
+}
+
+[data-skin="jenkins"] .jenkins-run-controls .rebuild-action {
+  color: #fff;
+  background: #1769aa;
+  box-shadow: 0 0 0 1.5px #1769aa;
+}
+
+[data-skin="jenkins"] .jenkins-run-controls .rebuild-action:hover {
+  background: #0f568e;
 }
 
 [data-skin="jenkins"] .jenkins-run-controls button:disabled,
@@ -695,11 +710,13 @@
 
 [data-skin="jenkins"] .jenkins-run-section-heading h2 {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 9px;
   margin: 0;
   font-size: 21px;
   font-weight: 650;
+  white-space: nowrap;
 }
 
 [data-skin="jenkins"] .jenkins-run-section-heading > span,
@@ -711,14 +728,97 @@
 
 [data-skin="jenkins"] .jenkins-console-controls {
   display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+[data-skin="jenkins"] .jenkins-console-controls > * {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+[data-skin="jenkins"] .jenkins-console-search {
+  display: inline-flex;
+  width: min(260px, 24vw);
+  min-width: 180px;
+  min-height: 38px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--run-secondary);
+  background: #fff;
+  box-shadow: 0 0 0 1.5px var(--run-border-subtle);
+}
+
+[data-skin="jenkins"] .jenkins-console-search:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--run-link) 35%, transparent);
+  outline-offset: 2px;
+}
+
+[data-skin="jenkins"] .jenkins-console-search input {
+  min-width: 0;
+  flex: 1;
+  height: 30px;
+  border: 0;
+  outline: 0;
+  color: var(--run-text);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+}
+
+[data-skin="jenkins"] .jenkins-console-search input::placeholder {
+  color: var(--run-secondary);
+}
+
+[data-skin="jenkins"] .jenkins-console-search span {
+  flex: 0 0 auto;
+  color: var(--run-secondary);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 [data-skin="jenkins"] .jenkins-console-controls .selected {
   color: #1569c2;
   border-color: #9fc5eb;
   background: #edf6ff;
+}
+
+[data-skin="jenkins"] .jenkins-console-controls .clear-screen {
+  color: #8a5a00;
+  border-color: #e0bc63;
+  background: #fff5d6;
+}
+
+[data-skin="jenkins"] .jenkins-console-controls .follow-action {
+  color: #155f96;
+  border-color: #91c2e3;
+  background: #e9f5ff;
+}
+
+[data-skin="jenkins"] .jenkins-console-controls .colorize-action {
+  color: #7250a9;
+  border-color: #c5b4e5;
+  background: #f2edfc;
+}
+
+[data-skin="jenkins"] .jenkins-console-controls .download-action {
+  color: #217044;
+  border-color: #a9d4b6;
+  background: #edf9ef;
+}
+
+[data-skin="jenkins"] .jenkins-console-controls .open-log-action,
+[data-skin="jenkins"] .jenkins-run-controls .report-action {
+  color: #526678;
+  border-color: #c2ced7;
+  background: #f1f5f8;
 }
 
 [data-skin="jenkins"] .jenkins-console-output {
@@ -770,6 +870,17 @@
   border-left-color: #cf3e49;
   color: #982c35;
   background: #fff4f4;
+}
+
+[data-skin="jenkins"] .jenkins-console-line.active-match {
+  outline: 2px solid #ef5350;
+  outline-offset: -2px;
+}
+
+[data-skin="jenkins"] .jenkins-console-line mark {
+  padding: 1px 0;
+  color: #20252b;
+  background: #ffe08a;
 }
 
 [data-skin="jenkins"] .jenkins-console-section {

@@ -158,6 +158,19 @@ describe('BuildLogViewer', () => {
     expect(downloadBuildLogs).toHaveBeenCalledWith(42, 'txt')
   })
 
+  it('clears only the current browser screen without refetching logs', async () => {
+    await renderViewer()
+
+    const snapshotsBeforeClear = getBuildLogs.mock.calls.length
+    const clear = container.querySelector<HTMLButtonElement>('button[aria-label="Clear current screen logs"]')!
+    expect(clear.disabled).toBe(false)
+
+    await act(async () => clear.click())
+
+    expect(container.querySelector('.plain-log-empty')?.textContent).toContain('No logs available')
+    expect(getBuildLogs.mock.calls.length).toBe(snapshotsBeforeClear)
+  })
+
   it('colors error, warning, and default info lines without filtering and persists the accessible toggle', async () => {
     getBuildLogs.mockResolvedValueOnce({
       log: [

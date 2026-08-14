@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Activity, AlertTriangle, Ban, Check, Circle, Copy, Download, ExternalLink, FileText, FlaskConical, GitBranch, GitCommitHorizontal, LoaderCircle, Package, Palette, PanelRightClose, PanelRightOpen, Pause, Pin, PinOff, Play, RotateCcw, Settings2, SlidersHorizontal, Square, Upload, UserRound, X } from 'lucide-react'
+import { Activity, AlertTriangle, Ban, Check, Circle, Copy, Download, Eraser, ExternalLink, FileText, FlaskConical, GitBranch, GitCommitHorizontal, LoaderCircle, Package, Palette, PanelRightClose, PanelRightOpen, Pause, Pin, PinOff, Play, RotateCcw, Search, Settings2, SlidersHorizontal, Square, Upload, UserRound, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
@@ -43,6 +44,23 @@ function parameterValue(name: string, value: unknown): string {
   if (/(password|passwd|secret|token|key)/i.test(name)) return '••••••••'
   if (typeof value === 'string') return value
   return JSON.stringify(value)
+}
+
+function highlightLogLine(line: string, query: string): ReactNode {
+  if (!query) return line
+  const lowerLine = line.toLocaleLowerCase()
+  const lowerQuery = query.toLocaleLowerCase()
+  const fragments: ReactNode[] = []
+  let cursor = 0
+  let match = lowerLine.indexOf(lowerQuery)
+  while (match >= 0) {
+    if (match > cursor) fragments.push(line.slice(cursor, match))
+    fragments.push(<mark key={`${match}-${cursor}`}>{line.slice(match, match + query.length)}</mark>)
+    cursor = match + query.length
+    match = lowerLine.indexOf(lowerQuery, cursor)
+  }
+  if (cursor < line.length) fragments.push(line.slice(cursor))
+  return fragments
 }
 
 function TimelineStatusIcon({ status }: { status: BuildTimelineStep['status'] }) {
@@ -117,6 +135,9 @@ export default function BuildDetail() {
   const activeBuildRef = useRef<number | null>(null)
   const [followConsole, setFollowConsole] = useState(true)
   const [colorizeLogs, setColorizeLogs] = useState(readLogTonePreference)
+  const [logQuery, setLogQuery] = useState('')
+  const [activeLogMatch, setActiveLogMatch] = useState(0)
+  const [screenLogAnchor, setScreenLogAnchor] = useState<string | null>(null)
   const [stageRailExpanded, setStageRailExpanded] = useState(() => typeof window === 'undefined' || !window.matchMedia?.('(max-width: 1180px)').matches)
   const requestedStageLogRef = useRef<string | null>(null)
   const stageRail = useMemo(() => stageRailItems(timeline?.steps || []), [timeline?.steps])
@@ -132,9 +153,19 @@ export default function BuildDetail() {
     onBuildStatus: reloadBuild,
   })
   const displayedLog = useMemo(() => visibleBuildLog(liveLog), [liveLog])
-  const consoleLines = useMemo(() => displayedLog ? displayedLog.split(/\r?\n/) : [], [displayedLog])
+  const screenLog = useMemo(() => {
+    if (screenLogAnchor === null) return displayedLog
+    if (displayedLog.startsWith(screenLogAnchor)) return displayedLog.slice(screenLogAnchor.length)
+    const anchorIndex = screenLogAnchor ? displayedLog.indexOf(screenLogAnchor) : -1
+    return anchorIndex >= 0 ? displayedLog.slice(anchorIndex + screenLogAnchor.length) : displayedLog
+  }, [displayedLog, screenLogAnchor])
+  const consoleLines = useMemo(() => screenLog ? screenLog.split(/\r?\n/) : [], [screenLog])
   const consoleTones = useMemo(() => logTones(consoleLines), [consoleLines])
   const logLines = useMemo(() => consoleLines.filter(Boolean), [consoleLines])
+  const normalizedLogQuery = logQuery.trim().toLocaleLowerCase()
+  const logMatches = useMemo(() => normalizedLogQuery
+    ? consoleLines.flatMap((line, index) => line.toLocaleLowerCase().includes(normalizedLogQuery) ? [index] : [])
+    : [], [consoleLines, normalizedLogQuery])
   const liveLogStatus = t(`builds.${liveLogState}`)
   const problemsPending = problemsLoading || (!!build && !problems && !problemsError)
 
@@ -186,6 +217,16 @@ export default function BuildDetail() {
   }, [activeTab, displayedLog])
 
   useEffect(() => {
+    setActiveLogMatch(0)
+  }, [normalizedLogQuery])
+
+  useLayoutEffect(() => {
+    if (activeTab !== 'current' || !normalizedLogQuery || !logMatches.length) return
+    const lineIndex = logMatches[Math.min(activeLogMatch, logMatches.length - 1)]
+    document.getElementById(`build-log-line-${lineIndex}`)?.scrollIntoView?.({ block: 'center' })
+  }, [activeLogMatch, activeTab, logMatches, normalizedLogQuery, screenLog])
+
+  useEffect(() => {
     if (activeTab !== 'current') return
     const consoleOutput = consoleRef.current
     if (!consoleOutput) return
@@ -226,6 +267,12 @@ export default function BuildDetail() {
     }
     scrollToLatest()
     window.requestAnimationFrame(scrollToLatest)
+  }
+
+  const clearScreenLogs = () => {
+    setScreenLogAnchor(displayedLog)
+    setLogQuery('')
+    setActiveLogMatch(0)
   }
 
   const scrollToStageLog = (stageName: string) => {
@@ -377,6 +424,7 @@ export default function BuildDetail() {
           {editable && isFinished && <button type="button" onClick={handleRetry} disabled={retrying || replayOpen} aria-busy={retrying}>{retrying ? <LoaderCircle className="timeline-spinner" /> : <RotateCcw />}{retrying ? t('builds.replaying') : t('builds.replay')}</button>}
           {editable && <button type="button" onClick={handlePin} disabled={pinning} aria-busy={pinning}>{pinning ? <LoaderCircle className="timeline-spinner" /> : build.pinned ? <PinOff /> : <Pin />}{build.pinned ? t('builds.unpin') : t('builds.pin')}</button>}
           {editable && build.status === 'failed' && <Link to={`/projects/${build.project_id}/configure`}><Settings2 />{t('builds.fixProjectSettings')}</Link>}
+          {editable && isActive && <button type="button" className="rebuild-action" onClick={handleRetry} disabled={retrying || replayOpen} aria-busy={retrying}>{retrying ? <LoaderCircle className="timeline-spinner" /> : <RotateCcw />}{retrying ? t('builds.replaying') : t('builds.rebuild')}</button>}
           {editable && isActive && <button type="button" className="danger" onClick={handleStop} disabled={stopping} aria-busy={stopping}>{stopping ? <LoaderCircle className="timeline-spinner" /> : <Square />}{stopping ? t('builds.stopping') : t('builds.stopBuild')}</button>}
           <PluginActionLinks location="build.action" projectId={build.project_id} buildId={buildId} buildNumber={build.number} />
         </nav>
@@ -399,8 +447,9 @@ export default function BuildDetail() {
             <h1>{build.pinned && <Pin size={17} aria-label={t('builds.pinned')} />}{t('builds.build')} #{build.number}<small>({formatDateTime(build.started_at)})</small></h1>
           </div>
           <div className="jenkins-run-controls">
-            <Link to={`/builds/${buildId}/tests`}><FlaskConical size={15} />{t('builds.testReports')}</Link>
+            <Link className="report-action" to={`/builds/${buildId}/tests`}><FlaskConical size={15} />{t('builds.testReports')}</Link>
             {editable && isFinished && <button type="button" onClick={handleRetry} disabled={retrying || replayOpen} aria-busy={retrying}>{retrying ? <LoaderCircle className="timeline-spinner" size={15} /> : <RotateCcw size={15} />}{retrying ? t('builds.replaying') : t('builds.replay')}</button>}
+            {editable && isActive && <button type="button" className="rebuild-action" onClick={handleRetry} disabled={retrying || replayOpen} aria-busy={retrying}>{retrying ? <LoaderCircle className="timeline-spinner" size={15} /> : <RotateCcw size={15} />}{retrying ? t('builds.replaying') : t('builds.rebuild')}</button>}
             {editable && isActive && <button type="button" className="danger" onClick={handleStop} disabled={stopping} aria-busy={stopping}>{stopping ? <LoaderCircle className="timeline-spinner" size={15} /> : <Square size={14} />}{stopping ? t('builds.stopping') : t('builds.stopBuild')}</button>}
           </div>
         </header>
@@ -442,10 +491,12 @@ export default function BuildDetail() {
           <header className="jenkins-run-section-heading">
             <h2><FileText size={20} />{t('builds.logs')}</h2>
             <div className="jenkins-console-controls">
-              {isActive && <button type="button" className={followConsole ? 'selected' : ''} aria-pressed={followConsole} onClick={() => setConsoleFollowing(!followConsole)}>{followConsole ? <Pause size={14} /> : <Play size={14} />}{followConsole ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>}
-              <button type="button" className={colorizeLogs ? 'selected' : ''} aria-label={t('builds.colorizeLogs')} title={t('builds.colorizeLogs')} aria-pressed={colorizeLogs} onClick={() => setColorizeLogs(current => { const next = !current; writeLogTonePreference(next); return next })}><Palette size={14} />{t('builds.colorizeLogs')}</button>
-              <button type="button" onClick={() => handleLogDownload('txt')} disabled={downloading !== null} aria-busy={downloading === 'logs-txt'}>{downloading === 'logs-txt' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Download size={15} />}{downloading === 'logs-txt' ? t('builds.downloading') : t('builds.downloadText')}</button>
-              <Link to={`/builds/${buildId}/logs`} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} />{t('builds.openStandaloneLogs')}</Link>
+              <label className="jenkins-console-search"><Search size={14} /><input value={logQuery} onChange={event => { const next = event.target.value; setLogQuery(next); if (next.trim()) setConsoleFollowing(false) }} placeholder={t('builds.searchLogs')} aria-label={t('builds.searchLogs')} /><span aria-live="polite">{normalizedLogQuery ? t('builds.matchProgress').replace('{current}', logMatches.length ? String(activeLogMatch + 1) : '0').replace('{total}', String(logMatches.length)) : ''}</span></label>
+              <button type="button" className="clear-screen" onClick={clearScreenLogs} disabled={!displayedLog} aria-label={t('builds.clearScreenLogs')} title={t('builds.clearScreenLogs')}><Eraser size={14} />{t('builds.clearScreenLogs')}</button>
+              {isActive && <button type="button" className={`follow-action ${followConsole ? 'selected' : ''}`} aria-pressed={followConsole} onClick={() => setConsoleFollowing(!followConsole)}>{followConsole ? <Pause size={14} /> : <Play size={14} />}{followConsole ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>}
+              <button type="button" className={`colorize-action ${colorizeLogs ? 'selected' : ''}`} aria-label={t('builds.colorizeLogs')} title={t('builds.colorizeLogs')} aria-pressed={colorizeLogs} onClick={() => setColorizeLogs(current => { const next = !current; writeLogTonePreference(next); return next })}><Palette size={14} />{t('builds.colorizeLogs')}</button>
+              <button type="button" className="download-action" onClick={() => handleLogDownload('txt')} disabled={downloading !== null} aria-busy={downloading === 'logs-txt'}>{downloading === 'logs-txt' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Download size={15} />}{downloading === 'logs-txt' ? t('builds.downloading') : t('builds.downloadText')}</button>
+              <Link className="open-log-action" to={`/builds/${buildId}/logs`} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} />{t('builds.openStandaloneLogs')}</Link>
             </div>
           </header>
           {logsResp?.truncated && <div className="jenkins-console-retention-warning" role="status">{t('builds.logTruncated').replace('{count}', String(logsResp.retention_characters || 1_000_000))}</div>}
@@ -453,7 +504,7 @@ export default function BuildDetail() {
             const consoleOutput = consoleRef.current
             if (!consoleOutput) return
             if (followConsoleRef.current && !isNearLogBottom(consoleOutput)) setConsoleFollowing(false)
-          }}>{consoleLines.length ? consoleLines.map((line, index) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''}`} key={index}>{line || '\u00a0'}</span>) : t('builds.noLogs')}</pre>
+          }}>{consoleLines.length ? consoleLines.map((line, index) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>) : t('builds.noLogs')}</pre>
           {isExecuting && <div className="jenkins-console-progress" role="status" aria-live="polite">{followConsole ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pause size={16} />}{followConsole ? liveLogStatus : t('builds.followPaused')}</div>}
         </section>
         </div>

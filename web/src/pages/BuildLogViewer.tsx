@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import { ArrowDown, ArrowLeft, ArrowUp, Download, FileText, LoaderCircle, Moon, Palette, Pause, Play, Search, Sun, WrapText } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Download, Eraser, FileText, LoaderCircle, Moon, Palette, Pause, Play, Search, Sun, WrapText } from 'lucide-react'
 import { api } from '../api'
 import { useApi } from '../hooks'
 import { useBuildLogStream } from '../useBuildLogStream'
@@ -52,6 +52,7 @@ export default function BuildLogViewer() {
   )
   const [query, setQuery] = useState('')
   const [activeMatch, setActiveMatch] = useState(0)
+  const [screenLogAnchor, setScreenLogAnchor] = useState<string | null>(null)
   const [follow, setFollow] = useState(true)
   const [wrap, setWrap] = useState(false)
   const [colorizeLogs, setColorizeLogs] = useState(readLogTonePreference)
@@ -75,7 +76,13 @@ export default function BuildLogViewer() {
     onBuildStatus: reloadBuild,
   })
   const source = visibleBuildLog(streamLog)
-  const lines = useMemo(() => source ? source.split('\n') : [], [source])
+  const screenSource = useMemo(() => {
+    if (screenLogAnchor === null) return source
+    if (source.startsWith(screenLogAnchor)) return source.slice(screenLogAnchor.length)
+    const anchorIndex = screenLogAnchor ? source.indexOf(screenLogAnchor) : -1
+    return anchorIndex >= 0 ? source.slice(anchorIndex + screenLogAnchor.length) : source
+  }, [screenLogAnchor, source])
+  const lines = useMemo(() => screenSource ? screenSource.split('\n') : [], [screenSource])
   const lineTones = useMemo(() => logTones(lines), [lines])
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const matches = useMemo(() => normalizedQuery
@@ -195,6 +202,12 @@ export default function BuildLogViewer() {
     return next
   })
 
+  const clearScreenLogs = () => {
+    setScreenLogAnchor(source)
+    setQuery('')
+    setActiveMatch(0)
+  }
+
   return <main className={`plain-log-page theme-${theme} ${wrap ? 'wrap-lines' : ''}`}>
     <header className="plain-log-header">
       <div className="plain-log-identity">
@@ -204,12 +217,12 @@ export default function BuildLogViewer() {
         <span className={`build-status ${build.status}`}>{t(`builds.${build.status}`)}</span>
       </div>
       <div className="plain-log-actions">
-        <button type="button" className={theme === 'dark' ? 'selected' : ''} aria-label={theme === 'dark' ? t('builds.useLightTheme') : t('builds.useDarkTheme')} title={theme === 'dark' ? t('builds.useLightTheme') : t('builds.useDarkTheme')} aria-pressed={theme === 'dark'} onClick={toggleTheme}>{theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}{theme === 'dark' ? t('builds.lightTheme') : t('builds.darkTheme')}</button>
-        <button type="button" className={follow ? 'selected' : ''} aria-pressed={follow} onClick={() => setFollowing(!follow)}>{follow ? <Pause size={14} /> : <Play size={14} />}{follow ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>
-        <button type="button" className={wrap ? 'selected' : ''} aria-pressed={wrap} onClick={() => setWrap(value => !value)}><WrapText size={14} />{t('builds.wrapLines')}</button>
-        <button type="button" className={colorizeLogs ? 'selected' : ''} aria-label={t('builds.colorizeLogs')} title={t('builds.colorizeLogs')} aria-pressed={colorizeLogs} onClick={() => setColorizeLogs(current => { const next = !current; writeLogTonePreference(next); return next })}><Palette size={14} />{t('builds.colorizeLogs')}</button>
-        <button type="button" onClick={() => download('txt')} disabled={!!downloading}>{downloading === 'txt' ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}.txt</button>
-        <button type="button" onClick={() => download('json')} disabled={!!downloading}>{downloading === 'json' ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}JSON</button>
+        <button type="button" className={`theme-action ${theme === 'dark' ? 'selected' : ''}`} aria-label={theme === 'dark' ? t('builds.useLightTheme') : t('builds.useDarkTheme')} title={theme === 'dark' ? t('builds.useLightTheme') : t('builds.useDarkTheme')} aria-pressed={theme === 'dark'} onClick={toggleTheme}>{theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}{theme === 'dark' ? t('builds.lightTheme') : t('builds.darkTheme')}</button>
+        <button type="button" className={`follow-action ${follow ? 'selected' : ''}`} aria-pressed={follow} onClick={() => setFollowing(!follow)}>{follow ? <Pause size={14} /> : <Play size={14} />}{follow ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>
+        <button type="button" className={`wrap-action ${wrap ? 'selected' : ''}`} aria-pressed={wrap} onClick={() => setWrap(value => !value)}><WrapText size={14} />{t('builds.wrapLines')}</button>
+        <button type="button" className={`colorize-action ${colorizeLogs ? 'selected' : ''}`} aria-label={t('builds.colorizeLogs')} title={t('builds.colorizeLogs')} aria-pressed={colorizeLogs} onClick={() => setColorizeLogs(current => { const next = !current; writeLogTonePreference(next); return next })}><Palette size={14} />{t('builds.colorizeLogs')}</button>
+        <button type="button" className="download-action" onClick={() => download('txt')} disabled={!!downloading}>{downloading === 'txt' ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}.txt</button>
+        <button type="button" className="download-action" onClick={() => download('json')} disabled={!!downloading}>{downloading === 'json' ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}JSON</button>
       </div>
     </header>
     <div className="plain-log-message">
@@ -219,9 +232,10 @@ export default function BuildLogViewer() {
 
     <section className="plain-log-toolbar" aria-label={t('builds.logTools')}>
       <label><Search size={15} /><input ref={searchRef} value={query} onChange={event => { setQuery(event.target.value); if (event.target.value.trim()) setFollowing(false) }} placeholder={t('builds.searchLogs')} aria-label={t('builds.searchLogs')} /><kbd>/</kbd></label>
+      <button type="button" className="clear-screen" onClick={clearScreenLogs} disabled={!source} aria-label={t('builds.clearScreenLogs')} title={t('builds.clearScreenLogs')}><Eraser size={14} />{t('builds.clearScreenLogs')}</button>
       <span>{normalizedQuery ? t('builds.matchProgress').replace('{current}', matches.length ? String(activeMatch + 1) : '0').replace('{total}', String(matches.length)) : t('builds.lineCount').replace('{count}', String(lines.length))}</span>
-      <button type="button" aria-label={t('builds.previousMatch')} title={t('builds.previousMatch')} disabled={!matches.length} onClick={() => moveMatch(-1)}><ArrowUp size={14} /></button>
-      <button type="button" aria-label={t('builds.nextMatch')} title={t('builds.nextMatch')} disabled={!matches.length} onClick={() => moveMatch(1)}><ArrowDown size={14} /></button>
+      <button type="button" className="match-nav" aria-label={t('builds.previousMatch')} title={t('builds.previousMatch')} disabled={!matches.length} onClick={() => moveMatch(-1)}><ArrowUp size={14} /></button>
+      <button type="button" className="match-nav" aria-label={t('builds.nextMatch')} title={t('builds.nextMatch')} disabled={!matches.length} onClick={() => moveMatch(1)}><ArrowDown size={14} /></button>
       {running && <strong role="status" aria-live="polite" aria-atomic="true"><i />{t(`builds.${streamState}`)}</strong>}
     </section>
 

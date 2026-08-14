@@ -1409,3 +1409,83 @@ button:disabled { cursor: not-allowed; }
 .plain-log-page.theme-light .plain-log-lines .active-match { background: #e8f1fb; }
 .plain-log-page.theme-light .plain-log-lines mark { color: #20262b; background: #f6d77b; }
 .plain-log-page.theme-light .plain-log-footer { border-top-color: #d4dbe1; background: #f7f9fb; }
+
+/* Keep long log-tool labels readable instead of stacking individual characters. */
+.plain-log-actions button,
+.plain-log-toolbar button {
+  white-space: nowrap;
+}
+
+/* Semantic colors keep log controls scannable without relying on text alone. */
+.plain-log-page .plain-log-actions .theme-action,
+.plain-log-page .plain-log-toolbar .match-nav {
+  color: #aebdca;
+  border-color: #526574;
+  background: #263640;
+}
+.plain-log-page .plain-log-actions .follow-action,
+.plain-log-page .plain-log-toolbar .follow-action {
+  color: #9dd5ff;
+  border-color: #2f7299;
+  background: #163b50;
+}
+.plain-log-page .plain-log-actions .wrap-action {
+  color: #8de1d0;
+  border-color: #287a76;
+  background: #123d3d;
+}
+.plain-log-page .plain-log-actions .colorize-action,
+.plain-log-page .plain-log-toolbar .colorize-action {
+  color: #d0b4ff;
+  border-color: #7556a5;
+  background: #302343;
+}
+.plain-log-page .plain-log-toolbar .clear-screen {
+  color: #f4d27a;
+  border-color: #9d7630;
+  background: #493715;
+}
+.plain-log-page .plain-log-actions .download-action {
+  color: #9fe0ae;
+  border-color: #397a52;
+  background: #173b29;
+}
+.plain-log-page .plain-log-actions button:hover,
+.plain-log-page .plain-log-actions button.selected,
+.plain-log-page .plain-log-toolbar button:hover,
+.plain-log-page .plain-log-toolbar button.selected {
+  filter: brightness(1.13);
+}
+.plain-log-page.theme-light .plain-log-actions .theme-action,
+.plain-log-page.theme-light .plain-log-toolbar .match-nav {
+  color: #4d5f6c;
+  border-color: #b7c5ce;
+  background: #eef3f6;
+}
+.plain-log-page.theme-light .plain-log-actions .follow-action,
+.plain-log-page.theme-light .plain-log-toolbar .follow-action {
+  color: #125f96;
+  border-color: #8dbfe0;
+  background: #e8f4ff;
+}
+.plain-log-page.theme-light .plain-log-actions .wrap-action {
+  color: #0b7469;
+  border-color: #9ed6cf;
+  background: #e8f8f5;
+}
+.plain-log-page.theme-light .plain-log-actions .colorize-action,
+.plain-log-page.theme-light .plain-log-toolbar .colorize-action {
+  color: #7250a9;
+  border-color: #c5b4e5;
+  background: #f2edfc;
+}
+.plain-log-page.theme-light .plain-log-toolbar .clear-screen {
+  color: #8b5b00;
+  border-color: #e2c36d;
+  background: #fff5d8;
+}
+.plain-log-page.theme-light .plain-log-actions .download-action {
+  color: #217044;
+  border-color: #a9d4b6;
+  background: #edf9ef;
+}

@@ -258,6 +258,42 @@ describe('BuildDetail Jenkins Run layout', () => {
     animationFrame.mockRestore()
   })
 
+  it('places rebuild before stop for an active build and opens the replay summary', async () => {
+    await renderPage({ ...build, status: 'running', finished_at: null })
+
+    const controls = container.querySelector<HTMLElement>('.jenkins-run-controls')!
+    const buttons = Array.from(controls.querySelectorAll<HTMLButtonElement>('button'))
+    const rebuildIndex = buttons.findIndex(button => button.textContent?.includes('Rebuild'))
+    const stopIndex = buttons.findIndex(button => button.textContent?.includes('Stop build'))
+    expect(rebuildIndex).toBeGreaterThanOrEqual(0)
+    expect(stopIndex).toBe(rebuildIndex + 1)
+    expect(buttons[rebuildIndex]?.classList.contains('rebuild-action')).toBe(true)
+
+    await act(async () => buttons[rebuildIndex]?.click())
+    expect(document.querySelector('.jenkins-replay-dialog')?.textContent).toContain('Weather #4')
+    expect(api.retryBuild).not.toHaveBeenCalled()
+  })
+
+  it('searches embedded logs and clears only this browser screen', async () => {
+    vi.mocked(api.getBuildLogs).mockResolvedValueOnce({ log: '[07:00:36] [Build] hello\n[07:00:37] [Build] ready' })
+    await renderPage()
+
+    const search = container.querySelector<HTMLInputElement>('input[aria-label="Search logs"]')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, 'hello')
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(container.textContent).toContain('1 of 1 matches')
+    expect(container.querySelector('.jenkins-console-output mark')?.textContent).toBe('hello')
+
+    const clear = container.querySelector<HTMLButtonElement>('button[aria-label="Clear current screen logs"]')!
+    const logRequestCount = vi.mocked(api.getBuildLogs).mock.calls.length
+    await act(async () => clear.click())
+    expect(container.querySelector('.jenkins-console-output')?.textContent).toBe('No logs available')
+    expect(search.value).toBe('')
+    expect(vi.mocked(api.getBuildLogs).mock.calls.length).toBe(logRequestCount)
+  })
+
   it('renders every console line with default-on level colors and can disable them without filtering output', async () => {
     vi.mocked(api.getBuildLogs).mockResolvedValueOnce({
       log: [
