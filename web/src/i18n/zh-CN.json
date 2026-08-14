@@ -736,6 +736,7 @@
     "logTools": "日志工具",
     "searchLogs": "搜索日志",
     "clearScreenLogs": "清空当前屏幕日志",
+    "filterLogMatches": "仅显示匹配",
     "previousMatch": "上一个匹配",
     "nextMatch": "下一个匹配",
     "matchProgress": "第 {current} / {total} 个匹配",

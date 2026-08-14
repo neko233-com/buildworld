@@ -736,6 +736,7 @@
     "logTools": "Log tools",
     "searchLogs": "Search logs",
     "clearScreenLogs": "Clear current screen logs",
+    "filterLogMatches": "Only matching lines",
     "previousMatch": "Previous match",
     "nextMatch": "Next match",
     "matchProgress": "{current} of {total} matches",

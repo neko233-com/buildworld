@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { appendLiveLog, mergeLiveLog } from './lib/logFollow'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { appendLiveLog, extractLiveLogDelta, mergeLiveLog } from './lib/logFollow'
 
 export type BuildLogStreamState = 'connecting' | 'live' | 'reconnecting' | 'fallback'
 const LIVE_LOG_BATCH_INTERVAL_MS = 75
@@ -34,17 +34,47 @@ export function useBuildLogStream({
 }: UseBuildLogStreamOptions) {
   const [log, setLog] = useState('')
   const [state, setState] = useState<BuildLogStreamState>('fallback')
+  const logRef = useRef('')
   const snapshotBuildID = useRef(buildID)
+  const clearActiveRef = useRef(false)
+  const snapshotCursorRef = useRef<string | null>(null)
+
+  const clearLog = useCallback(() => {
+    snapshotCursorRef.current = logRef.current
+    clearActiveRef.current = true
+    logRef.current = ''
+    setLog('')
+  }, [])
 
   useEffect(() => {
     // useApi intentionally keeps the previous response during route changes.
     // Ignore that one stale snapshot rather than flashing another build's log.
     if (snapshotBuildID.current !== buildID) {
       snapshotBuildID.current = buildID
+      logRef.current = ''
+      clearActiveRef.current = false
+      snapshotCursorRef.current = null
       setLog('')
       return
     }
-    setLog(current => mergeLiveLog(current, snapshot))
+    if (clearActiveRef.current) {
+      const cursor = snapshotCursorRef.current || ''
+      const delta = extractLiveLogDelta(cursor, snapshot)
+      if (delta === null) return
+      snapshotCursorRef.current = mergeLiveLog(cursor, snapshot)
+      if (!delta) return
+      setLog(current => {
+        const next = appendLiveLog(current, delta)
+        logRef.current = next
+        return next
+      })
+      return
+    }
+    setLog(current => {
+      const next = mergeLiveLog(current, snapshot)
+      logRef.current = next
+      return next
+    })
   }, [buildID, snapshot])
 
   useEffect(() => {
@@ -71,7 +101,14 @@ export function useBuildLogStream({
       }
       const entries = logBatch.join('')
       logBatch = []
-      setLog(current => appendLiveLog(current, entries))
+      if (clearActiveRef.current && snapshotCursorRef.current !== null) {
+        snapshotCursorRef.current = appendLiveLog(snapshotCursorRef.current, entries)
+      }
+      setLog(current => {
+        const next = appendLiveLog(current, entries)
+        logRef.current = next
+        return next
+      })
     }
 
     const queueLogEntry = (entry: string) => {
@@ -131,5 +168,5 @@ export function useBuildLogStream({
     }
   }, [buildID, enabled, onBuildStatus, reloadSnapshot])
 
-  return { log, state }
+  return { log, state, clearLog }
 }

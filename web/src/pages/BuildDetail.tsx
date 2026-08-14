@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Activity, AlertTriangle, Ban, Check, Circle, Copy, Download, Eraser, ExternalLink, FileText, FlaskConical, GitBranch, GitCommitHorizontal, LoaderCircle, Package, Palette, PanelRightClose, PanelRightOpen, Pause, Pin, PinOff, Play, RotateCcw, Search, Settings2, SlidersHorizontal, Square, Upload, UserRound, X } from 'lucide-react'
+import { Activity, AlertTriangle, Ban, Check, Circle, Copy, Download, Eraser, ExternalLink, FileText, Filter, FlaskConical, GitBranch, GitCommitHorizontal, LoaderCircle, Package, Palette, PanelRightClose, PanelRightOpen, Pause, Pin, PinOff, Play, RotateCcw, Search, Settings2, SlidersHorizontal, Square, Upload, UserRound, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api } from '../api'
 import { useApi } from '../hooks'
@@ -137,7 +137,7 @@ export default function BuildDetail() {
   const [colorizeLogs, setColorizeLogs] = useState(readLogTonePreference)
   const [logQuery, setLogQuery] = useState('')
   const [activeLogMatch, setActiveLogMatch] = useState(0)
-  const [screenLogAnchor, setScreenLogAnchor] = useState<string | null>(null)
+  const [filterLogMatches, setFilterLogMatches] = useState(false)
   const [stageRailExpanded, setStageRailExpanded] = useState(() => typeof window === 'undefined' || !window.matchMedia?.('(max-width: 1180px)').matches)
   const requestedStageLogRef = useRef<string | null>(null)
   const stageRail = useMemo(() => stageRailItems(timeline?.steps || []), [timeline?.steps])
@@ -145,7 +145,7 @@ export default function BuildDetail() {
   const isExecuting = build?.status === 'running'
   const isActive = isExecuting || build?.status === 'pending' || build?.status === 'queued' || build?.status === 'pending_approval'
   const isFinished = !!build?.status && !isActive
-  const { log: liveLog, state: liveLogState } = useBuildLogStream({
+  const { log: liveLog, state: liveLogState, clearLog } = useBuildLogStream({
     buildID: buildId,
     enabled: validBuildId && isActive,
     snapshot: logsResp?.log,
@@ -153,19 +153,19 @@ export default function BuildDetail() {
     onBuildStatus: reloadBuild,
   })
   const displayedLog = useMemo(() => visibleBuildLog(liveLog), [liveLog])
-  const screenLog = useMemo(() => {
-    if (screenLogAnchor === null) return displayedLog
-    if (displayedLog.startsWith(screenLogAnchor)) return displayedLog.slice(screenLogAnchor.length)
-    const anchorIndex = screenLogAnchor ? displayedLog.indexOf(screenLogAnchor) : -1
-    return anchorIndex >= 0 ? displayedLog.slice(anchorIndex + screenLogAnchor.length) : displayedLog
-  }, [displayedLog, screenLogAnchor])
-  const consoleLines = useMemo(() => screenLog ? screenLog.split(/\r?\n/) : [], [screenLog])
+  const consoleLines = useMemo(() => displayedLog ? displayedLog.split(/\r?\n/) : [], [displayedLog])
   const consoleTones = useMemo(() => logTones(consoleLines), [consoleLines])
   const logLines = useMemo(() => consoleLines.filter(Boolean), [consoleLines])
   const normalizedLogQuery = logQuery.trim().toLocaleLowerCase()
   const logMatches = useMemo(() => normalizedLogQuery
     ? consoleLines.flatMap((line, index) => line.toLocaleLowerCase().includes(normalizedLogQuery) ? [index] : [])
     : [], [consoleLines, normalizedLogQuery])
+  const visibleConsoleLines = useMemo(() => {
+    const entries = consoleLines.map((line, index) => ({ line, index }))
+    return filterLogMatches && normalizedLogQuery
+      ? entries.filter(entry => entry.line.toLocaleLowerCase().includes(normalizedLogQuery))
+      : entries
+  }, [consoleLines, filterLogMatches, normalizedLogQuery])
   const liveLogStatus = t(`builds.${liveLogState}`)
   const problemsPending = problemsLoading || (!!build && !problems && !problemsError)
 
@@ -224,7 +224,7 @@ export default function BuildDetail() {
     if (activeTab !== 'current' || !normalizedLogQuery || !logMatches.length) return
     const lineIndex = logMatches[Math.min(activeLogMatch, logMatches.length - 1)]
     document.getElementById(`build-log-line-${lineIndex}`)?.scrollIntoView?.({ block: 'center' })
-  }, [activeLogMatch, activeTab, logMatches, normalizedLogQuery, screenLog])
+  }, [activeLogMatch, activeTab, logMatches, normalizedLogQuery, displayedLog])
 
   useEffect(() => {
     if (activeTab !== 'current') return
@@ -270,9 +270,10 @@ export default function BuildDetail() {
   }
 
   const clearScreenLogs = () => {
-    setScreenLogAnchor(displayedLog)
+    clearLog()
     setLogQuery('')
     setActiveLogMatch(0)
+    setFilterLogMatches(false)
   }
 
   const scrollToStageLog = (stageName: string) => {
@@ -493,6 +494,7 @@ export default function BuildDetail() {
             <div className="jenkins-console-controls">
               <label className="jenkins-console-search"><Search size={14} /><input value={logQuery} onChange={event => { const next = event.target.value; setLogQuery(next); if (next.trim()) setConsoleFollowing(false) }} placeholder={t('builds.searchLogs')} aria-label={t('builds.searchLogs')} /><span aria-live="polite">{normalizedLogQuery ? t('builds.matchProgress').replace('{current}', logMatches.length ? String(activeLogMatch + 1) : '0').replace('{total}', String(logMatches.length)) : ''}</span></label>
               <button type="button" className="clear-screen" onClick={clearScreenLogs} disabled={!displayedLog} aria-label={t('builds.clearScreenLogs')} title={t('builds.clearScreenLogs')}><Eraser size={14} />{t('builds.clearScreenLogs')}</button>
+              <button type="button" className={`filter-action ${filterLogMatches ? 'selected' : ''}`} onClick={() => setFilterLogMatches(current => !current)} disabled={!normalizedLogQuery} aria-pressed={filterLogMatches} aria-label={t('builds.filterLogMatches')} title={t('builds.filterLogMatches')}><Filter size={14} />{t('builds.filterLogMatches')}</button>
               {isActive && <button type="button" className={`follow-action ${followConsole ? 'selected' : ''}`} aria-pressed={followConsole} onClick={() => setConsoleFollowing(!followConsole)}>{followConsole ? <Pause size={14} /> : <Play size={14} />}{followConsole ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>}
               <button type="button" className={`colorize-action ${colorizeLogs ? 'selected' : ''}`} aria-label={t('builds.colorizeLogs')} title={t('builds.colorizeLogs')} aria-pressed={colorizeLogs} onClick={() => setColorizeLogs(current => { const next = !current; writeLogTonePreference(next); return next })}><Palette size={14} />{t('builds.colorizeLogs')}</button>
               <button type="button" className="download-action" onClick={() => handleLogDownload('txt')} disabled={downloading !== null} aria-busy={downloading === 'logs-txt'}>{downloading === 'logs-txt' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Download size={15} />}{downloading === 'logs-txt' ? t('builds.downloading') : t('builds.downloadText')}</button>
@@ -504,7 +506,7 @@ export default function BuildDetail() {
             const consoleOutput = consoleRef.current
             if (!consoleOutput) return
             if (followConsoleRef.current && !isNearLogBottom(consoleOutput)) setConsoleFollowing(false)
-          }}>{consoleLines.length ? consoleLines.map((line, index) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>) : t('builds.noLogs')}</pre>
+          }}>{consoleLines.length ? visibleConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>) : t('builds.noLogs')}</pre>
           {isExecuting && <div className="jenkins-console-progress" role="status" aria-live="polite">{followConsole ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pause size={16} />}{followConsole ? liveLogStatus : t('builds.followPaused')}</div>}
         </section>
         </div>

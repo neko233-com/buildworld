@@ -796,6 +796,12 @@
   background: #fff5d6;
 }
 
+[data-skin="jenkins"] .jenkins-console-controls .filter-action {
+  color: #8b4f13;
+  border-color: #e3b37d;
+  background: #fff0e2;
+}
+
 [data-skin="jenkins"] .jenkins-console-controls .follow-action {
   color: #155f96;
   border-color: #91c2e3;

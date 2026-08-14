@@ -1445,6 +1445,11 @@ button:disabled { cursor: not-allowed; }
   border-color: #9d7630;
   background: #493715;
 }
+.plain-log-page .plain-log-toolbar .filter-action {
+  color: #f1b878;
+  border-color: #9c6938;
+  background: #4a2f1b;
+}
 .plain-log-page .plain-log-actions .download-action {
   color: #9fe0ae;
   border-color: #397a52;
@@ -1483,6 +1488,11 @@ button:disabled { cursor: not-allowed; }
   color: #8b5b00;
   border-color: #e2c36d;
   background: #fff5d8;
+}
+.plain-log-page.theme-light .plain-log-toolbar .filter-action {
+  color: #9a5816;
+  border-color: #e2b17f;
+  background: #fff1e5;
 }
 .plain-log-page.theme-light .plain-log-actions .download-action {
   color: #217044;

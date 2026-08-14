@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import { ArrowDown, ArrowLeft, ArrowUp, Download, Eraser, FileText, LoaderCircle, Moon, Palette, Pause, Play, Search, Sun, WrapText } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Download, Eraser, FileText, Filter, LoaderCircle, Moon, Palette, Pause, Play, Search, Sun, WrapText } from 'lucide-react'
 import { api } from '../api'
 import { useApi } from '../hooks'
 import { useBuildLogStream } from '../useBuildLogStream'
@@ -52,7 +52,7 @@ export default function BuildLogViewer() {
   )
   const [query, setQuery] = useState('')
   const [activeMatch, setActiveMatch] = useState(0)
-  const [screenLogAnchor, setScreenLogAnchor] = useState<string | null>(null)
+  const [filterLogMatches, setFilterLogMatches] = useState(false)
   const [follow, setFollow] = useState(true)
   const [wrap, setWrap] = useState(false)
   const [colorizeLogs, setColorizeLogs] = useState(readLogTonePreference)
@@ -68,7 +68,7 @@ export default function BuildLogViewer() {
     || build?.status === 'pending'
     || build?.status === 'queued'
     || build?.status === 'pending_approval'
-  const { log: streamLog, state: streamState } = useBuildLogStream({
+  const { log: streamLog, state: streamState, clearLog } = useBuildLogStream({
     buildID,
     enabled: canLoad && running,
     snapshot: logs?.log,
@@ -76,18 +76,18 @@ export default function BuildLogViewer() {
     onBuildStatus: reloadBuild,
   })
   const source = visibleBuildLog(streamLog)
-  const screenSource = useMemo(() => {
-    if (screenLogAnchor === null) return source
-    if (source.startsWith(screenLogAnchor)) return source.slice(screenLogAnchor.length)
-    const anchorIndex = screenLogAnchor ? source.indexOf(screenLogAnchor) : -1
-    return anchorIndex >= 0 ? source.slice(anchorIndex + screenLogAnchor.length) : source
-  }, [screenLogAnchor, source])
-  const lines = useMemo(() => screenSource ? screenSource.split('\n') : [], [screenSource])
+  const lines = useMemo(() => source ? source.split('\n') : [], [source])
   const lineTones = useMemo(() => logTones(lines), [lines])
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const matches = useMemo(() => normalizedQuery
     ? lines.flatMap((line, index) => line.toLocaleLowerCase().includes(normalizedQuery) ? [index] : [])
     : [], [lines, normalizedQuery])
+  const visibleLines = useMemo(() => {
+    const entries = lines.map((line, index) => ({ line, index }))
+    return filterLogMatches && normalizedQuery
+      ? entries.filter(entry => entry.line.toLocaleLowerCase().includes(normalizedQuery))
+      : entries
+  }, [filterLogMatches, lines, normalizedQuery])
 
   const scrollToLatest = useCallback(() => {
     if (!followRef.current) return
@@ -203,9 +203,10 @@ export default function BuildLogViewer() {
   })
 
   const clearScreenLogs = () => {
-    setScreenLogAnchor(source)
+    clearLog()
     setQuery('')
     setActiveMatch(0)
+    setFilterLogMatches(false)
   }
 
   return <main className={`plain-log-page theme-${theme} ${wrap ? 'wrap-lines' : ''}`}>
@@ -233,6 +234,7 @@ export default function BuildLogViewer() {
     <section className="plain-log-toolbar" aria-label={t('builds.logTools')}>
       <label><Search size={15} /><input ref={searchRef} value={query} onChange={event => { setQuery(event.target.value); if (event.target.value.trim()) setFollowing(false) }} placeholder={t('builds.searchLogs')} aria-label={t('builds.searchLogs')} /><kbd>/</kbd></label>
       <button type="button" className="clear-screen" onClick={clearScreenLogs} disabled={!source} aria-label={t('builds.clearScreenLogs')} title={t('builds.clearScreenLogs')}><Eraser size={14} />{t('builds.clearScreenLogs')}</button>
+      <button type="button" className={`filter-action ${filterLogMatches ? 'selected' : ''}`} onClick={() => setFilterLogMatches(current => !current)} disabled={!normalizedQuery} aria-pressed={filterLogMatches} aria-label={t('builds.filterLogMatches')} title={t('builds.filterLogMatches')}><Filter size={14} />{t('builds.filterLogMatches')}</button>
       <span>{normalizedQuery ? t('builds.matchProgress').replace('{current}', matches.length ? String(activeMatch + 1) : '0').replace('{total}', String(matches.length)) : t('builds.lineCount').replace('{count}', String(lines.length))}</span>
       <button type="button" className="match-nav" aria-label={t('builds.previousMatch')} title={t('builds.previousMatch')} disabled={!matches.length} onClick={() => moveMatch(-1)}><ArrowUp size={14} /></button>
       <button type="button" className="match-nav" aria-label={t('builds.nextMatch')} title={t('builds.nextMatch')} disabled={!matches.length} onClick={() => moveMatch(1)}><ArrowDown size={14} /></button>
@@ -244,7 +246,7 @@ export default function BuildLogViewer() {
       if (viewport && followRef.current && !isNearLogBottom(viewport)) setFollowing(false)
     }}>
       {lines.length ? <div className="plain-log-lines">
-        {lines.map((line, index) => <div key={index} ref={element => { if (element) lineRefs.current.set(index, element); else lineRefs.current.delete(index) }} className={`${colorizeLogs ? lineTones[index] : ''} ${matches[activeMatch] === index ? 'active-match' : ''}`}><span>{index + 1}</span><code>{highlightLine(line, normalizedQuery)}</code></div>)}
+        {visibleLines.map(({ line, index }) => <div key={index} ref={element => { if (element) lineRefs.current.set(index, element); else lineRefs.current.delete(index) }} className={`${colorizeLogs ? lineTones[index] : ''} ${matches[activeMatch] === index ? 'active-match' : ''}`}><span>{index + 1}</span><code>{highlightLine(line, normalizedQuery)}</code></div>)}
       </div> : <div className="plain-log-empty"><FileText size={22} /><span>{running ? t('builds.waitingForLogs') : t('builds.noLogs')}</span></div>}
     </div>
     <footer className="plain-log-footer"><span>{t('builds.outputLines')}: {lines.length}</span><span>{follow ? t('builds.followingOutput') : t('builds.followPaused')}</span><span>UTF-8</span></footer>

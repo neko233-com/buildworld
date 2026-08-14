@@ -231,8 +231,7 @@ describe('BuildDetail Jenkins Run layout', () => {
       scrollTop: { configurable: true, value: 800, writable: true },
     })
     await act(async () => consoleOutput.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -1 })))
-    let follow = Array.from(container.querySelectorAll<HTMLButtonElement>('.jenkins-console-controls button'))
-      .find(button => button.getAttribute('aria-pressed') !== null)!
+    let follow = container.querySelector<HTMLButtonElement>('.jenkins-console-controls .follow-action')!
     expect(follow.getAttribute('aria-pressed')).toBe('false')
     expect(follow.textContent).toContain('Resume follow')
 
@@ -244,8 +243,7 @@ describe('BuildDetail Jenkins Run layout', () => {
       clientHeight: { configurable: true, value: 200 },
       scrollTop: { configurable: true, value: 800, writable: true },
     })
-    follow = Array.from(container.querySelectorAll<HTMLButtonElement>('.jenkins-console-controls button'))
-      .find(button => button.getAttribute('aria-pressed') !== null)!
+    follow = container.querySelector<HTMLButtonElement>('.jenkins-console-controls .follow-action')!
     expect(follow.getAttribute('aria-pressed')).toBe('false')
 
     const animationFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
@@ -292,6 +290,24 @@ describe('BuildDetail Jenkins Run layout', () => {
     expect(container.querySelector('.jenkins-console-output')?.textContent).toBe('No logs available')
     expect(search.value).toBe('')
     expect(vi.mocked(api.getBuildLogs).mock.calls.length).toBe(logRequestCount)
+  })
+
+  it('filters embedded logs to matching lines', async () => {
+    vi.mocked(api.getBuildLogs).mockResolvedValueOnce({ log: '[07:00:36] [Build] hello\n[07:00:37] [Build] ready' })
+    await renderPage()
+
+    const search = container.querySelector<HTMLInputElement>('input[aria-label="Search logs"]')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, 'hello')
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const filter = container.querySelector<HTMLButtonElement>('.jenkins-console-controls .filter-action')!
+    await act(async () => filter.click())
+
+    expect(filter.getAttribute('aria-pressed')).toBe('true')
+    expect(container.querySelectorAll('.jenkins-console-output .jenkins-console-line')).toHaveLength(1)
+    expect(container.querySelector('.jenkins-console-output')?.textContent).toContain('hello')
+    expect(container.querySelector('.jenkins-console-output')?.textContent).not.toContain('ready')
   })
 
   it('renders every console line with default-on level colors and can disable them without filtering output', async () => {

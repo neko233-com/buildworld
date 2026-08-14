@@ -101,6 +101,23 @@ export function mergeLiveLog(current = '', snapshot = '') {
   return retainLiveLog(current)
 }
 
+// Extract only output that appeared after a known browser-side cursor. A
+// disconnected viewer may receive a complete REST snapshot after the screen
+// was cleared, so returning null is safer than showing that snapshot again
+// when no reliable overlap can be proven.
+export function extractLiveLogDelta(previous = '', next = ''): string | null {
+  if (!next || next === previous) return ''
+  if (!previous) return next
+  if (next.startsWith(previous)) return next.slice(previous.length)
+
+  const previousIndex = next.indexOf(previous)
+  if (previousIndex >= 0) return next.slice(previousIndex + previous.length)
+  if (previous.startsWith(next) || containsLinear(previous, next)) return ''
+
+  const overlap = suffixPrefixOverlap(previous, next)
+  return overlap > 0 && next.charCodeAt(overlap - 1) === 10 ? next.slice(overlap) : null
+}
+
 // Returns the longest suffix of current that is also a prefix of snapshot.
 // KMP keeps reconnect merges linear even for very large viewer windows; the
 // previous descending slice/endsWith loop was O(n²).

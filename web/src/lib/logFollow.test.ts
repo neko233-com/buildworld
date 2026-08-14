@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   appendLiveLog,
+  extractLiveLogDelta,
   isNearLogBottom,
   LIVE_LOG_MAX_CHARACTERS,
   LIVE_LOG_MAX_LINES,
@@ -19,6 +20,13 @@ describe('live log following', () => {
   it('keeps WebSocket output when a stale REST snapshot arrives', () => {
     expect(mergeLiveLog('one\ntwo\nthree\n', 'one\ntwo\n')).toBe('one\ntwo\nthree\n')
     expect(mergeLiveLog('one\n', 'one\ntwo\n')).toBe('one\ntwo\n')
+  })
+
+  it('extracts only the output after a browser clear cursor', () => {
+    expect(extractLiveLogDelta('old\n', 'old\nnew\n')).toBe('new\n')
+    expect(extractLiveLogDelta('old\n', `${PERSISTED_LOG_RETENTION_MARKER}old\nnew\n`)).toBe('new\n')
+    expect(extractLiveLogDelta('old\nnew\n', 'old\n')).toBe('')
+    expect(extractLiveLogDelta('old\n', 'unrelated\n')).toBeNull()
   })
 
   it('joins a snapshot that continues from the live suffix', () => {

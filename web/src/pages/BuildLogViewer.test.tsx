@@ -171,6 +171,54 @@ describe('BuildLogViewer', () => {
     expect(getBuildLogs.mock.calls.length).toBe(snapshotsBeforeClear)
   })
 
+  it('keeps only incremental WebSocket and REST output after clearing', async () => {
+    getBuild.mockResolvedValue({ id: 42, number: 7, project_id: 3, status: 'running' })
+    await renderViewer()
+
+    const socket = MockWebSocket.instances[0]
+    const clear = container.querySelector<HTMLButtonElement>('button[aria-label="Clear current screen logs"]')!
+    await act(async () => clear.click())
+    expect(container.textContent).not.toContain('exit status 7')
+
+    await act(async () => socket?.emitMessage({
+      type: 'build:log',
+      payload: { timestamp: '10:00:02', stage: 'Build', line: 'incremental socket line' },
+    }))
+    await waitForLogBatch()
+    expect(container.textContent).toContain('incremental socket line')
+    expect(container.textContent).not.toContain('exit status 7')
+
+    getBuildLogs.mockResolvedValueOnce({ log: [
+      '[10:00:00] [Prepare] === Stage: Prepare ===',
+      '[10:00:01] [Verify] ERROR: exit status 7',
+      '[10:00:01] [] BUILD FAILED: verification failed',
+      '[10:00:02] [Build] incremental socket line',
+      '[10:00:03] [Build] incremental snapshot line',
+    ].join('\n') })
+    await act(async () => socket?.emitOpen())
+    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 0)) })
+    expect(container.textContent).toContain('incremental snapshot line')
+    expect(container.textContent).not.toContain('exit status 7')
+  })
+
+  it('filters the log viewport to matching lines when enabled', async () => {
+    await renderViewer()
+
+    const search = container.querySelector<HTMLInputElement>('input[aria-label="Search logs"]')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, 'error')
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const filter = container.querySelector<HTMLButtonElement>('.plain-log-toolbar .filter-action')!
+    expect(filter.disabled).toBe(false)
+    await act(async () => filter.click())
+
+    expect(filter.getAttribute('aria-pressed')).toBe('true')
+    expect(container.querySelectorAll('.plain-log-lines > div')).toHaveLength(1)
+    expect(container.textContent).toContain('exit status 7')
+    expect(container.textContent).not.toContain('Stage: Prepare')
+  })
+
   it('colors error, warning, and default info lines without filtering and persists the accessible toggle', async () => {
     getBuildLogs.mockResolvedValueOnce({
       log: [
