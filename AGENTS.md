@@ -13,6 +13,14 @@ Before creating or uploading any release bundle, complete all applicable test
 suites and required production checks. Packaging and upload are forbidden while
 verification is incomplete or failing.
 
+## Git branch policy
+
+- All development and release work is performed directly on `main`.
+- Do not create, switch to, or use `codex/*` feature branches for this
+  repository.
+- Push intentional changes to the repository's `main` branch after the
+  applicable local verification gates pass.
+
 ## Date and time presentation
 
 - Human-visible calendar dates use exactly `yyyy-MM-dd`. Human-visible
