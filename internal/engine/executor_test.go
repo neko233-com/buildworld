@@ -86,6 +86,23 @@ func TestLineWriterPreservesPipeChunksAsCompleteLines(t *testing.T) {
 	}
 }
 
+func TestRunShellPreservesLinesAcrossStdoutAndStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("printf stream test requires a POSIX shell")
+	}
+
+	var outputs []string
+	err := NewExecutor().RunShell(context.Background(), "printf 'prefix-serve'; printf 'r\\n' >&2", "", nil, func(line string) {
+		outputs = append(outputs, line)
+	})
+	if err != nil {
+		t.Fatalf("RunShell() error = %v", err)
+	}
+	if want := []string{"prefix-server"}; len(outputs) != len(want) || outputs[0] != want[0] {
+		t.Fatalf("combined output = %#v, want %#v", outputs, want)
+	}
+}
+
 func TestRunWithOutputContextCancellation(t *testing.T) {
 	executor := NewExecutor()
 	ctx, cancel := context.WithCancel(context.Background())

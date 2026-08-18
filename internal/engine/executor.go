@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -234,6 +235,17 @@ type lineWriter struct {
 	pending  []byte
 }
 
+type synchronizedPipeWriter struct {
+	mu     sync.Mutex
+	writer *io.PipeWriter
+}
+
+func (w *synchronizedPipeWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Write(p)
+}
+
 func (w *lineWriter) Write(p []byte) (n int, err error) {
 	w.mu.Lock()
 	w.pending = append(w.pending, p...)
@@ -266,9 +278,36 @@ func (w *lineWriter) Flush() {
 
 func runWithLineWriters(cmd *processtree.Cmd, callback func(string)) error {
 	output := &lineWriter{callback: callback}
-	cmd.Stdout = output
-	cmd.Stderr = output
+	reader, writer := io.Pipe()
+	combinedWriter := &synchronizedPipeWriter{writer: writer}
+	cmd.Stdout = combinedWriter
+	cmd.Stderr = combinedWriter
+
+	readDone := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 32*1024)
+		for {
+			count, readErr := reader.Read(buffer)
+			if count > 0 {
+				_, _ = output.Write(buffer[:count])
+			}
+			if readErr != nil {
+				if readErr == io.EOF {
+					readDone <- nil
+				} else {
+					readDone <- readErr
+				}
+				return
+			}
+		}
+	}()
+
 	err := cmd.Run()
+	_ = writer.Close()
+	readErr := <-readDone
 	output.Flush()
-	return err
+	if err != nil {
+		return err
+	}
+	return readErr
 }
