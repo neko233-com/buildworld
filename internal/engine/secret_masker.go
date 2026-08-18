@@ -307,6 +307,25 @@ func (r *BuildRunner) logBuildOutput(buildID int64, stage, chunk string) error {
 	return nil
 }
 
+// logBuildLine marks executor output as a complete line before streaming
+// secret masking. Without the terminator, a final character such as the "r"
+// in "server" can look like a credential prefix and be emitted later as a
+// separate console line during masker flush.
+func (r *BuildRunner) logBuildLine(buildID int64, stage, line string) error {
+	if !strings.HasSuffix(line, "\n") {
+		line += "\n"
+	}
+	masker := r.buildSecretMasker(buildID)
+	if masker == nil {
+		return r.log(buildID, stage, strings.TrimSuffix(line, "\n"))
+	}
+	safe := strings.TrimSuffix(masker.stream.Write(line), "\n")
+	if safe == "" {
+		return nil
+	}
+	return r.logMasked(buildID, masker.literal.Mask(stage), safe)
+}
+
 func (r *BuildRunner) flushBuildOutput(buildID int64, stage string) error {
 	masker := r.buildSecretMasker(buildID)
 	if masker == nil {

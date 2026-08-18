@@ -187,3 +187,14 @@ export default definePipeline({
 		t.Fatalf("complete non-secret line was not persisted: %q", got)
 	}
 }
+
+func TestStreamingSecretMaskerDoesNotSplitCompleteLineSuffix(t *testing.T) {
+	masker := newStreamingSecretMasker(newSecretMasker("root"))
+	got := masker.Write("curl: Couldn't connect to server\n")
+	if got != "curl: Couldn't connect to server\n" {
+		t.Fatalf("complete line was split by secret prefix buffering: %q", got)
+	}
+	if flushed := masker.Flush(); flushed != "" {
+		t.Fatalf("complete line left pending output: %q", flushed)
+	}
+}

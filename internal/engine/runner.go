@@ -730,7 +730,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			stepEnv := appendRuntimeEnv(stageEnv, cfg, step.Runtime)
 			var outputs []string
 			onOutput := func(line string) {
-				r.logBuildOutput(buildID, stage.Name, line)
+				r.logBuildLine(buildID, stage.Name, line)
 				outputs = appendBuildKV(outputs, line)
 			}
 			// Run the step in its own goroutine so the step loop can keep
@@ -916,7 +916,7 @@ func (r *BuildRunner) runPostSteps(_ context.Context, cfg *BuildConfig, outcome,
 			r.log(build.ID, stage, fmt.Sprintf("--- Step: %s ---", step.Name))
 			stepEnv := appendRuntimeEnv(env, cfg, step.Runtime)
 			err := r.execStep(postCtx, step, workspace, project, build, stepEnv, params, stage, func(line string) {
-				r.logBuildOutput(build.ID, stage, line)
+				r.logBuildLine(build.ID, stage, line)
 			})
 			_ = r.flushBuildOutput(build.ID, stage)
 			if err != nil {
@@ -955,7 +955,7 @@ func (r *BuildRunner) runPluginHook(ctx context.Context, hook, outcome, workspac
 	}
 	stage := "plugin " + hook
 	for _, line := range sc.Logs {
-		r.logBuildOutput(build.ID, stage, line)
+		r.logBuildLine(build.ID, stage, line)
 	}
 	keys := make([]string, 0, len(sc.Env)+len(sc.Outputs))
 	values := make(map[string]string, len(sc.Env)+len(sc.Outputs))
