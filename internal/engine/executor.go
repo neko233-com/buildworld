@@ -265,12 +265,10 @@ func (w *lineWriter) Flush() {
 }
 
 func runWithLineWriters(cmd *processtree.Cmd, callback func(string)) error {
-	stdout := &lineWriter{callback: callback}
-	stderr := &lineWriter{callback: callback}
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	output := &lineWriter{callback: callback}
+	cmd.Stdout = output
+	cmd.Stderr = output
 	err := cmd.Run()
-	stdout.Flush()
-	stderr.Flush()
+	output.Flush()
 	return err
 }
