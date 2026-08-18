@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/neko233-com/buildworld/internal/processtree"
 )
@@ -41,10 +42,7 @@ func (e *Executor) RunWithOutput(ctx context.Context, name string, onOutput func
 	}
 	cmd := processtree.CommandContext(ctx, name, args...)
 
-	cmd.Stdout = &lineWriter{callback: onOutput}
-	cmd.Stderr = &lineWriter{callback: onOutput}
-
-	return cmd.Run()
+	return runWithLineWriters(cmd, onOutput)
 }
 
 func (e *Executor) RunShell(ctx context.Context, command, dir string, env []string, onOutput func(string)) error {
@@ -68,9 +66,7 @@ func (e *Executor) RunShell(ctx context.Context, command, dir string, env []stri
 	if len(env) > 0 {
 		cmd.Env = append(cmd.Environ(), env...)
 	}
-	cmd.Stdout = &lineWriter{callback: onOutput}
-	cmd.Stderr = &lineWriter{callback: onOutput}
-	return cmd.Run()
+	return runWithLineWriters(cmd, onOutput)
 }
 
 func (e *Executor) RunMultiShell(ctx context.Context, shell, command, dir string, env []string, onOutput func(string)) error {
@@ -129,9 +125,7 @@ func (e *Executor) runPowerShell(ctx context.Context, command, dir string, env [
 	if len(env) > 0 {
 		cmd.Env = append(cmd.Environ(), env...)
 	}
-	cmd.Stdout = &lineWriter{callback: onOutput}
-	cmd.Stderr = &lineWriter{callback: onOutput}
-	return cmd.Run()
+	return runWithLineWriters(cmd, onOutput)
 }
 
 func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env []string, onOutput func(string)) error {
@@ -145,9 +139,7 @@ func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env 
 			if len(env) > 0 {
 				cmd.Env = append(cmd.Environ(), env...)
 			}
-			cmd.Stdout = &lineWriter{callback: onOutput}
-			cmd.Stderr = &lineWriter{callback: onOutput}
-			return cmd.Run()
+			return runWithLineWriters(cmd, onOutput)
 		}
 		scriptPath, err := e.writeTempScript(dir, command, ".sh")
 		if err != nil {
@@ -161,9 +153,7 @@ func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env 
 		if len(env) > 0 {
 			cmd.Env = append(cmd.Environ(), env...)
 		}
-		cmd.Stdout = &lineWriter{callback: onOutput}
-		cmd.Stderr = &lineWriter{callback: onOutput}
-		return cmd.Run()
+		return runWithLineWriters(cmd, onOutput)
 	}
 	name := shell
 	if name == "" {
@@ -176,9 +166,7 @@ func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env 
 	if len(env) > 0 {
 		cmd.Env = append(cmd.Environ(), env...)
 	}
-	cmd.Stdout = &lineWriter{callback: onOutput}
-	cmd.Stderr = &lineWriter{callback: onOutput}
-	return cmd.Run()
+	return runWithLineWriters(cmd, onOutput)
 }
 
 func (e *Executor) runCmd(ctx context.Context, command, dir string, env []string, onOutput func(string)) error {
@@ -190,9 +178,7 @@ func (e *Executor) runCmd(ctx context.Context, command, dir string, env []string
 		if len(env) > 0 {
 			cmd.Env = append(cmd.Environ(), env...)
 		}
-		cmd.Stdout = &lineWriter{callback: onOutput}
-		cmd.Stderr = &lineWriter{callback: onOutput}
-		return cmd.Run()
+		return runWithLineWriters(cmd, onOutput)
 	}
 	return e.RunShell(ctx, command, dir, env, onOutput)
 }
@@ -214,9 +200,7 @@ func (e *Executor) runPython(ctx context.Context, shell, command, dir string, en
 	if len(env) > 0 {
 		cmd.Env = append(cmd.Environ(), env...)
 	}
-	cmd.Stdout = &lineWriter{callback: onOutput}
-	cmd.Stderr = &lineWriter{callback: onOutput}
-	return cmd.Run()
+	return runWithLineWriters(cmd, onOutput)
 }
 
 func (e *Executor) writeTempScript(dir, content, ext string) (string, error) {
@@ -245,10 +229,48 @@ func (e *Executor) writeTempScript(dir, content, ext string) (string, error) {
 }
 
 type lineWriter struct {
+	mu       sync.Mutex
 	callback func(string)
+	pending  []byte
 }
 
 func (w *lineWriter) Write(p []byte) (n int, err error) {
-	w.callback(string(p))
+	w.mu.Lock()
+	w.pending = append(w.pending, p...)
+	lines := make([]string, 0, bytes.Count(w.pending, []byte{'\n'}))
+	for {
+		index := bytes.IndexByte(w.pending, '\n')
+		if index < 0 {
+			break
+		}
+		line := strings.TrimSuffix(string(w.pending[:index]), "\r")
+		lines = append(lines, line)
+		w.pending = w.pending[index+1:]
+	}
+	w.mu.Unlock()
+	for _, line := range lines {
+		w.callback(line)
+	}
 	return len(p), nil
+}
+
+func (w *lineWriter) Flush() {
+	w.mu.Lock()
+	line := strings.TrimSuffix(string(w.pending), "\r")
+	w.pending = nil
+	w.mu.Unlock()
+	if line != "" {
+		w.callback(line)
+	}
+}
+
+func runWithLineWriters(cmd *processtree.Cmd, callback func(string)) error {
+	stdout := &lineWriter{callback: callback}
+	stderr := &lineWriter{callback: callback}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	stdout.Flush()
+	stderr.Flush()
+	return err
 }

@@ -58,6 +58,34 @@ func TestRunWithOutputCallback(t *testing.T) {
 	}
 }
 
+func TestLineWriterPreservesPipeChunksAsCompleteLines(t *testing.T) {
+	var got []string
+	writer := &lineWriter{callback: func(line string) {
+		got = append(got, line)
+	}}
+
+	if _, err := writer.Write([]byte("curl: (28) Failed to conn")); err != nil {
+		t.Fatalf("first Write() error = %v", err)
+	}
+	if _, err := writer.Write([]byte("ect to packages.example.invalid port 443 after 7818 ms: Couldn't connect to server\nnext")); err != nil {
+		t.Fatalf("second Write() error = %v", err)
+	}
+	writer.Flush()
+
+	want := []string{
+		"curl: (28) Failed to connect to packages.example.invalid port 443 after 7818 ms: Couldn't connect to server",
+		"next",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("line count = %d, want %d; got %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestRunWithOutputContextCancellation(t *testing.T) {
 	executor := NewExecutor()
 	ctx, cancel := context.WithCancel(context.Background())
