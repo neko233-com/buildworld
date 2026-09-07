@@ -38,11 +38,12 @@ verification is incomplete or failing.
 - The incident that motivated this rule failed after the BuildWorld build and
   upload had succeeded: the old runtime configuration lacked the newly
   required `internal_http.token`, so both game-server starts exited during
-  validation. The migration was fixed to read the artifact configuration and
-  fill only the missing field. A subsequent check found that one replica still
-  had the old `data_collect.report_env=test`; production migration was then
-  forced to `release`, followed by per-instance version, health, topology, and
-  routing checks.
+  validation. The final fix makes the Artifact configuration authoritative and
+  replaces the active application config as a whole; it does not merge or
+  supplement the old file. A subsequent check found that one replica still had
+  the old `data_collect.report_env=test`; production migration was then forced
+  to `release`, followed by per-instance version, health, topology, and routing
+  checks.
 
 ## Git branch policy
 
