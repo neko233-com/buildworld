@@ -13,6 +13,37 @@ Before creating or uploading any release bundle, complete all applicable test
 suites and required production checks. Packaging and upload are forbidden while
 verification is incomplete or failing.
 
+## Release failure diagnosis and reporting
+
+- A BuildWorld release is not considered successful because compilation,
+  packaging, upload, or the deployment UI completed. Check the stage that
+  failed and separate build, artifact upload, remote deployment, process
+  startup, health checks, and traffic/routing verification.
+- When a release fails, every follow-up report and final response must state
+  the concrete root cause in plain language, the failing stage and decisive
+  log evidence, the exact fix, and the verification result for every target
+  instance. If a verification step was not run, state the missing prerequisite
+  and do not claim full acceptance.
+- Preserve existing runtime data, logs, rollback snapshots, and protected
+  environment secrets during deployment, but treat the Artifact's `config/`
+  as the only source of application configuration. Each release must replace
+  the active application config from the latest Artifact and render only
+  explicit per-instance fields; never use the old runtime config as a merge
+  base. Add a regression test or validation guard for every recurring release
+  failure.
+- For production deployments, explicitly verify that the resulting runtime
+  environment matches the target environment. In particular, do not allow a
+  preserved test/staging marker such as `data_collect.report_env=test` to
+  remain in a production instance; verify each replica independently.
+- The incident that motivated this rule failed after the BuildWorld build and
+  upload had succeeded: the old runtime configuration lacked the newly
+  required `internal_http.token`, so both game-server starts exited during
+  validation. The migration was fixed to read the artifact configuration and
+  fill only the missing field. A subsequent check found that one replica still
+  had the old `data_collect.report_env=test`; production migration was then
+  forced to `release`, followed by per-instance version, health, topology, and
+  routing checks.
+
 ## Git branch policy
 
 - All development and release work is performed directly on `main`.
