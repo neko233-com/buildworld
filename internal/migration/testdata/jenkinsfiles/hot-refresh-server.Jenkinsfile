@@ -3,8 +3,8 @@ pipeline {
 
     environment {
         // 项目配置
-        TARGET_DIR = "/Users/buildworld/Desktop/Code/Automation-Projects/jenkins-for-project-sf/example-server-project-go"
-        GIT_REPO_URL = "http://192.0.2.42:3000/example/example-server-project-go.git"
+        TARGET_DIR = "/Users/buildworld/Desktop/Code/Automation-Projects/example/server-project-go"
+        GIT_REPO_URL = "http://git.example.invalid:3000/example/server-project-go.git"
 
         // 服务器配置
         PORT = "10101"
@@ -22,7 +22,7 @@ pipeline {
                 script {
                     echo "================= 发送飞书通知 ================="
                     sh '''
-                        cd /Users/buildworld/Desktop/Code/Automation-Projects/jenkins-for-project-sf/feishu-robot
+                        cd /Users/buildworld/Desktop/Code/Automation-Projects/example/feishu-robot
                         python3 feishu-robot-game-server-config-refresh.py || echo "⚠️ 飞书通知发送失败（继续执行）"
                     '''
                 }

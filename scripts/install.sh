@@ -5,6 +5,7 @@ REPO="neko233-com/buildworld"
 VERSION="${1:-latest}"
 NO_AUTOSTART="${BUILDWORLD_NO_AUTOSTART:-0}"
 GITHUB_AUTH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+GITHUB_MIRROR="${BUILDWORLD_GITHUB_MIRROR:-https://gh-proxy.com}"
 install_dir="${BUILDWORLD_INSTALL_DIR:-$HOME/.local/lib/buildworld}"
 bin_dir="${BUILDWORLD_BIN_DIR:-$HOME/.local/bin}"
 previous_dir="${install_dir}.previous"
@@ -28,21 +29,39 @@ if [ -z "$GITHUB_AUTH_TOKEN" ] && command -v gh >/dev/null 2>&1; then
   fi
 fi
 
+case "$GITHUB_MIRROR" in
+  ""|off|none) GITHUB_MIRROR= ;;
+  https://*)
+    case "$GITHUB_MIRROR" in *[[:space:]@?#]*) echo "BUILDWORLD_GITHUB_MIRROR must not contain credentials, query parameters, or fragments" >&2; exit 1 ;; esac
+    ;;
+  *) echo "BUILDWORLD_GITHUB_MIRROR must be an https URL, off, or none" >&2; exit 1 ;;
+esac
+
+github_source_url() {
+  uri="$1"
+  if [ -n "$GITHUB_MIRROR" ]; then
+    printf '%s/%s' "${GITHUB_MIRROR%/}" "$uri"
+  else
+    printf '%s' "$uri"
+  fi
+}
+
 github_api_to_file() {
   uri="$1"
   destination="$2"
+  source_uri="$(github_source_url "$uri")"
   rm -f "$destination"
-  if [ -n "$GITHUB_AUTH_TOKEN" ]; then
+  if [ -n "$GITHUB_AUTH_TOKEN" ] && [ -z "$GITHUB_MIRROR" ]; then
     curl -fsSL \
       -H "Authorization: Bearer $GITHUB_AUTH_TOKEN" \
       -H "Accept: application/vnd.github+json" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
-      "$uri" -o "$destination"
+      "$source_uri" -o "$destination"
   else
     curl -fsSL \
       -H "Accept: application/vnd.github+json" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
-      "$uri" -o "$destination"
+      "$source_uri" -o "$destination"
   fi
 }
 
@@ -71,17 +90,18 @@ asset_api_url() {
 download_api_asset() {
   api_url="$1"
   destination="$2"
-  if [ -n "$GITHUB_AUTH_TOKEN" ]; then
+  source_uri="$(github_source_url "$api_url")"
+  if [ -n "$GITHUB_AUTH_TOKEN" ] && [ -z "$GITHUB_MIRROR" ]; then
     curl -fsSL \
       -H "Authorization: Bearer $GITHUB_AUTH_TOKEN" \
       -H "Accept: application/octet-stream" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
-      "$api_url" -o "$destination"
+      "$source_uri" -o "$destination"
   else
     curl -fsSL \
       -H "Accept: application/octet-stream" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
-      "$api_url" -o "$destination"
+      "$source_uri" -o "$destination"
   fi
 }
 
@@ -89,9 +109,9 @@ download_release_asset() {
   name="$1"
   destination="$2"
   quiet="${3:-0}"
-  direct="https://github.com/$REPO/releases/download/v$VERSION/$name"
+  direct="$(github_source_url "https://github.com/$REPO/releases/download/v$VERSION/$name")"
 
-  if [ -n "$GITHUB_AUTH_TOKEN" ]; then
+  if [ -n "$GITHUB_AUTH_TOKEN" ] && [ -z "$GITHUB_MIRROR" ]; then
     if ensure_release_metadata; then
       api_url="$(asset_api_url "$name")"
       if [ -n "$api_url" ] && download_api_asset "$api_url" "$destination"; then
@@ -106,7 +126,7 @@ download_release_asset() {
   fi
   rm -f "$destination"
 
-  if [ -z "$GITHUB_AUTH_TOKEN" ] && ensure_release_metadata; then
+  if { [ -z "$GITHUB_AUTH_TOKEN" ] || [ -n "$GITHUB_MIRROR" ]; } && ensure_release_metadata; then
     api_url="$(asset_api_url "$name")"
     if [ -n "$api_url" ] && download_api_asset "$api_url" "$destination"; then
       return 0
@@ -116,7 +136,7 @@ download_release_asset() {
 
   if [ "$quiet" != "1" ]; then
     if [ -z "$GITHUB_AUTH_TOKEN" ]; then
-      echo "Cannot download $name. For a private repository, set GH_TOKEN/GITHUB_TOKEN or run 'gh auth login'." >&2
+      echo "Cannot download $name. Check GitHub connectivity or set BUILDWORLD_GITHUB_MIRROR=off for direct access." >&2
     else
       echo "Cannot download $name. Check that the GitHub token can read releases for $REPO." >&2
     fi

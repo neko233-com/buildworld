@@ -84,6 +84,33 @@ func TestGitHubCatalogAssemblesChecksummedMultipartRelease(t *testing.T) {
 	}
 }
 
+func TestGitHubCatalogUsesMirrorForReleaseMetadataAndAssets(t *testing.T) {
+	part := []byte("mirrored part\n")
+	archiveName := "buildworld-darwin-arm64.tar.gz"
+	checksums := fmt.Sprintf("%s  %s\n%s  %s\n", digest(part), archiveName, digest(part), archiveName+".part000")
+	releaseJSON := fmt.Sprintf(`{"tag_name":"v1.20.1","html_url":"https://github.com/neko233-com/buildworld/releases/tag/v1.20.1","published_at":"2026-09-11T01:02:03Z","draft":false,"prerelease":false,"assets":[{"name":"checksums.txt","size":%d,"digest":"sha256:%s","browser_download_url":"https://github.com/neko233-com/buildworld/releases/download/v1.20.1/checksums.txt"},{"name":%q,"size":%d,"digest":"sha256:%s","browser_download_url":"https://github.com/neko233-com/buildworld/releases/download/v1.20.1/%s"}]}`, len(checksums), digest([]byte(checksums)), archiveName+".part000", len(part), digest(part), archiveName+".part000")
+	transport := releaseRoundTripper{responses: map[string][]byte{
+		"/https://api.github.com/repos/neko233-com/buildworld/releases/latest":                             []byte(releaseJSON),
+		"/https://github.com/neko233-com/buildworld/releases/download/v1.20.1/checksums.txt":               []byte(checksums),
+		"/https://github.com/neko233-com/buildworld/releases/download/v1.20.1/" + archiveName + ".part000": part,
+	}}
+	catalog := newGitHubCatalog(&http.Client{Transport: transport}, "https://mirror.example.invalid")
+	catalog.goos, catalog.goarch = "darwin", "arm64"
+	release, err := catalog.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assembled, err := catalog.Download(context.Background(), release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer assembled.Reader.Close()
+	data, err := io.ReadAll(assembled.Reader)
+	if err != nil || !bytes.Equal(data, part) {
+		t.Fatalf("mirrored bundle = %q, err=%v", data, err)
+	}
+}
+
 func TestVersionComparisonRequiresStableSemanticVersions(t *testing.T) {
 	if !IsNewerVersion("1.9.9", "1.10.0") || IsNewerVersion("1.10.0", "1.9.9") || IsNewerVersion("dev", "1.20.0") {
 		t.Fatal("unexpected semantic version comparison")

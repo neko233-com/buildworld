@@ -111,6 +111,12 @@ function updateStatusText(status: SystemUpdateStatus | null, t: (key: string) =>
   return t('updates.queued')
 }
 
+function displayVersion(value: string): string {
+  const normalized = value.trim()
+  if (!normalized) return ''
+  return normalized.toLowerCase().startsWith('v') ? normalized : `v${normalized}`
+}
+
 function SystemUpdateAction() {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
@@ -150,7 +156,7 @@ function SystemUpdateAction() {
   const updateNow = async () => {
     if (!check?.update_available) return
     const confirmed = await dialogs.confirm(
-      t('updates.confirm').replace('{version}', `v${check.latest_version}`),
+      t('updates.confirm').replace('{version}', displayVersion(check.latest_version)),
       { title: t('updates.title'), action: t('updates.updateAction') },
     )
     if (!confirmed) return
@@ -170,7 +176,7 @@ function SystemUpdateAction() {
   }
 
   const updateLabel = check?.update_available
-    ? t('updates.update').replace('{version}', `v${check.latest_version}`)
+    ? t('updates.update').replace('{version}', displayVersion(check.latest_version))
     : t('updates.check')
   const handleTriggerClick = () => {
     setOpen(true)
@@ -198,12 +204,12 @@ function SystemUpdateAction() {
       <header><div><Download size={16} /><span><strong>{t('updates.title')}</strong><small>{t('updates.adminOnly')}</small></span></div><button type="button" aria-label={t('common.close')} onClick={() => setOpen(false)}><X size={15} /></button></header>
       <div className="system-update-popover-body">
         {!check && !error && <p>{busy ? t('updates.checking') : t('updates.checkHint')}</p>}
-        {check && <p className={check.update_available ? 'available' : ''}>{check.update_available ? t('updates.available').replace('{version}', `v${check.latest_version}`) : t('updates.latest').replace('{version}', `v${check.current_version}`)}</p>}
-        {operationText && <p className="system-update-operation" role="status">{operationText}{operation?.version ? ` · v${operation.version}` : ''}</p>}
+        {check && <p className={check.update_available ? 'available' : ''}>{check.update_available ? t('updates.available').replace('{version}', displayVersion(check.latest_version)) : t('updates.latest').replace('{version}', displayVersion(check.current_version))}</p>}
+        {operationText && <p className="system-update-operation" role="status">{operationText}{operation?.version ? ` · ${displayVersion(operation.version)}` : ''}</p>}
         {error && <p className="system-update-error" role="alert">{error}</p>}
         <div className="system-update-popover-actions">
           <button type="button" className="secondary-command" disabled={busy} onClick={() => void checkForUpdate()}><RefreshCw size={13} />{busy ? t('updates.checking') : t('updates.check')}</button>
-          {check?.update_available && <button type="button" className="primary-command" disabled={busy || operationInProgress} onClick={() => void updateNow()}><Download size={13} />{busy || operationInProgress ? t('updates.updating') : t('updates.update').replace('{version}', `v${check.latest_version}`)}</button>}
+          {check?.update_available && <button type="button" className="primary-command" disabled={busy || operationInProgress} onClick={() => void updateNow()}><Download size={13} />{busy || operationInProgress ? t('updates.updating') : t('updates.update').replace('{version}', displayVersion(check.latest_version))}</button>}
         </div>
       </div>
     </div>}

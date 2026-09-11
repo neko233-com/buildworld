@@ -15,7 +15,7 @@
 
 ## Quick Install
 
-> Prerequisites: [GitHub CLI](https://cli.github.com/) installed and `gh auth login` completed.
+> The installer uses a GitHub mirror by default for networks that cannot reach GitHub directly. Set `BUILDWORLD_GITHUB_MIRROR=off` to use GitHub directly.
 
 <table>
 <tr>
@@ -26,8 +26,7 @@
 <td>
 
 ```sh
-gh api -H "Accept: application/vnd.github.raw+json" \
-  repos/neko233-com/buildworld/contents/scripts/install.sh | sh
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | sh
 buildworld status
 ```
 
@@ -36,8 +35,8 @@ buildworld status
 
 ```powershell
 & ([scriptblock]::Create((
-  gh api -H "Accept: application/vnd.github.raw+json" `
-    repos/neko233-com/buildworld/contents/scripts/install.ps1 | Out-String
+  (Invoke-WebRequest -UseBasicParsing `
+    https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.ps1).Content
 )))
 buildworld status
 ```

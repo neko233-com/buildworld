@@ -950,7 +950,7 @@ func TestJenkinsfileStrategyUsesPrivateMacOSFeishuHelperPath(t *testing.T) {
   stages {
     stage('飞书通知') {
       steps { sh '''
-cd /Users/buildworld/Desktop/Code/Automation-Projects/jenkins-for-project-sf/feishu-robot
+cd /Users/buildworld/Desktop/Code/Automation-Projects/example/feishu-robot
 ./feishu-robot game-config-refresh --channel game || echo "继续执行"
 ''' }
     }
@@ -1186,7 +1186,7 @@ func TestJenkinsfileStrategyConvertsDifferentPackagingStyles(t *testing.T) {
 			stageNames:        []string{"飞书通知", "更新 Team-Resources", "校验 BusinessConfig"},
 			commandFragments:  []string{"feishu-robot-game-server-config-refresh.py", "chmod +x ./_scripts/deploy/update-team-resources.sh", "validate-business-config.py --config-dir"},
 			requiredWarnings:  nil,
-			repositoryURLHint: "http://192.0.2.42:3000/example/example-server-project-go.git",
+			repositoryURLHint: "http://git.example.invalid:3000/example/server-project-go.git",
 		},
 		{
 			name:             "TypeScript Node package",

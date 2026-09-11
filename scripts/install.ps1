@@ -8,6 +8,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 $Repo = "neko233-com/buildworld"
 $InstallDir = if ($env:BUILDWORLD_INSTALL_DIR) { $env:BUILDWORLD_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "BuildWorld" }
 $PreviousDir = "$InstallDir.previous"
+$script:GitHubMirror = if ($env:BUILDWORLD_GITHUB_MIRROR) { $env:BUILDWORLD_GITHUB_MIRROR.Trim() } else { "https://gh-proxy.com" }
 $script:ReleaseMetadata = $null
 
 function Get-GitHubToken {
@@ -24,6 +25,20 @@ function Get-GitHubToken {
 
 $script:GitHubToken = Get-GitHubToken
 
+function Test-GitHubMirrorEnabled {
+    return $script:GitHubMirror -and $script:GitHubMirror -notin @('off', 'none')
+}
+
+function ConvertTo-GitHubSource([string]$Uri) {
+    if (-not (Test-GitHubMirrorEnabled)) { return $Uri }
+    $mirror = $script:GitHubMirror.TrimEnd('/')
+    $parsed = [Uri]$mirror
+    if ($parsed.Scheme -ne 'https' -or $parsed.UserInfo -or $parsed.Query -or $parsed.Fragment) {
+        throw "BUILDWORLD_GITHUB_MIRROR must be an https URL without credentials, query parameters, or fragments."
+    }
+    return "$mirror/$Uri"
+}
+
 function Get-GitHubHeaders([switch]$Binary) {
     $headers = @{
         "Accept"               = if ($Binary) { "application/octet-stream" } else { "application/vnd.github+json" }
@@ -35,7 +50,9 @@ function Get-GitHubHeaders([switch]$Binary) {
 }
 
 function Invoke-GitHubApi([string]$Uri) {
-    return Invoke-RestMethod -Uri $Uri -Headers (Get-GitHubHeaders) -UseBasicParsing
+    $headers = Get-GitHubHeaders
+    if (Test-GitHubMirrorEnabled) { $headers.Remove('Authorization') }
+    return Invoke-RestMethod -Uri (ConvertTo-GitHubSource $Uri) -Headers $headers -UseBasicParsing
 }
 
 function Get-ReleaseVersion {
@@ -47,7 +64,7 @@ function Get-ReleaseVersion {
     try {
         $script:ReleaseMetadata = Invoke-GitHubApi "https://api.github.com/repos/$Repo/releases/latest"
     } catch {
-        $hint = if ($script:GitHubToken) { "Check that the token can read releases for $Repo." } else { "For a private repository, set GH_TOKEN/GITHUB_TOKEN or run 'gh auth login'." }
+        $hint = "Check GitHub connectivity or set BUILDWORLD_GITHUB_MIRROR to a trusted HTTPS mirror."
         throw "Cannot resolve the latest BuildWorld release. $hint $($_.Exception.Message)"
     }
     $tag = ([string]$script:ReleaseMetadata.tag_name).TrimStart('v')
@@ -65,7 +82,7 @@ function Get-ReleaseMetadata([string]$Release) {
 
 function Save-ReleaseAsset([string]$Release, [string]$Asset, [string]$Destination) {
     $apiFailure = $null
-    if ($script:GitHubToken) {
+    if ($script:GitHubToken -and -not (Test-GitHubMirrorEnabled)) {
         try {
             $metadata = Get-ReleaseMetadata $Release
             $releaseAsset = @($metadata.assets | Where-Object { $_.name -eq $Asset } | Select-Object -First 1)
@@ -78,7 +95,7 @@ function Save-ReleaseAsset([string]$Release, [string]$Asset, [string]$Destinatio
         }
     }
 
-    $direct = "https://github.com/$Repo/releases/download/v$Release/$Asset"
+    $direct = ConvertTo-GitHubSource "https://github.com/$Repo/releases/download/v$Release/$Asset"
     try {
         Invoke-WebRequest -Uri $direct -OutFile $Destination -UseBasicParsing
         return
@@ -87,7 +104,7 @@ function Save-ReleaseAsset([string]$Release, [string]$Asset, [string]$Destinatio
         $hint = if ($script:GitHubToken) {
             "Authenticated API download failed: $apiFailure"
         } else {
-            "For a private repository, set GH_TOKEN/GITHUB_TOKEN or run 'gh auth login'."
+            "Check GitHub connectivity or set BUILDWORLD_GITHUB_MIRROR to a trusted HTTPS mirror."
         }
         throw "Cannot download release asset $Asset. $hint $($_.Exception.Message)"
     }

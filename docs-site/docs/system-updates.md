@@ -13,8 +13,8 @@ merely because a newer version exists.
 - only an administrator session or an administrator-owned API token with the
   exact `system:update` scope may inspect or trigger updates;
 - the page's explicit check/apply action obtains the fixed official release
-  metadata, then verifies the checksums manifest, every multipart asset, and
-  the reassembled bundle SHA-256;
+  metadata through the configured GitHub source, then verifies the checksums
+  manifest, every multipart asset, and the reassembled bundle SHA-256;
 - archives are size-limited, path-checked, and required to contain the complete
   CLI, server, worker, Web UI, Pipeline SDK, and trusted update helper;
 - only one update may run at a time;
@@ -91,6 +91,12 @@ The server returns `202 Accepted` after staging and verification. The detached
 helper pauses the service, rotates the current bundle, starts the new version,
 checks `/api/health` and `/api/version`, and rolls back if readiness fails.
 Poll the status endpoint until it reports `succeeded` or `rolled_back`.
+
+The server uses `https://gh-proxy.com` as the default GitHub mirror for public
+release metadata and assets. Set `BUILDWORLD_GITHUB_MIRROR=off` to use GitHub
+directly, or set it to another trusted HTTPS mirror. The mirror is not trusted
+for integrity: every asset is still checked against the release's SHA-256
+manifest before installation.
 
 ## Automatic callers
 

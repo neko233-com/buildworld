@@ -15,7 +15,7 @@
 
 ## 一键安装
 
-> 前置：已安装 [GitHub CLI](https://cli.github.com/) 并完成 `gh auth login`。
+> 默认通过 GitHub 镜像安装，适用于无法直连 GitHub 的网络；如需直连，设置 `BUILDWORLD_GITHUB_MIRROR=off`。
 
 <table>
 <tr>
@@ -26,8 +26,7 @@
 <td>
 
 ```sh
-gh api -H "Accept: application/vnd.github.raw+json" \
-  repos/neko233-com/buildworld/contents/scripts/install.sh | sh
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | sh
 buildworld status
 ```
 
@@ -36,8 +35,8 @@ buildworld status
 
 ```powershell
 & ([scriptblock]::Create((
-  gh api -H "Accept: application/vnd.github.raw+json" `
-    repos/neko233-com/buildworld/contents/scripts/install.ps1 | Out-String
+  (Invoke-WebRequest -UseBasicParsing `
+    https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.ps1).Content
 )))
 buildworld status
 ```

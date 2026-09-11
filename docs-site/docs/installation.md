@@ -6,23 +6,26 @@ sidebar_position: 2
 
 ## Quick Install
 
-The repository is currently private. Authenticate once with `gh auth login`;
-the installer then reuses `GH_TOKEN`, `GITHUB_TOKEN`, or the GitHub CLI token.
+The repository is public. The installers use the configured GitHub mirror by
+default so they also work on machines that cannot reach GitHub directly.
+Set `BUILDWORLD_GITHUB_MIRROR=off` to use GitHub directly.
 
 ### Linux/macOS
 
 ```bash
-gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld/contents/scripts/install.sh | sh
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | sh
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-& ([scriptblock]::Create((gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld/contents/scripts/install.ps1 | Out-String)))
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.ps1).Content))
 ```
 
-Both commands continue to work if the repository becomes public. The
-installers also support anonymous public-release downloads.
+The mirror is only used to retrieve public release metadata and assets. The
+installers still verify every downloaded file against the published SHA-256
+manifest. Set `BUILDWORLD_GITHUB_MIRROR` to another trusted HTTPS mirror when
+your network requires one.
 
 ## Manual Install
 

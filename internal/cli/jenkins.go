@@ -84,7 +84,7 @@ var jenkinsImportCmd = &cobra.Command{
 }
 
 func init() {
-	jenkinsImportCmd.Flags().String("url", "", "Jenkins base URL, e.g. http://192.0.2.42:8080")
+	jenkinsImportCmd.Flags().String("url", "", "Jenkins base URL, e.g. http://jenkins.example.invalid:8080")
 	jenkinsImportCmd.Flags().String("user", "", "Jenkins username")
 	jenkinsImportCmd.Flags().String("token", "", "Jenkins password or API token")
 	jenkinsImportCmd.Flags().String("folder", "", "Folder chain, slash-separated, e.g. \"服务器 Go\"")

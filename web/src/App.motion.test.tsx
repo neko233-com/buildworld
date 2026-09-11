@@ -134,7 +134,7 @@ describe('application motion accessibility', () => {
 
   it('lets an administrator manually check for an official update from the masthead', async () => {
     const check = vi.spyOn(api, 'checkSystemUpdate').mockResolvedValue({
-      current_version: '1.0.0', latest_version: '1.1.0', update_available: true,
+      current_version: 'v1.0.0', latest_version: 'v1.1.0', update_available: true,
       platform: 'darwin/arm64', asset_name: 'buildworld-darwin-arm64.tar.gz', asset_size: 12,
       manual_only: true, administrator_required: true,
     })
@@ -150,6 +150,7 @@ describe('application motion accessibility', () => {
 
     expect(check).toHaveBeenCalledOnce()
     expect(container.querySelector('.system-update-popover')?.textContent).toContain('Update available: v1.1.0')
+    expect(container.querySelector('.system-update-popover')?.textContent).not.toContain('vv1.1.0')
     expect(container.querySelector('.system-update-popover')?.textContent).toContain('Manual update · administrator only')
     expect(trigger.textContent).toContain('Update to v1.1.0')
 

@@ -25,6 +25,11 @@ const OfficialRepository = "neko233-com/buildworld"
 const officialReleaseAPI = "https://api.github.com/repos/neko233-com/buildworld/releases/latest"
 
 const (
+	githubMirrorEnv     = "BUILDWORLD_GITHUB_MIRROR"
+	defaultGitHubMirror = "https://gh-proxy.com"
+)
+
+const (
 	maxReleaseMetadataBytes = 2 << 20
 	maxReleaseAssetBytes    = MaxBundleBytes + 1
 )
@@ -55,32 +60,77 @@ type Catalog interface {
 }
 
 type GitHubCatalog struct {
-	client  *http.Client
-	apiURL  string
-	goos    string
-	goarch  string
-	assetOS string
+	client       *http.Client
+	apiURL       string
+	githubMirror *url.URL
+	goos         string
+	goarch       string
+	assetOS      string
 }
 
 func NewGitHubCatalog(client *http.Client) *GitHubCatalog {
+	return newGitHubCatalog(client, os.Getenv(githubMirrorEnv))
+}
+
+func newGitHubCatalog(client *http.Client, mirror string) *GitHubCatalog {
+	githubMirror := parseGitHubMirror(mirror)
+	if strings.TrimSpace(mirror) == "" {
+		githubMirror = parseGitHubMirror(defaultGitHubMirror)
+	}
+	catalog := &GitHubCatalog{
+		apiURL:       officialReleaseAPI,
+		githubMirror: githubMirror,
+		goos:         runtime.GOOS,
+		goarch:       runtime.GOARCH,
+		assetOS:      runtime.GOOS,
+	}
 	if client == nil {
 		client = &http.Client{
 			Timeout: 45 * time.Second,
 			CheckRedirect: func(request *http.Request, previous []*http.Request) error {
-				if len(previous) >= 4 || !isTrustedDownloadURL(request.URL) {
+				if len(previous) >= 4 || !catalog.isTrustedRequestURL(request.URL) {
 					return errors.New("release download redirected to an untrusted host")
 				}
 				return nil
 			},
 		}
 	}
-	return &GitHubCatalog{
-		client:  client,
-		apiURL:  officialReleaseAPI,
-		goos:    runtime.GOOS,
-		goarch:  runtime.GOARCH,
-		assetOS: runtime.GOOS,
+	catalog.client = client
+	return catalog
+}
+
+func parseGitHubMirror(value string) *url.URL {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.EqualFold(value, "off") || strings.EqualFold(value, "none") {
+		return nil
 	}
+	parsed, err := url.Parse(strings.TrimRight(value, "/"))
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil
+	}
+	return parsed
+}
+
+func (c *GitHubCatalog) isTrustedRequestURL(value *url.URL) bool {
+	if isTrustedDownloadURL(value) {
+		return true
+	}
+	if c == nil || c.githubMirror == nil || value == nil || value.Scheme != c.githubMirror.Scheme || value.User != nil {
+		return false
+	}
+	return strings.EqualFold(value.Host, c.githubMirror.Host)
+}
+
+func (c *GitHubCatalog) sourceURL(raw string) string {
+	if c == nil || c.githubMirror == nil || !isTrustedDownloadURLString(raw) {
+		return raw
+	}
+	mirrored := *c.githubMirror
+	mirrored.Path = strings.TrimRight(mirrored.Path, "/") + "/" + raw
+	mirrored.RawPath = ""
+	mirrored.RawQuery = ""
+	mirrored.Fragment = ""
+	return mirrored.String()
 }
 
 type githubRelease struct {
@@ -103,7 +153,7 @@ func (c *GitHubCatalog) Check(ctx context.Context) (ReleaseInfo, error) {
 	if c == nil || c.client == nil {
 		return ReleaseInfo{}, errors.New("official update catalog is unavailable")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiURL, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.sourceURL(c.apiURL), nil)
 	if err != nil {
 		return ReleaseInfo{}, fmt.Errorf("create release check request: %w", err)
 	}
@@ -273,7 +323,12 @@ func (c *GitHubCatalog) downloadAsset(ctx context.Context, asset githubAsset, li
 	if !isTrustedDownloadURLString(asset.BrowserDownloadURL) {
 		return nil, errors.New("asset download URL is not trusted")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.BrowserDownloadURL, nil)
+	source := c.sourceURL(asset.BrowserDownloadURL)
+	parsedSource, err := url.Parse(source)
+	if err != nil || !c.isTrustedRequestURL(parsedSource) {
+		return nil, errors.New("asset source URL is not trusted")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create asset request: %w", err)
 	}
