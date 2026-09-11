@@ -18,7 +18,7 @@ import { PageState } from '../components/PageState'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
-import { formatDate, formatDateTime } from '../lib/dateTime'
+import { formatDate, formatDateTimeWithWeekday, formatDateWithWeekday } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { projectGroupPath } from '../lib/projectGroups'
 import ProjectJobActions from './ProjectJobActions'
@@ -36,8 +36,8 @@ function JobStatusIcon({ status, size = 24 }: { status?: string; size?: number }
 }
 
 function buildDayGroup(value: string | undefined): { key: string; label: string } {
-  const label = formatDate(value)
-  return { key: label === '-' ? 'unknown' : label, label }
+  const key = formatDate(value)
+  return { key: key === '-' ? 'unknown' : key, label: formatDateWithWeekday(value) }
 }
 
 export default function ProjectDetail() {
@@ -172,7 +172,7 @@ export default function ProjectDetail() {
   }
 
   const relatedBuild = (label: string, build: any) => build
-    ? <li><Link to={`/builds/${build.id}`}>{label} (#{build.number})</Link><small>{formatDateTime(build.started_at)}</small></li>
+    ? <li><Link to={`/builds/${build.id}`}>{label} (#{build.number})</Link><small>{formatDateTimeWithWeekday(build.started_at)}</small></li>
     : <li><span>{label}</span><small>{t('projectDetail.none')}</small></li>
 
   return <section className="jenkins-job-page">
@@ -207,7 +207,7 @@ export default function ProjectDetail() {
                 <Link to={`/builds/${build.id}`} aria-label={`#${build.number} ${buildStatusLabel(t, build.status)}`}>
                   <JobStatusIcon status={build.status} size={15} />
                   <strong>#{build.number}</strong>
-                  <time>{formatDateTime(build.started_at)}</time>
+                  <time>{formatDateTimeWithWeekday(build.started_at)}</time>
                   <small>{formatDuration(build.duration_ms)}</small>
                 </Link>
                 {editable && activeStatuses.has(build.status) && <button type="button" className="jenkins-job-stop" disabled={stopping !== null} onClick={() => handleStop(build)} aria-label={`${t('builds.stopBuild')} #${build.number}`} title={t('builds.stopBuild')}>{stopping === build.id ? <LoaderCircle className="timeline-spinner" size={13} /> : <Square size={12} />}</button>}

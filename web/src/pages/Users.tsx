@@ -7,7 +7,7 @@ import { dialogs } from '../components/AppDialogs'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { ModalDialog } from '../components/ModalDialog'
 import { PageState } from '../components/PageState'
-import { formatDate, formatDateTime } from '../lib/dateTime'
+import { formatDateWithWeekday, formatDateTimeWithWeekday } from '../lib/dateTime'
 import './ManagementPages.jenkins.css'
 
 interface User {
@@ -112,8 +112,8 @@ export default function Users() {
               <td><button className="entity-link" type="button" onClick={() => openEdit(user)}><UserRound size={16} /><span><strong>{user.username}{me?.id === user.id && <em>{t('users.you')}</em>}</strong><small>#{user.id}</small></span></button></td>
               <td className="muted-cell">{user.email || '-'}</td>
               <td><span className={`user-role ${user.role}`}>{t(`users.role_${user.role}`)}</span></td>
-              <td className="muted-cell">{hasLoggedIn(user.last_login) ? formatDateTime(user.last_login) : t('users.never')}</td>
-              <td className="muted-cell">{formatDate(user.created_at)}</td>
+              <td className="muted-cell">{hasLoggedIn(user.last_login) ? formatDateTimeWithWeekday(user.last_login) : t('users.never')}</td>
+              <td className="muted-cell">{formatDateWithWeekday(user.created_at)}</td>
               <td><div className="row-actions"><button className="row-icon" type="button" title={t('users.edit')} aria-label={t('users.edit')} onClick={() => openEdit(user)}><Pencil size={15} /></button><button className="row-icon danger" type="button" disabled={me?.id === user.id} title={me?.id === user.id ? t('users.cannotDeleteSelf') : t('common.delete')} aria-label={t('common.delete')} onClick={() => handleDelete(user)}><Trash2 size={15} /></button></div></td>
             </tr>)}
           </tbody>

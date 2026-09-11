@@ -12,7 +12,7 @@ import ProjectGroupsDialog from '../components/ProjectGroupsDialog'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
-import { formatDate, formatDateTime } from '../lib/dateTime'
+import { formatDate, formatDateTimeWithWeekday, formatDateWithWeekday } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { sortProjectGroups, type ProjectGroup } from '../lib/projectGroups'
 import { useJenkinsBuildFlow } from './projectBuildFlow'
@@ -23,16 +23,6 @@ const ACTIVE_REFRESH_INTERVAL_MS = 2_000
 const IDLE_REFRESH_INTERVAL_MS = 15_000
 const STORAGE_REFRESH_INTERVAL_MS = 30_000
 const PROJECT_URL = 'https://github.com/neko233-com/buildworld'
-const WEEKDAY_KEYS = [
-  'dashboard.weekdaySunday',
-  'dashboard.weekdayMonday',
-  'dashboard.weekdayTuesday',
-  'dashboard.weekdayWednesday',
-  'dashboard.weekdayThursday',
-  'dashboard.weekdayFriday',
-  'dashboard.weekdaySaturday',
-] as const
-
 type GroupContextMenu = {
   group: ProjectGroup
   x: number
@@ -48,7 +38,7 @@ function BuildReference({ build, emptyLabel }: { build?: any; emptyLabel: string
   if (!build) return <span className="jenkins-empty-value">{emptyLabel}</span>
   return <span className="jenkins-build-reference">
     <Link to={`/builds/${build.id}`}>#{build.number}</Link>
-    <small>{formatDateTime(build.started_at)}</small>
+    <small>{formatDateTimeWithWeekday(build.started_at)}</small>
   </span>
 }
 
@@ -122,7 +112,7 @@ function ProjectFooter() {
   }, [])
 
   return <footer className="jenkins-project-footer">
-    <time dateTime={formatDate(today)}>{formatDate(today)} {t(WEEKDAY_KEYS[today.getDay()])}</time>
+    <time dateTime={formatDate(today)}>{formatDateWithWeekday(today)}</time>
     <span aria-hidden="true">·</span>
     <span>{t('dashboard.projectStatement')}</span>
     <span aria-hidden="true">·</span>

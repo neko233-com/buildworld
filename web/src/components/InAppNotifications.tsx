@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useI18n } from '../i18n'
 import { buildStatusLabel } from '../lib/buildPresentation'
-import { formatDateTime } from '../lib/dateTime'
+import { formatDateTimeWithWeekday } from '../lib/dateTime'
 
 type NotificationPayload = {
   event?: string
@@ -164,7 +164,7 @@ export default function InAppNotifications({ menu = false, menuOpen = true }: In
             const copy = notificationCopy(item)
             return <button type="button" key={item.id} className={`web-notification-item ${copy.payload.status || 'pending'}`} onClick={() => openBuild(item)}>
               <span className="web-notification-icon"><StatusIcon status={copy.payload.status} /></span>
-              <span><strong>{copy.title}</strong><small>{copy.event} · {copy.status}{copy.payload.branch ? ` · ${copy.payload.branch}` : ''}</small><time>{formatDateTime(item.created_at)}</time></span>
+              <span><strong>{copy.title}</strong><small>{copy.event} · {copy.status}{copy.payload.branch ? ` · ${copy.payload.branch}` : ''}</small><time>{formatDateTimeWithWeekday(item.created_at)}</time></span>
             </button>
           })}
         </div>

@@ -1,7 +1,16 @@
 export type DateTimeValue = Date | string | number | null | undefined
+export type DateWeekdayLocale = 'en' | 'zh-CN' | 'ja-JP' | 'ko-KR' | 'ru-RU' | 'hi-IN'
 
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
 const DATE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:[.,](\d{1,9}))?(Z|[+-]\d{2}:\d{2})?$/i
+const WEEKDAY_LABELS: Record<DateWeekdayLocale, readonly [string, string, string, string, string, string, string]> = {
+  en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+  'zh-CN': ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'],
+  'ja-JP': ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'],
+  'ko-KR': ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'],
+  'ru-RU': ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'],
+  'hi-IN': ['रविवार', 'सोमवार', 'मंगलवार', 'बुधवार', 'गुरुवार', 'शुक्रवार', 'शनिवार'],
+}
 
 function localDate(year: number, month: number, day: number): Date | null {
   const date = new Date(0)
@@ -72,6 +81,21 @@ function datePart(date: Date): string {
   return `${padded(date.getFullYear(), 4)}-${padded(date.getMonth() + 1)}-${padded(date.getDate())}`
 }
 
+function activeWeekdayLocale(): DateWeekdayLocale {
+  if (typeof document !== 'undefined') {
+    const locale = document.documentElement.lang as DateWeekdayLocale
+    if (locale in WEEKDAY_LABELS) return locale
+  }
+  return 'zh-CN'
+}
+
+function dateWithWeekday(date: Date, locale: DateWeekdayLocale): string {
+  const weekday = WEEKDAY_LABELS[locale][date.getDay()]
+  const opening = locale === 'zh-CN' ? '（' : ' ('
+  const closing = locale === 'zh-CN' ? '）' : ')'
+  return `${datePart(date)}${opening}${weekday}${closing}`
+}
+
 export function formatDate(value: DateTimeValue, fallback = '-'): string {
   const date = parseDateTime(value)
   return date ? datePart(date) : fallback
@@ -82,4 +106,16 @@ export function formatDateTime(value: DateTimeValue, fallback = '-'): string {
   if (!date) return fallback
 
   return `${datePart(date)} ${padded(date.getHours())}:${padded(date.getMinutes())}:${padded(date.getSeconds())},${padded(date.getMilliseconds(), 3)}`
+}
+
+export function formatDateWithWeekday(value: DateTimeValue, fallback = '-', locale = activeWeekdayLocale()): string {
+  const date = parseDateTime(value)
+  return date ? dateWithWeekday(date, locale) : fallback
+}
+
+export function formatDateTimeWithWeekday(value: DateTimeValue, fallback = '-', locale = activeWeekdayLocale()): string {
+  const date = parseDateTime(value)
+  if (!date) return fallback
+
+  return `${dateWithWeekday(date, locale)} ${padded(date.getHours())}:${padded(date.getMinutes())}:${padded(date.getSeconds())},${padded(date.getMilliseconds(), 3)}`
 }

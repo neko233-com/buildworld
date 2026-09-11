@@ -12,7 +12,7 @@ import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { PageState } from '../components/PageState'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
-import { formatDateTime } from '../lib/dateTime'
+import { formatDateTimeWithWeekday } from '../lib/dateTime'
 import {
   completePortabilitySections,
   hasSensitiveSelection,
@@ -693,7 +693,7 @@ ${steps.join(',\n')}
           <section className="settings-form-section portability-card">
             <header><Upload size={15} /><div><h3>{t('settings.importBundle')}</h3><p>{t('settings.importBundleHelp')}</p></div><button type="button" className="secondary-command" onClick={() => importFileRef.current?.click()} disabled={inspecting}><FileJson size={14} />{inspecting ? t('settings.inspecting') : t('settings.chooseBundle')}</button><input ref={importFileRef} hidden type="file" accept="application/json,.json" tabIndex={-1} onChange={event => inspectImportFile(event.target.files?.[0])} /></header>
             {!importInspection ? <button type="button" className={`portability-dropzone ${importDragging ? 'dragging' : ''}`} disabled={inspecting} onClick={() => importFileRef.current?.click()} onDragEnter={() => setImportDragging(true)} onDragLeave={() => setImportDragging(false)} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); setImportDragging(false); inspectImportFile(event.dataTransfer.files?.[0]) }}><Upload className={inspecting ? 'spin' : ''} size={22} /><strong>{inspecting ? t('settings.inspecting') : t('settings.dropBundle')}</strong><small>{t('settings.bundleLimit')}</small></button> : <div className="portability-inspection">
-              <header><FileJson size={18} /><div><strong>{importInspection.filename}</strong><small>{t('settings.bundleSchema')} v{importInspection.schema_version} · {formatDateTime(importInspection.exported_at)}</small></div><button type="button" onClick={() => { setImportBundle(null); setImportInspection(null); setImportResult(null); setImportError('') }}>{t('common.close')}</button></header>
+              <header><FileJson size={18} /><div><strong>{importInspection.filename}</strong><small>{t('settings.bundleSchema')} v{importInspection.schema_version} · {formatDateTimeWithWeekday(importInspection.exported_at)}</small></div><button type="button" onClick={() => { setImportBundle(null); setImportInspection(null); setImportResult(null); setImportError('') }}>{t('common.close')}</button></header>
               <div className="portability-summary">{importInspection.sections.map((item: any) => <article key={item.key}><strong>{item.count}</strong><span>{capabilityLabel(item.key)}</span></article>)}</div>
               {importInspection.unknown_sections?.length > 0 && <div className="settings-inline-note"><Info size={14} /><span>{t('settings.unknownSections')}: {importInspection.unknown_sections.join(', ')}</span></div>}
               <div className="portability-import-footer"><label><span>{t('settings.conflictPolicy')}</span><select value={importMode} onChange={event => setImportMode(event.target.value as 'skip' | 'overwrite')}><option value="skip">{t('settings.skipExisting')}</option><option value="overwrite">{t('settings.overwriteExisting')}</option></select></label><button type="button" className="primary-command" onClick={handleImport} disabled={importing}>{importing ? <RefreshCw className="spin" size={14} /> : <Upload size={14} />}{importing ? t('settings.importing') : t('settings.importAction')}</button></div>

@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api'
 import { dialogs } from '../components/AppDialogs'
-import { formatDate } from '../lib/dateTime'
+import { formatDateTimeWithWeekday, formatDateWithWeekday } from '../lib/dateTime'
 import ProjectDetail from './ProjectDetail'
 
 vi.mock('../api', () => ({
@@ -117,6 +117,8 @@ describe('ProjectDetail Jenkins Job status', () => {
     expect(container.querySelector('.jenkins-job-related')?.textContent).toContain('Last successful build')
     expect(container.querySelector('.jenkins-job-related')?.textContent).toContain('#518')
     expect(container.querySelector('.jenkins-job-related')?.textContent).toContain('#514')
+    expect(container.querySelector('.jenkins-job-related')?.textContent).toContain(formatDateTimeWithWeekday(builds[1].started_at))
+    expect(container.querySelector('.jenkins-job-build-list')?.textContent).toContain(formatDateTimeWithWeekday(builds[0].started_at))
 
     const filter = container.querySelector<HTMLInputElement>('input[aria-label="Filter builds..."]')!
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(filter, 'release')
@@ -171,8 +173,8 @@ describe('ProjectDetail Jenkins Job status', () => {
     const buildList = container.querySelector('.jenkins-job-build-list')!
     expect(buildList.querySelectorAll('.jenkins-job-build')).toHaveLength(30)
     expect(Array.from(buildList.querySelectorAll('.jenkins-job-build-group > h3')).map(item => item.textContent)).toEqual([
-      formatDate(today),
-      formatDate(yesterday),
+      formatDateWithWeekday(today),
+      formatDateWithWeekday(yesterday),
     ])
     expect(buildList.querySelector('a[href="/builds/1000"]')).not.toBeNull()
     expect(buildList.querySelector('a[href="/builds/970"]')).toBeNull()
@@ -187,8 +189,8 @@ describe('ProjectDetail Jenkins Job status', () => {
     expect(buildList.querySelector('a[href="/builds/1000"]')).toBeNull()
     expect(buildList.querySelector('a[href="/builds/970"]')).not.toBeNull()
     expect(Array.from(buildList.querySelectorAll('.jenkins-job-build-group > h3')).map(item => item.textContent)).toEqual([
-      formatDate(yesterday),
-      formatDate(twoDaysAgo),
+      formatDateWithWeekday(yesterday),
+      formatDateWithWeekday(twoDaysAgo),
     ])
     expect(newer.disabled).toBe(false)
     expect(older.disabled).toBe(true)

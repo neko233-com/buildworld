@@ -18,7 +18,7 @@ import { PageState } from '../components/PageState'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
-import { formatDateTime } from '../lib/dateTime'
+import { formatDateTimeWithWeekday } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { projectGroupPath } from '../lib/projectGroups'
 import './ProjectChanges.css'
@@ -174,7 +174,7 @@ export default function ProjectChanges() {
               <Link to={`/builds/${build.id}`} aria-label={`#${build.number} ${buildStatusLabel(t, build.status)}`}>
                 <JobStatusIcon status={build.status} />
                 <strong>#{build.number}</strong>
-                <time dateTime={build.started_at}>{formatDateTime(build.started_at)}</time>
+                <time dateTime={build.started_at}>{formatDateTimeWithWeekday(build.started_at)}</time>
                 <small>{formatDuration(build.duration_ms)}</small>
               </Link>
               {editable && activeStatuses.has(build.status) && <button type="button" className="jenkins-job-stop" disabled={stopping !== null} onClick={() => handleStop(build)} aria-label={`${t('builds.stopBuild')} #${build.number}`} title={t('builds.stopBuild')}>{stopping === build.id ? <LoaderCircle className="timeline-spinner" size={13} /> : <Square size={12} />}</button>}
@@ -191,7 +191,7 @@ export default function ProjectChanges() {
         {!changesError && filteredChanges && filteredChanges.length > 0 && <div className="jenkins-changes-list">
           {filteredChanges.map(change => <section className="jenkins-change-build" key={change.build_id} aria-labelledby={`jenkins-change-build-${change.build_id}`}>
             <h2 id={`jenkins-change-build-${change.build_id}`}>
-              <Link to={`/builds/${change.build_id}`}>#{change.build_number} (<time dateTime={change.timestamp || undefined}>{formatDateTime(change.timestamp)}</time>)</Link>
+              <Link to={`/builds/${change.build_id}`}>#{change.build_number} (<time dateTime={change.timestamp || undefined}>{formatDateTimeWithWeekday(change.timestamp)}</time>)</Link>
             </h2>
             <div className="jenkins-change-record">
               <GitCommitHorizontal size={17} aria-hidden="true" />

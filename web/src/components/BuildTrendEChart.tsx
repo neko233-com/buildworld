@@ -3,7 +3,7 @@ import * as echarts from 'echarts/core'
 import { BarChart, LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { formatDate } from '../lib/dateTime'
+import { formatDateWithWeekday } from '../lib/dateTime'
 
 echarts.use([BarChart, CanvasRenderer, GridComponent, LegendComponent, LineChart, TooltipComponent])
 
@@ -12,7 +12,7 @@ type TrendPoint = { date: string; success: number; failed: number; running: numb
 export function BuildTrendEChart({ data, dark = false }: { data: TrendPoint[]; dark?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const accessibleSummary = data.length
-    ? data.map(point => `${formatDate(point.date)} 成功 ${point.success} 失败 ${point.failed} 运行中 ${point.running}`).join('；')
+    ? data.map(point => `${formatDateWithWeekday(point.date)} 成功 ${point.success} 失败 ${point.failed} 运行中 ${point.running}`).join('；')
     : '暂无数据'
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export function BuildTrendEChart({ data, dark = false }: { data: TrendPoint[]; d
       grid: { top: 36, right: 18, bottom: 28, left: 34 },
       tooltip: { trigger: 'axis' },
       legend: { top: 4, textStyle: { color: dark ? '#a8bdd2' : '#647482', fontSize: 10 } },
-      xAxis: { type: 'category', data: data.map(point => formatDate(point.date)), axisLine: { lineStyle: { color: dark ? '#29465e' : '#d8e1e9' } }, axisLabel: { color: dark ? '#8fa6bb' : '#738291', fontSize: 9 } },
+      xAxis: { type: 'category', data: data.map(point => formatDateWithWeekday(point.date)), axisLine: { lineStyle: { color: dark ? '#29465e' : '#d8e1e9' } }, axisLabel: { color: dark ? '#8fa6bb' : '#738291', fontSize: 9 } },
       yAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: dark ? '#1f3a50' : '#edf1f5' } }, axisLabel: { color: dark ? '#8fa6bb' : '#738291', fontSize: 9 } },
       series: [
         { name: '成功', type: 'bar', stack: 'builds', data: data.map(point => point.success), itemStyle: { color: '#22a06b', borderRadius: [3, 3, 0, 0] } },

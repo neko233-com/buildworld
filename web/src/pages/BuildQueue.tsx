@@ -12,7 +12,7 @@ import BuildApprovalPanel from '../components/BuildApprovalPanel'
 import { canMoveQueueItem, moveQueueItem, queueWaitReasonKey, type QueueMoveOperation } from '../lib/queuePresentation'
 import JenkinsPageShell from '../components/JenkinsPageShell'
 import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
-import { formatDateTime } from '../lib/dateTime'
+import { formatDateTimeWithWeekday } from '../lib/dateTime'
 
 export default function BuildQueue() {
   const { t } = useI18n()
@@ -153,7 +153,7 @@ export default function BuildQueue() {
                 <td><span className={`queue-wait-reason ${q.wait_reason || 'dispatch'}`}><Hourglass size={13} />{t(queueWaitReasonKey(q.wait_reason))}{q.waiting_for_build_id && <Link to={`/builds/${q.waiting_for_build_id}`}>#{q.waiting_for_build_number || q.waiting_for_build_id}</Link>}</span></td>
                 <td><span className="branch-cell"><GitBranch size={13} />{q.branch || '-'}</span></td>
                 <td className="muted-cell">{buildTriggerLabel(t, q.trigger)}</td>
-                <td className="muted-cell"><span className="queue-time"><Clock3 size={13} />{formatDateTime(q.queued_at)}</span></td>
+                <td className="muted-cell"><span className="queue-time"><Clock3 size={13} />{formatDateTimeWithWeekday(q.queued_at)}</span></td>
                 <td className="muted-cell">{q.priority ?? 0}</td>
                 <td>
                   <div className="row-actions">{editable && <>

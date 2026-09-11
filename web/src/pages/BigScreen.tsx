@@ -8,7 +8,7 @@ import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { PageState } from '../components/PageState'
 import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
-import { formatDateTime } from '../lib/dateTime'
+import { formatDateTimeWithWeekday } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { BuildTrendEChart } from '../components/BuildTrendEChart'
 import './ManagementPages.jenkins.css'
@@ -102,7 +102,7 @@ export default function BigScreen() {
   return <>{breadcrumb}<motion.section className="operations-page data-dashboard-page jenkins-management-page" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .32, ease: 'easeOut' }}>
     <header className="operations-heading data-dashboard-heading">
       <div><p>{t('bigScreen.operationsOverview')}</p><h1>{t('bigScreen.title')}</h1><small>{t('bigScreen.description')}</small></div>
-      <div><span>{t('bigScreen.lastUpdate')}: {formatDateTime(lastUpdate)}</span><button className="secondary-command" type="button" onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}{fullscreen ? t('bigScreen.exitFullscreen') : t('bigScreen.fullscreen')}</button><Link className="secondary-command" to="/my-dashboard"><Minimize2 size={15} />{t('bigScreen.exitWall')}</Link><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
+      <div><span>{t('bigScreen.lastUpdate')}: {formatDateTimeWithWeekday(lastUpdate)}</span><button className="secondary-command" type="button" onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}{fullscreen ? t('bigScreen.exitFullscreen') : t('bigScreen.fullscreen')}</button><Link className="secondary-command" to="/my-dashboard"><Minimize2 size={15} />{t('bigScreen.exitWall')}</Link><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
     </header>
 
     {error && <div className="detail-notice data-dashboard-error" role="alert"><span>{error}</span><div><button className="secondary-command compact" type="button" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw size={14} />{t('common.retry')}</button><button type="button" onClick={() => setError('')} title={t('common.dismiss')} aria-label={t('common.dismiss')}>×</button></div></div>}
@@ -118,7 +118,7 @@ export default function BigScreen() {
     <div className="data-dashboard-grid">
       <section className="data-panel recent-build-panel">
         <header><div><Activity size={16} /><h2>{t('bigScreen.recentBuilds')}</h2></div><div className="data-panel-actions"><span>{visibleRecentBuilds.length}/{data.recent_builds.length}</span><Link to="/builds">{t('dashboard.viewAllBuilds')}</Link></div></header>
-        <div className="operations-table-wrap"><table className="operations-table data-build-table"><thead><tr><th>{t('projects.name')}</th><th>{t('builds.status')}</th><th>{t('builds.branch')}</th><th>{t('builds.duration')}</th><th>{t('projectDetail.started')}</th></tr></thead><tbody>{!visibleRecentBuilds.length && <tr><td colSpan={5} className="operations-empty">{t('common.noData')}</td></tr>}{visibleRecentBuilds.map(build => <tr key={build.id}><td><Link className="data-build-link" to={`/builds/${build.id}`}><strong>{build.project}</strong><small>#{build.number}</small></Link></td><td><span className={`build-status ${buildStatusTone(build.status)}`}>{buildStatusLabel(t, build.status)}</span></td><td><code>{build.branch || '-'}</code></td><td className="muted-cell">{formatDuration(build.duration_ms)}</td><td className="muted-cell">{formatDateTime(build.started_at)}</td></tr>)}</tbody></table></div>
+        <div className="operations-table-wrap"><table className="operations-table data-build-table"><thead><tr><th>{t('projects.name')}</th><th>{t('builds.status')}</th><th>{t('builds.branch')}</th><th>{t('builds.duration')}</th><th>{t('projectDetail.started')}</th></tr></thead><tbody>{!visibleRecentBuilds.length && <tr><td colSpan={5} className="operations-empty">{t('common.noData')}</td></tr>}{visibleRecentBuilds.map(build => <tr key={build.id}><td><Link className="data-build-link" to={`/builds/${build.id}`}><strong>{build.project}</strong><small>#{build.number}</small></Link></td><td><span className={`build-status ${buildStatusTone(build.status)}`}>{buildStatusLabel(t, build.status)}</span></td><td><code>{build.branch || '-'}</code></td><td className="muted-cell">{formatDuration(build.duration_ms)}</td><td className="muted-cell">{formatDateTimeWithWeekday(build.started_at)}</td></tr>)}</tbody></table></div>
       </section>
 
       <motion.section className="data-panel trend-panel" initial={{ opacity: 0, scale: .98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: .28, ease: 'easeOut' }}>
@@ -141,7 +141,7 @@ export default function BigScreen() {
 
       <section className="data-panel system-panel">
         <header><div><Cpu size={16} /><h2>{t('bigScreen.systemInfo')}</h2></div></header>
-        <dl><div><dt>{t('bigScreen.runtime')}</dt><dd>{data.system_metrics.go_version}</dd></div><div><dt>{t('bigScreen.platform')}</dt><dd>{data.system_metrics.os}/{data.system_metrics.arch}</dd></div><div><dt>CPU</dt><dd>{data.system_metrics.cpus}</dd></div><div><dt>Goroutines</dt><dd>{data.system_metrics.goroutines}</dd></div><div><dt>{t('bigScreen.uptime')}</dt><dd>{data.system_metrics.uptime}</dd></div><div><dt><Clock3 size={13} />{t('bigScreen.serverTime')}</dt><dd>{formatDateTime(data.current_time)}</dd></div></dl>
+        <dl><div><dt>{t('bigScreen.runtime')}</dt><dd>{data.system_metrics.go_version}</dd></div><div><dt>{t('bigScreen.platform')}</dt><dd>{data.system_metrics.os}/{data.system_metrics.arch}</dd></div><div><dt>CPU</dt><dd>{data.system_metrics.cpus}</dd></div><div><dt>Goroutines</dt><dd>{data.system_metrics.goroutines}</dd></div><div><dt>{t('bigScreen.uptime')}</dt><dd>{data.system_metrics.uptime}</dd></div><div><dt><Clock3 size={13} />{t('bigScreen.serverTime')}</dt><dd>{formatDateTimeWithWeekday(data.current_time)}</dd></div></dl>
       </section>
     </div>
   </motion.section></>

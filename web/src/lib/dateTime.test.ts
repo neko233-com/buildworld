@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate, formatDateTime } from './dateTime'
+import { formatDate, formatDateTime, formatDateTimeWithWeekday, formatDateWithWeekday } from './dateTime'
 
 describe('dateTime presentation', () => {
   it('formats local calendar dates with fixed-width fields', () => {
@@ -8,6 +8,18 @@ describe('dateTime presentation', () => {
 
   it('formats local timestamps with seconds and milliseconds', () => {
     expect(formatDateTime(new Date(2026, 0, 2, 3, 4, 5, 6))).toBe('2026-01-02 03:04:05,006')
+  })
+
+  it('adds a localized weekday without changing the underlying date order', () => {
+    const date = new Date(2026, 6, 22, 3, 4, 5, 6)
+    expect(formatDateWithWeekday(date, '-', 'zh-CN')).toBe('2026-07-22（星期三）')
+    expect(formatDateTimeWithWeekday(date, '-', 'zh-CN')).toBe('2026-07-22（星期三） 03:04:05,006')
+    expect(formatDateWithWeekday(date, '-', 'en')).toBe('2026-07-22 (Wednesday)')
+  })
+
+  it('keeps the weekday helpers aligned with timezone-aware parsing', () => {
+    const value = '2026-07-22T10:20:30Z'
+    expect(formatDateTimeWithWeekday(value, '-', 'zh-CN')).toBe(formatDateTimeWithWeekday(new Date(value), '-', 'zh-CN'))
   })
 
   it.each([
@@ -44,5 +56,7 @@ describe('dateTime presentation', () => {
   ])('uses the fallback for missing or invalid values: %s', value => {
     expect(formatDate(value)).toBe('-')
     expect(formatDateTime(value, '未知')).toBe('未知')
+    expect(formatDateWithWeekday(value, '未知', 'zh-CN')).toBe('未知')
+    expect(formatDateTimeWithWeekday(value, '未知', 'zh-CN')).toBe('未知')
   })
 })

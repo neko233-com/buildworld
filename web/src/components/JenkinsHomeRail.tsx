@@ -19,7 +19,7 @@ import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { timelineProgress, type BuildTimeline } from '../lib/buildTimeline'
-import { formatDateTime } from '../lib/dateTime'
+import { formatDateTimeWithWeekday } from '../lib/dateTime'
 
 type JenkinsHomeRailProps = {
   editable?: boolean
@@ -373,7 +373,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                       const active = ACTIVE_BUILD_STATUSES.has(build.status)
                       const retrying = rebuilding === build.id
                       const statusLabel = buildStatusLabel(t, build.status)
-                      const startedAtLabel = formatDateTime(build.started_at)
+                      const startedAtLabel = formatDateTimeWithWeekday(build.started_at)
                       return (
                         <li className="jenkins-rail-queue-item jenkins-rail-history-item" key={build.id}>
                           <span

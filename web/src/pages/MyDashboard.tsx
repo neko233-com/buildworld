@@ -6,7 +6,7 @@ import { api } from '../api'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { PageState } from '../components/PageState'
-import { formatDateTime } from '../lib/dateTime'
+import { formatDateTimeWithWeekday } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { currentRole, isAdmin } from '../authz'
 import JenkinsHomeRail from '../components/JenkinsHomeRail'
@@ -90,7 +90,7 @@ export default function MyDashboard() {
     <div className="operations-page data-dashboard-page">
     <header className="jenkins-page-heading data-dashboard-heading">
       <div><p>{t('nav.myDashboard')}</p><h1>{t('myDashboard.title')}</h1><small>{t('myDashboard.subtitle')}</small></div>
-      <div><span>{t('bigScreen.lastUpdate')}: {formatDateTime(lastUpdate)}</span><Link className="secondary-command" to="/bigscreen"><Maximize2 size={15} />{t('bigScreen.openWall')}</Link><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
+      <div><span>{t('bigScreen.lastUpdate')}: {formatDateTimeWithWeekday(lastUpdate)}</span><Link className="secondary-command" to="/bigscreen"><Maximize2 size={15} />{t('bigScreen.openWall')}</Link><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
     </header>
 
     {error && !lastUpdate && <PageState error={error} onRetry={() => fetchData()} />}
@@ -107,7 +107,7 @@ export default function MyDashboard() {
     <div className="data-dashboard-grid">
       <section className="data-panel recent-build-panel">
         <header><div><Activity size={16} /><h2>{t('bigScreen.recentBuilds')}</h2></div><div className="data-panel-actions"><span>{visibleRecentBuilds.length}/{data.recent_builds.length}</span><Link to="/builds">{t('dashboard.viewAllBuilds')}</Link></div></header>
-        <div className="operations-table-wrap"><table className="operations-table data-build-table"><caption className="sr-only">{t('bigScreen.recentBuilds')}</caption><thead><tr><th>{t('projects.name')}</th><th>{t('builds.status')}</th><th>{t('builds.branch')}</th><th>{t('builds.duration')}</th><th>{t('projectDetail.started')}</th></tr></thead><tbody>{!visibleRecentBuilds.length && <tr><td colSpan={5} className="operations-empty">{t('common.noData')}</td></tr>}{visibleRecentBuilds.map(build => { const tone = buildStatusTone(build.status); return <tr key={build.id}><td><Link className="data-build-link" to={`/builds/${build.id}`}><strong>{build.project}</strong><small>#{build.number}</small></Link></td><td><span className={`jenkins-build-state ${tone}`}>{tone === 'running' ? <LoaderCircle className="timeline-spinner" size={20} aria-hidden="true" /> : <i aria-hidden="true" />}<span>{buildStatusLabel(t, build.status)}</span></span></td><td><code>{build.branch || '-'}</code></td><td className="muted-cell">{formatDuration(build.duration_ms)}</td><td className="muted-cell">{formatDateTime(build.started_at)}</td></tr>})}</tbody></table></div>
+        <div className="operations-table-wrap"><table className="operations-table data-build-table"><caption className="sr-only">{t('bigScreen.recentBuilds')}</caption><thead><tr><th>{t('projects.name')}</th><th>{t('builds.status')}</th><th>{t('builds.branch')}</th><th>{t('builds.duration')}</th><th>{t('projectDetail.started')}</th></tr></thead><tbody>{!visibleRecentBuilds.length && <tr><td colSpan={5} className="operations-empty">{t('common.noData')}</td></tr>}{visibleRecentBuilds.map(build => { const tone = buildStatusTone(build.status); return <tr key={build.id}><td><Link className="data-build-link" to={`/builds/${build.id}`}><strong>{build.project}</strong><small>#{build.number}</small></Link></td><td><span className={`jenkins-build-state ${tone}`}>{tone === 'running' ? <LoaderCircle className="timeline-spinner" size={20} aria-hidden="true" /> : <i aria-hidden="true" />}<span>{buildStatusLabel(t, build.status)}</span></span></td><td><code>{build.branch || '-'}</code></td><td className="muted-cell">{formatDuration(build.duration_ms)}</td><td className="muted-cell">{formatDateTimeWithWeekday(build.started_at)}</td></tr>})}</tbody></table></div>
       </section>
 
       <motion.section className="data-panel trend-panel" initial={{ opacity: 0, scale: .98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: .28, ease: 'easeOut' }}>
