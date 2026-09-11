@@ -67,6 +67,21 @@ export type TestReportSummary = {
   created_at: string
 }
 
+export type BuildLogResponse = {
+  log: string
+  truncated?: boolean
+  retention_characters?: number
+  windowed?: boolean
+  window_lines?: number
+  window_characters?: number
+  window_truncated?: boolean
+}
+
+export type BuildLogWindowOptions = {
+  tailLines?: number
+  tailCharacters?: number
+}
+
 export type BuildQueueCapacity = {
   executor: 'builtin'
   max_concurrent_builds: number
@@ -96,6 +111,38 @@ export type StorageUsage = {
   used_bytes: number
   free_bytes: number
   used_percent: number
+}
+
+export type SystemUpdateStatus = {
+  status: string
+  operation_id?: string
+  version?: string
+  message?: string
+  started_at?: string
+  updated_at?: string
+}
+
+export type SystemUpdateCheck = {
+  current_version: string
+  latest_version: string
+  update_available: boolean
+  platform: string
+  asset_name: string
+  asset_size: number
+  release_url?: string
+  published_at?: string
+  manual_only: boolean
+  administrator_required: boolean
+}
+
+export type SystemUpdateResponse = {
+  current_version: string
+  platform: string
+  supported: boolean
+  manual_only: boolean
+  administrator_required: boolean
+  max_bundle_bytes: number
+  operation: SystemUpdateStatus
 }
 
 type RequestOptions = {
@@ -345,8 +392,14 @@ export const api = {
   listBuilds: (limit = 100) => request<any[]>('GET', `/builds/?limit=${limit}`),
   searchBuilds: (filters: BuildSearchFilters) =>
     request<BuildSearchResponse>('GET', `/builds/search?${buildSearchQuery(filters)}`),
-  getBuild: (id: number) => request<any>('GET', `/builds/${id}`),
-  getBuildLogs: (id: number) => request<{ log: string; truncated?: boolean; retention_characters?: number }>('GET', `/builds/${id}/logs`),
+  getBuild: (id: number, options?: { includeLog?: boolean }) => request<any>('GET', `/builds/${id}${options?.includeLog === false ? '?include_log=false' : ''}`),
+  getBuildLogs: (id: number, options?: BuildLogWindowOptions) => {
+    const params = new URLSearchParams()
+    if (options?.tailLines) params.set('tail_lines', String(options.tailLines))
+    if (options?.tailCharacters) params.set('tail_characters', String(options.tailCharacters))
+    const query = params.toString()
+    return request<BuildLogResponse>('GET', `/builds/${id}/logs${query ? `?${query}` : ''}`)
+  },
   getBuildTimeline: (id: number) => request<BuildTimeline>('GET', `/builds/${id}/timeline`),
   getBuildProblems: async (id: number): Promise<BuildProblemReport> =>
     normalizeBuildProblemReport(await request<unknown>('GET', `/builds/${id}/problems`)),
@@ -515,6 +568,11 @@ export const api = {
   // server metrics
   getServerMetrics: () => request<any>('GET', '/metrics'),
   getStorageUsage: () => request<StorageUsage>('GET', '/system/storage'),
+
+  // system updates (administrator session or system:update API token only)
+  getSystemUpdate: () => request<SystemUpdateResponse>('GET', '/system/update/'),
+  checkSystemUpdate: () => request<SystemUpdateCheck>('GET', '/system/update/check'),
+  applyLatestSystemUpdate: () => request<SystemUpdateStatus>('POST', '/system/update/apply', {}),
 
   // bigscreen
   getBigScreenData: () => request<any>('GET', '/bigscreen'),

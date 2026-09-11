@@ -163,14 +163,11 @@ describe('Settings Jenkins directory', () => {
     expect(pipeline?.textContent).not.toContain('agentRequirements')
   })
 
-  it('keeps automatic system updates visibly disabled by default', async () => {
+  it('keeps system updates manual and administrator-only', async () => {
     await renderSettings('/settings?section=runtime')
 
-    const updateSwitch = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="switch"]'))
-      .find(item => item.getAttribute('aria-labelledby') &&
-        document.getElementById(item.getAttribute('aria-labelledby') || '')?.textContent === '允许自动更新请求')
-    expect(updateSwitch).toBeDefined()
-    expect(updateSwitch?.getAttribute('aria-checked')).toBe('false')
-    expect(container.textContent).toContain('人工更新')
+    expect(container.querySelector('[role="switch"][aria-labelledby]')?.getAttribute('aria-labelledby')).not.toBe('允许自动更新请求')
+    expect(container.textContent).toContain('更新只允许管理员手动执行')
+    expect(container.textContent).toContain('点击 BuildWorld 标志旁的刷新按钮')
   })
 })

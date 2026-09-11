@@ -93,7 +93,7 @@ describe('requested UI contracts', () => {
     expect(getComputedStyle(contextPage).minHeight).toBe('calc(100vh - 66px)')
     expect(styles).toMatch(/\.jenkins-rail-links\s*\{[^}]*display:\s*grid/)
     expect(styles).toMatch(/\.jenkins-job-table-wrap\s*\{[^}]*overflow-x:\s*auto[^}]*background:\s*#ffffff/)
-    expect(styles).toMatch(/\.jenkins-job-table\s*\{[^}]*min-width:\s*920px[^}]*table-layout:\s*fixed/)
+    expect(styles).toMatch(/\.jenkins-job-table\s*\{[^}]*min-width:\s*1120px[^}]*table-layout:\s*fixed/)
     expect(styles).toMatch(/\.jenkins-job-table td\s*\{[^}]*height:\s*43px/)
   })
 

@@ -47,8 +47,9 @@ function resolveSettingsView(value: string | null): SettingsView {
 
 const editableKeys = [
   'host', 'build_timeout', 'build_concurrency', 'local_agent_concurrency',
-  'cpu_limit_percent', 'background_mode', 'auto_update_enabled',
+  'cpu_limit_percent', 'background_mode',
   'retry_policy', 'artifacts_path', 'build_temp_path',
+  'build_log_retention_days',
   'go_validation_enabled', 'go_version', 'go_checks', 'node_validation_enabled',
   'node_version', 'node_package_manager', 'node_checks', 'validation_fail_fast',
 ]
@@ -57,8 +58,8 @@ const defaults: SettingsMap = {
   host: '0.0.0.0', port: '8080', build_timeout: '1800',
   build_concurrency: '2', local_agent_concurrency: '1', cpu_limit_percent: '25',
   background_mode: 'true', retry_policy: 'failed_once',
-  auto_update_enabled: 'false',
   artifacts_path: './artifacts', build_temp_path: './build_temp',
+  build_log_retention_days: '30',
   go_validation_enabled: 'true', go_version: '1.26', go_checks: 'fmt,vet,test,build',
   node_validation_enabled: 'true', node_version: '24', node_package_manager: 'npm',
   node_checks: 'install,lint,typecheck,test,build', validation_fail_fast: 'true',
@@ -633,12 +634,13 @@ ${steps.join(',\n')}
           <section className="settings-form-section"><header><Network size={15} /><div><h3>{t('settings.serverConfig')}</h3><p>{t('settings.serverConfigHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.host')} value={draft.host} onChange={value => set('host', value)} /><SettingField label={t('settings.port')} hint={t('settings.portFixed')} type="number" value="8080" readOnly onChange={() => undefined} /></div></section>
           <section className="settings-form-section"><header><Database size={15} /><div><h3>{t('settings.storagePaths')}</h3><p>{t('settings.storageHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.artifactsPath')} value={draft.artifacts_path} onChange={value => set('artifacts_path', value)} /><SettingField label={t('settings.buildTempPath')} hint={t('settings.buildTempHint')} value={draft.build_temp_path} onChange={value => set('build_temp_path', value)} /></div><div className="settings-inline-note"><Info size={14} /><span>{t('settings.buildTempNote')}</span></div></section>
           <section className="settings-form-section"><header><Activity size={15} /><div><h3>{t('settings.resourceControl')}</h3><p>{t('settings.resourceControlHelp')}</p></div></header><div className="settings-form-grid three"><SettingField label={t('settings.cpuLimit')} hint={t('settings.cpuLimitHelp')} type="number" min={5} max={100} suffix="%" value={draft.cpu_limit_percent} onChange={value => set('cpu_limit_percent', value)} /><SettingField label={t('settings.localConcurrency')} type="number" min={1} max={256} value={draft.local_agent_concurrency} onChange={value => set('local_agent_concurrency', value)} /><Toggle label={t('settings.backgroundMode')} description={t('settings.backgroundModeHelp')} checked={draft.background_mode === 'true'} onChange={value => set('background_mode', String(value))} /></div><div className="settings-inline-note"><Info size={14} /><span>{t('settings.resourceHotReloadHelp')}</span></div></section>
-          <section className="settings-form-section"><header><RefreshCw size={15} /><div><h3>{t('settings.systemUpdates')}</h3><p>{t('settings.systemUpdatesHelp')}</p></div></header><Toggle label={t('settings.autoUpdate')} description={t('settings.autoUpdateHelp')} checked={draft.auto_update_enabled === 'true'} onChange={value => set('auto_update_enabled', String(value))} /><div className="settings-inline-note"><ShieldCheck size={14} /><span>{t('settings.manualUpdateHelp')}</span></div></section>
+          <section className="settings-form-section"><header><RefreshCw size={15} /><div><h3>{t('settings.systemUpdates')}</h3><p>{t('settings.systemUpdatesHelp')}</p></div></header><div className="settings-inline-note"><ShieldCheck size={14} /><span>{t('settings.manualUpdateHelp')}</span></div></section>
         </div>}
 
         {section === 'builds' && <div className="settings-pane">
           <SectionHeading icon={Workflow} title={t('settings.buildPolicy')} description={t('settings.buildPolicyDescription')} />
           <section className="settings-form-section"><header><Clock3 size={15} /><div><h3>{t('settings.executionDefaults')}</h3><p>{t('settings.executionDefaultsHelp')}</p></div></header><div className="settings-form-grid three"><SettingField label={t('settings.timeout')} type="number" min={30} max={86400} suffix={t('settings.seconds')} value={draft.build_timeout} onChange={value => set('build_timeout', value)} /><SettingField label={t('settings.concurrency')} type="number" min={1} max={256} value={draft.build_concurrency} onChange={value => set('build_concurrency', value)} /><label className="settings-field"><span>{t('settings.retryPolicy')}</span><select value={draft.retry_policy} onChange={event => set('retry_policy', event.target.value)}><option value="never">{t('settings.retryNever')}</option><option value="failed_once">{t('settings.retryOnce')}</option><option value="failed_twice">{t('settings.retryTwice')}</option></select></label></div></section>
+          <section className="settings-form-section"><header><HardDrive size={15} /><div><h3>{t('settings.logRetention')}</h3><p>{t('settings.logRetentionHelp')}</p></div></header><div className="settings-form-grid"><SettingField label={t('settings.logRetentionDays')} hint={t('settings.logRetentionDaysHelp')} type="number" min={1} max={3650} suffix={t('settings.days')} value={draft.build_log_retention_days} onChange={value => set('build_log_retention_days', value)} /></div><div className="settings-inline-note"><Info size={14} /><span>{t('settings.logRetentionNote')}</span></div></section>
           <section className="settings-form-section"><header><ShieldCheck size={15} /><div><h3>{t('settings.failureBehavior')}</h3><p>{t('settings.failureBehaviorHelp')}</p></div></header><Toggle label={t('settings.failFast')} description={t('settings.failFastHelp')} checked={draft.validation_fail_fast === 'true'} onChange={value => set('validation_fail_fast', String(value))} /></section>
         </div>}
 

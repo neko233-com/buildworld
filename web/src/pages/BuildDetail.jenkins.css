@@ -862,6 +862,14 @@
   white-space: pre;
 }
 
+[data-skin="jenkins"] .jenkins-console-spacer {
+  display: block;
+  width: 1px;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+
 [data-skin="jenkins"] .jenkins-console-output.log-tones-enabled .jenkins-console-line.info {
   color: #33404c;
 }

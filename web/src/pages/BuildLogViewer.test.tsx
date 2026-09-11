@@ -158,6 +158,15 @@ describe('BuildLogViewer', () => {
     expect(downloadBuildLogs).toHaveBeenCalledWith(42, 'txt')
   })
 
+  it('virtualizes large log windows while keeping the full line count visible', async () => {
+    getBuildLogs.mockResolvedValueOnce({ log: Array.from({ length: 1_000 }, (_, index) => `line ${index + 1}`).join('\n') })
+    await renderViewer()
+
+    expect(container.querySelector('.plain-log-lines')?.classList.contains('is-virtualized')).toBe(true)
+    expect(container.querySelectorAll('.plain-log-lines-window > div').length).toBeLessThan(200)
+    expect(container.querySelector('.plain-log-footer')?.textContent).toContain('Output lines: 1000')
+  })
+
   it('clears only the current browser screen without refetching logs', async () => {
     await renderViewer()
 

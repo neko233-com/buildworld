@@ -95,6 +95,13 @@ function ChineseLocale({ children }: { children: ReactNode }) {
   return locale === 'zh-CN' ? children : null
 }
 
+async function flushRequests() {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
 describe('Dashboard Jenkins job view', () => {
   let container: HTMLDivElement
   let root: Root
@@ -221,7 +228,7 @@ describe('Dashboard Jenkins job view', () => {
     expect(headings[0]).toBe('ID')
     expect(headings[1]).toBe('S')
     expect(headings[2]).toContain('名称')
-    expect(headings.slice(3)).toEqual(['最近成功构建', '最近失败构建', '耗时', ''])
+    expect(headings).toEqual(['ID', 'S', '名称', '最近一次构建状态', '最近成功构建', '最近失败构建', '耗时', ''])
     expect(table!.querySelector('[aria-label="项目 ID"]')?.textContent).toBe('ID')
     expect(table!.querySelector('[aria-label="状态"]')?.textContent).toBe('S')
     expect(table!.querySelector('[aria-label="成功率"]')).toBeNull()
@@ -230,25 +237,34 @@ describe('Dashboard Jenkins job view', () => {
     expect(visibleProjectNames()).toEqual(['Zulu', 'Alpha', 'Beta'])
 
     const alpha = rowFor(1)
-    expect(alpha.cells[0].textContent).toBe('1')
-    expect(alpha.cells[3].textContent).toContain('#11')
-    expect(alpha.cells[3].querySelector('a')?.getAttribute('href')).toBe('/builds/111')
-    expect(alpha.cells[4].textContent).toContain('#10')
-    expect(alpha.cells[4].querySelector('a')?.getAttribute('href')).toBe('/builds/110')
-    expect(alpha.cells[5].textContent).toBe('1m 5s')
+    expect(alpha.querySelector('.jenkins-project-sequence')?.textContent).toBe('2')
+    expect(alpha.querySelector('.jenkins-project-id-value')?.textContent).toBe('1')
+    expect(alpha.cells[3].textContent).toContain('#12')
+    expect(alpha.cells[3].textContent).toContain('执行中')
+    expect(alpha.cells[3].querySelector('a')?.getAttribute('href')).toBe('/builds/112')
+    expect(alpha.cells[4].textContent).toContain('#11')
+    expect(alpha.cells[4].querySelector('a')?.getAttribute('href')).toBe('/builds/111')
+    expect(alpha.cells[5].textContent).toContain('#10')
+    expect(alpha.cells[5].querySelector('a')?.getAttribute('href')).toBe('/builds/110')
+    expect(alpha.cells[6].textContent).toBe('1m 5s')
 
     const beta = rowFor(2)
-    expect(beta.cells[0].textContent).toBe('2')
+    expect(beta.querySelector('.jenkins-project-sequence')?.textContent).toBe('3')
+    expect(beta.querySelector('.jenkins-project-id-value')?.textContent).toBe('2')
     expect(beta.cells[3].textContent).toContain('#4')
-    expect(beta.cells[4].textContent).toBe('无')
-    expect(beta.cells[5].textContent).toBe('2.5s')
+    expect(beta.cells[3].textContent).toContain('已成功')
+    expect(beta.cells[4].textContent).toContain('#4')
+    expect(beta.cells[5].textContent).toBe('无')
+    expect(beta.cells[6].textContent).toBe('2.5s')
     expect(beta.querySelector('.jenkins-status-orb.success')).not.toBeNull()
 
     const zulu = rowFor(3)
-    expect(zulu.cells[0].textContent).toBe('3')
+    expect(zulu.querySelector('.jenkins-project-sequence')?.textContent).toBe('1')
+    expect(zulu.querySelector('.jenkins-project-id-value')?.textContent).toBe('3')
     expect(zulu.cells[3].textContent).toBe('无')
     expect(zulu.cells[4].textContent).toBe('无')
-    expect(zulu.cells[5].textContent).toBe('-')
+    expect(zulu.cells[5].textContent).toBe('无')
+    expect(zulu.cells[6].textContent).toBe('-')
     expect(zulu.querySelector('[role="img"][aria-label="暂无构建活动。"]')).not.toBeNull()
     expect(zulu.querySelector('.jenkins-health-dot')).toBeNull()
 
@@ -259,6 +275,20 @@ describe('Dashboard Jenkins job view', () => {
 
     await act(async () => buttonNamed('下移 Zulu').click())
     expect(reorderProjects).toHaveBeenCalledWith([1, 3, 2])
+    await flushRequests()
+
+    const betaDrag = rowFor(2).querySelector<HTMLButtonElement>('.jenkins-project-drag')!
+    expect(betaDrag.disabled).toBe(false)
+    const dragStart = new Event('dragstart', { bubbles: true }) as Event & { dataTransfer: { effectAllowed: string; setData: ReturnType<typeof vi.fn> } }
+    Object.defineProperty(dragStart, 'dataTransfer', { value: { effectAllowed: '', setData: vi.fn() } })
+    await act(async () => {
+      betaDrag.dispatchEvent(dragStart)
+    })
+    expect(rowFor(2).className).toContain('dragging')
+    await act(async () => {
+      rowFor(1).dispatchEvent(new Event('drop', { bubbles: true, cancelable: true }))
+    })
+    expect(reorderProjects).toHaveBeenLastCalledWith([2, 3, 1])
   })
 
   it('uses one stable table density without user controls or stored preferences', async () => {

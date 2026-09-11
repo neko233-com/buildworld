@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"github.com/neko233-com/buildworld/internal/buildinfo"
@@ -14,11 +13,12 @@ import (
 
 func (h *handlers) getSystemUpdate(w http.ResponseWriter, _ *http.Request) {
 	response := map[string]interface{}{
-		"current_version":     buildinfo.Version,
-		"platform":            runtime.GOOS + "/" + runtime.GOARCH,
-		"supported":           h.d.Updater != nil,
-		"auto_update_enabled": h.automaticUpdatesEnabled(),
-		"max_bundle_bytes":    systemupdate.MaxBundleBytes,
+		"current_version":        buildinfo.Version,
+		"platform":               runtime.GOOS + "/" + runtime.GOARCH,
+		"supported":              h.d.Updater != nil,
+		"manual_only":            true,
+		"administrator_required": true,
+		"max_bundle_bytes":       systemupdate.MaxBundleBytes,
 	}
 	if h.d.Updater == nil {
 		response["operation"] = systemupdate.Status{
@@ -29,6 +29,74 @@ func (h *handlers) getSystemUpdate(w http.ResponseWriter, _ *http.Request) {
 		response["operation"] = h.d.Updater.Status()
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *handlers) checkSystemUpdate(w http.ResponseWriter, r *http.Request) {
+	if h.d.UpdateCatalog == nil {
+		writeErr(w, http.StatusNotImplemented, "system update checks are unavailable on this installation")
+		return
+	}
+	release, err := h.d.UpdateCatalog.Check(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("failed to check official updates: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"current_version":        buildinfo.Version,
+		"latest_version":         release.Version,
+		"update_available":       systemupdate.IsNewerVersion(buildinfo.Version, release.Version),
+		"platform":               runtime.GOOS + "/" + runtime.GOARCH,
+		"asset_name":             release.AssetName,
+		"asset_size":             release.AssetSize,
+		"release_url":            release.ReleaseURL,
+		"published_at":           release.PublishedAt,
+		"manual_only":            true,
+		"administrator_required": true,
+	})
+}
+
+func (h *handlers) applyLatestSystemUpdate(w http.ResponseWriter, r *http.Request) {
+	if h.d.Updater == nil {
+		writeErr(w, http.StatusNotImplemented, "system update is unavailable on this installation")
+		return
+	}
+	if h.d.UpdateCatalog == nil {
+		writeErr(w, http.StatusNotImplemented, "system update checks are unavailable on this installation")
+		return
+	}
+	release, err := h.d.UpdateCatalog.Check(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("failed to check official updates: %v", err))
+		return
+	}
+	if !systemupdate.IsNewerVersion(buildinfo.Version, release.Version) {
+		writeCodedErr(w, http.StatusConflict, "no_update_available", "no newer stable update is available")
+		return
+	}
+	bundle, err := h.d.UpdateCatalog.Download(r.Context(), release)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("failed to download official update: %v", err))
+		return
+	}
+	if bundle.Reader == nil || bundle.Version != release.Version || bundle.SHA256 == "" {
+		if bundle.Reader != nil {
+			_ = bundle.Reader.Close()
+		}
+		writeErr(w, http.StatusBadGateway, "official update bundle metadata is invalid")
+		return
+	}
+	defer bundle.Reader.Close()
+	status, err := h.d.Updater.Start(r.Context(), systemupdate.Request{
+		Version: bundle.Version,
+		SHA256:  bundle.SHA256,
+		Bundle:  bundle.Reader,
+	})
+	if err != nil {
+		writeUpdateStartError(w, err)
+		return
+	}
+	h.audit(r, "update", "system", status.OperationID, fmt.Sprintf("mode=manual source=official version=%s", status.Version))
+	writeJSON(w, http.StatusAccepted, status)
 }
 
 func (h *handlers) applySystemUpdate(w http.ResponseWriter, r *http.Request) {
@@ -48,13 +116,8 @@ func (h *handlers) applySystemUpdate(w http.ResponseWriter, r *http.Request) {
 	if mode == "" {
 		mode = "manual"
 	}
-	if mode != "manual" && mode != "automatic" {
-		writeErr(w, http.StatusBadRequest, "mode must be manual or automatic")
-		return
-	}
-	automatic := mode == "automatic"
-	if automatic && !h.automaticUpdatesEnabled() {
-		writeCodedErr(w, http.StatusConflict, "automatic_updates_disabled", "automatic updates are disabled")
+	if mode != "manual" {
+		writeCodedErr(w, http.StatusForbidden, "automatic_updates_disabled", "automatic updates are disabled; use a manual administrator action")
 		return
 	}
 	bundle, _, err := r.FormFile("bundle")
@@ -65,43 +128,25 @@ func (h *handlers) applySystemUpdate(w http.ResponseWriter, r *http.Request) {
 	defer bundle.Close()
 
 	status, err := h.d.Updater.Start(r.Context(), systemupdate.Request{
-		Version:   r.FormValue("version"),
-		SHA256:    r.FormValue("sha256"),
-		Bundle:    bundle,
-		Automatic: automatic,
+		Version: r.FormValue("version"),
+		SHA256:  r.FormValue("sha256"),
+		Bundle:  bundle,
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, systemupdate.ErrUpdateInProgress):
-			writeCodedErr(w, http.StatusConflict, "update_in_progress", err.Error())
-		case strings.Contains(err.Error(), "checksum"), strings.Contains(err.Error(), "bundle"), strings.Contains(err.Error(), "version"):
-			writeErr(w, http.StatusBadRequest, err.Error())
-		default:
-			writeErr(w, http.StatusInternalServerError, "failed to stage system update")
-		}
+		writeUpdateStartError(w, err)
 		return
 	}
-	h.audit(r, "update", "system", status.OperationID, fmt.Sprintf("mode=%s version=%s", mode, status.Version))
+	h.audit(r, "update", "system", status.OperationID, fmt.Sprintf("mode=manual version=%s", status.Version))
 	writeJSON(w, http.StatusAccepted, status)
 }
 
-func (h *handlers) automaticUpdatesEnabled() bool {
-	if h == nil {
-		return false
+func writeUpdateStartError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, systemupdate.ErrUpdateInProgress):
+		writeCodedErr(w, http.StatusConflict, "update_in_progress", err.Error())
+	case strings.Contains(err.Error(), "checksum"), strings.Contains(err.Error(), "bundle"), strings.Contains(err.Error(), "version"):
+		writeErr(w, http.StatusBadRequest, err.Error())
+	default:
+		writeErr(w, http.StatusInternalServerError, "failed to stage system update")
 	}
-	enabled := h.d.Cfg != nil && h.d.Cfg.Updates.AutoUpdateEnabled
-	if h.d.Store == nil {
-		return enabled
-	}
-	values, err := h.d.Store.ListEnvVars("system", nil)
-	if err != nil {
-		return enabled
-	}
-	for _, value := range values {
-		if value.Name == "auto_update_enabled" {
-			parsed, parseErr := strconv.ParseBool(value.Value)
-			return parseErr == nil && parsed
-		}
-	}
-	return enabled
 }

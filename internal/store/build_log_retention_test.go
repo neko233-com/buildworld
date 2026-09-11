@@ -24,6 +24,37 @@ func TestAppendBuildLogRetainsShortBuildExactly(t *testing.T) {
 	}
 }
 
+func TestGetBuildLogTailReturnsNewestLinesWithoutLoadingFullWindow(t *testing.T) {
+	data, build := newBuildLogTestStore(t)
+	full := "oldest\nmiddle\nnewest\n"
+	if err := data.SetBuildLog(build.ID, full); err != nil {
+		t.Fatal(err)
+	}
+
+	tail, err := data.GetBuildLogTail(build.ID, 2, 1_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tail.Log != "middle\nnewest\n" || !tail.WindowTruncated || tail.PersistedTruncated {
+		t.Fatalf("tail = %#v", tail)
+	}
+}
+
+func TestGetBuildLogTailPreservesUTF8AndCharacterWindow(t *testing.T) {
+	data, build := newBuildLogTestStore(t)
+	if err := data.SetBuildLog(build.ID, "旧日志\n最新日志\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	tail, err := data.GetBuildLogTail(build.ID, 10, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tail.Log != "最新日志\n" || !tail.WindowTruncated || !utf8.ValidString(tail.Log) {
+		t.Fatalf("utf8 tail = %#v", tail)
+	}
+}
+
 func TestAppendBuildLogSustainedOutputRemainsBounded(t *testing.T) {
 	data, build := newBuildLogTestStore(t)
 	chunk := strings.Repeat("x", 32*1024-16) + "\nchunk-boundary\n"

@@ -29,19 +29,20 @@ type Server struct {
 }
 
 type Deps struct {
-	Cfg        *config.Config
-	Store      *store.Store
-	Hub        *ws.Hub
-	Runner     *engine.BuildRunner
-	Artifacts  *engine.ArtifactManager
-	JWT        *auth.JWT
-	Loader     *plugin.Loader
-	StaticFS   fs.FS
-	LiveReload *LiveReload
-	Statistics *engine.StatisticsService
-	Approval   *engine.ApprovalService
-	BigScreen  *engine.BigScreenService
-	Updater    systemupdate.Service
+	Cfg           *config.Config
+	Store         *store.Store
+	Hub           *ws.Hub
+	Runner        *engine.BuildRunner
+	Artifacts     *engine.ArtifactManager
+	JWT           *auth.JWT
+	Loader        *plugin.Loader
+	StaticFS      fs.FS
+	LiveReload    *LiveReload
+	Statistics    *engine.StatisticsService
+	Approval      *engine.ApprovalService
+	BigScreen     *engine.BigScreenService
+	Updater       systemupdate.Service
+	UpdateCatalog systemupdate.Catalog
 }
 
 func NewServer(d Deps) *Server {

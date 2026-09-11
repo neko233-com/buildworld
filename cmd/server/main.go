@@ -48,6 +48,9 @@ func main() {
 	if err := api.ApplyStoredSettings(cfg, db); err != nil {
 		log.Printf("Warning: failed to restore runtime settings: %v", err)
 	}
+	retentionContext, stopRetentionCleanup := context.WithCancel(context.Background())
+	defer stopRetentionCleanup()
+	api.StartBuildLogRetentionCleanup(retentionContext, db)
 	cfg.EnforceControlPlanePort()
 	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.Server.Host, fmt.Sprint(cfg.Server.Port)))
 	if err != nil {
@@ -151,7 +154,9 @@ func main() {
 	}
 
 	var updater systemupdate.Service
+	var updateCatalog systemupdate.Catalog
 	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+		updateCatalog = systemupdate.NewGitHubCatalog(nil)
 		resolvedConfigPath, resolveErr := filepath.Abs(*configPath)
 		if resolveErr != nil {
 			log.Printf("System update unavailable: failed to resolve config path: %v", resolveErr)
@@ -169,19 +174,20 @@ func main() {
 	}
 
 	server := api.NewServer(api.Deps{
-		Cfg:        cfg,
-		Store:      db,
-		Hub:        hub,
-		Runner:     runner,
-		JWT:        jwtInstance,
-		Loader:     loader,
-		Artifacts:  artifactMgr,
-		StaticFS:   staticFS,
-		LiveReload: liveReload,
-		Statistics: statisticsService,
-		Approval:   approvalService,
-		BigScreen:  bigScreenService,
-		Updater:    updater,
+		Cfg:           cfg,
+		Store:         db,
+		Hub:           hub,
+		Runner:        runner,
+		JWT:           jwtInstance,
+		Loader:        loader,
+		Artifacts:     artifactMgr,
+		StaticFS:      staticFS,
+		LiveReload:    liveReload,
+		Statistics:    statisticsService,
+		Approval:      approvalService,
+		BigScreen:     bigScreenService,
+		Updater:       updater,
+		UpdateCatalog: updateCatalog,
 	})
 
 	// Graceful shutdown.

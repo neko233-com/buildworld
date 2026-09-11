@@ -76,6 +76,46 @@ func TestUpdateGlobalSettingsRejectsUnknownKeys(t *testing.T) {
 	}
 }
 
+func TestBuildLogRetentionSettingCanBeChangedOnline(t *testing.T) {
+	database, err := store.New(filepath.Join(t.TempDir(), "log-retention-settings.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	handler := &handlers{d: Deps{Cfg: &config.Config{}, Store: database}}
+
+	initial := httptest.NewRecorder()
+	handler.getGlobalSettings(initial, httptest.NewRequest("GET", "/api/settings", nil))
+	var values map[string]string
+	if err := json.NewDecoder(initial.Body).Decode(&values); err != nil {
+		t.Fatal(err)
+	}
+	if values[store.BuildLogRetentionDaysSetting] != "30" {
+		t.Fatalf("default log retention = %q, want 30", values[store.BuildLogRetentionDaysSetting])
+	}
+
+	updated := httptest.NewRecorder()
+	handler.updateGlobalSettings(updated, httptest.NewRequest("PUT", "/api/settings", strings.NewReader(`{"build_log_retention_days":"7"}`)))
+	if updated.Code != 200 {
+		t.Fatalf("update status = %d, body = %s", updated.Code, updated.Body.String())
+	}
+
+	readBack := httptest.NewRecorder()
+	handler.getGlobalSettings(readBack, httptest.NewRequest("GET", "/api/settings", nil))
+	if err := json.NewDecoder(readBack.Body).Decode(&values); err != nil {
+		t.Fatal(err)
+	}
+	if values[store.BuildLogRetentionDaysSetting] != "7" {
+		t.Fatalf("updated log retention = %q, want 7", values[store.BuildLogRetentionDaysSetting])
+	}
+
+	invalid := httptest.NewRecorder()
+	handler.updateGlobalSettings(invalid, httptest.NewRequest("PUT", "/api/settings", strings.NewReader(`{"build_log_retention_days":"0"}`)))
+	if invalid.Code != 400 {
+		t.Fatalf("invalid update status = %d, want 400", invalid.Code)
+	}
+}
+
 func TestControlPlanePortCannotBeOverriddenByStoredSettings(t *testing.T) {
 	database, err := store.New(filepath.Join(t.TempDir(), "settings.db"))
 	if err != nil {
@@ -116,7 +156,8 @@ func TestResourceSettingsDefaultLowAndHotReloadWithoutRestart(t *testing.T) {
 	defaults := defaultGlobalSettings(nil)
 	if defaults["cpu_limit_percent"] != "25" || defaults["background_mode"] != "true" ||
 		defaults["local_agent_concurrency"] != "1" || defaults["build_concurrency"] != "2" ||
-		defaults["port"] != "8080" || defaults["auto_update_enabled"] != "false" {
+		defaults["port"] != "8080" ||
+		defaults[store.BuildLogRetentionDaysSetting] != "30" {
 		t.Fatalf("low-resource defaults = %#v", defaults)
 	}
 	for _, removed := range []string{"tls", "logs_path"} {

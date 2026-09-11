@@ -3,13 +3,14 @@ import type { ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Activity, AlertTriangle, Ban, Check, Circle, Copy, Download, Eraser, ExternalLink, FileText, Filter, FlaskConical, GitBranch, GitCommitHorizontal, LoaderCircle, Package, Palette, PanelRightClose, PanelRightOpen, Pause, Pin, PinOff, Play, RotateCcw, Search, Settings2, SlidersHorizontal, Square, Upload, UserRound, X } from 'lucide-react'
 import { useI18n } from '../i18n'
-import { api } from '../api'
+import { api, type BuildLogResponse } from '../api'
 import { useApi } from '../hooks'
 import { useBuildLogStream } from '../useBuildLogStream'
 import { dialogs } from '../components/AppDialogs'
 import { PageState } from '../components/PageState'
 import { timelineProgress, visibleBuildLog, type BuildTimelineStep } from '../lib/buildTimeline'
-import { isNearLogBottom } from '../lib/logFollow'
+import { BUILD_LOG_WINDOW_MAX_CHARACTERS, BUILD_LOG_WINDOW_MAX_LINES, isNearLogBottom } from '../lib/logFollow'
+import { LOG_VIRTUALIZATION_THRESHOLD, useVirtualLogWindow } from '../lib/logVirtualization'
 import { logTones, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
 import { buildTriggerLabel } from '../lib/buildPresentation'
 import { canEdit } from '../authz'
@@ -116,10 +117,12 @@ export default function BuildDetail() {
   const validBuildId = Number.isSafeInteger(buildId) && buildId > 0
   const requestedTab = searchParams.get('tab')
   const activeTab: BuildDetailTab = requestedTab === 'problems' || requestedTab === 'artifacts' ? requestedTab : 'current'
-  const { data: build, loading, error, reload: reloadBuild } = useApi(() => validBuildId ? api.getBuild(buildId) : Promise.resolve(null), [buildId, validBuildId])
+  const { data: build, loading, error, reload: reloadBuild } = useApi(() => validBuildId ? api.getBuild(buildId, { includeLog: false }) : Promise.resolve(null), [buildId, validBuildId])
   const projectId = Number(build?.project_id)
   const { data: buildProject } = useApi(() => Number.isSafeInteger(projectId) && projectId > 0 ? api.getProject(projectId) : Promise.resolve(null), [projectId])
-  const { data: logsResp, error: logsError, reload: reloadLogs } = useApi<{ log: string, truncated?: boolean, retention_characters?: number }>(() => validBuildId ? api.getBuildLogs(buildId) : Promise.resolve({ log: '' }), [buildId, validBuildId])
+  const { data: logsResp, error: logsError, reload: reloadLogs } = useApi<BuildLogResponse>(() => validBuildId
+    ? api.getBuildLogs(buildId, { tailLines: BUILD_LOG_WINDOW_MAX_LINES, tailCharacters: BUILD_LOG_WINDOW_MAX_CHARACTERS })
+    : Promise.resolve({ log: '' }), [buildId, validBuildId])
   const { data: timeline, error: timelineError, reload: reloadTimeline } = useApi(() => validBuildId ? api.getBuildTimeline(buildId) : Promise.resolve(null), [buildId, validBuildId])
   const { data: problems, loading: problemsLoading, error: problemsError, reload: reloadProblems } = useApi(() => validBuildId && build ? api.getBuildProblems(buildId) : Promise.resolve(null), [build?.id, buildId, validBuildId])
   const { data: artifacts, error: artifactsError, reload: reloadArtifacts } = useApi(() => validBuildId ? api.listArtifacts(buildId) : Promise.resolve([]), [buildId, validBuildId])
@@ -166,6 +169,9 @@ export default function BuildDetail() {
       ? entries.filter(entry => entry.line.toLocaleLowerCase().includes(normalizedLogQuery))
       : entries
   }, [consoleLines, filterLogMatches, normalizedLogQuery])
+  const virtualizeConsoleLog = visibleConsoleLines.length > LOG_VIRTUALIZATION_THRESHOLD
+  const virtualConsoleLog = useVirtualLogWindow(consoleRef, visibleConsoleLines.length, 14 * 1.66, virtualizeConsoleLog)
+  const renderedConsoleLines = useMemo(() => visibleConsoleLines.slice(virtualConsoleLog.start, virtualConsoleLog.end), [virtualConsoleLog.end, virtualConsoleLog.start, visibleConsoleLines])
   const liveLogStatus = t(`builds.${liveLogState}`)
   const problemsPending = problemsLoading || (!!build && !problems && !problemsError)
 
@@ -223,8 +229,18 @@ export default function BuildDetail() {
   useLayoutEffect(() => {
     if (activeTab !== 'current' || !normalizedLogQuery || !logMatches.length) return
     const lineIndex = logMatches[Math.min(activeLogMatch, logMatches.length - 1)]
-    document.getElementById(`build-log-line-${lineIndex}`)?.scrollIntoView?.({ block: 'center' })
-  }, [activeLogMatch, activeTab, logMatches, normalizedLogQuery, displayedLog])
+    const target = document.getElementById(`build-log-line-${lineIndex}`)
+    if (target) {
+      target.scrollIntoView?.({ block: 'center' })
+      return
+    }
+    const targetPosition = visibleConsoleLines.findIndex(entry => entry.index === lineIndex)
+    const consoleOutput = consoleRef.current
+    if (targetPosition >= 0 && consoleOutput) {
+      consoleOutput.scrollTop = targetPosition * (14 * 1.66)
+      virtualConsoleLog.onScroll()
+    }
+  }, [activeLogMatch, activeTab, displayedLog, logMatches, normalizedLogQuery, virtualConsoleLog.onScroll, virtualConsoleLog.start, visibleConsoleLines])
 
   useEffect(() => {
     if (activeTab !== 'current') return
@@ -243,7 +259,7 @@ export default function BuildDetail() {
     const stageName = requestedStageLogRef.current
     if (activeTab !== 'current' || !stageName) return
     scrollToStageLog(stageName)
-  }, [activeTab, consoleLines])
+  }, [activeTab, consoleLines, virtualConsoleLog.start])
 
   useEffect(() => {
     if (!window.matchMedia) return
@@ -280,7 +296,17 @@ export default function BuildDetail() {
     const stagePattern = new RegExp(`^\\[[^\\]]+\\] \\[${stageName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\]`)
     const lineIndex = consoleLines.findIndex(line => stagePattern.test(line))
     const logLine = lineIndex >= 0 ? document.getElementById(`build-log-line-${lineIndex}`) : null
-    if (!logLine) return false
+    if (!logLine) {
+      const visiblePosition = visibleConsoleLines.findIndex(entry => entry.index === lineIndex)
+      const consoleOutput = consoleRef.current
+      if (visiblePosition < 0 || !consoleOutput || filterLogMatches) return false
+      requestedStageLogRef.current = stageName
+      followConsoleRef.current = false
+      setFollowConsole(false)
+      consoleOutput.scrollTop = visiblePosition * (14 * 1.66)
+      virtualConsoleLog.onScroll()
+      return true
+    }
     requestedStageLogRef.current = null
     followConsoleRef.current = false
     setFollowConsole(false)
@@ -502,11 +528,13 @@ export default function BuildDetail() {
             </div>
           </header>
           {logsResp?.truncated && <div className="jenkins-console-retention-warning" role="status">{t('builds.logTruncated').replace('{count}', String(logsResp.retention_characters || 1_000_000))}</div>}
+          {logsResp?.window_truncated && <div className="jenkins-console-retention-warning" role="status">{t('builds.logWindowed').replace('{lines}', String(logsResp.window_lines || BUILD_LOG_WINDOW_MAX_LINES)).replace('{characters}', String(logsResp.window_characters || BUILD_LOG_WINDOW_MAX_CHARACTERS))}</div>}
           <pre ref={consoleRef} className={`jenkins-console-output ${colorizeLogs ? 'log-tones-enabled' : ''}`} id="out" role="region" aria-label={t('builds.logs')} tabIndex={0} onScroll={() => {
+            virtualConsoleLog.onScroll()
             const consoleOutput = consoleRef.current
             if (!consoleOutput) return
             if (followConsoleRef.current && !isNearLogBottom(consoleOutput)) setConsoleFollowing(false)
-          }}>{consoleLines.length ? visibleConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>) : t('builds.noLogs')}</pre>
+          }}>{consoleLines.length ? virtualizeConsoleLog ? <><span className="jenkins-console-spacer" style={{ height: `${virtualConsoleLog.offsetTop}px` }} aria-hidden="true" />{renderedConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>)}<span className="jenkins-console-spacer" style={{ height: `${Math.max(0, virtualConsoleLog.totalHeight - virtualConsoleLog.end * (14 * 1.66))}px` }} aria-hidden="true" /></> : visibleConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>) : t('builds.noLogs')}</pre>
           {isExecuting && <div className="jenkins-console-progress" role="status" aria-live="polite">{followConsole ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pause size={16} />}{followConsole ? liveLogStatus : t('builds.followPaused')}</div>}
         </section>
         </div>

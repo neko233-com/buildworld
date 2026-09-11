@@ -29,7 +29,4 @@ workers:
 automation:
   github_webhook_secret: ""
 
-# Manual authenticated bundle updates remain available through the API.
-# Automated callers are rejected unless this is explicitly enabled.
-updates:
-  auto_update_enabled: false
+# System updates are manual-only and require an administrator.

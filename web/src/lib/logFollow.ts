@@ -1,6 +1,12 @@
 export const LOG_FOLLOW_THRESHOLD = 48
 export const LIVE_LOG_MAX_CHARACTERS = 1_000_000
 export const LIVE_LOG_MAX_LINES = 20_000
+// Interactive views follow a bounded tail. Persisted and downloadable logs
+// remain larger; the browser never needs to retain the complete history.
+export const BUILD_LOG_WINDOW_MAX_CHARACTERS = 160_000
+export const BUILD_LOG_WINDOW_MAX_LINES = 2_000
+export const BROWSER_LIVE_LOG_MAX_CHARACTERS = BUILD_LOG_WINDOW_MAX_CHARACTERS
+export const BROWSER_LIVE_LOG_MAX_LINES = BUILD_LOG_WINDOW_MAX_LINES
 export const LIVE_LOG_RETENTION_MARKER = '[buildworld] Earlier output was removed from this browser view; newest live output is still following.\n'
 export const PERSISTED_LOG_RETENTION_MARKER = '[buildworld] Earlier persisted log output was truncated; only the newest output is retained. Live WebSocket output was not truncated.\n'
 
@@ -33,11 +39,13 @@ function joinLogSegments(older: string, newer: string) {
 
 function restoreRetentionMarkers(
   body: string,
+  characterLimit: number,
+  lineLimit: number,
   ...windows: ReturnType<typeof splitRetentionMarkers>[]
 ) {
   const browserMarker = windows.some(window => window.browserTruncated) ? LIVE_LOG_RETENTION_MARKER : ''
   const persistedMarker = windows.some(window => window.persistedTruncated) ? PERSISTED_LOG_RETENTION_MARKER : ''
-  return retainLiveLog(browserMarker + persistedMarker + body)
+  return retainLiveLog(browserMarker + persistedMarker + body, characterLimit, lineLimit)
 }
 
 function containsLinear(haystack: string, needle: string) {
@@ -65,9 +73,9 @@ export function isNearLogBottom(viewport: Pick<HTMLElement, 'scrollHeight' | 'sc
 
 // REST snapshots and WebSocket output can arrive out of order. Never let an
 // older snapshot erase lines that have already reached the terminal view.
-export function mergeLiveLog(current = '', snapshot = '') {
-  if (!current) return retainLiveLog(snapshot)
-  if (!snapshot || current === snapshot) return retainLiveLog(current)
+export function mergeLiveLog(current = '', snapshot = '', characterLimit = LIVE_LOG_MAX_CHARACTERS, lineLimit = LIVE_LOG_MAX_LINES) {
+  if (!current) return retainLiveLog(snapshot, characterLimit, lineLimit)
+  if (!snapshot || current === snapshot) return retainLiveLog(current, characterLimit, lineLimit)
 
   // SQLite snapshots are append-only but can lag behind the WebSocket because
   // the runner broadcasts each line before asynchronously persisting it. Work
@@ -77,28 +85,28 @@ export function mergeLiveLog(current = '', snapshot = '') {
   const currentBody = currentWindow.body
   const snapshotBody = snapshotWindow.body
 
-  if (currentBody === snapshotBody || currentBody.startsWith(snapshotBody)) return retainLiveLog(current)
+  if (currentBody === snapshotBody || currentBody.startsWith(snapshotBody)) return retainLiveLog(current, characterLimit, lineLimit)
   if (snapshotBody.startsWith(currentBody)) {
-    return restoreRetentionMarkers(snapshotBody, currentWindow, snapshotWindow)
+    return restoreRetentionMarkers(snapshotBody, characterLimit, lineLimit, currentWindow, snapshotWindow)
   }
   // A retained REST window may sit wholly inside the longer browser window.
   // Treat that snapshot as idempotent instead of prepending a duplicate copy.
-  if (containsLinear(currentBody, snapshotBody)) return retainLiveLog(current)
+  if (containsLinear(currentBody, snapshotBody)) return retainLiveLog(current, characterLimit, lineLimit)
 
   // Check both directions. A fresh snapshot can continue after the current
   // view, while a stale snapshot can end where the newer WebSocket tail begins.
   const currentToSnapshot = suffixPrefixOverlap(currentBody, snapshotBody)
   if (currentToSnapshot > 0) {
-    return restoreRetentionMarkers(currentBody + snapshotBody.slice(currentToSnapshot), currentWindow, snapshotWindow)
+    return restoreRetentionMarkers(currentBody + snapshotBody.slice(currentToSnapshot), characterLimit, lineLimit, currentWindow, snapshotWindow)
   }
   const snapshotToCurrent = suffixPrefixOverlap(snapshotBody, currentBody)
   if (snapshotToCurrent > 0) {
-    return restoreRetentionMarkers(snapshotBody + currentBody.slice(snapshotToCurrent), currentWindow, snapshotWindow)
+    return restoreRetentionMarkers(snapshotBody + currentBody.slice(snapshotToCurrent), characterLimit, lineLimit, currentWindow, snapshotWindow)
   }
 
   // With no reliable relationship, replacement or concatenation is unsafe:
   // a stale response must neither erase nor duplicate the newest live tail.
-  return retainLiveLog(current)
+  return retainLiveLog(current, characterLimit, lineLimit)
 }
 
 // Extract only output that appeared after a known browser-side cursor. A
@@ -144,8 +152,8 @@ export function suffixPrefixOverlap(current: string, snapshot: string) {
   return matched
 }
 
-export function appendLiveLog(current = '', entry = '') {
-  return retainLiveLog(joinLogSegments(current, entry))
+export function appendLiveLog(current = '', entry = '', characterLimit = LIVE_LOG_MAX_CHARACTERS, lineLimit = LIVE_LOG_MAX_LINES) {
+  return retainLiveLog(joinLogSegments(current, entry), characterLimit, lineLimit)
 }
 
 function retainedLineStart(log: string, maximumLines: number) {

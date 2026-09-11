@@ -3,16 +3,16 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from '
 import { MotionConfig } from 'motion/react'
 import { BrowserRouter, Navigate, NavLink, Outlet, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { localeLabels, type Locale, useI18n } from './i18n'
-import { API_STATUS_EVENT, api, clearToken } from './api'
+import { API_STATUS_EVENT, api, clearToken, type SystemUpdateCheck, type SystemUpdateStatus } from './api'
 import { currentRole, isAdmin, type UserRole } from './authz'
-import { AppDialogs } from './components/AppDialogs'
+import { AppDialogs, dialogs } from './components/AppDialogs'
 import { BuildWorldMark } from './components/BuildWorldMark'
 import { CommandPalette, type CommandPaletteGroup } from './components/CommandPalette'
 import { RouteErrorBoundary } from './components/RouteErrorBoundary'
 import InAppNotifications from './components/InAppNotifications'
 import { PageState } from './components/PageState'
 import { DISTRIBUTED_WORKERS_ENABLED } from './featureFlags'
-import { Activity, Bell, BookTemplate, Boxes, CircleUserRound, ClipboardList, CloudOff, Cog, FileClock, Gauge, GitBranch, KeyRound, LayoutDashboard, LogOut, Network, Search, Settings2, ShieldCheck, SlidersHorizontal, TerminalSquare, UsersRound } from 'lucide-react'
+import { Activity, Bell, BookTemplate, Boxes, CircleUserRound, ClipboardList, CloudOff, Cog, Download, FileClock, Gauge, GitBranch, KeyRound, LayoutDashboard, LoaderCircle, LogOut, Network, RefreshCw, Search, Settings2, ShieldCheck, SlidersHorizontal, TerminalSquare, UsersRound, X } from 'lucide-react'
 import { buildStatusLabel } from './lib/buildPresentation'
 import './jenkins-shell.css'
 
@@ -100,6 +100,98 @@ function useRouteFocus(mainRef: RefObject<HTMLElement | null>, routeKey: string)
 function accountMenuItems(popover: HTMLElement | null): HTMLElement[] {
   return Array.from(popover?.querySelectorAll<HTMLElement>(ACCOUNT_MENU_FOCUSABLE) || [])
     .filter(element => element.getAttribute('aria-hidden') !== 'true')
+}
+
+function updateStatusText(status: SystemUpdateStatus | null, t: (key: string) => string): string {
+  if (!status) return ''
+  if (status.status === 'succeeded') return t('updates.completed')
+  if (status.status === 'rolled_back') return t('updates.rolledBack')
+  if (status.status === 'failed') return t('updates.failed')
+  if (status.status === 'applying') return t('updates.applying')
+  return t('updates.queued')
+}
+
+function SystemUpdateAction() {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const [check, setCheck] = useState<SystemUpdateCheck | null>(null)
+  const [operation, setOperation] = useState<SystemUpdateStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!operation?.operation_id || !['accepted', 'applying'].includes(operation.status)) return
+    let active = true
+    const timer = window.setInterval(() => {
+      api.getSystemUpdate()
+        .then(response => { if (active) setOperation(response.operation) })
+        .catch(() => undefined)
+    }, 1500)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [operation?.operation_id, operation?.status])
+
+  const operationInProgress = ['accepted', 'applying'].includes(operation?.status || '')
+
+  const checkForUpdate = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      setCheck(await api.checkSystemUpdate())
+    } catch (reason: any) {
+      setError(reason.message || t('updates.checkFailed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const updateNow = async () => {
+    if (!check?.update_available) return
+    const confirmed = await dialogs.confirm(
+      t('updates.confirm').replace('{version}', `v${check.latest_version}`),
+      { title: t('updates.title'), action: t('updates.updateAction') },
+    )
+    if (!confirmed) return
+    setBusy(true)
+    setError('')
+    try {
+      setOperation(await api.applyLatestSystemUpdate())
+    } catch (reason: any) {
+      setError(reason.message || t('updates.updateFailed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const operationText = updateStatusText(operation, t)
+  return <div className="system-update-action">
+    <button
+      type="button"
+      className={`topbar-icon-button system-update-trigger${check?.update_available ? ' available' : ''}`}
+      aria-label={t('updates.check')}
+      title={check?.update_available ? t('updates.available').replace('{version}', `v${check.latest_version}`) : t('updates.check')}
+      aria-expanded={open}
+      onClick={() => { setOpen(true); if (!check && !busy) void checkForUpdate() }}
+    >
+      {busy ? <LoaderCircle className="system-update-spinner" size={20} /> : <RefreshCw size={20} />}
+      {check?.update_available && <i aria-hidden="true" />}
+    </button>
+    {open && <div className="system-update-popover" role="dialog" aria-label={t('updates.title')}>
+      <header><div><Download size={16} /><span><strong>{t('updates.title')}</strong><small>{t('updates.adminOnly')}</small></span></div><button type="button" aria-label={t('common.close')} onClick={() => setOpen(false)}><X size={15} /></button></header>
+      <div className="system-update-popover-body">
+        {!check && !error && <p>{busy ? t('updates.checking') : t('updates.checkHint')}</p>}
+        {check && <p className={check.update_available ? 'available' : ''}>{check.update_available ? t('updates.available').replace('{version}', `v${check.latest_version}`) : t('updates.latest').replace('{version}', `v${check.current_version}`)}</p>}
+        {operationText && <p className="system-update-operation" role="status">{operationText}{operation?.version ? ` · v${operation.version}` : ''}</p>}
+        {error && <p className="system-update-error" role="alert">{error}</p>}
+        <div className="system-update-popover-actions">
+          <button type="button" className="secondary-command" disabled={busy} onClick={() => void checkForUpdate()}><RefreshCw size={13} />{busy ? t('updates.checking') : t('updates.check')}</button>
+          {check?.update_available && <button type="button" className="primary-command" disabled={busy || operationInProgress} onClick={() => void updateNow()}><Download size={13} />{busy || operationInProgress ? t('updates.updating') : t('updates.update').replace('{version}', `v${check.latest_version}`)}</button>}
+        </div>
+      </div>
+    </div>}
+  </div>
 }
 
 export function Layout() {
@@ -301,6 +393,7 @@ export function Layout() {
             <BuildWorldMark size={36} />
             <span>BuildWorld</span>
           </NavLink>
+          {admin && <SystemUpdateAction />}
           <div className="app-topbar-breadcrumbs" id="jenkins-header-breadcrumbs" />
         </div>
         <div className="topbar-actions">

@@ -52,6 +52,20 @@ function BuildReference({ build, emptyLabel }: { build?: any; emptyLabel: string
   </span>
 }
 
+function LatestBuildStatus({ build, emptyLabel }: { build?: any; emptyLabel: string }) {
+  const { t } = useI18n()
+  if (!build) return <span className="jenkins-latest-build-empty jenkins-empty-value">{emptyLabel}</span>
+  const label = buildStatusLabel(t, build.status)
+  const tone = buildStatusTone(build.status)
+  return <span className={`jenkins-latest-build ${tone}`} aria-label={`${t('dashboard.latestBuildStatus')}: ${label}`}>
+    <span className={`jenkins-status-orb ${tone}`} role="img" aria-label={label} title={label} />
+    <span className="jenkins-latest-build-info">
+      <Link to={`/builds/${build.id}`}>#{build.number}</Link>
+      <small>{label}</small>
+    </span>
+  </span>
+}
+
 function formatBytes(value: number, locale: string) {
   if (!Number.isFinite(value) || value <= 0) return '0 B'
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
@@ -267,11 +281,9 @@ export default function Dashboard() {
     if (draggingID === null || draggingID === targetID) return
     const visibleIDs = visibleProjects.map(project => project.id)
     const from = visibleIDs.indexOf(draggingID)
-    const to = visibleIDs.indexOf(targetID)
-    if (from < 0 || to < 0) return
-    const next = [...visibleIDs]
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
+    if (from < 0 || !visibleIDs.includes(targetID)) return
+    const next = visibleIDs.filter(id => id !== draggingID)
+    next.unshift(draggingID)
     setDraggingID(null)
     void persistVisibleOrder(next)
   }
@@ -347,14 +359,15 @@ export default function Dashboard() {
             <th className="jenkins-id-column"><span aria-label={t('projects.identifier')}>ID</span></th>
             <th className="jenkins-status-column"><span aria-label={t('projects.status')}>S</span></th>
             <th className="jenkins-name-column">{t('projects.name')}</th>
+            <th>{t('dashboard.latestBuildStatus')}</th>
             <th>{t('projectDetail.lastSuccessfulBuild')}</th>
             <th>{t('projectDetail.lastFailedBuild')}</th>
             <th>{t('builds.duration')}</th>
             <th aria-label={t('projects.actions')} />
           </tr></thead>
           <tbody>
-            {!visibleProjects.length && <tr><td className="jenkins-job-empty" colSpan={7}><Folder size={20} /><span>{t('common.noData')}</span></td></tr>}
-            {visibleProjects.map((project: any) => {
+            {!visibleProjects.length && <tr><td className="jenkins-job-empty" colSpan={8}><Folder size={20} /><span>{t('common.noData')}</span></td></tr>}
+            {visibleProjects.map((project: any, projectIndex) => {
               const overview = overviewsByProject.get(project.id)
               const latest = overview?.latest
               const lastSuccess = overview?.last_success
@@ -376,7 +389,7 @@ export default function Dashboard() {
                   dropProject(project.id)
                 }}
               >
-                <td className="jenkins-project-id"><div><span>{project.id}</span>{editable && <button
+                <td className="jenkins-project-id"><div><span className="jenkins-project-id-values"><span className="jenkins-project-sequence" title={`${t('projects.sequence')} ${projectIndex + 1}`}>{projectIndex + 1}</span><span className="jenkins-project-id-value">{project.id}</span></span>{editable && <button
                   type="button"
                   className="jenkins-project-drag"
                   draggable={!reordering}
@@ -392,6 +405,7 @@ export default function Dashboard() {
                 ><GripVertical size={14} /></button>}</div></td>
                 <td><span className={`jenkins-status-orb ${status}`} role="img" aria-label={statusLabel} title={statusLabel} /></td>
                 <td><Link className="jenkins-job-name" to={`/projects/${project.id}`}><span><strong>{project.name}</strong>{project.default_branch && <small>{project.default_branch}</small>}</span></Link></td>
+                <td><LatestBuildStatus build={latest} emptyLabel={t('projectDetail.none')} /></td>
                 <td><BuildReference build={lastSuccess} emptyLabel={t('projectDetail.none')} /></td>
                 <td><BuildReference build={lastFailure} emptyLabel={t('projectDetail.none')} /></td>
                 <td className="jenkins-duration">{formatDuration(latest?.duration_ms)}</td>

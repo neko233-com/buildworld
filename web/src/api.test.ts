@@ -117,6 +117,19 @@ describe('API request resilience', () => {
     expect(click).toHaveBeenCalledOnce()
   })
 
+  it('requests metadata without the log and fetches only the newest log window', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ id: 23, log: '' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await api.getBuild(23, { includeLog: false })
+    await api.getBuildLogs(23, { tailLines: 2_000, tailCharacters: 160_000 })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/builds/23?include_log=false')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/builds/23/logs?tail_lines=2000&tail_characters=160000')
+  })
+
   it('uploads JUnit reports as raw XML', async () => {
     setToken('secret-token')
     const xml = '<testsuite name="unit"><testcase name="works"/></testsuite>'

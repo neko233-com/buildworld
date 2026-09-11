@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { appendLiveLog, extractLiveLogDelta, mergeLiveLog } from './lib/logFollow'
+import { appendLiveLog, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES, extractLiveLogDelta, mergeLiveLog } from './lib/logFollow'
 
 export type BuildLogStreamState = 'connecting' | 'live' | 'reconnecting' | 'fallback'
 const LIVE_LOG_BATCH_INTERVAL_MS = 75
@@ -61,17 +61,17 @@ export function useBuildLogStream({
       const cursor = snapshotCursorRef.current || ''
       const delta = extractLiveLogDelta(cursor, snapshot)
       if (delta === null) return
-      snapshotCursorRef.current = mergeLiveLog(cursor, snapshot)
+      snapshotCursorRef.current = mergeLiveLog(cursor, snapshot, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
       if (!delta) return
       setLog(current => {
-        const next = appendLiveLog(current, delta)
+        const next = appendLiveLog(current, delta, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
         logRef.current = next
         return next
       })
       return
     }
     setLog(current => {
-      const next = mergeLiveLog(current, snapshot)
+      const next = mergeLiveLog(current, snapshot, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
       logRef.current = next
       return next
     })
@@ -102,10 +102,10 @@ export function useBuildLogStream({
       const entries = logBatch.join('')
       logBatch = []
       if (clearActiveRef.current && snapshotCursorRef.current !== null) {
-        snapshotCursorRef.current = appendLiveLog(snapshotCursorRef.current, entries)
+        snapshotCursorRef.current = appendLiveLog(snapshotCursorRef.current, entries, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
       }
       setLog(current => {
-        const next = appendLiveLog(current, entries)
+        const next = appendLiveLog(current, entries, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
         logRef.current = next
         return next
       })

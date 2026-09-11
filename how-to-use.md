@@ -81,7 +81,11 @@ buildworld status
 
 ### HTTP 调用更新
 
-macOS/Linux 支持管理员显式上传完整 release bundle。API Token 必须属于管理员并仅授予 `system:update`；不要把 Token 写进 URL、仓库、脚本或构建日志。
+BuildWorld 页面顶部 BuildWorld 标志旁的刷新按钮支持管理员手动检查官方最新版本，并在发现更新后点击“更新到版本”。页面只发起用户主动操作，不会后台轮询或自动安装。
+
+更新检查和执行仅限管理员会话，或管理员持有且仅授予 `system:update` 的 API Token。更新包从固定官方仓库获取，服务端校验发布清单、每个分片和最终 bundle 的 SHA-256；安装失败会自动回滚。
+
+如需通过 API 手动上传本地完整 release bundle：
 
 ```sh
 export BUILDWORLD_UPDATE_TOKEN='bw_...'
@@ -104,7 +108,7 @@ curl -fsS -H "Authorization: Bearer $BUILDWORLD_UPDATE_TOKEN" \
   http://127.0.0.1:8080/api/system/update/
 ```
 
-全新安装的 `auto_update_enabled` 固定默认为 `false`。`mode=automatic` 默认返回 `409 automatic_updates_disabled`；管理员在运行设置中显式启用后，外部受控调度器才能调用。BuildWorld 自身不会轮询 GitHub，人工 `mode=manual` 更新不受该开关影响。
+`mode=automatic` 会被固定拒绝并返回 `403 automatic_updates_disabled`。系统更新始终要求管理员主动点击或主动调用。
 
 生产更新前检查：
 

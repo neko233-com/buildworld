@@ -25,6 +25,7 @@ const MaxBundleBytes int64 = 512 << 20
 
 var (
 	ErrUpdateInProgress = errors.New("system update is already in progress")
+	ErrAutomaticDisabled = errors.New("automatic system updates are disabled; an administrator must start the update")
 	versionPattern      = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 	checksumPattern     = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 )
@@ -135,6 +136,9 @@ func (m *Manager) Start(ctx context.Context, request Request) (Status, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if request.Automatic {
+		return Status{}, ErrAutomaticDisabled
+	}
 
 	version := strings.TrimPrefix(strings.TrimSpace(request.Version), "v")
 	checksum := strings.ToLower(strings.TrimSpace(request.SHA256))

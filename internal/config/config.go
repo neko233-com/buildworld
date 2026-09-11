@@ -19,15 +19,10 @@ type Config struct {
 	Storage    StorageConfig    `yaml:"storage"`
 	Workers    WorkersConfig    `yaml:"workers"`
 	Automation AutomationConfig `yaml:"automation"`
-	Updates    UpdatesConfig    `yaml:"updates"`
 }
 
 type AutomationConfig struct {
 	GitHubWebhookSecret string `yaml:"github_webhook_secret"`
-}
-
-type UpdatesConfig struct {
-	AutoUpdateEnabled bool `yaml:"auto_update_enabled"`
 }
 
 type ServerConfig struct {

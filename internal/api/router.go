@@ -297,6 +297,8 @@ func NewRouter(d Deps) http.Handler {
 				r.Use(adminOnly)
 				r.Use(auth.RequireAPITokenScope(auth.ScopeSystemUpdate))
 				r.Get("/", h.getSystemUpdate)
+				r.Get("/check", h.checkSystemUpdate)
+				r.Post("/apply", h.applyLatestSystemUpdate)
 				r.Post("/", h.applySystemUpdate)
 			})
 

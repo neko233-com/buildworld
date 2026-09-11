@@ -5,14 +5,16 @@ sidebar_position: 3
 # System updates
 
 BuildWorld supports explicit, authenticated bundle updates on macOS and Linux.
-Automatic update requests are disabled by default. The server does not poll
-GitHub or install a release merely because a newer version exists.
+Updates are manual-only. The server does not poll GitHub or install a release
+merely because a newer version exists.
 
 ## Security model
 
 - only an administrator session or an administrator-owned API token with the
   exact `system:update` scope may inspect or trigger updates;
-- the caller supplies a locally verified release bundle and its SHA-256;
+- the page's explicit check/apply action obtains the fixed official release
+  metadata, then verifies the checksums manifest, every multipart asset, and
+  the reassembled bundle SHA-256;
 - archives are size-limited, path-checked, and required to contain the complete
   CLI, server, worker, Web UI, Pipeline SDK, and trusted update helper;
 - only one update may run at a time;
@@ -23,6 +25,32 @@ GitHub or install a release merely because a newer version exists.
 
 API tokens should be short-lived and used through the `Authorization` header.
 Do not put a token in a URL, shell history, repository file, or build log.
+
+## Check and apply from the BuildWorld page
+
+An administrator can click the refresh button beside the BuildWorld logo. The
+button calls the authenticated check endpoint and shows the matching release
+for the current platform. If a newer stable release exists, the administrator
+can confirm the update in the same popover. The service briefly restarts only
+after that confirmation and rolls back automatically if readiness fails.
+
+The equivalent API calls are:
+
+```sh
+curl -fsS \
+  -H "Authorization: Bearer $BUILDWORLD_UPDATE_TOKEN" \
+  http://buildworld.example:8080/api/system/update/check
+
+curl -fsS -X POST \
+  -H "Authorization: Bearer $BUILDWORLD_UPDATE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}' \
+  http://buildworld.example:8080/api/system/update/apply
+```
+
+Both endpoints require an administrator session or an administrator-owned API
+token with the exact `system:update` scope. The apply endpoint does not accept
+a caller-provided download URL.
 
 ## Check update status
 
@@ -66,10 +94,6 @@ Poll the status endpoint until it reports `succeeded` or `rolled_back`.
 
 ## Automatic callers
 
-An orchestrator may send the same request with `mode=automatic`, but the server
-returns `409 automatic_updates_disabled` until an administrator explicitly
-enables **Allow automatic update requests** under Runtime settings.
-
-This setting is `false` in fresh configuration and does not create an internal
-polling job. It is only an authorization gate for an external, authenticated
-orchestrator. Manual updates remain available while it is disabled.
+Automatic update requests are not supported. Requests with `mode=automatic`
+are rejected with `403 automatic_updates_disabled`; an administrator must
+start every update explicitly.

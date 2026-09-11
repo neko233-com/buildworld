@@ -8,6 +8,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import en from './i18n/en.json'
 import zhCN from './i18n/zh-CN.json'
+import { api } from './api'
 
 vi.mock('motion/react', () => ({
   MotionConfig: ({ children, reducedMotion }: { children: ReactNode, reducedMotion?: string }) => (
@@ -128,6 +129,23 @@ describe('application motion accessibility', () => {
     expect(appSource).not.toContain('app-sidebar')
     expect(shellStyles).toMatch(/\.app-topbar \.topbar-actions \.topbar-settings-link\s*\{[^}]*display:\s*inline-grid[^}]*width:\s*38px[^}]*height:\s*38px/s)
     expect(shellStyles).not.toMatch(/\.topbar-settings-link[^}]*display:\s*none/s)
+  })
+
+  it('lets an administrator manually check for an official update from the masthead', async () => {
+    const check = vi.spyOn(api, 'checkSystemUpdate').mockResolvedValue({
+      current_version: '1.0.0', latest_version: '1.1.0', update_available: true,
+      platform: 'darwin/arm64', asset_name: 'buildworld-darwin-arm64.tar.gz', asset_size: 12,
+      manual_only: true, administrator_required: true,
+    })
+    act(() => root.render(<MemoryRouter initialEntries={['/first']}><ShellFixture /></MemoryRouter>))
+
+    const trigger = container.querySelector<HTMLButtonElement>('.system-update-trigger')!
+    expect(check).not.toHaveBeenCalled()
+    await act(async () => trigger.click())
+
+    expect(check).toHaveBeenCalledOnce()
+    expect(container.querySelector('.system-update-popover')?.textContent).toContain('Update available: v1.1.0')
+    expect(container.querySelector('.system-update-popover')?.textContent).toContain('Manual update · administrator only')
   })
 
   it('moves focus to the new page heading after SPA route navigation', () => {

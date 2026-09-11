@@ -35,10 +35,6 @@ func ApplyStoredSettings(cfg *config.Config, data *store.Store) error {
 			}
 		case agentEnrollmentTokenSetting:
 			cfg.Workers.EnrollmentToken = value.Value
-		case "auto_update_enabled":
-			if parsed, parseErr := strconv.ParseBool(value.Value); parseErr == nil {
-				cfg.Updates.AutoUpdateEnabled = parsed
-			}
 		}
 	}
 	cfg.EnforceControlPlanePort()
@@ -47,25 +43,25 @@ func ApplyStoredSettings(cfg *config.Config, data *store.Store) error {
 
 func defaultGlobalSettings(cfg *config.Config) map[string]string {
 	settings := map[string]string{
-		"host":                    "0.0.0.0",
-		"port":                    strconv.Itoa(config.ControlPlanePort),
-		"build_timeout":           "1800",
-		"build_concurrency":       "2",
-		"local_agent_concurrency": "1",
-		"cpu_limit_percent":       "25",
-		"background_mode":         "true",
-		"retry_policy":            "failed_once",
-		"artifacts_path":          "./artifacts",
-		"build_temp_path":         "./build_temp",
-		"go_validation_enabled":   "true",
-		"go_version":              "1.26",
-		"go_checks":               "fmt,vet,test,build",
-		"node_validation_enabled": "true",
-		"node_version":            "24",
-		"node_package_manager":    "npm",
-		"node_checks":             "install,lint,typecheck,test,build",
-		"validation_fail_fast":    "true",
-		"auto_update_enabled":     "false",
+		"host":                             "0.0.0.0",
+		"port":                             strconv.Itoa(config.ControlPlanePort),
+		"build_timeout":                    "1800",
+		"build_concurrency":                "2",
+		"local_agent_concurrency":          "1",
+		"cpu_limit_percent":                "25",
+		"background_mode":                  "true",
+		"retry_policy":                     "failed_once",
+		"artifacts_path":                   "./artifacts",
+		"build_temp_path":                  "./build_temp",
+		store.BuildLogRetentionDaysSetting: strconv.Itoa(store.DefaultBuildLogRetentionDays),
+		"go_validation_enabled":            "true",
+		"go_version":                       "1.26",
+		"go_checks":                        "fmt,vet,test,build",
+		"node_validation_enabled":          "true",
+		"node_version":                     "24",
+		"node_package_manager":             "npm",
+		"node_checks":                      "install,lint,typecheck,test,build",
+		"validation_fail_fast":             "true",
 	}
 	if cfg == nil {
 		return settings
@@ -84,7 +80,6 @@ func defaultGlobalSettings(cfg *config.Config) map[string]string {
 		settings["local_agent_concurrency"] = strconv.Itoa(cfg.Workers.Local.MaxConcurrentBuilds)
 	}
 	settings["agent_enrollment_token_configured"] = strconv.FormatBool(cfg.Workers.EnrollmentToken != "")
-	settings["auto_update_enabled"] = strconv.FormatBool(cfg.Updates.AutoUpdateEnabled)
 	return settings
 }
 
@@ -108,12 +103,16 @@ func validateGlobalSetting(name, value string) error {
 		if err != nil || parsed < 1 || parsed > 256 {
 			return fmt.Errorf("%s must be between 1 and 256", name)
 		}
+	case store.BuildLogRetentionDaysSetting:
+		if _, err := store.ParseBuildLogRetentionDays(value); err != nil {
+			return err
+		}
 	case "cpu_limit_percent":
 		parsed, err := strconv.Atoi(value)
 		if err != nil || parsed < 5 || parsed > 100 {
 			return fmt.Errorf("cpu_limit_percent must be between 5 and 100")
 		}
-	case "go_validation_enabled", "node_validation_enabled", "validation_fail_fast", "background_mode", "auto_update_enabled":
+	case "go_validation_enabled", "node_validation_enabled", "validation_fail_fast", "background_mode":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s must be true or false", name)
 		}

@@ -920,7 +920,44 @@ func (h *handlers) getBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "build not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, h.publicBuild(build))
+	result := h.publicBuild(build)
+	if strings.EqualFold(r.URL.Query().Get("include_log"), "false") {
+		// Build logs have their own bounded tail and download endpoints. Avoid
+		// duplicating the durable log in metadata requests from the UI.
+		result.Log = ""
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func parseBuildLogTailWindow(r *http.Request) (lines, characters int, requested bool, err error) {
+	query := r.URL.Query()
+	rawLines, hasLines := query["tail_lines"]
+	rawCharacters, hasCharacters := query["tail_characters"]
+	requested = hasLines || hasCharacters
+	if !requested {
+		return 0, 0, false, nil
+	}
+	lines = store.BuildLogViewMaxLines
+	characters = store.BuildLogViewMaxCharacters
+	if hasLines && len(rawLines) > 0 && rawLines[0] != "" {
+		lines, err = strconv.Atoi(rawLines[0])
+		if err != nil || lines <= 0 {
+			return 0, 0, true, fmt.Errorf("invalid tail_lines")
+		}
+		if lines > store.BuildLogViewMaxLines {
+			lines = store.BuildLogViewMaxLines
+		}
+	}
+	if hasCharacters && len(rawCharacters) > 0 && rawCharacters[0] != "" {
+		characters, err = strconv.Atoi(rawCharacters[0])
+		if err != nil || characters <= 0 {
+			return 0, 0, true, fmt.Errorf("invalid tail_characters")
+		}
+		if characters > store.BuildLogRetentionCharacters {
+			characters = store.BuildLogRetentionCharacters
+		}
+	}
+	return lines, characters, true, nil
 }
 
 func (h *handlers) getBuildLogs(w http.ResponseWriter, r *http.Request) {
@@ -929,6 +966,29 @@ func (h *handlers) getBuildLogs(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
+	lines, characters, requested, err := parseBuildLogTailWindow(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if requested {
+		window, err := h.d.Store.GetBuildLogTail(id, lines, characters)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "build not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"log":                  window.Log,
+			"truncated":            window.PersistedTruncated,
+			"retention_characters": store.BuildLogRetentionCharacters,
+			"windowed":             true,
+			"window_lines":         lines,
+			"window_characters":    characters,
+			"window_truncated":     window.WindowTruncated,
+		})
+		return
+	}
+
 	build, err := h.d.Store.GetBuild(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "build not found")
@@ -3078,12 +3138,27 @@ func (h *handlers) updateGlobalSettings(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	retentionDays := 0
+	retentionUpdated := false
 	for name, value := range settings {
 		if err := validateGlobalSetting(name, value); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if name == store.BuildLogRetentionDaysSetting {
+			parsed, _ := store.ParseBuildLogRetentionDays(value)
+			retentionDays = parsed
+			retentionUpdated = true
+		}
+	}
+	for name, value := range settings {
 		if err := h.d.Store.SetEnvVar("system", nil, name, value, false, ""); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if retentionUpdated {
+		if _, err := h.d.Store.PurgeExpiredBuildLogs(retentionDays, time.Now()); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
