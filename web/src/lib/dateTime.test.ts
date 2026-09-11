@@ -10,11 +10,11 @@ describe('dateTime presentation', () => {
     expect(formatDateTime(new Date(2026, 0, 2, 3, 4, 5, 6))).toBe('2026-01-02 03:04:05,006')
   })
 
-  it('adds a localized weekday without changing the underlying date order', () => {
+  it('adds a localized weekday and omits milliseconds', () => {
     const date = new Date(2026, 6, 22, 3, 4, 5, 6)
-    expect(formatDateWithWeekday(date, '-', 'zh-CN')).toBe('2026-07-22（星期三）')
-    expect(formatDateTimeWithWeekday(date, '-', 'zh-CN')).toBe('2026-07-22（星期三） 03:04:05,006')
-    expect(formatDateWithWeekday(date, '-', 'en')).toBe('2026-07-22 (Wednesday)')
+    expect(formatDateWithWeekday(date, '-', 'zh-CN')).toBe('2026-07-22 星期三')
+    expect(formatDateTimeWithWeekday(date, '-', 'zh-CN')).toBe('2026-07-22 星期三 03:04:05')
+    expect(formatDateWithWeekday(date, '-', 'en')).toBe('2026-07-22 Wednesday')
   })
 
   it('keeps the weekday helpers aligned with timezone-aware parsing', () => {

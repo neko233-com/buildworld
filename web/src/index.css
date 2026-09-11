@@ -953,8 +953,7 @@ button:disabled { cursor: not-allowed; }
 .topbar-actions { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; }
 .system-update-action { position: relative; flex: 0 0 auto; }
 .system-update-trigger { position: relative; }
-.system-update-trigger.available { color: var(--ui-accent-strong); background: var(--ui-accent-soft); }
-.system-update-trigger > i { position: absolute; top: 7px; right: 7px; width: 7px; height: 7px; border: 2px solid var(--ui-surface); border-radius: 50%; background: var(--ui-danger-strong); }
+.system-update-trigger.available { width: auto; min-width: 0; gap: 6px; padding: 0 11px; color: var(--ui-accent-strong); background: var(--ui-accent-soft); font-size: 11px; font-weight: 650; white-space: nowrap; }
 .system-update-spinner { animation: system-update-spin .9s linear infinite; }
 @keyframes system-update-spin { to { transform: rotate(360deg); } }
 .system-update-popover { position: absolute; z-index: 90; top: calc(100% + 9px); left: 0; width: min(360px, calc(100vw - 28px)); overflow: hidden; border: 1px solid var(--ui-border); border-radius: 13px; background: var(--ui-surface); box-shadow: 0 14px 36px rgba(27, 39, 51, .16); }

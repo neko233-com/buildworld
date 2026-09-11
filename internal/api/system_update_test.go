@@ -123,6 +123,29 @@ func TestSystemUpdateChecksOfficialCatalogAndAppliesLatestReleaseManually(t *tes
 	}
 }
 
+func TestSystemUpdateCheckReturnsOKWhenAlreadyLatest(t *testing.T) {
+	previousVersion := buildinfo.Version
+	buildinfo.Version = "1.0.1"
+	defer func() { buildinfo.Version = previousVersion }()
+	database, err := store.New(filepath.Join(t.TempDir(), "updates-current.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	catalog := &fakeUpdateCatalog{release: systemupdate.ReleaseInfo{Version: "1.0.1", AssetName: "buildworld-darwin-arm64.tar.gz"}}
+	handler := &handlers{d: Deps{Cfg: &config.Config{}, Store: database, UpdateCatalog: catalog}}
+
+	response := httptest.NewRecorder()
+	handler.checkSystemUpdate(response, httptest.NewRequest(http.MethodGet, "/api/system/update/check", nil))
+	var check map[string]interface{}
+	if err := json.NewDecoder(response.Body).Decode(&check); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || check["update_available"] != false || check["current_version"] != "1.0.1" || check["latest_version"] != "1.0.1" {
+		t.Fatalf("check response = %d %#v", response.Code, check)
+	}
+}
+
 func updateMultipart(t *testing.T, mode string) (*bytes.Buffer, string) {
 	t.Helper()
 	var body bytes.Buffer

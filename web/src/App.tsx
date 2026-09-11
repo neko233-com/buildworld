@@ -159,10 +159,26 @@ function SystemUpdateAction() {
     try {
       setOperation(await api.applyLatestSystemUpdate())
     } catch (reason: any) {
-      setError(reason.message || t('updates.updateFailed'))
+      if (reason?.code === 'no_update_available') {
+        setCheck(current => current ? { ...current, latest_version: current.current_version, update_available: false } : current)
+      } else {
+        setError(reason.message || t('updates.updateFailed'))
+      }
     } finally {
       setBusy(false)
     }
+  }
+
+  const updateLabel = check?.update_available
+    ? t('updates.update').replace('{version}', `v${check.latest_version}`)
+    : t('updates.check')
+  const handleTriggerClick = () => {
+    setOpen(true)
+    if (check?.update_available) {
+      if (!busy && !operationInProgress) void updateNow()
+      return
+    }
+    if (!check && !busy) void checkForUpdate()
   }
 
   const operationText = updateStatusText(operation, t)
@@ -170,13 +186,13 @@ function SystemUpdateAction() {
     <button
       type="button"
       className={`topbar-icon-button system-update-trigger${check?.update_available ? ' available' : ''}`}
-      aria-label={t('updates.check')}
-      title={check?.update_available ? t('updates.available').replace('{version}', `v${check.latest_version}`) : t('updates.check')}
+      aria-label={updateLabel}
+      title={updateLabel}
       aria-expanded={open}
-      onClick={() => { setOpen(true); if (!check && !busy) void checkForUpdate() }}
+      onClick={handleTriggerClick}
     >
       {busy ? <LoaderCircle className="system-update-spinner" size={20} /> : <RefreshCw size={20} />}
-      {check?.update_available && <i aria-hidden="true" />}
+      {check?.update_available && <span>{updateLabel}</span>}
     </button>
     {open && <div className="system-update-popover" role="dialog" aria-label={t('updates.title')}>
       <header><div><Download size={16} /><span><strong>{t('updates.title')}</strong><small>{t('updates.adminOnly')}</small></span></div><button type="button" aria-label={t('common.close')} onClick={() => setOpen(false)}><X size={15} /></button></header>

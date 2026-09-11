@@ -91,9 +91,7 @@ function activeWeekdayLocale(): DateWeekdayLocale {
 
 function dateWithWeekday(date: Date, locale: DateWeekdayLocale): string {
   const weekday = WEEKDAY_LABELS[locale][date.getDay()]
-  const opening = locale === 'zh-CN' ? '（' : ' ('
-  const closing = locale === 'zh-CN' ? '）' : ')'
-  return `${datePart(date)}${opening}${weekday}${closing}`
+  return `${datePart(date)} ${weekday}`
 }
 
 export function formatDate(value: DateTimeValue, fallback = '-'): string {
@@ -117,5 +115,5 @@ export function formatDateTimeWithWeekday(value: DateTimeValue, fallback = '-', 
   const date = parseDateTime(value)
   if (!date) return fallback
 
-  return `${dateWithWeekday(date, locale)} ${padded(date.getHours())}:${padded(date.getMinutes())}:${padded(date.getSeconds())},${padded(date.getMilliseconds(), 3)}`
+  return `${dateWithWeekday(date, locale)} ${padded(date.getHours())}:${padded(date.getMinutes())}:${padded(date.getSeconds())}`
 }

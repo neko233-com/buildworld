@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import en from './i18n/en.json'
 import zhCN from './i18n/zh-CN.json'
 import { api } from './api'
+import { dialogs } from './components/AppDialogs'
 
 vi.mock('motion/react', () => ({
   MotionConfig: ({ children, reducedMotion }: { children: ReactNode, reducedMotion?: string }) => (
@@ -137,6 +138,10 @@ describe('application motion accessibility', () => {
       platform: 'darwin/arm64', asset_name: 'buildworld-darwin-arm64.tar.gz', asset_size: 12,
       manual_only: true, administrator_required: true,
     })
+    const confirm = vi.spyOn(dialogs, 'confirm').mockResolvedValue(true)
+    const apply = vi.spyOn(api, 'applyLatestSystemUpdate').mockResolvedValue({
+      status: 'accepted', operation_id: 'operation-1', version: '1.1.0', message: '',
+    })
     act(() => root.render(<MemoryRouter initialEntries={['/first']}><ShellFixture /></MemoryRouter>))
 
     const trigger = container.querySelector<HTMLButtonElement>('.system-update-trigger')!
@@ -146,6 +151,28 @@ describe('application motion accessibility', () => {
     expect(check).toHaveBeenCalledOnce()
     expect(container.querySelector('.system-update-popover')?.textContent).toContain('Update available: v1.1.0')
     expect(container.querySelector('.system-update-popover')?.textContent).toContain('Manual update · administrator only')
+    expect(trigger.textContent).toContain('Update to v1.1.0')
+
+    await act(async () => trigger.click())
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(apply).toHaveBeenCalledOnce()
+  })
+
+  it('treats an up-to-date check as a normal result', async () => {
+    const check = vi.spyOn(api, 'checkSystemUpdate').mockResolvedValue({
+      current_version: '1.0.0', latest_version: '1.0.0', update_available: false,
+      platform: 'darwin/arm64', asset_name: '', asset_size: 0,
+      manual_only: true, administrator_required: true,
+    })
+    act(() => root.render(<MemoryRouter initialEntries={['/first']}><ShellFixture /></MemoryRouter>))
+
+    const trigger = container.querySelector<HTMLButtonElement>('.system-update-trigger')!
+    await act(async () => trigger.click())
+
+    expect(check).toHaveBeenCalledOnce()
+    expect(container.querySelector('.system-update-popover')?.textContent).toContain('You are up to date (v1.0.0).')
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(trigger.textContent).not.toContain('Update to')
   })
 
   it('moves focus to the new page heading after SPA route navigation', () => {
