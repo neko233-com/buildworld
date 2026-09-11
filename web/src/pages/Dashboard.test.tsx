@@ -213,6 +213,10 @@ describe('Dashboard Jenkins job view', () => {
     ])
     expect(retryBuild).not.toHaveBeenCalled()
 
+    expect(rowFor(3).querySelector('.jenkins-job-name small')).toBeNull()
+    expect(rowFor(1).querySelector('.jenkins-job-name small')?.textContent).toBe('develop')
+    expect(container.querySelector('.jenkins-rail-history-item')?.textContent).not.toContain('· main')
+
     const storage = container.querySelector('.jenkins-storage-monitor.warning')
     expect(storage?.textContent).toContain('本机缓存磁盘')
     expect(storage?.textContent).toContain('76%')
@@ -269,7 +273,7 @@ describe('Dashboard Jenkins job view', () => {
     expect(zulu.querySelector('.jenkins-health-dot')).toBeNull()
 
     const projectFooter = container.querySelector('.jenkins-project-footer')
-    expect(projectFooter?.textContent).toMatch(/\d{4}-\d{2}-\d{2} 星期[一二三四五六日]/)
+    expect(projectFooter?.textContent).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} 星期[一二三四五六日]/)
     expect(projectFooter?.textContent).toContain('BuildWorld · 开源持续集成与构建项目')
     expect(projectFooter?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/neko233-com/buildworld')
 

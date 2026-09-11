@@ -7,7 +7,7 @@ import { dialogs } from '../components/AppDialogs'
 import { ModalDialog } from '../components/ModalDialog'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { PageState } from '../components/PageState'
-import { formatDateWithWeekday, formatDateTimeWithWeekday } from '../lib/dateTime'
+import { formatDateTimeWithWeekday } from '../lib/dateTime'
 import './ManagementPages.jenkins.css'
 
 interface APIToken {
@@ -151,7 +151,7 @@ export default function APITokens() {
                 <td><span className="api-token-name"><KeyRound size={15} /><strong>{token.name}</strong></span></td>
                 <td><code className="api-token-prefix">{token.token_prefix || '-'}{token.token_prefix ? '…' : ''}</code></td>
                 <td><span className="api-token-scopes">{parsedScopes.length ? parsedScopes.map(scope => <span key={scope}>{scope}</span>) : <span>{t('apiTokens.allScopes')}</span>}</span></td>
-                <td><span className={`api-token-status ${expired ? 'expired' : 'active'}`}>{expired ? t('apiTokens.expired') : token.expires_at ? `${t('apiTokens.activeUntil')} ${formatDateWithWeekday(token.expires_at)}` : t('apiTokens.noExpiry')}</span></td>
+                <td><span className={`api-token-status ${expired ? 'expired' : 'active'}`}>{expired ? t('apiTokens.expired') : token.expires_at ? `${t('apiTokens.activeUntil')} ${formatDateTimeWithWeekday(token.expires_at)}` : t('apiTokens.noExpiry')}</span></td>
                 <td className="muted-cell">{token.last_used_at ? formatDateTimeWithWeekday(token.last_used_at) : t('apiTokens.neverUsed')}</td>
                 <td className="muted-cell">{formatDateTimeWithWeekday(token.created_at)}</td>
                 <td><button className="row-icon danger" type="button" disabled={deletingID !== null} aria-busy={deleting || undefined} onClick={() => void handleDelete(token)} title={t('apiTokens.remove')} aria-label={`${t('apiTokens.remove')}: ${token.name}`}>{deleting ? <LoaderCircle className="timeline-spinner" size={15} /> : <Trash2 size={15} />}</button></td>

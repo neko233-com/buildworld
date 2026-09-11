@@ -374,6 +374,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                       const retrying = rebuilding === build.id
                       const statusLabel = buildStatusLabel(t, build.status)
                       const startedAtLabel = formatDateTimeWithWeekday(build.started_at)
+                      const branchLabel = build.branch?.trim() && build.branch.trim().toLowerCase() !== 'main' ? ` · ${build.branch.trim()}` : ''
                       return (
                         <li className="jenkins-rail-queue-item jenkins-rail-history-item" key={build.id}>
                           <span
@@ -387,7 +388,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                           <Link className="jenkins-rail-queue-link jenkins-rail-history-link" to={`/builds/${build.id}`}>
                             <span className="jenkins-rail-queue-name jenkins-rail-history-name">{build.project_name}</span>
                             <small className="jenkins-rail-queue-meta jenkins-rail-history-meta">
-                              <span>#{build.number}{build.branch ? ` · ${build.branch}` : ''}</span>
+                              <span>#{build.number}{branchLabel}</span>
                               {build.started_at && startedAtLabel !== '-' && (
                                 <time dateTime={build.started_at}>{startedAtLabel}</time>
                               )}

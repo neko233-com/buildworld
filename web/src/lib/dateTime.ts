@@ -94,6 +94,10 @@ function dateWithWeekday(date: Date, locale: DateWeekdayLocale): string {
   return `${datePart(date)} ${weekday}`
 }
 
+function timePart(date: Date): string {
+  return `${padded(date.getHours())}:${padded(date.getMinutes())}:${padded(date.getSeconds())}`
+}
+
 export function formatDate(value: DateTimeValue, fallback = '-'): string {
   const date = parseDateTime(value)
   return date ? datePart(date) : fallback
@@ -115,5 +119,5 @@ export function formatDateTimeWithWeekday(value: DateTimeValue, fallback = '-', 
   const date = parseDateTime(value)
   if (!date) return fallback
 
-  return `${dateWithWeekday(date, locale)} ${padded(date.getHours())}:${padded(date.getMinutes())}:${padded(date.getSeconds())}`
+  return `${datePart(date)} ${timePart(date)} ${WEEKDAY_LABELS[locale][date.getDay()]}`
 }

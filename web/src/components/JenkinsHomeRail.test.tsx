@@ -130,6 +130,8 @@ describe('JenkinsHomeRail', () => {
     expect(container.querySelector('.jenkins-rail-capacity-progress')).toBeNull()
     expect(container.querySelectorAll('.jenkins-rail-history-item')).toHaveLength(6)
     expect(container.querySelector('.jenkins-rail-history-link')?.getAttribute('href')).toBe('/builds/201')
+    expect(container.querySelector('.jenkins-rail-history-item')?.textContent).not.toContain('· main')
+    expect(container.querySelector('.jenkins-rail-history-item')?.textContent).toContain('2026-07-21 18:12:00 ')
     for (const tone of ['success', 'unstable', 'failed', 'running', 'cancelled']) {
       expect(container.querySelector(`.jenkins-rail-history-status.${tone}`)).not.toBeNull()
     }

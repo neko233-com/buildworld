@@ -12,7 +12,7 @@ import ProjectGroupsDialog from '../components/ProjectGroupsDialog'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
-import { formatDate, formatDateTimeWithWeekday, formatDateWithWeekday } from '../lib/dateTime'
+import { formatDateTimeWithWeekday } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { sortProjectGroups, type ProjectGroup } from '../lib/projectGroups'
 import { useJenkinsBuildFlow } from './projectBuildFlow'
@@ -112,7 +112,7 @@ function ProjectFooter() {
   }, [])
 
   return <footer className="jenkins-project-footer">
-    <time dateTime={formatDate(today)}>{formatDateWithWeekday(today)}</time>
+    <time dateTime={today.toISOString()}>{formatDateTimeWithWeekday(today)}</time>
     <span aria-hidden="true">·</span>
     <span>{t('dashboard.projectStatement')}</span>
     <span aria-hidden="true">·</span>
@@ -394,7 +394,7 @@ export default function Dashboard() {
                   onDragEnd={() => setDraggingID(null)}
                 ><GripVertical size={14} /></button>}</div></td>
                 <td><span className={`jenkins-status-orb ${status}`} role="img" aria-label={statusLabel} title={statusLabel} /></td>
-                <td><Link className="jenkins-job-name" to={`/projects/${project.id}`}><span><strong>{project.name}</strong>{project.default_branch && <small>{project.default_branch}</small>}</span></Link></td>
+                <td><Link className="jenkins-job-name" to={`/projects/${project.id}`}><span><strong>{project.name}</strong>{project.default_branch && project.default_branch.trim().toLowerCase() !== 'main' && <small>{project.default_branch}</small>}</span></Link></td>
                 <td><LatestBuildStatus build={latest} emptyLabel={t('projectDetail.none')} /></td>
                 <td><BuildReference build={lastSuccess} emptyLabel={t('projectDetail.none')} /></td>
                 <td><BuildReference build={lastFailure} emptyLabel={t('projectDetail.none')} /></td>
