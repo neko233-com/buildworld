@@ -24,10 +24,10 @@ import (
 const MaxBundleBytes int64 = 512 << 20
 
 var (
-	ErrUpdateInProgress = errors.New("system update is already in progress")
+	ErrUpdateInProgress  = errors.New("system update is already in progress")
 	ErrAutomaticDisabled = errors.New("automatic system updates are disabled; an administrator must start the update")
-	versionPattern      = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-	checksumPattern     = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
+	versionPattern       = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	checksumPattern      = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 )
 
 type Request struct {
