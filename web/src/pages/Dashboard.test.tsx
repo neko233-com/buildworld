@@ -22,6 +22,7 @@ vi.mock('../api', () => ({
     setProjectFlags: vi.fn(),
     reorderProjects: vi.fn(),
     deleteProject: vi.fn(),
+    updateProjectGroup: vi.fn(),
     deleteProjectGroup: vi.fn(),
     getProject: vi.fn(),
     validateProject: vi.fn(),
@@ -273,7 +274,7 @@ describe('Dashboard Jenkins job view', () => {
     expect(zulu.querySelector('.jenkins-health-dot')).toBeNull()
 
     const projectFooter = container.querySelector('.jenkins-project-footer')
-    expect(projectFooter?.textContent).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} 星期[一二三四五六日]/)
+    expect(projectFooter?.textContent).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}/)
     expect(projectFooter?.textContent).toContain('BuildWorld · 开源持续集成与构建项目')
     expect(projectFooter?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/neko233-com/buildworld')
 
@@ -345,6 +346,50 @@ describe('Dashboard Jenkins job view', () => {
     expect(container.querySelector('button[aria-label="加入快速访问 Alpha"]')).toBeNull()
   })
 
+  it('supports keyboard menu navigation and restores focus on Escape', async () => {
+    await renderDashboard()
+    const tab = buttonNamed('服务端')
+    tab.focus()
+    await act(async () => tab.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true })))
+    const items = container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    expect(document.activeElement).toBe(items[0])
+    await act(async () => items[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })))
+    expect(document.activeElement).toBe(items[1])
+    await act(async () => items[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(document.activeElement).toBe(tab)
+    expect(container.querySelector('[role="menu"]')).toBeNull()
+  })
+
+  it('keeps the rename draft and shows a retryable save failure', async () => {
+    vi.mocked(api.updateProjectGroup).mockRejectedValue(new Error('group name already exists'))
+    await renderDashboard()
+    await act(async () => buttonNamed('服务端').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })))
+    await act(async () => buttonNamed('重命名此分组').click())
+    await act(async () => document.querySelector<HTMLFormElement>('.project-group-editor')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('group name already exists')
+    expect(document.querySelector<HTMLInputElement>('.project-group-editor input[data-dialog-initial-focus]')?.value).toBe('服务端')
+    expect(document.querySelector<HTMLButtonElement>('.project-group-editor button[type="submit"]')?.disabled).toBe(false)
+    expect(api.deleteProjectGroup).not.toHaveBeenCalled()
+  })
+
+  it('opens the selected group for renaming and preserves metadata and selected view', async () => {
+    vi.mocked(api.updateProjectGroup).mockResolvedValue({})
+    await renderDashboard()
+    act(() => buttonNamed('服务端').click())
+    await act(async () => buttonNamed('服务端').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })))
+    await act(async () => buttonNamed('重命名此分组').click())
+    const input = document.querySelector<HTMLInputElement>('.project-group-editor input[data-dialog-initial-focus]')!
+    expect(input.value).toBe('服务端')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, '服务器 Go')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => document.querySelector<HTMLFormElement>('.project-group-editor')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(api.updateProjectGroup).toHaveBeenCalledWith(20, expect.objectContaining({ name: '服务器 Go', color: expect.any(String), description: expect.any(String) }))
+    expect(localStorage.getItem('buildworld.jenkins.active-view')).toBe('group-20')
+    expect(document.querySelector('.project-groups-dialog')).toBeNull()
+  })
+
   it('offers an enhanced group right-click delete flow that keeps projects by default and can delete them explicitly', async () => {
     await renderDashboard()
 
@@ -352,7 +397,7 @@ describe('Dashboard Jenkins job view', () => {
     await act(async () => {
       groupTab.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 420, clientY: 220 }))
     })
-    const menuDelete = Array.from(container.querySelectorAll<HTMLButtonElement>('.jenkins-group-context-menu button'))[0]
+    const menuDelete = Array.from(container.querySelectorAll<HTMLButtonElement>('.jenkins-group-context-menu button')).find(button => button.textContent?.includes('删除此分组'))
     expect(menuDelete).not.toBeUndefined()
     expect(menuDelete?.textContent).toContain('删除此分组')
 

@@ -131,11 +131,12 @@ describe('JenkinsHomeRail', () => {
     expect(container.querySelectorAll('.jenkins-rail-history-item')).toHaveLength(6)
     expect(container.querySelector('.jenkins-rail-history-link')?.getAttribute('href')).toBe('/builds/201')
     expect(container.querySelector('.jenkins-rail-history-item')?.textContent).not.toContain('· main')
-    expect(container.querySelector('.jenkins-rail-history-item')?.textContent).toContain('2026-07-21 18:12:00 ')
+    expect(container.querySelector('.jenkins-rail-history-item')?.textContent).toContain('2026-07-21 18:12:00,000')
     for (const tone of ['success', 'unstable', 'failed', 'running', 'cancelled']) {
       expect(container.querySelector(`.jenkins-rail-history-status.${tone}`)).not.toBeNull()
     }
     expect(container.querySelector('.jenkins-rail-queue-progress progress')).not.toBeNull()
+    expect(container.querySelector('.jenkins-rail-queue-progress progress')?.getAttribute('aria-label')).not.toMatch(/\{(?:completed|total|percent)\}/)
     expect(container.querySelectorAll('.jenkins-rail-history-rebuild')).toHaveLength(0)
 
     const queueToggle = container.querySelector<HTMLButtonElement>('.jenkins-rail-panel-toggle')!

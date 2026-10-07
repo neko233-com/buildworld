@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ArrowDown, ArrowUp, Folder, GripVertical, HardDrive, LoaderCircle, MoreHorizontal, Play, Plus, RefreshCw, Star, Trash2, X } from 'lucide-react'
+import { FiEdit2 } from 'react-icons/fi'
 import { IoLogoGithub } from 'react-icons/io5'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -12,7 +13,7 @@ import ProjectGroupsDialog from '../components/ProjectGroupsDialog'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
-import { formatDateTimeWithWeekday } from '../lib/dateTime'
+import { formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { sortProjectGroups, type ProjectGroup } from '../lib/projectGroups'
 import { useJenkinsBuildFlow } from './projectBuildFlow'
@@ -38,7 +39,7 @@ function BuildReference({ build, emptyLabel }: { build?: any; emptyLabel: string
   if (!build) return <span className="jenkins-empty-value">{emptyLabel}</span>
   return <span className="jenkins-build-reference">
     <Link to={`/builds/${build.id}`}>#{build.number}</Link>
-    <small>{formatDateTimeWithWeekday(build.started_at)}</small>
+    <small>{formatDateTime(build.started_at)}</small>
   </span>
 }
 
@@ -112,7 +113,7 @@ function ProjectFooter() {
   }, [])
 
   return <footer className="jenkins-project-footer">
-    <time dateTime={today.toISOString()}>{formatDateTimeWithWeekday(today)}</time>
+    <time dateTime={today.toISOString()}>{formatDateTime(today)}</time>
     <span aria-hidden="true">·</span>
     <span>{t('dashboard.projectStatement')}</span>
     <span aria-hidden="true">·</span>
@@ -134,6 +135,9 @@ export default function Dashboard() {
   const [deleting, setDeleting] = useState<number | null>(null)
   const [flagBusy, setFlagBusy] = useState<{ id: number; flag: 'favorite' } | null>(null)
   const [building, setBuilding] = useState<number | null>(null)
+  const groupMenuRef = useRef<HTMLDivElement>(null)
+  const groupOriginRef = useRef<HTMLButtonElement | null>(null)
+  const [groupToEdit, setGroupToEdit] = useState<ProjectGroup | null>(null)
   const [groupsOpen, setGroupsOpen] = useState(false)
   const [groupContextMenu, setGroupContextMenu] = useState<GroupContextMenu | null>(null)
   const [groupPendingDeletion, setGroupPendingDeletion] = useState<ProjectGroup | null>(null)
@@ -176,8 +180,13 @@ export default function Dashboard() {
       setGroupContextMenu(null)
     }
     const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setGroupContextMenu(null)
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setGroupContextMenu(null)
+        groupOriginRef.current?.focus()
+      }
     }
+    groupMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
     window.addEventListener('pointerdown', dismiss)
     window.addEventListener('keydown', dismissOnEscape)
     return () => {
@@ -189,7 +198,7 @@ export default function Dashboard() {
   if (loading) return <PageState />
   if (error) return <PageState error={error} onRetry={reload} />
 
-  const projects = data?.projects || []
+  const projects = (data?.projects || []).map(project => ({ ...project, name: String(project.name || '').trim() || `#${project.id}` }))
   const groups = sortProjectGroups(data?.groups || [])
   const overviewsByProject = new Map((data?.overviews || []).map(overview => [overview.project_id, overview]))
   const projectsByID = new Map(projects.map(project => [project.id, project]))
@@ -332,14 +341,16 @@ export default function Dashboard() {
           }} onContextMenu={event => {
             if (!editable || !view.group) return
             event.preventDefault()
+            groupOriginRef.current = event.currentTarget
             setGroupContextMenu({ group: view.group, x: event.clientX, y: event.clientY })
           }} onKeyDown={event => {
             if (!editable || !view.group || (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))) return
             event.preventDefault()
             const rect = event.currentTarget.getBoundingClientRect()
+            groupOriginRef.current = event.currentTarget
             setGroupContextMenu({ group: view.group, x: rect.left, y: rect.bottom + 4 })
           }}>{view.favorite && <Star size={12} fill="currentColor" aria-hidden="true" />}{view.label}</button>)}
-          {editable && <button type="button" className="jenkins-view-add" aria-label={t('projectGroups.newGroup')} title={t('projectGroups.newGroup')} onClick={() => setGroupsOpen(true)}><Plus size={15} /></button>}
+          {editable && <button type="button" className="jenkins-view-add" aria-label={t('projectGroups.newGroup')} title={t('projectGroups.newGroup')} onClick={() => { setGroupToEdit(null); setGroupsOpen(true) }}><Plus size={15} /></button>}
         </nav>
       </div>
 
@@ -417,8 +428,17 @@ export default function Dashboard() {
       </footer>
       <ProjectFooter />
     </div>
-    {groupContextMenu && <div className="jenkins-group-context-menu" role="menu" aria-label={groupContextMenu.group.name} style={{ left: `min(${groupContextMenu.x}px, calc(100vw - 220px))`, top: `min(${groupContextMenu.y}px, calc(100dvh - 60px))` }}>
-      <button type="button" role="menuitem" onClick={() => openGroupDeletion(groupContextMenu.group)}><Trash2 size={15} />{t('projectGroups.deleteGroup')}</button>
+    {groupContextMenu && <div ref={groupMenuRef} className="jenkins-group-context-menu" role="menu" onKeyDown={event => {
+      const items = Array.from(groupMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') || [])
+      const index = items.indexOf(document.activeElement as HTMLButtonElement)
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault()
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length
+        items[next]?.focus()
+      } else if (event.key === 'Tab') setGroupContextMenu(null)
+    }} aria-label={groupContextMenu.group.name} style={{ left: `min(${groupContextMenu.x}px, calc(100vw - 220px))`, top: `min(${groupContextMenu.y}px, calc(100dvh - 100px))` }}>
+      <button type="button" role="menuitem" onClick={() => { setGroupToEdit(groupContextMenu.group); setGroupContextMenu(null); setGroupsOpen(true) }}><FiEdit2 size={15} />{t('projectGroups.renameGroup')}</button>
+      <button type="button" role="menuitem" className="danger" onClick={() => openGroupDeletion(groupContextMenu.group)}><Trash2 size={15} />{t('projectGroups.deleteGroup')}</button>
     </div>}
     {groupPendingDeletion && <ModalDialog className="project-group-delete-dialog" ariaLabel={t('projectGroups.deleteTitle')} busy={deletingGroup !== null} onClose={() => { if (deletingGroup === null) setGroupPendingDeletion(null) }}>
       <header><div><Trash2 size={18} /><div><h2>{t('projectGroups.deleteTitle')}</h2><p>{t('projectGroups.deleteConfirm').replace('{name}', groupPendingDeletion.name)}</p></div></div><button type="button" onClick={() => setGroupPendingDeletion(null)} disabled={deletingGroup !== null} title={t('common.close')} aria-label={t('common.close')}><X size={18} /></button></header>
@@ -429,6 +449,9 @@ export default function Dashboard() {
       </div>
       <footer><button type="button" className="secondary-command" disabled={deletingGroup !== null} onClick={() => setGroupPendingDeletion(null)}>{t('common.cancel')}</button><button type="button" className="danger-command" disabled={deletingGroup !== null} aria-busy={deletingGroup !== null} onClick={() => void deleteGroup()}>{deletingGroup !== null ? <LoaderCircle className="timeline-spinner" size={15} /> : <Trash2 size={15} />}{t('common.delete')}</button></footer>
     </ModalDialog>}
-    {groupsOpen && <ProjectGroupsDialog groups={groups} projects={projects} onReload={reload} onClose={() => setGroupsOpen(false)} />}
+    {groupsOpen && <ProjectGroupsDialog initialGroup={groupToEdit} groups={groups} projects={projects} onReload={reload} onClose={() => {
+      setGroupsOpen(false)
+      if (groupToEdit) window.requestAnimationFrame(() => groupOriginRef.current?.focus())
+    }} />}
   </section>
 }

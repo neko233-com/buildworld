@@ -31,10 +31,11 @@ func TestSchemaMigrationsCreateFreshDatabase(t *testing.T) {
 		"10:project-enabled",
 		"11:project-display-order",
 		"12:project-http-trigger",
+		"13:project-build-on-startup",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("migration ledger = %v, want %v", got, want)
 	}
-	for _, column := range []string{"vcs_root_id", "template_id", "tags", "group_id", "http_trigger_enabled", "http_trigger_token"} {
+	for _, column := range []string{"vcs_root_id", "template_id", "tags", "group_id", "http_trigger_enabled", "http_trigger_token", "build_on_startup"} {
 		if !databaseColumnExists(t, data.db, "projects", column) {
 			t.Fatalf("fresh projects table missing %q", column)
 		}
@@ -118,6 +119,7 @@ func TestUserSessionVersionMigrationUpgradesVersionedDatabase(t *testing.T) {
 		"10:project-enabled",
 		"11:project-display-order",
 		"12:project-http-trigger",
+		"13:project-build-on-startup",
 	}) {
 		t.Fatalf("migration ledger = %v", got)
 	}
@@ -160,7 +162,7 @@ func TestRemovedFeatureSchemaMigrationDropsTablesAndIndexes(t *testing.T) {
 			t.Fatalf("removed %s %q still exists", object.kind, object.name)
 		}
 	}
-	if got := readMigrationLedger(t, db); got[len(got)-1] != "12:project-http-trigger" {
+	if got := readMigrationLedger(t, db); got[len(got)-1] != "13:project-build-on-startup" {
 		t.Fatalf("migration ledger = %v", got)
 	}
 }
@@ -230,7 +232,7 @@ func TestSSHKeysSchemaMigrationDropsDeadTableAndPreservesRepositoryCredentials(t
 	if credentialType != "ssh_key" || privateKey != "private-value" || publicKey != "ssh-ed25519 active" {
 		t.Fatalf("repository credential changed: type=%q private=%q public=%q", credentialType, privateKey, publicKey)
 	}
-	if got := readMigrationLedger(t, db); got[len(got)-1] != "12:project-http-trigger" {
+	if got := readMigrationLedger(t, db); got[len(got)-1] != "13:project-build-on-startup" {
 		t.Fatalf("migration ledger = %v", got)
 	}
 }

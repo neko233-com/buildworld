@@ -59,6 +59,7 @@ func TestProjectHistoryReferenceMigrationRepairsProductionOrphansWithForeignKeys
 		"10:project-enabled",
 		"11:project-display-order",
 		"12:project-http-trigger",
+		"13:project-build-on-startup",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("migration ledger = %v, want %v", got, want)
 	}

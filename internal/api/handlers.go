@@ -198,6 +198,7 @@ type createProjectReq struct {
 	PipelineSCMBranch  string   `json:"pipeline_scm_branch"`
 	PipelineSCMPath    string   `json:"pipeline_scm_path"`
 	Enabled            *bool    `json:"enabled"`
+	BuildOnStartup     *bool    `json:"build_on_startup"`
 	HTTPTriggerEnabled *bool    `json:"http_trigger_enabled"`
 }
 
@@ -302,6 +303,7 @@ func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
@@ -347,6 +349,12 @@ func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if req.BuildOnStartup != nil {
+		if err := h.d.Store.SetProjectBuildOnStartup(p.ID, *req.BuildOnStartup); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	if req.HTTPTriggerEnabled != nil {
 		if err := h.setProjectHTTPTrigger(p.ID, *req.HTTPTriggerEnabled, ""); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
@@ -380,6 +388,11 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 	var req createProjectReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
 	repoType, err := store.NormalizeRepositoryType(req.RepoType)
@@ -423,6 +436,12 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Enabled != nil {
 		if err := h.d.Store.SetProjectEnabled(id, *req.Enabled); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if req.BuildOnStartup != nil {
+		if err := h.d.Store.SetProjectBuildOnStartup(id, *req.BuildOnStartup); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}

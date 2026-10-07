@@ -286,9 +286,9 @@ func (s *Store) GetProject(id int64) (*Project, error) {
 	var vcsRootID, templateID, groupID sql.NullInt64
 	var tagsJSON string
 	err := s.db.QueryRow(
-		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, pipeline_format, pipeline_source_mode, pipeline_scm_repo, pipeline_scm_branch, pipeline_scm_path, created_by, created_at, updated_at, favorite, quick_access, enabled, http_trigger_enabled, http_trigger_token FROM projects WHERE id = ?",
+		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, pipeline_format, pipeline_source_mode, pipeline_scm_repo, pipeline_scm_branch, pipeline_scm_path, created_by, created_at, updated_at, favorite, quick_access, enabled, http_trigger_enabled, http_trigger_token, build_on_startup FROM projects WHERE id = ?",
 		id,
-	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.PipelineFormat, &p.PipelineSourceMode, &p.PipelineSCMRepo, &p.PipelineSCMBranch, &p.PipelineSCMPath, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Favorite, &p.QuickAccess, &p.Enabled, &p.HTTPTriggerEnabled, &p.HTTPTriggerToken)
+	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.PipelineFormat, &p.PipelineSourceMode, &p.PipelineSCMRepo, &p.PipelineSCMBranch, &p.PipelineSCMPath, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Favorite, &p.QuickAccess, &p.Enabled, &p.HTTPTriggerEnabled, &p.HTTPTriggerToken, &p.BuildOnStartup)
 	if err != nil {
 		return nil, err
 	}
@@ -313,9 +313,9 @@ func (s *Store) GetProjectByName(name string) (*Project, error) {
 	var vcsRootID, templateID, groupID sql.NullInt64
 	var tagsJSON string
 	err := s.db.QueryRow(
-		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, pipeline_format, pipeline_source_mode, pipeline_scm_repo, pipeline_scm_branch, pipeline_scm_path, created_by, created_at, updated_at, favorite, quick_access, enabled, http_trigger_enabled, http_trigger_token FROM projects WHERE name = ?",
+		"SELECT id, name, description, repo_url, repo_type, default_branch, vcs_root_id, template_id, group_id, tags, config, pipeline_format, pipeline_source_mode, pipeline_scm_repo, pipeline_scm_branch, pipeline_scm_path, created_by, created_at, updated_at, favorite, quick_access, enabled, http_trigger_enabled, http_trigger_token, build_on_startup FROM projects WHERE name = ?",
 		name,
-	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.PipelineFormat, &p.PipelineSourceMode, &p.PipelineSCMRepo, &p.PipelineSCMBranch, &p.PipelineSCMPath, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Favorite, &p.QuickAccess, &p.Enabled, &p.HTTPTriggerEnabled, &p.HTTPTriggerToken)
+	).Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.PipelineFormat, &p.PipelineSourceMode, &p.PipelineSCMRepo, &p.PipelineSCMBranch, &p.PipelineSCMPath, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Favorite, &p.QuickAccess, &p.Enabled, &p.HTTPTriggerEnabled, &p.HTTPTriggerToken, &p.BuildOnStartup)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +339,7 @@ func (s *Store) ListProjects() ([]*Project, error) {
 	rows, err := s.db.Query(`SELECT p.id, p.name, p.description, p.repo_url, p.repo_type, p.default_branch,
 		p.vcs_root_id, p.template_id, p.group_id, p.tags, p.config, p.pipeline_format,
 		p.pipeline_source_mode, p.pipeline_scm_repo, p.pipeline_scm_branch, p.pipeline_scm_path,
-		p.created_by, p.created_at, p.updated_at, p.favorite, p.quick_access, p.enabled, p.http_trigger_enabled, p.http_trigger_token
+		p.created_by, p.created_at, p.updated_at, p.favorite, p.quick_access, p.enabled, p.http_trigger_enabled, p.http_trigger_token, p.build_on_startup
 		FROM projects p
 		LEFT JOIN project_display_order project_order ON project_order.project_id=p.id
 		ORDER BY project_order.position IS NULL, project_order.position, p.id DESC`)
@@ -352,7 +352,7 @@ func (s *Store) ListProjects() ([]*Project, error) {
 		p := &Project{}
 		var vcsRootID, templateID, groupID sql.NullInt64
 		var tagsJSON string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.PipelineFormat, &p.PipelineSourceMode, &p.PipelineSCMRepo, &p.PipelineSCMBranch, &p.PipelineSCMPath, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Favorite, &p.QuickAccess, &p.Enabled, &p.HTTPTriggerEnabled, &p.HTTPTriggerToken); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.RepoType, &p.DefaultBranch, &vcsRootID, &templateID, &groupID, &tagsJSON, &p.Config, &p.PipelineFormat, &p.PipelineSourceMode, &p.PipelineSCMRepo, &p.PipelineSCMBranch, &p.PipelineSCMPath, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.Favorite, &p.QuickAccess, &p.Enabled, &p.HTTPTriggerEnabled, &p.HTTPTriggerToken, &p.BuildOnStartup); err != nil {
 			return nil, err
 		}
 		if vcsRootID.Valid {

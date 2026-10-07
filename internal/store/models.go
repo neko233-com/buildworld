@@ -57,6 +57,7 @@ type Project struct {
 	Favorite           bool      `json:"favorite"`
 	QuickAccess        bool      `json:"quick_access"`
 	Enabled            bool      `json:"enabled"`
+	BuildOnStartup     bool      `json:"build_on_startup"`
 	HTTPTriggerEnabled bool      `json:"http_trigger_enabled"`
 	HTTPTriggerToken   string    `json:"-"`
 	HTTPTriggerURL     string    `json:"http_trigger_url,omitempty"`

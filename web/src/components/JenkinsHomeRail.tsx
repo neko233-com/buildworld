@@ -19,7 +19,7 @@ import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { timelineProgress, type BuildTimeline } from '../lib/buildTimeline'
-import { formatDateTimeWithWeekday } from '../lib/dateTime'
+import { formatDateTime } from '../lib/dateTime'
 
 type JenkinsHomeRailProps = {
   editable?: boolean
@@ -334,7 +334,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                           {item.status === 'running' && (() => {
                             const progress = runningProgress[Number(item.build_id)]
                             return <span className="jenkins-rail-queue-progress">
-                              <progress aria-label={`${item.project_name || item.build_id} ${t('builds.progress')}`} value={progress?.percent || undefined} max={100} />
+                              <progress aria-label={`${item.project_name || item.build_id} ${t('builds.progressLabel')}`} value={progress ? progress.percent : undefined} max={100} />
                               <small>{progress?.stage || (progress ? `${progress.percent}%` : t('buildQueue.reasonRunning'))}</small>
                             </span>
                           })()}
@@ -373,7 +373,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                       const active = ACTIVE_BUILD_STATUSES.has(build.status)
                       const retrying = rebuilding === build.id
                       const statusLabel = buildStatusLabel(t, build.status)
-                      const startedAtLabel = formatDateTimeWithWeekday(build.started_at)
+                      const startedAtLabel = formatDateTime(build.started_at)
                       const branchLabel = build.branch?.trim() && build.branch.trim().toLowerCase() !== 'main' ? ` · ${build.branch.trim()}` : ''
                       return (
                         <li className="jenkins-rail-queue-item jenkins-rail-history-item" key={build.id}>

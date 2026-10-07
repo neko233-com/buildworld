@@ -41,6 +41,7 @@ var currentSchemaStatements = []string{
 		pipeline_scm_branch TEXT NOT NULL DEFAULT '',
 		pipeline_scm_path TEXT NOT NULL DEFAULT '',
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
+		build_on_startup BOOLEAN NOT NULL DEFAULT FALSE,
 		http_trigger_enabled BOOLEAN NOT NULL DEFAULT FALSE,
 		http_trigger_token TEXT NOT NULL DEFAULT '',
 		created_by INTEGER REFERENCES users(id),
@@ -344,6 +345,7 @@ var schemaMigrations = []schemaMigration{
 		name:    "project-http-trigger",
 		up:      addProjectHTTPTrigger,
 	},
+	{version: 13, name: "project-build-on-startup", up: addProjectBuildOnStartup},
 }
 
 func runSchemaMigrations(db *sql.DB, migrations []schemaMigration) error {

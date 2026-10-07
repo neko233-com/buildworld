@@ -4,6 +4,7 @@ const triggerKeys: Record<string, string> = {
   manual: 'builds.triggerManual',
   retry: 'builds.triggerRetry',
   webhook: 'builds.triggerWebhook',
+  startup: 'builds.triggerStartup',
   schedule: 'builds.triggerSchedule',
   scheduled: 'builds.triggerSchedule',
   http: 'builds.triggerHttp',

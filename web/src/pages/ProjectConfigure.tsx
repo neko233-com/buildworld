@@ -22,6 +22,7 @@ type ValidationField = 'name' | 'schedule' | 'pipeline' | 'scmRepo' | 'scmPath'
 
 type ProjectConfigureForm = {
   enabled: boolean
+  build_on_startup: boolean
   http_trigger_enabled: boolean
   name: string
   description: string
@@ -50,6 +51,7 @@ function normalizePipelineFormat(project: any): PipelineFormat {
 function projectToForm(project: any): ProjectConfigureForm {
   return {
     enabled: project.enabled !== false,
+    build_on_startup: project.build_on_startup === true,
     http_trigger_enabled: project.http_trigger_enabled === true,
     name: project.name || '',
     description: project.description || '',
@@ -324,6 +326,7 @@ export default function ProjectConfigure() {
       }
       const payload = {
         enabled: form.enabled,
+        build_on_startup: form.build_on_startup,
         http_trigger_enabled: form.http_trigger_enabled,
         name: form.name,
         description: form.description,
@@ -428,6 +431,10 @@ export default function ProjectConfigure() {
             <TimerReset size={19} aria-hidden="true" />
             <h2 id="jenkins-configure-triggers-title">{t('builds.trigger')}</h2>
           </div>
+          <fieldset className="jenkins-configure-trigger jenkins-configure-startup-trigger" disabled={!editable}>
+            <label className="jenkins-configure-check"><input type="checkbox" checked={form.build_on_startup} onChange={event => setForm(current => current ? { ...current, build_on_startup: event.target.checked } : current)} /><span>{t('projectDetail.buildOnStartup')}</span></label>
+            <small>{t('projectDetail.buildOnStartupHelp')}</small>
+          </fieldset>
           {scheduleSupported ? <fieldset className="jenkins-configure-trigger" disabled={!editable}>
             <label className="jenkins-configure-check"><input type="checkbox" checked={scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} /><span>{t('projectDetail.scheduleBuilds')}</span></label>
             {scheduleEnabled && <label><span>Cron</span><input id="jenkins-configure-schedule-cron" required aria-invalid={validationErrors.schedule || undefined} aria-describedby={validationErrors.schedule ? 'jenkins-configure-form-error' : undefined} value={scheduleCron} onChange={event => { setScheduleCron(event.target.value); clearValidationError('schedule') }} placeholder="0 2 * * *" /><small>{t('projectDetail.scheduleDescription')}</small></label>}

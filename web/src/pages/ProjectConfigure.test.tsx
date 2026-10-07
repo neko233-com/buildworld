@@ -128,6 +128,7 @@ describe('ProjectConfigure', () => {
 
     expect(api.updateProject).toHaveBeenCalledWith(42, {
       enabled: true,
+      build_on_startup: false,
       http_trigger_enabled: false,
       name: 'weather-service',
       description: 'GAME Server',
@@ -147,10 +148,23 @@ describe('ProjectConfigure', () => {
     })
   })
 
+  it('round-trips startup builds independently of SCM-managed cron and HTTP triggers', async () => {
+    vi.mocked(api.getProject).mockResolvedValue({ id: 47, name: 'startup-scm', repo_type: 'git', default_branch: 'main', pipeline_format: 'jenkinsfile', pipeline_source_mode: 'scm', pipeline_scm_repo: 'https://example.test/repo.git', pipeline_scm_path: 'Jenkinsfile', build_on_startup: true })
+    await act(async () => root.render(<MemoryRouter initialEntries={['/projects/47/configure']}><Routes><Route path="/projects/:id/configure" element={<ProjectConfigure />} /></Routes></MemoryRouter>))
+    await flushRequests()
+    const startup = container.querySelector<HTMLInputElement>('.jenkins-configure-startup-trigger input')!
+    expect(startup.checked).toBe(true)
+    await act(async () => startup.click())
+    await act(async () => container.querySelector<HTMLButtonElement>('button[value="apply"]')!.click())
+    expect(api.updateProject).toHaveBeenCalledWith(47, expect.objectContaining({ build_on_startup: false, http_trigger_enabled: false, pipeline_source_mode: 'scm', pipeline_scm_path: 'Jenkinsfile' }))
+    expect(container.querySelector('.jenkins-configure-save-state')?.textContent).toBe('Saved')
+  })
+
   it('presents trigger and advanced settings as explicit single-column groups', async () => {
     vi.mocked(api.getProject).mockResolvedValue({
       id: 48,
       enabled: true,
+      build_on_startup: false,
       http_trigger_enabled: false,
       name: 'scm-job',
       description: '',
@@ -279,7 +293,7 @@ describe('ProjectConfigure', () => {
     })
     await flushRequests()
 
-    const schedule = container.querySelector<HTMLInputElement>('.jenkins-configure-trigger input[type="checkbox"]')
+    const schedule = container.querySelector<HTMLInputElement>('.jenkins-configure-trigger:not(.jenkins-configure-startup-trigger) input[type="checkbox"]')
     expect(schedule?.checked).toBe(true)
     expect(container.querySelector<HTMLInputElement>('.jenkins-configure-trigger input[required]')?.value).toBe('15 3 * * *')
     await act(async () => {

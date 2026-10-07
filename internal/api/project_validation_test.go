@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -19,6 +20,33 @@ import (
 type staticPipelineFetcher struct {
 	source string
 	format engine.PipelineFormat
+}
+
+func TestProjectNamesRejectBlankCreateAndUpdateWithoutChangingProject(t *testing.T) {
+	database, err := store.New(filepath.Join(t.TempDir(), "project-names.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	project, err := database.CreateProject("original", "", "", "git", "main", "jobs: {}", 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := &handlers{d: Deps{Store: database}}
+	for _, name := range []string{"", "   ", "\t\n"} {
+		body := fmt.Sprintf(`{"name":%q,"repo_type":"git","config":"jobs: {}"}`, name)
+		created := httptest.NewRecorder()
+		handler.createProject(created, httptest.NewRequest(http.MethodPost, "/api/projects", strings.NewReader(body)))
+		updated := httptest.NewRecorder()
+		handler.updateProject(updated, requestWithRouteID(http.MethodPut, "/api/projects/1", strings.NewReader(body), project.ID))
+		if created.Code != http.StatusBadRequest || updated.Code != http.StatusBadRequest {
+			t.Fatalf("name=%q create=%d update=%d", name, created.Code, updated.Code)
+		}
+	}
+	current, _ := database.GetProject(project.ID)
+	if current.Name != "original" {
+		t.Fatalf("name=%q", current.Name)
+	}
 }
 
 func (fetcher staticPipelineFetcher) FetchSCMPipeline(context.Context, engine.SCMPipelineSource) (string, engine.PipelineFormat, error) {

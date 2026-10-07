@@ -22,7 +22,7 @@ func TestProjectEnabledCreateUpdateAndDisabledTrigger(t *testing.T) {
 
 	createdResponse := httptest.NewRecorder()
 	handler.createProject(createdResponse, httptest.NewRequest(http.MethodPost, "/api/projects", bytes.NewBufferString(`{
-		"name":"disabled-job","repo_type":"git","default_branch":"main","config":"jobs:\n  build:\n    steps:\n      - run: echo ok","enabled":false
+		"name":"disabled-job","repo_type":"git","default_branch":"main","config":"jobs:\n  build:\n    steps:\n      - run: echo ok","build_on_startup":true,"enabled":false
 	}`)))
 	if createdResponse.Code != http.StatusCreated {
 		t.Fatalf("create = %d %s", createdResponse.Code, createdResponse.Body.String())
@@ -30,6 +30,9 @@ func TestProjectEnabledCreateUpdateAndDisabledTrigger(t *testing.T) {
 	var created store.Project
 	if err := json.Unmarshal(createdResponse.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
+	}
+	if !created.BuildOnStartup {
+		t.Fatal("startup option not saved")
 	}
 	if created.Enabled {
 		t.Fatal("created project enabled = true, want false")
@@ -52,7 +55,7 @@ func TestProjectEnabledCreateUpdateAndDisabledTrigger(t *testing.T) {
 	handler.updateProject(updatedResponse, requestWithRouteID(http.MethodPut, "/api/projects/1", bytes.NewBufferString(`{
 		"name":"disabled-job","repo_type":"git","default_branch":"main","config":"jobs:\n  build:\n    steps:\n      - run: echo ok","enabled":true
 	}`), created.ID))
-	if updatedResponse.Code != http.StatusOK || !strings.Contains(updatedResponse.Body.String(), `"enabled":true`) {
+	if updatedResponse.Code != http.StatusOK || !strings.Contains(updatedResponse.Body.String(), `"build_on_startup":true`) || !strings.Contains(updatedResponse.Body.String(), `"enabled":true`) {
 		t.Fatalf("update = %d %s", updatedResponse.Code, updatedResponse.Body.String())
 	}
 }

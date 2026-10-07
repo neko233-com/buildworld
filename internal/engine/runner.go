@@ -41,6 +41,8 @@ type BuildRunner struct {
 	statisticsService       *StatisticsService
 	runsMu                  sync.Mutex
 	runs                    map[int64]context.CancelFunc
+	startupOnce             sync.Once
+	startupWG               sync.WaitGroup
 	queueMu                 sync.Mutex
 	queueCancel             context.CancelFunc
 	queueWake               chan struct{}
@@ -343,6 +345,9 @@ func (r *BuildRunner) StartQueue(parent context.Context) {
 			fmt.Printf("requeued %d build(s) interrupted by server restart\n", recovered)
 		}
 	}
+	if r.store != nil {
+		r.startupOnce.Do(func() { r.startStartupBuilds(ctx) })
+	}
 	go r.dispatchPendingLoop(ctx)
 	r.WakeQueue()
 }
@@ -355,6 +360,7 @@ func (r *BuildRunner) StopQueue() {
 	if cancel != nil {
 		cancel()
 	}
+	r.startupWG.Wait()
 }
 
 // WakeQueue asks the central dispatcher to reconcile pending builds promptly.

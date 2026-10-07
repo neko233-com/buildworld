@@ -1131,8 +1131,10 @@ button:disabled { cursor: not-allowed; }
 .jenkins-view-tabs .jenkins-view-add { width: 28px; padding: 0; }
 .jenkins-home-toolbar { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
 .jenkins-group-context-menu { position: fixed; z-index: 30; min-width: 190px; padding: 5px; border: 1px solid #d7dde5; border-radius: 8px; background: #fff; box-shadow: 0 8px 24px rgba(26, 38, 51, .18); }
-.jenkins-group-context-menu button { display: flex; width: 100%; height: 32px; align-items: center; gap: 7px; padding: 0 9px; color: var(--ui-danger); border: 0; border-radius: 5px; background: transparent; font-size: 11px; text-align: left; }
-.jenkins-group-context-menu button:hover, .jenkins-group-context-menu button:focus-visible { outline: none; background: #fff0f1; }
+.jenkins-group-context-menu button { display: flex; width: 100%; height: 32px; align-items: center; gap: 7px; padding: 0 9px; color: var(--ui-text); border: 0; border-radius: 5px; background: transparent; font-size: 11px; text-align: left; }
+.jenkins-group-context-menu button:hover, .jenkins-group-context-menu button:focus-visible { outline: none; background: var(--ui-primary-soft); }
+.jenkins-group-context-menu button.danger { color: var(--ui-danger); }
+.jenkins-group-context-menu button.danger:hover, .jenkins-group-context-menu button.danger:focus-visible { background: #fff0f1; }
 .project-group-delete-dialog { width: min(480px, 100%); }
 .project-group-delete-dialog > header > div { display: flex; min-width: 0; align-items: center; gap: 9px; }
 .project-group-delete-dialog > header > div > svg { color: var(--ui-danger); }
