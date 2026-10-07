@@ -39,7 +39,7 @@ function BuildReference({ build, emptyLabel }: { build?: any; emptyLabel: string
   if (!build) return <span className="jenkins-empty-value">{emptyLabel}</span>
   return <span className="jenkins-build-reference">
     <Link to={`/builds/${build.id}`}>#{build.number}</Link>
-    <small>{formatDateTime(build.started_at)}</small>
+    <small title={formatDateTime(build.started_at)}>{formatDateTime(build.started_at)}</small>
   </span>
 }
 
@@ -405,12 +405,12 @@ export default function Dashboard() {
                   onDragEnd={() => setDraggingID(null)}
                 ><GripVertical size={14} /></button>}</div></td>
                 <td><span className={`jenkins-status-orb ${status}`} role="img" aria-label={statusLabel} title={statusLabel} /></td>
-                <td><Link className="jenkins-job-name" to={`/projects/${project.id}`}><span><strong>{project.name}</strong>{project.default_branch && project.default_branch.trim().toLowerCase() !== 'main' && <small>{project.default_branch}</small>}</span></Link></td>
+                <td><Link className="jenkins-job-name" title={project.name} to={`/projects/${project.id}`}><span><strong>{project.name}</strong>{project.default_branch && project.default_branch.trim().toLowerCase() !== 'main' && <small>{project.default_branch}</small>}</span></Link></td>
                 <td><LatestBuildStatus build={latest} emptyLabel={t('projectDetail.none')} /></td>
                 <td><BuildReference build={lastSuccess} emptyLabel={t('projectDetail.none')} /></td>
                 <td><BuildReference build={lastFailure} emptyLabel={t('projectDetail.none')} /></td>
                 <td className="jenkins-duration">{formatDuration(latest?.duration_ms)}</td>
-                <td><div className="jenkins-job-actions">
+                <td><div className="jenkins-row-actions">
                   <button type="button" className={project.favorite ? 'active' : ''} disabled={flagBusy !== null} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'favorite'} aria-label={`${project.favorite ? t('projects.unfavorite') : t('projects.favorite')} ${project.name}`} title={project.favorite ? t('projects.unfavorite') : t('projects.favorite')} onClick={() => toggleFavorite(project)}>{flagBusy?.id === project.id && flagBusy?.flag === 'favorite' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Star size={15} />}</button>
                   {editable && <button type="button" disabled={reordering || visibleIndex === 0} aria-label={`${t('buildQueue.moveUp')} ${project.name}`} title={t('buildQueue.moveUp')} onClick={() => moveProject(project.id, -1)}><ArrowUp size={15} /></button>}
                   {editable && <button type="button" disabled={reordering || visibleIndex === visibleProjects.length - 1} aria-label={`${t('buildQueue.moveDown')} ${project.name}`} title={t('buildQueue.moveDown')} onClick={() => moveProject(project.id, 1)}><ArrowDown size={15} /></button>}

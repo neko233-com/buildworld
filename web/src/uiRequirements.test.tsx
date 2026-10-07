@@ -104,7 +104,7 @@ describe('requested UI contracts', () => {
     const homeMain = document.createElement('main')
     homeMain.className = 'jenkins-home-main'
     const actions = document.createElement('div')
-    actions.className = 'jenkins-job-actions'
+    actions.className = 'jenkins-row-actions'
     const button = document.createElement('button')
     actions.appendChild(button)
     homeMain.appendChild(actions)

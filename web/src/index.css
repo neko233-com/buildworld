@@ -1202,9 +1202,9 @@ button:disabled { cursor: not-allowed; }
 .jenkins-project-drag:hover,
 .jenkins-project-drag:focus-visible { color: #1769c2; background: #eaf2fb; }
 .jenkins-project-drag:active { cursor: grabbing; }
-.jenkins-job-actions button.danger { color: #c42b32; }
-.jenkins-job-actions button.danger:hover,
-.jenkins-job-actions button.danger:focus-visible { color: #a51f25; background: #fff0f0; }
+.jenkins-row-actions button.danger { color: #c42b32; }
+.jenkins-row-actions button.danger:hover,
+.jenkins-row-actions button.danger:focus-visible { color: #a51f25; background: #fff0f0; }
 .jenkins-id-column,
 .jenkins-status-column,
 .jenkins-project-id { text-align: center !important; }
@@ -1235,12 +1235,12 @@ button:disabled { cursor: not-allowed; }
 .jenkins-latest-build-empty { white-space: nowrap; }
 .jenkins-empty-value,
 .jenkins-duration { color: #687581; }
-.jenkins-job-actions { display: flex; align-items: center; justify-content: flex-end; gap: 3px; }
-.jenkins-job-actions button { display: grid; width: 27px; height: 27px; place-items: center; padding: 0; color: #687581; border: 1px solid transparent; border-radius: 4px; background: transparent; }
-.jenkins-job-actions button:hover:not(:disabled) { color: #1769c2; border-color: #c7d9eb; background: #eef5fc; }
-.jenkins-job-actions button.active { color: #d28b00; }
-.jenkins-job-actions button.active svg { fill: currentColor; }
-.jenkins-job-actions button:disabled { opacity: .45; }
+.jenkins-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 3px; }
+.jenkins-row-actions button { display: grid; width: 27px; height: 27px; place-items: center; padding: 0; color: #687581; border: 1px solid transparent; border-radius: 4px; background: transparent; }
+.jenkins-row-actions button:hover:not(:disabled) { color: #1769c2; border-color: #c7d9eb; background: #eef5fc; }
+.jenkins-row-actions button.active { color: #d28b00; }
+.jenkins-row-actions button.active svg { fill: currentColor; }
+.jenkins-row-actions button:disabled { opacity: .45; }
 .jenkins-job-empty { height: 130px !important; color: #77838e; text-align: center; }
 .jenkins-job-empty svg { margin-right: 7px; vertical-align: middle; }
 .jenkins-table-footer { display: flex; min-height: 48px; align-items: center; justify-content: flex-end; gap: 16px; color: #37414c; }

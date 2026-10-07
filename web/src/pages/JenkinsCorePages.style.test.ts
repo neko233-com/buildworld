@@ -9,8 +9,8 @@ describe('Jenkins 2.563 core page geometry', () => {
     expect(styles).toMatch(/\.jenkins-view-tabs\s*\{[^}]*min-height:\s*38px[^}]*border-radius:\s*20px/s)
     expect(styles).toMatch(/\.jenkins-view-tabs button\s*\{[^}]*height:\s*32px[^}]*font-size:\s*14px/s)
     expect(styles).toMatch(/\.jenkins-job-table-wrap\s*\{[^}]*border-radius:\s*var\(--jenkins-table-radius\)/s)
-    expect(styles).toMatch(/\.jenkins-job-table\s*\{[^}]*min-width:\s*760px/s)
-    expect(styles).toMatch(/\.jenkins-job-table td\s*\{[^}]*height:\s*49px[^}]*padding:\s*0 1\.6rem/s)
+    expect(styles).toMatch(/\.jenkins-job-table\s*\{[^}]*min-width:\s*1320px/s)
+    expect(styles).toMatch(/\.jenkins-job-table td\s*\{[^}]*height:\s*49px[^}]*padding:\s*0 13px/s)
     expect(styles).toMatch(/\.jenkins-status-orb\s*\{[^}]*width:\s*20px[^}]*height:\s*20px/s)
   })
 
@@ -33,8 +33,8 @@ describe('Jenkins 2.563 core page geometry', () => {
   })
 
   it('uses Jenkins-sized actions and visible keyboard focus', () => {
-    expect(styles).toMatch(/\.jenkins-home-main \.jenkins-job-actions\s*\{[^}]*display:\s*flex[^}]*padding:\s*0/s)
-    expect(styles).toMatch(/\.jenkins-home-main \.jenkins-job-actions button\s*\{[^}]*width:\s*38px[^}]*height:\s*38px/s)
+    expect(styles).toMatch(/\.jenkins-home-main \.jenkins-row-actions\s*\{[^}]*display:\s*flex[^}]*padding:\s*0/s)
+    expect(styles).toMatch(/\.jenkins-home-main \.jenkins-row-actions button\s*\{[^}]*width:\s*30px[^}]*height:\s*30px/s)
     expect(styles).toMatch(/\.jenkins-context-main \.row-icon\s*\{[^}]*width:\s*38px[^}]*height:\s*38px[^}]*margin:\s*-8px 0/s)
     expect(styles).toMatch(/:focus-visible\s*\{[^}]*outline:\s*3px solid rgba\(23, 105, 194, \.28\)/s)
     expect(styles).toMatch(/\.schedule-modal :is\(button, a, input, select, textarea\):focus-visible\s*\{[^}]*outline:\s*3px solid rgba\(23, 105, 194, \.28\)/s)

@@ -404,13 +404,14 @@
 }
 
 [data-skin="jenkins"] .jenkins-job-table {
-  min-width: 760px;
+  min-width: 1320px;
   font-size: 14px;
 }
 
 [data-skin="jenkins"] .jenkins-job-table th {
   height: 47px;
-  padding: 0 1.6rem;
+  padding: 0 13px;
+  white-space: nowrap;
   color: #343d46;
   border-bottom-color: #e2e6eb;
   background: #f4f6f9;
@@ -420,7 +421,7 @@
 
 [data-skin="jenkins"] .jenkins-job-table td {
   height: 49px;
-  padding: 0 1.6rem;
+  padding: 0 13px;
   border-bottom-color: #e7ebef;
 }
 
@@ -432,20 +433,14 @@
   height: 57px;
 }
 
-[data-skin="jenkins"] .jenkins-job-table th:nth-child(1),
-[data-skin="jenkins"] .jenkins-job-table th:nth-child(2) {
-  width: 60px;
-  padding-right: .6rem;
-  padding-left: .6rem;
-}
-
-[data-skin="jenkins"] .jenkins-job-table th:nth-child(3) {
-  width: 28%;
-}
-
-[data-skin="jenkins"] .jenkins-job-table th:nth-child(7) {
-  width: 148px;
-}
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(1) { width: 90px; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(2) { width: 44px; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(3) { width: auto; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(4) { width: 145px; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(5),
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(6) { width: 230px; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(7) { width: 90px; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(8) { width: 190px; }
 
 [data-skin="jenkins"] .jenkins-status-orb {
   width: 20px;
@@ -457,7 +452,8 @@
   color: #97a2ad;
 }
 
-[data-skin="jenkins"] .jenkins-status-orb.success,
+[data-skin="jenkins"] .jenkins-status-orb.success { color: #2f9e5b; }
+[data-skin="jenkins"] .jenkins-status-orb.unstable { color: #e4a11b; }
 [data-skin="jenkins"] .jenkins-status-orb.running {
   color: #2f7ad7;
 }
@@ -508,7 +504,7 @@
   font-size: 11px;
 }
 
-[data-skin="jenkins"] .jenkins-home-main .jenkins-job-actions {
+[data-skin="jenkins"] .jenkins-home-main .jenkins-row-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -516,31 +512,31 @@
   padding: 0;
 }
 
-[data-skin="jenkins"] .jenkins-home-main .jenkins-job-actions button {
+[data-skin="jenkins"] .jenkins-home-main .jenkins-row-actions button {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
   min-height: 0;
   box-sizing: border-box;
   place-items: center;
   padding: 0;
   border-radius: 7px;
-  opacity: 0;
+  opacity: 1;
   transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease, border-color 120ms ease;
 }
 
-[data-skin="jenkins"] .jenkins-job-table tbody tr:hover .jenkins-job-actions button,
-[data-skin="jenkins"] .jenkins-job-table tbody tr:focus-within .jenkins-job-actions button {
+[data-skin="jenkins"] .jenkins-job-table tbody tr:hover .jenkins-row-actions button,
+[data-skin="jenkins"] .jenkins-job-table tbody tr:focus-within .jenkins-row-actions button {
   opacity: 1;
 }
 
 @media (hover: none), (pointer: coarse) {
-  [data-skin="jenkins"] .jenkins-home-main .jenkins-job-actions button {
+  [data-skin="jenkins"] .jenkins-home-main .jenkins-row-actions button {
     opacity: 1;
   }
 }
 
-[data-skin="jenkins"] .jenkins-home-main .jenkins-job-actions button:active:not(:disabled),
+[data-skin="jenkins"] .jenkins-home-main .jenkins-row-actions button:active:not(:disabled),
 [data-skin="jenkins"] .jenkins-context-task-list button:active:not(:disabled),
 [data-skin="jenkins"] .jenkins-context-task-list a:active,
 [data-skin="jenkins"] .row-icon:active:not(:disabled),
@@ -979,6 +975,7 @@
 @media (prefers-reduced-motion: reduce) {
   [data-skin="jenkins"] .jenkins-view-tabs button,
   [data-skin="jenkins"] .project-folder-chevron,
+  [data-skin="jenkins"] .jenkins-row-actions button,
   [data-skin="jenkins"] .jenkins-job-actions button,
   [data-skin="jenkins"] .row-icon,
   [data-skin="jenkins"] .row-run {
@@ -992,7 +989,7 @@
     animation: none;
   }
 
-  [data-skin="jenkins"] :is(.jenkins-job-actions button, .jenkins-context-task-list button, .jenkins-context-task-list a, .row-icon, .row-run):active {
+  [data-skin="jenkins"] :is(.jenkins-row-actions button, .jenkins-job-actions button, .jenkins-context-task-list button, .jenkins-context-task-list a, .row-icon, .row-run):active {
     transform: none;
   }
 }
