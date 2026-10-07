@@ -11,6 +11,43 @@ import (
 	"github.com/neko233-com/buildworld/internal/engine"
 )
 
+func TestJenkinsGoGameObserverPreservesCancellationAndLongRunningContract(t *testing.T) {
+	result, err := NewJenkinsfileStrategy().Convert(Request{Source: `pipeline {
+  agent any
+  parameters { booleanParam(name: 'RESUME_LOG_MONITOR', defaultValue: false) }
+  stages {
+    stage('Resume') { steps { sh 'go run ./tools/deploygame_cli ops resume-game-monitor --monitor-only="$RESUME_LOG_MONITOR"' } }
+    stage('Live Log Monitor') { steps { sh '"$WORKSPACE/.jenkins-artifacts/deploygame_cli" ops resume-game-monitor --monitor-only=true' } }
+  }
+}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := engine.ParsePipelineConfig(result.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.AllowLongRunning || len(config.Parameters) != 1 {
+		t.Fatalf("config=%#v", config)
+	}
+	for _, stage := range config.Stages {
+		for _, step := range stage.Steps {
+			if step.Type != "shell" {
+				t.Fatalf("observer was rewritten: %#v", step)
+			}
+		}
+	}
+	for _, command := range []string{"echo deploygame_cli", "deploygame_cli ops resume-game-monitor --monitor-only=false"} {
+		finite := &engine.BuildConfig{Stages: []engine.Stage{{Name: "Monitor", Steps: []engine.Step{{Type: "shell", Command: command}}}}}
+		if err := engine.ValidatePipelineSemantics(finite); err != nil {
+			t.Fatal(err)
+		}
+		if finite.AllowLongRunning {
+			t.Fatalf("finite command accepted: %s", command)
+		}
+	}
+}
+
 const serverJenkinsfileFixture = `
 pipeline {
     agent any

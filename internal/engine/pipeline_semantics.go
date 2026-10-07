@@ -43,6 +43,14 @@ func ValidatePipelineSemantics(config *BuildConfig) error {
 				return fmt.Errorf("stage %q step %q if: %w", stage.Name, step.Name, err)
 			}
 			if step.Type != "service_watch" {
+				// The game release CLI owns a cancellable Go observer. Retain its
+				// shell command and cancellation contract instead of translating
+				// it to a watcher that can signal the deployed service.
+				if stageIndex == len(config.Stages)-1 && stepIndex == len(stage.Steps)-1 &&
+					strings.TrimSpace(stage.If) == "" && len(stage.Branches) == 0 && strings.TrimSpace(step.If) == "" &&
+					isGoGameMonitorStep(*step) {
+					automaticLongRunning = true
+				}
 				continue
 			}
 			if err := ValidateServiceWatchConfig(step.Config); err != nil {
@@ -78,6 +86,11 @@ func ValidatePipelineSemantics(config *BuildConfig) error {
 	// suppress the safety timeout when its watcher is conditional or misplaced.
 	config.AllowLongRunning = automaticLongRunning
 	return nil
+}
+
+func isGoGameMonitorStep(step Step) bool {
+	return step.Type == "shell" && strings.Contains(step.Command, "deploygame_cli") &&
+		strings.Contains(step.Command, "ops resume-game-monitor") && strings.Contains(step.Command, "--monitor-only=true")
 }
 
 // orderPipelineStages validates the complete dependency graph and returns a

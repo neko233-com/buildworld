@@ -1498,6 +1498,17 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 	for k, v := range cfg.Environment {
 		envMap[k] = v
 	}
+	// Jenkins exposes validated build parameters to sh as environment variables.
+	// Keep control-plane environment (WORKSPACE/BUILD_NUMBER) authoritative.
+	if strings.EqualFold(project.PipelineFormat, "jenkinsfile") {
+		for name, value := range parseParams(build.Parameters) {
+			if pipelineEnvironmentName.MatchString(name) {
+				if _, exists := envMap[name]; !exists {
+					envMap[name] = fmt.Sprint(value)
+				}
+			}
+		}
+	}
 	if globals, err := r.store.ListEnvVars("global", nil); err == nil {
 		for _, v := range globals {
 			envMap[v.Name] = v.Value
@@ -1562,6 +1573,8 @@ func ExpandConfiguredEnvironment(configured map[string]string, base []string) []
 }
 
 var varPattern = regexp.MustCompile(`\$\{(global|project|parameter|env|build)\.([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+var pipelineEnvironmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var buildKVPattern = regexp.MustCompile(`(?m)::buildworld:set\s+([A-Za-z_][A-Za-z0-9_]*)=([^\r\n]+)`)
 
 // appendBuildKV promotes explicit Buildworld output markers to the following

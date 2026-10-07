@@ -12,6 +12,33 @@ import (
 	"github.com/neko233-com/buildworld/internal/store"
 )
 
+func TestJenkinsBuildParametersAreExportedWithoutReplacingBuildIdentity(t *testing.T) {
+	database, err := store.New(filepath.Join(t.TempDir(), "parameters.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	runner := NewBuildRunner(database, nil, t.TempDir(), nil)
+	project := &store.Project{ID: 7, Name: "parameter-export", PipelineFormat: "jenkinsfile"}
+	build := &store.Build{Number: 219, Parameters: `{"RESUME_LOG_MONITOR":true,"BUILD_NUMBER":"999","WORKSPACE":"wrong","INVALID-NAME":"ignored"}`}
+	cfg := &BuildConfig{Environment: map[string]string{"EXPLICIT": "preserved"}}
+	env := runner.buildEnvAt(build, cfg, project, "/workspace")
+	values := map[string]string{}
+	for _, item := range env {
+		if name, value, ok := strings.Cut(item, "="); ok {
+			values[name] = value
+		}
+	}
+	for name, expected := range map[string]string{"RESUME_LOG_MONITOR": "true", "BUILD_NUMBER": "219", "WORKSPACE": "/workspace", "EXPLICIT": "preserved"} {
+		if values[name] != expected {
+			t.Fatalf("%s=%q, want %q", name, values[name], expected)
+		}
+	}
+	if _, ok := values["INVALID-NAME"]; ok {
+		t.Fatal("invalid shell variable exported")
+	}
+}
+
 func executionPolicyCommand(seconds int) string {
 	if runtime.GOOS == "windows" {
 		return fmt.Sprintf("ping -n %d 127.0.0.1 >NUL", seconds+1)
