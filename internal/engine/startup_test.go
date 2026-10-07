@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -169,9 +170,25 @@ jobs:
 	if len(builds) != 1 || !builds[0].ApprovalRequired || builds[0].StartedAt != nil || !strings.Contains(builds[0].Parameters, `"target":"staging"`) {
 		t.Fatalf("builds=%+v", builds)
 	}
-	approval, err := data.GetBuildApprovalByBuild(builds[0].ID)
-	if err != nil || approval.Status != "pending" {
-		t.Fatalf("approval=%+v err=%v", approval, err)
+	// Startup is asynchronous: the durable approval hold is created first so
+	// dispatch cannot race the approval row. Await that row, not just the build.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		approval, err := data.GetBuildApprovalByBuild(builds[0].ID)
+		if err == nil {
+			if approval.Status != "pending" {
+				t.Fatalf("approval=%+v", approval)
+			}
+			break
+		}
+		if !errors.Is(err, sql.ErrNoRows) || time.Now().After(deadline) {
+			t.Fatalf("approval=%+v err=%v", approval, err)
+		}
+		current, err := data.GetBuild(builds[0].ID)
+		if err != nil || current.Status != "pending_approval" || current.StartedAt != nil {
+			t.Fatalf("approval hold lost: build=%+v err=%v", current, err)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
