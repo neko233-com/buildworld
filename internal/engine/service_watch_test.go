@@ -13,6 +13,42 @@ import (
 	"time"
 )
 
+func TestControllerShutdownDoesNotSignalObservedService(t *testing.T) {
+	t.Setenv("BUILDWORLD_SERVICE_WATCH_HELPER", "1")
+	process := exec.Command(os.Args[0], "-test.run=^TestWatchServiceProcessHelper$")
+	if err := process.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = process.Process.Kill(); _ = process.Wait() }()
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(target, "server.pid"), []byte(strconv.Itoa(process.Process.Pid)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "server.log"), []byte("observer-ready\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	output := make(chan string, 32)
+	done := make(chan error, 1)
+	go func() {
+		done <- WatchService(ctx, target, map[string]string{"pid_file": "server.pid", "log_file": "server.log", "stop_service_on_cancel": "true"}, func(line string) { output <- line })
+	}()
+	waitForWatchOutput(t, output, "observer-ready")
+	cancel(errBuildRunnerShutdown)
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error=%v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("observer did not stop")
+	}
+	if !serviceProcessRunning(process.Process.Pid) {
+		t.Fatal("controller shutdown signalled deployed service")
+	}
+}
+
 func TestWatchServiceStreamsNewLogLinesUntilCanceled(t *testing.T) {
 	target := t.TempDir()
 	pidFile := filepath.Join(target, "server.pid")

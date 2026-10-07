@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -97,7 +98,7 @@ func WatchService(ctx context.Context, workspace string, config map[string]strin
 	for {
 		select {
 		case <-ctx.Done():
-			if watchBool(config, "stop_service_on_cancel", "stopServiceOnCancel") {
+			if watchBool(config, "stop_service_on_cancel", "stopServiceOnCancel") && !errors.Is(context.Cause(ctx), errBuildRunnerShutdown) {
 				onOutput(fmt.Sprintf("Build cancellation requested; gracefully stopping service PID: %d", pid))
 				shutdown := watchDuration(config, "shutdown_timeout_seconds", "shutdownTimeoutSeconds", serviceWatchDefaultShutdown)
 				if err := terminateServiceProcess(pid, shutdown); err != nil {

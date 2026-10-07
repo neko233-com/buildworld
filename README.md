@@ -261,6 +261,9 @@ Jenkinsfile 构建参数同时作为 shell 环境变量传入。游戏发布 CLI
 `deploygame_cli ops resume-game-monitor --monitor-only=true` 保持长运行，取消仅停止观测；
 已发布项目的恢复判断由流水线核对活动代际、PID 与健康状态，不自动删除 staging 或重走停服。
 
+控制台正常退出会停止并等待所属构建进程树退出，随后清理工作区；中断构建保留恢复状态。
+控制台退出与用户取消构建分别处理：退出时只停止服务日志观测，不向已部署服务发送停止信号。
+
 桌面页面回归脚本位于 `web/e2e/desktopSmoke.mjs`。在已登录的内置 Browser
 测试会话中导入 `runDesktopSmoke`，传入 Browser 的 `tab`、隔离实例 URL 和
 可选的 `{ projectID, buildID }`，即可自动检查 24 个现有页面的标题、空白页、

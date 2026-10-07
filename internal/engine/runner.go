@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -40,7 +41,9 @@ type BuildRunner struct {
 	notificationService     *NotificationService
 	statisticsService       *StatisticsService
 	runsMu                  sync.Mutex
-	runs                    map[int64]context.CancelFunc
+	runs                    map[int64]context.CancelCauseFunc
+	runsWG                  sync.WaitGroup
+	shuttingDown            bool
 	startupOnce             sync.Once
 	startupWG               sync.WaitGroup
 	queueMu                 sync.Mutex
@@ -67,6 +70,8 @@ type BuildRunner struct {
 
 const remoteArtifactMaxSize = 256 * 1024 * 1024
 
+var errBuildRunnerShutdown = errors.New("BuildWorld controller shutdown")
+
 type ExecutionPolicy struct {
 	DefaultTimeoutSec        int
 	MaxConcurrentBuilds      int
@@ -92,7 +97,7 @@ func NewBuildRunner(s *store.Store, hub *ws.Hub, wsRoot string, plugins *plugin.
 		executor:         NewExecutor(),
 		gitClient:        git.NewClient(),
 		plugins:          plugins,
-		runs:             make(map[int64]context.CancelFunc),
+		runs:             make(map[int64]context.CancelCauseFunc),
 		queueWake:        make(chan struct{}, 1),
 		remoteWaiting:    make(map[int64]bool),
 		poolCursor:       make(map[string]int),
@@ -498,21 +503,23 @@ func (r *BuildRunner) Enqueue(buildID int64) error {
 }
 
 func (r *BuildRunner) Run(buildID int64) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancelCause(context.Background())
 	r.runsMu.Lock()
-	if r.runs[buildID] != nil {
+	if r.shuttingDown || r.runs[buildID] != nil {
 		r.runsMu.Unlock()
-		cancel()
+		cancel(nil)
 		return
 	}
 	r.runs[buildID] = cancel
+	r.runsWG.Add(1)
 	r.runsMu.Unlock()
 	go func() {
 		defer func() {
 			r.runsMu.Lock()
 			delete(r.runs, buildID)
 			r.runsMu.Unlock()
-			cancel()
+			cancel(nil)
+			r.runsWG.Done()
 		}()
 		r.run(ctx, buildID)
 	}()
@@ -525,7 +532,28 @@ func (r *BuildRunner) Stop(buildID int64) {
 	cancel := r.runs[buildID]
 	r.runsMu.Unlock()
 	if cancel != nil {
-		cancel()
+		cancel(context.Canceled)
+	}
+}
+
+// Shutdown stops build process trees and waits for their workspace cleanup.
+// Interrupted work remains durable/restartable; deployed services are observed
+// independently and must never be signalled merely because the controller exits.
+func (r *BuildRunner) Shutdown(ctx context.Context) error {
+	r.runsMu.Lock()
+	r.shuttingDown = true
+	for _, cancel := range r.runs {
+		cancel(errBuildRunnerShutdown)
+	}
+	r.runsMu.Unlock()
+	r.StopQueue()
+	done := make(chan struct{})
+	go func() { r.runsWG.Wait(); close(done) }()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -770,6 +798,11 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			if stepErr != nil {
 				if ctx.Err() == context.Canceled {
 					cancelStage()
+					if errors.Is(context.Cause(ctx), errBuildRunnerShutdown) {
+						r.log(buildID, stage.Name, "Controller shutdown: build processes stopped; execution will recover on restart.")
+						r.flushDurableBuildLog(buildID, true)
+						return
+					}
 					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 					r.log(buildID, stage.Name, fmt.Sprintf("CANCELLED: step %q stopped by user", step.Name))
 					r.flushDurableBuildLog(buildID, true)
@@ -824,6 +857,10 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		}
 	}
 
+	if errors.Is(context.Cause(ctx), errBuildRunnerShutdown) {
+		r.flushDurableBuildLog(buildID, true)
+		return
+	}
 	if r.artifacts != nil && len(cfg.Artifacts) > 0 {
 		r.log(buildID, "", "Collecting artifacts...")
 		if err := r.artifacts.CollectGlob(buildID, workspace, cfg.Artifacts); err != nil {
@@ -841,6 +878,10 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		return
 	}
 	r.runPostSteps(ctx, cfg, "success", workspace, project, build, env, params)
+	if errors.Is(context.Cause(ctx), errBuildRunnerShutdown) {
+		r.flushDurableBuildLog(buildID, true)
+		return
+	}
 
 	duration := time.Since(start).Milliseconds()
 	r.log(buildID, "", fmt.Sprintf("Build #%d succeeded in %s", build.Number, time.Since(start)))
@@ -912,7 +953,10 @@ func (r *BuildRunner) deferForProjectConcurrency(buildID, projectID int64, abort
 	return false
 }
 
-func (r *BuildRunner) runPostSteps(_ context.Context, cfg *BuildConfig, outcome, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}) {
+func (r *BuildRunner) runPostSteps(originalCtx context.Context, cfg *BuildConfig, outcome, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}) {
+	if errors.Is(context.Cause(originalCtx), errBuildRunnerShutdown) {
+		return
+	}
 	postCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	conditions := []string{"always", outcome, "cleanup"}
@@ -1667,6 +1711,13 @@ func (r *BuildRunner) broadcastStatus(buildID int64, status, stage string, progr
 }
 
 func (r *BuildRunner) fail(buildID int64, start time.Time, msg string, project *store.Project) {
+	r.runsMu.Lock()
+	stopping := r.shuttingDown
+	r.runsMu.Unlock()
+	if stopping {
+		r.flushDurableBuildLog(buildID, true)
+		return
+	}
 	r.log(buildID, "", "BUILD FAILED: "+msg)
 	// Persist the complete failure summary before status becomes terminal. Store
 	// status is used as the completion barrier by API clients and test runners.

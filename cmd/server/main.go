@@ -126,7 +126,13 @@ func main() {
 	statisticsService := engine.NewStatisticsService(db)
 	runner.SetStatisticsService(statisticsService)
 	runner.StartQueue(context.Background())
-	defer runner.StopQueue()
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		if err := runner.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Build process shutdown incomplete: %v", err)
+		}
+	}()
 	approvalService := engine.NewApprovalService(db)
 	bigScreenService := engine.NewBigScreenService(db)
 	triggerChecker := engine.NewTriggerChecker(db, runner, hub)

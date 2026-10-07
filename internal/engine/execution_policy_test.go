@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -11,6 +12,61 @@ import (
 
 	"github.com/neko233-com/buildworld/internal/store"
 )
+
+func TestControllerShutdownStopsChildrenAndKeepsBuildRecoverable(t *testing.T) {
+	root := t.TempDir()
+	database, err := store.New(filepath.Join(root, "shutdown.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	marker := filepath.Join(root, "orphan.txt")
+	command := fmt.Sprintf("echo shutdown-ready; sleep 2; echo orphan > '%s'", marker)
+	if runtime.GOOS == "windows" {
+		command = fmt.Sprintf(`echo shutdown-ready & ping -n 3 127.0.0.1 >NUL & echo orphan > "%s"`, marker)
+	}
+	project := executionPolicyProject(t, database, "shutdown", command)
+	build := executionPolicyBuild(t, database, project, 1)
+	runner := NewBuildRunner(database, nil, filepath.Join(root, "workspaces"), nil)
+	runner.Run(build.ID)
+	deadline := time.Now().Add(4 * time.Second)
+	for {
+		current, _ := database.GetBuild(build.ID)
+		if strings.Contains(current.Log, "shutdown-ready") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("shell never started")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := runner.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := database.GetBuild(build.ID)
+	if current.Status != "running" || strings.Contains(current.Log, "stopped by user") {
+		t.Fatalf("shutdown lost recovery state: %#v", current)
+	}
+	if runner.isBuildRunning(build.ID) {
+		t.Fatal("shutdown returned before execution cleanup")
+	}
+	time.Sleep(2200 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("orphan child wrote marker: %v", err)
+	}
+	if err := database.UpdateProject(project.ID, project.Name, "", "", "git", "main", testShellPipelineSource("Verify", "Command", "echo recovered"), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	restarted := NewBuildRunner(database, nil, filepath.Join(root, "workspaces"), nil)
+	restarted.StartQueue(context.Background())
+	defer restarted.StopQueue()
+	finished := waitForBuildStatus(t, database, build.ID, 5*time.Second, "success")
+	if !strings.Contains(finished.Log, "recovered") || finished.Number != 1 {
+		t.Fatal("same durable build did not recover")
+	}
+}
 
 func TestJenkinsBuildParametersAreExportedWithoutReplacingBuildIdentity(t *testing.T) {
 	database, err := store.New(filepath.Join(t.TempDir(), "parameters.db"))
