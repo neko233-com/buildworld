@@ -228,7 +228,16 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	server.Stop(ctx)
+	if err := stopServerServices(ctx, runner.Shutdown, server.Stop); err != nil {
+		log.Printf("Server shutdown incomplete: %v", err)
+	}
+}
+
+// Stop build processes before waiting for long-lived HTTP streams to drain.
+func stopServerServices(ctx context.Context, stopBuilds, stopHTTP func(context.Context) error) error {
+	buildErr := stopBuilds(ctx)
+	httpErr := stopHTTP(ctx)
+	return errors.Join(buildErr, httpErr)
 }
 
 // staticDirectories supports repository development and release bundles that

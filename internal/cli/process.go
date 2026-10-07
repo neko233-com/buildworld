@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-func stopProcess(process *os.Process) error { return process.Kill() }
-
 type processIdentity struct {
 	PID  int
 	Name string
@@ -92,7 +90,8 @@ func stopMatchingBuildWorldServerProcesses(
 		stopped = append(stopped, pid)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
+	// Allow both build-process drain and bounded HTTP shutdown to complete.
+	deadline := time.Now().Add(25 * time.Second)
 	for _, pid := range stopped {
 		for running(pid) && time.Now().Before(deadline) {
 			time.Sleep(50 * time.Millisecond)

@@ -4,6 +4,7 @@ package cli
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -11,6 +12,8 @@ import (
 
 	"golang.org/x/sys/windows"
 )
+
+func stopProcess(process *os.Process) error { return process.Kill() }
 
 const windowsProcessStillActive = 259
 

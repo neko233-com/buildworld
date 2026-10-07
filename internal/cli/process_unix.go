@@ -9,6 +9,8 @@ import (
 	"syscall"
 )
 
+func stopProcess(process *os.Process) error { return process.Signal(syscall.SIGTERM) }
+
 func prepareBackground(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
