@@ -23,6 +23,7 @@ $sourceBranch = 'main'
 $githubRepository = "github.com/$Repository"
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $output = Join-Path $repoRoot "release\$Version"
+. (Join-Path $PSScriptRoot 'release-upload.ps1')
 
 function Assert-Command([string]$Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
@@ -263,8 +264,24 @@ try {
     $batchSize = 20
     for ($offset = 0; $offset -lt $uploadAssets.Count; $offset += $batchSize) {
         $last = [Math]::Min($offset + $batchSize - 1, $uploadAssets.Count - 1)
-        $batch = @($uploadAssets[$offset..$last] | ForEach-Object { $_.FullName })
-        Invoke-Checked gh (@('release', 'upload', $stagingTag, '--repo', $githubRepository) + $batch)
+        $verifiedBatch = @($uploadAssets[$offset..$last] | ForEach-Object {
+            [pscustomobject]@{
+                Name = $_.Name
+                FullName = $_.FullName
+                Length = $_.Length
+                SHA256 = 'sha256:' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+        })
+        Invoke-VerifiedReleaseUpload -Assets $verifiedBatch -Upload {
+            param($paths)
+            $uploadOutput = & gh release upload $stagingTag --repo $githubRepository @paths 2>&1
+            $uploadExitCode = $LASTEXITCODE
+            if ($uploadOutput) { Write-Host ($uploadOutput -join [Environment]::NewLine) }
+            return $uploadExitCode
+        } -ListRemote {
+            $release = (Get-CheckedOutput gh @('release', 'view', $stagingTag, '--repo', $githubRepository, '--json', 'assets')) | ConvertFrom-Json
+            return @($release.assets)
+        }
     }
     [void](Assert-ReleaseAssets $stagingTag $uploadAssets $true)
 

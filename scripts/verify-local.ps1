@@ -58,6 +58,11 @@ try {
 
     Invoke-Checked 'Go tests' { go test ./... -count=1 }
     Invoke-Checked 'Go vet' { go vet ./... }
+    Invoke-Checked 'Release upload retry regression tests' {
+        & (Join-Path $PSScriptRoot 'tests/release-upload.test.ps1')
+        if (-not $?) { throw 'Release upload retry regression tests failed.' }
+        $global:LASTEXITCODE = 0
+    }
 
     $nodeVersion = (& node --version).Trim()
     if ($LASTEXITCODE -ne 0) { throw "node --version failed with exit code $LASTEXITCODE" }
