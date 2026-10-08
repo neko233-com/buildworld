@@ -6,7 +6,7 @@ import { api, type BuildLogResponse } from '../api'
 import { useApi } from '../hooks'
 import { useBuildLogStream } from '../useBuildLogStream'
 import { useI18n } from '../i18n'
-import { visibleBuildLog } from '../lib/buildTimeline'
+import { buildLogMessage, visibleBuildLog } from '../lib/buildTimeline'
 import { BUILD_LOG_WINDOW_MAX_CHARACTERS, BUILD_LOG_WINDOW_MAX_LINES, isNearLogBottom } from '../lib/logFollow'
 import { LOG_VIRTUALIZATION_THRESHOLD, useVirtualLogWindow } from '../lib/logVirtualization'
 import { logTones, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
@@ -79,8 +79,9 @@ export default function BuildLogViewer() {
     onBuildStatus: reloadBuild,
   })
   const source = visibleBuildLog(streamLog)
-  const lines = useMemo(() => source ? source.split('\n') : [], [source])
-  const lineTones = useMemo(() => logTones(lines), [lines])
+  const rawLines = useMemo(() => source ? source.split('\n') : [], [source])
+  const lines = useMemo(() => rawLines.map(buildLogMessage), [rawLines])
+  const lineTones = useMemo(() => logTones(rawLines), [rawLines])
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const matches = useMemo(() => normalizedQuery
     ? lines.flatMap((line, index) => line.toLocaleLowerCase().includes(normalizedQuery) ? [index] : [])

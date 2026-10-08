@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { timelineProgress, visibleBuildLog } from './buildTimeline'
+import { buildLogMessage, timelineProgress, visibleBuildLog } from './buildTimeline'
 
 describe('build timeline helpers', () => {
+  it('removes the build envelope while preserving original timestamps, levels and indentation', () => {
+    expect(buildLogMessage('[10:27:21] [Resume Existing Log Monitor] 2026-10-08 10:27:21,123 [INFO] ready')).toBe('2026-10-08 10:27:21,123 [INFO] ready')
+    expect(buildLogMessage('[10:27:21] [Live Log Monitor]   [0] load at service.go:42')).toBe('  [0] load at service.go:42')
+    expect(buildLogMessage('[10:27:21] [] BUILD FAILED')).toBe('BUILD FAILED')
+    expect(buildLogMessage('[10:27:21] [WARN] [Build] retrying')).toBe('[WARN] retrying')
+    expect(buildLogMessage('[INFO] ready')).toBe('[INFO] ready')
+    expect(buildLogMessage('[2026-10-08 10:27:21,123] [INFO] ready')).toBe('[2026-10-08 10:27:21,123] [INFO] ready')
+    expect(buildLogMessage('plain output')).toBe('plain output')
+  })
+
   it('keeps machine-readable plan markers out of the operator log', () => {
     const log = [
       '[10:00:00] [] ::buildworld:plan {"stages":[]}',

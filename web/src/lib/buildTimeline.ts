@@ -23,6 +23,12 @@ export function visibleBuildLog(log = ''): string {
     .trimEnd()
 }
 
+// Remove only the BuildWorld envelope; application timestamps, levels and
+// indentation belong to the original output and must remain visible.
+export function buildLogMessage(line: string): string {
+  return line.replace(/^\[\d{2}:\d{2}:\d{2}\] \[(?:(INFO|WARN|ERROR|DEBUG)\] \[)?[^\]\r\n]*\] ?/, (_prefix, level: string | undefined) => level ? `[${level}] ` : '')
+}
+
 export function timelineProgress(timeline?: BuildTimeline | null): number {
   if (!timeline?.total_steps) return 0
   if (timeline.build_status === 'success') return 100

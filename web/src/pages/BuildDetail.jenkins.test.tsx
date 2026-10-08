@@ -115,6 +115,7 @@ describe('BuildDetail Jenkins Run layout', () => {
     expect(artifactsPanel.hidden).toBe(true)
     expect(container.querySelector('.build-chain-panel')).toBeNull()
     expect(consoleOutput.textContent).toContain('hello')
+    expect(consoleOutput.textContent).not.toContain('[07:00:36] [Build]')
     expect(consoleOutput.getAttribute('role')).toBe('region')
     expect(consoleOutput.getAttribute('aria-label')).toBe('Logs')
     expect(consoleOutput.tabIndex).toBe(0)

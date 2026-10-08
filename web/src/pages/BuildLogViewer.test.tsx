@@ -113,6 +113,7 @@ describe('BuildLogViewer', () => {
     expect(container.querySelector('a[href="/builds/42"]')).not.toBeNull()
     expect(container.querySelector('a[href="/"]')).toBeNull()
     expect(container.querySelectorAll('.plain-log-lines > div')).toHaveLength(3)
+    expect(container.querySelector('.plain-log-lines code')?.textContent).toBe('=== Stage: Prepare ===')
     expect(container.querySelectorAll('.plain-log-lines > .error')).toHaveLength(2)
     expect(container.querySelectorAll('.plain-log-lines > .info')).toHaveLength(1)
     expect(document.title).toBe('Logs · #7 · buildworld')
@@ -314,7 +315,8 @@ describe('BuildLogViewer', () => {
       payload: { timestamp: '10:00:02', stage: 'Build', line: 'compile completed' },
     }))
     await waitForLogBatch()
-    expect(container.textContent).toContain('[10:00:02] [Build] compile completed')
+    expect(container.querySelector('.plain-log-lines')?.textContent).toContain('compile completed')
+    expect(container.querySelector('.plain-log-lines')?.textContent).not.toContain('[10:00:02] [Build]')
 
     const snapshotsBeforeStatus = getBuildLogs.mock.calls.length
     await act(async () => socket?.emitMessage({ type: 'build:status', payload: { status: 'success' } }))

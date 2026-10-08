@@ -8,7 +8,7 @@ import { useApi } from '../hooks'
 import { useBuildLogStream } from '../useBuildLogStream'
 import { dialogs } from '../components/AppDialogs'
 import { PageState } from '../components/PageState'
-import { timelineProgress, visibleBuildLog, type BuildTimelineStep } from '../lib/buildTimeline'
+import { buildLogMessage, timelineProgress, visibleBuildLog, type BuildTimelineStep } from '../lib/buildTimeline'
 import { BUILD_LOG_WINDOW_MAX_CHARACTERS, BUILD_LOG_WINDOW_MAX_LINES, isNearLogBottom } from '../lib/logFollow'
 import { LOG_VIRTUALIZATION_THRESHOLD, useVirtualLogWindow } from '../lib/logVirtualization'
 import { logTones, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
@@ -156,8 +156,9 @@ export default function BuildDetail() {
     onBuildStatus: reloadBuild,
   })
   const displayedLog = useMemo(() => visibleBuildLog(liveLog), [liveLog])
-  const consoleLines = useMemo(() => displayedLog ? displayedLog.split(/\r?\n/) : [], [displayedLog])
-  const consoleTones = useMemo(() => logTones(consoleLines), [consoleLines])
+  const rawConsoleLines = useMemo(() => displayedLog ? displayedLog.split(/\r?\n/) : [], [displayedLog])
+  const consoleLines = useMemo(() => rawConsoleLines.map(buildLogMessage), [rawConsoleLines])
+  const consoleTones = useMemo(() => logTones(rawConsoleLines), [rawConsoleLines])
   const logLines = useMemo(() => consoleLines.filter(Boolean), [consoleLines])
   const normalizedLogQuery = logQuery.trim().toLocaleLowerCase()
   const logMatches = useMemo(() => normalizedLogQuery
@@ -294,7 +295,7 @@ export default function BuildDetail() {
 
   const scrollToStageLog = (stageName: string) => {
     const stagePattern = new RegExp(`^\\[[^\\]]+\\] \\[${stageName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\]`)
-    const lineIndex = consoleLines.findIndex(line => stagePattern.test(line))
+    const lineIndex = rawConsoleLines.findIndex(line => stagePattern.test(line))
     const logLine = lineIndex >= 0 ? document.getElementById(`build-log-line-${lineIndex}`) : null
     if (!logLine) {
       const visiblePosition = visibleConsoleLines.findIndex(entry => entry.index === lineIndex)
@@ -418,7 +419,7 @@ export default function BuildDetail() {
 
   const timelineSteps = timeline?.steps || []
   const activeTimelineStep = timelineSteps.find(step => step.status === 'running' || step.status === 'failed' || step.status === 'cancelled')
-  const lastStage = activeTimelineStep?.stage || [...logLines].reverse().map(line => line.match(/^\[[^\]]+\] \[([^\]]*)\]/)?.[1]).find(Boolean) || t('builds.waiting')
+  const lastStage = activeTimelineStep?.stage || [...rawConsoleLines].reverse().map(line => line.match(/^\[[^\]]+\] \[([^\]]*)\]/)?.[1]).find(Boolean) || t('builds.waiting')
   const progress = timelineProgress(timeline)
   const progressCopy = t('builds.progress')
     .replace('{completed}', String(timeline?.completed_steps || 0))
