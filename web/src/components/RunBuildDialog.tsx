@@ -231,10 +231,13 @@ export function BuildParametersForm({
     try {
       if (parameters.RELEASE_ACTION === 'publish-latest') {
         setConfirming(true)
-        const accepted = await dialogs.confirm(t('projectDetail.confirmPublishLatestHelp')
+        const sharedService = String(parameters.RELEASE_SHARED_SERVICE || '').trim()
+        const confirmation = t(sharedService ? 'projectDetail.confirmPublishSharedLatestHelp' : 'projectDetail.confirmPublishLatestHelp')
+          .replace('{service}', sharedService)
           .replace('{channel}', String(parameters.RELEASE_CHANNEL || '-'))
           .replace('{environment}', String(parameters.RELEASE_ENVIRONMENT || '-'))
-          .replace('{branch}', branch.trim()), {
+          .replace('{branch}', branch.trim())
+        const accepted = await dialogs.confirm(confirmation, {
           title: t('projectDetail.confirmPublishLatest'), action: t('projectDetail.confirmPublishLatest'),
         })
         setConfirming(false)

@@ -472,6 +472,7 @@
     "confirmPublishLatest": "确认发布最新版本",
     "waitingPublishConfirmation": "等待发布确认",
     "confirmPublishLatestHelp": "将从分支 {branch} 构建并发布最新代码到 {channel} / {environment}，替换该目标的部署版本并重启服务。请确认目标与影响后继续。",
+    "confirmPublishSharedLatestHelp": "将从分支 {branch} 构建并发布共享服务 {service}，替换其部署版本并重启服务。该变更作用于此共享服务配置的全部渠道与环境。请确认服务身份与影响后继续。",
     "releaseChannel": "渠道",
     "releaseVersion": "版本 / 来源分支",
     "releaseAction": "发布动作",

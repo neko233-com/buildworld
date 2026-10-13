@@ -472,6 +472,7 @@
     "confirmPublishLatest": "Confirm publishing latest",
     "waitingPublishConfirmation": "Waiting for confirmation",
     "confirmPublishLatestHelp": "Build and publish the latest code from branch {branch} to {channel} / {environment}. This replaces that target's deployed version and restarts its services. Confirm this target and impact before proceeding.",
+    "confirmPublishSharedLatestHelp": "Build and publish shared service {service} from branch {branch}. This replaces its deployed version and restarts the service for every channel and environment in its controlled configuration. Confirm the service identity and impact before proceeding.",
     "releaseChannel": "Channel",
     "releaseVersion": "Version / source branch",
     "releaseAction": "Release action",

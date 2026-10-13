@@ -66,6 +66,21 @@ it('uses the selected historical version without a latest publication confirmati
   expect(api.triggerBuild).toHaveBeenCalledWith(33, expect.objectContaining({ parameters: { RELEASE_CHANNEL: 'taptap', RELEASE_ENVIRONMENT: 'audit', RELEASE_ACTION: 'restart-version', RELEASE_VERSION: '0.1.234', CONFIRM_PUBLISH_LATEST: false } }))
 })
 
+it('confirms the shared physical service and all configured targets without inventing a channel', async () => {
+  const metadata = await api.validateProject(33)
+  metadata.parameters = metadata.parameters!.filter(parameter => parameter.name !== 'RELEASE_CHANNEL' && parameter.name !== 'RELEASE_ENVIRONMENT')
+  metadata.parameters.push({ name: 'RELEASE_SHARED_SERVICE', type: 'string', default: 'sf-minigame-shared' })
+  vi.mocked(api.validateProject).mockResolvedValue(metadata)
+  vi.mocked(dialogs.confirm).mockResolvedValue(true)
+  await render({ RELEASE_ACTION: 'publish-latest' })
+  await submit()
+  const confirmation = vi.mocked(dialogs.confirm).mock.calls[0][0]
+  expect(confirmation).toContain('shared service sf-minigame-shared from branch release/game')
+  expect(confirmation).toContain('every channel and environment')
+  expect(confirmation).not.toContain('- / -')
+  expect(api.triggerBuild).toHaveBeenCalledWith(33, { branch: 'release/game', parameters: { RELEASE_SHARED_SERVICE: 'sf-minigame-shared', RELEASE_ACTION: 'publish-latest', CONFIRM_PUBLISH_LATEST: true } })
+})
+
 it('offers channel history and default for string environments while accepting a new safe name', async () => {
   const metadata = await api.validateProject(33)
   metadata.parameters!.find(parameter => parameter.name === 'RELEASE_ENVIRONMENT')!.type = 'string'
