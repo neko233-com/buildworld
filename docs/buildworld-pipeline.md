@@ -66,6 +66,25 @@ an older latest-publication build is rejected because its earlier confirmation
 must not authorize another latest publication. Start a new parameterized build
 to confirm the new operation.
 
+Shared physical SDK/Gateway pipelines declare `RELEASE_SHARED_SERVICE` as a
+public `string`, with an explicit configured service ID matching
+`^[a-z][a-z0-9-]{0,31}$`. This is a separate target contract: such pipelines must
+not also declare or submit `RELEASE_CHANNEL` or `RELEASE_ENVIRONMENT`, including
+blank values. A service ID is mandatory even when the pipeline default is
+missing; an undeclared request parameter never selects shared mode. The same
+latest-publication confirmation and historical-version guards apply to both
+contracts. Shared component builds retain ordinary project build history and
+do not fabricate per-game channel/environment publication records.
+
+```json
+{"branch":"main","parameters":{"RELEASE_SHARED_SERVICE":"sf-minigame-shared","RELEASE_ACTION":"publish-latest","CONFIRM_PUBLISH_LATEST":true}}
+```
+
+The declaration selects the target mode before queueing. This avoids treating
+a physical shared service as one game target while keeping incomplete or
+mixed declarations fail-closed; target membership remains authoritative in
+the release tool's controlled service profile.
+
 After successful deployment and required verification, the release tool should
 emit one complete public marker line:
 

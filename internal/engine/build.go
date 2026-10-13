@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/neko233-com/buildworld/internal/releasemeta"
@@ -108,6 +109,9 @@ func ResolveBuildParameters(parameters []BuildParameter, supplied map[string]int
 				return nil, fmt.Errorf("release metadata parameter %s must be a public string", name)
 			}
 		}
+		if name == "RELEASE_SHARED_SERVICE" && (parameter.IsSecret || !strings.EqualFold(strings.TrimSpace(parameter.Type), "string")) {
+			return nil, fmt.Errorf("RELEASE_SHARED_SERVICE must be a public string")
+		}
 		if name == "CONFIRM_PUBLISH_LATEST" && (parameter.IsSecret || !strings.EqualFold(strings.TrimSpace(parameter.Type), "boolean")) {
 			return nil, fmt.Errorf("CONFIRM_PUBLISH_LATEST must be a public boolean")
 		}
@@ -127,6 +131,14 @@ func ResolveBuildParameters(parameters []BuildParameter, supplied map[string]int
 			return nil, fmt.Errorf("build parameter %s is not declared", name)
 		}
 	}
+	_, sharedRelease := seen["RELEASE_SHARED_SERVICE"]
+	if sharedRelease {
+		for _, name := range []string{"RELEASE_CHANNEL", "RELEASE_ENVIRONMENT"} {
+			if _, declared := seen[name]; declared {
+				return nil, fmt.Errorf("shared release parameters cannot declare channel or environment")
+			}
+		}
+	}
 
 	if err := ValidateBuildParameters(parameters, resolved); err != nil {
 		return nil, err
@@ -134,6 +146,12 @@ func ResolveBuildParameters(parameters []BuildParameter, supplied map[string]int
 	if environment, exists := resolved["RELEASE_ENVIRONMENT"]; exists {
 		if value, ok := environment.(string); !ok || !releasemeta.ValidEnvironment(value) {
 			return nil, fmt.Errorf("RELEASE_ENVIRONMENT must match ^[a-z][a-z0-9-]{0,31}$")
+		}
+	}
+	if sharedRelease {
+		service, ok := resolved["RELEASE_SHARED_SERVICE"].(string)
+		if !ok || !regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`).MatchString(service) {
+			return nil, fmt.Errorf("RELEASE_SHARED_SERVICE requires a safe service ID matching ^[a-z][a-z0-9-]{0,31}$")
 		}
 	}
 	if action, exists := resolved["RELEASE_ACTION"]; exists {
@@ -149,9 +167,11 @@ func ResolveBuildParameters(parameters []BuildParameter, supplied map[string]int
 		default:
 			return nil, fmt.Errorf("unsupported RELEASE_ACTION %v", action)
 		}
-		for _, name := range []string{"RELEASE_CHANNEL", "RELEASE_ENVIRONMENT"} {
-			if value, ok := resolved[name].(string); !ok || strings.TrimSpace(value) == "" {
-				return nil, fmt.Errorf("release action requires explicit %s", name)
+		if !sharedRelease {
+			for _, name := range []string{"RELEASE_CHANNEL", "RELEASE_ENVIRONMENT"} {
+				if value, ok := resolved[name].(string); !ok || strings.TrimSpace(value) == "" {
+					return nil, fmt.Errorf("release action requires explicit %s", name)
+				}
 			}
 		}
 	}
