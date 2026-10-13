@@ -45,6 +45,26 @@ export type BuildOverview = {
   started_at?: string | null
   finished_at?: string | null
   duration_ms?: number | null
+  action?: string
+  version?: string
+  branch?: string
+  release_results?: BuildReleaseResult[]
+}
+
+export type BuildReleaseResult = {
+  channel: string
+  environment: string
+  action: string
+  version: string
+  branch?: string
+  component?: string
+}
+
+export type ReleaseTargetOverview = {
+  channel: string
+  environment: string
+  latest: BuildOverview | null
+  last_success: BuildOverview | null
 }
 
 export type ProjectChange = {
@@ -376,6 +396,7 @@ export const api = {
   reorderProjects: (orderedIds: number[]) =>
     request<any>('PUT', '/projects/order', { ordered_ids: orderedIds }),
   getProject: (id: number) => request<any>('GET', `/projects/${id}`),
+  listReleaseTargets: (id: number) => request<ReleaseTargetOverview[]>('GET', `/projects/${id}/release-targets`),
   createProject: (data: any) => request('POST', '/projects/', data),
   updateProject: (id: number, data: any) => request('PUT', `/projects/${id}`, data),
   deleteProject: (id: number) => request('DELETE', `/projects/${id}`),

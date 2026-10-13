@@ -12,11 +12,12 @@ describe('build timeline helpers', () => {
     expect(buildLogMessage('plain output')).toBe('plain output')
   })
 
-  it('keeps machine-readable plan markers out of the operator log', () => {
+  it('keeps machine-readable plan and release result markers out of the operator log', () => {
     const log = [
       '[10:00:00] [] ::buildworld:plan {"stages":[]}',
       '[10:00:01] [Build] === Stage: Build ===',
       '[10:00:02] [Build] compiler output',
+      '[10:00:03] [Publish] ::buildworld:release-result {"channel":"wechat","environment":"audit","version":"0.1.234"}',
     ].join('\n')
 
     expect(visibleBuildLog(log)).toBe([

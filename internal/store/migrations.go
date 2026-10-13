@@ -346,6 +346,7 @@ var schemaMigrations = []schemaMigration{
 		up:      addProjectHTTPTrigger,
 	},
 	{version: 13, name: "project-build-on-startup", up: addProjectBuildOnStartup},
+	{version: 14, name: "build-release-results", up: addBuildReleaseResults},
 }
 
 func runSchemaMigrations(db *sql.DB, migrations []schemaMigration) error {

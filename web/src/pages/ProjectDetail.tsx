@@ -15,6 +15,7 @@ import { canEdit } from '../authz'
 import { dialogs } from '../components/AppDialogs'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { PageState } from '../components/PageState'
+import ProjectReleaseTargets from '../components/ProjectReleaseTargets'
 import { useApi } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
@@ -229,6 +230,8 @@ export default function ProjectDetail() {
         </header>
         <p className="jenkins-job-full-name">{t('projectDetail.fullProjectName').replace('{group}', groupName).replace('{project}', project.name)}</p>
         <p className="jenkins-job-description">{project.description || t('projectDetail.noDescription')}</p>
+
+        <ProjectReleaseTargets projectId={projectId} refreshKey={buildList.filter(build => activeStatuses.has(build.status) || build.finished_at).map(build => `${build.id}:${build.status}`).join('|')} />
 
         <section className="jenkins-job-related">
           <h2>{t('projectDetail.relatedLinks')}</h2>

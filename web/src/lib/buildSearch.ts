@@ -12,6 +12,7 @@ export interface BuildSummary {
   started_at?: string
   finished_at?: string
   duration_ms?: number
+  release_results?: Array<{ channel: string; environment: string; action: string; version: string; branch?: string; component?: string }>
 }
 
 export interface BuildSearchFilters {
@@ -20,6 +21,8 @@ export interface BuildSearchFilters {
   status: string
   trigger: string
   branch: string
+  releaseChannel?: string
+  releaseEnvironment?: string
   pinned: boolean
   page: number
   limit: number
@@ -45,6 +48,8 @@ export function readBuildSearchParams(params: URLSearchParams): BuildSearchFilte
     status: params.get('status') || '',
     trigger: params.get('trigger') || '',
     branch: (params.get('branch') || '').trim(),
+    ...(params.get('release_channel') ? { releaseChannel: params.get('release_channel')!.trim() } : {}),
+    ...(params.get('release_environment') ? { releaseEnvironment: params.get('release_environment')!.trim() } : {}),
     pinned: params.get('pinned') === '1',
     page: positiveInteger(params.get('page'), 1),
     limit: BUILD_HISTORY_PAGE_SIZE,
@@ -58,6 +63,8 @@ export function buildSearchQuery(filters: BuildSearchFilters): string {
   if (filters.status) params.set('status', filters.status)
   if (filters.trigger) params.set('trigger', filters.trigger)
   if (filters.branch) params.set('branch', filters.branch)
+  if (filters.releaseChannel) params.set('release_channel', filters.releaseChannel)
+  if (filters.releaseEnvironment) params.set('release_environment', filters.releaseEnvironment)
   if (filters.pinned) params.set('pinned', 'true')
   params.set('limit', String(filters.limit))
   params.set('offset', String((filters.page - 1) * filters.limit))
@@ -71,6 +78,8 @@ export function activeBuildFilterCount(filters: BuildSearchFilters): number {
     filters.status,
     filters.trigger,
     filters.branch,
+    filters.releaseChannel,
+    filters.releaseEnvironment,
     filters.pinned,
   ].filter(Boolean).length
 }

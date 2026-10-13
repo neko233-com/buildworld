@@ -10,6 +10,7 @@ import { canEdit } from '../authz'
 import { PageState } from '../components/PageState'
 import { formatDuration } from '../lib/durationPresentation'
 import { activeBuildFilterCount, readBuildSearchParams } from '../lib/buildSearch'
+import { releaseActionLabel } from '../lib/releasePresentation'
 import JenkinsPageShell from '../components/JenkinsPageShell'
 import ReplayBuildDialog, { type ReplayBuildTarget } from '../components/ReplayBuildDialog'
 
@@ -124,6 +125,7 @@ export default function Builds() {
         <button type="submit" className="primary-command">{t('builds.applyFilters')}</button>
       </form>
       <div className="build-filter-row">
+        {(filters.releaseChannel || filters.releaseEnvironment) && <span role="status">{t('projectDetail.releaseTargets')}: {filters.releaseChannel || '*'} / {filters.releaseEnvironment || '*'}</span>}
         <label><span>{t('builds.project')}</span><select aria-label={t('builds.filterProject')} value={filters.projectId} onChange={event => updateFilters({ project: Number(event.target.value) })}><option value={0}>{t('builds.allProjects')}</option>{(projects || []).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
         <label><span>{t('builds.status')}</span><select aria-label={t('builds.filterStatus')} value={filters.status} onChange={event => updateFilters({ status: event.target.value })}>{buildStatuses.map(status => <option key={status || 'all'} value={status}>{status ? buildStatusLabel(t, status) : t('builds.allStatuses')}</option>)}</select></label>
         <label><span>{t('builds.trigger')}</span><select aria-label={t('builds.filterTrigger')} value={filters.trigger} onChange={event => updateFilters({ trigger: event.target.value })}>{buildTriggers.map(trigger => <option key={trigger || 'all'} value={trigger}>{trigger ? buildTriggerLabel(t, trigger) : t('builds.allTriggers')}</option>)}</select></label>
@@ -140,7 +142,7 @@ export default function Builds() {
         <tbody>
           {!list.length && <tr><td colSpan={8} className="operations-empty"><FileText size={18} />{filterCount ? t('builds.noMatchingBuilds') : t('builds.noBuilds')}</td></tr>}
           {list.map(build => <tr key={build.id}>
-            <td><Link className="build-number build-number-link" to={`/builds/${build.id}`}>{build.pinned && <Pin size={13} />}#{build.number}</Link></td>
+            <td><Link className="build-number build-number-link" to={`/builds/${build.id}`}>{build.pinned && <Pin size={13} />}#{build.number}</Link>{build.release_results?.map(result => <div key={result.component || result.version}><small>{releaseActionLabel(t, result.action)} · {result.version}{result.branch && ` · ${result.branch}`}</small>{build.status === 'success' && build.finished_at && build.release_results?.length === 1 && <div><Link to={`/projects/${build.project_id}/build?${new URLSearchParams({ release_action: 'restart-version', release_channel: result.channel, release_environment: result.environment, release_version: result.version })}`}>{t('projectDetail.restartVersion')}</Link></div>}</div>)}</td>
             <td><Link className="entity-text-link" to={`/projects/${build.project_id}`}>{projectMap.get(build.project_id) || `#${build.project_id}`}</Link></td>
             <td><span className={`jenkins-build-state ${buildStatusTone(build.status)}`}>{build.status === 'running' ? <LoaderCircle className="timeline-spinner" size={20} aria-hidden="true" /> : <i aria-hidden="true" />}<span>{buildStatusLabel(t, build.status)}</span></span></td>
             <td className="muted-cell">{buildTriggerLabel(t, build.trigger)}</td>

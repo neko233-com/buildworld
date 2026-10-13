@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/neko233-com/buildworld/internal/releasemeta"
 )
 
 type BuildParameter struct {
@@ -90,6 +92,25 @@ func ResolveBuildParameters(parameters []BuildParameter, supplied map[string]int
 			return nil, fmt.Errorf("build parameter %s is declared more than once", name)
 		}
 		seen[name] = struct{}{}
+		if name == "RELEASE_CHANNEL" || name == "RELEASE_ACTION" {
+			if parameter.IsSecret || !strings.EqualFold(strings.TrimSpace(parameter.Type), "choice") {
+				return nil, fmt.Errorf("release target parameter %s must be a public choice", name)
+			}
+		}
+		if name == "RELEASE_ENVIRONMENT" {
+			parameterType := strings.ToLower(strings.TrimSpace(parameter.Type))
+			if parameter.IsSecret || (parameterType != "choice" && parameterType != "string") {
+				return nil, fmt.Errorf("release target parameter RELEASE_ENVIRONMENT must be a public string or choice")
+			}
+		}
+		if name == "RELEASE_VERSION" {
+			if parameter.IsSecret || !strings.EqualFold(strings.TrimSpace(parameter.Type), "string") {
+				return nil, fmt.Errorf("release metadata parameter %s must be a public string", name)
+			}
+		}
+		if name == "CONFIRM_PUBLISH_LATEST" && (parameter.IsSecret || !strings.EqualFold(strings.TrimSpace(parameter.Type), "boolean")) {
+			return nil, fmt.Errorf("CONFIRM_PUBLISH_LATEST must be a public boolean")
+		}
 		if _, exists := resolved[name]; !exists {
 			switch parameterType := strings.ToLower(strings.TrimSpace(parameter.Type)); {
 			case parameter.Default != nil:
@@ -109,6 +130,30 @@ func ResolveBuildParameters(parameters []BuildParameter, supplied map[string]int
 
 	if err := ValidateBuildParameters(parameters, resolved); err != nil {
 		return nil, err
+	}
+	if environment, exists := resolved["RELEASE_ENVIRONMENT"]; exists {
+		if value, ok := environment.(string); !ok || !releasemeta.ValidEnvironment(value) {
+			return nil, fmt.Errorf("RELEASE_ENVIRONMENT must match ^[a-z][a-z0-9-]{0,31}$")
+		}
+	}
+	if action, exists := resolved["RELEASE_ACTION"]; exists {
+		switch action {
+		case "publish-latest":
+			if confirmed, ok := resolved["CONFIRM_PUBLISH_LATEST"].(bool); !ok || !confirmed {
+				return nil, fmt.Errorf("publish-latest requires CONFIRM_PUBLISH_LATEST=true")
+			}
+		case "restart-version":
+			if version, ok := resolved["RELEASE_VERSION"].(string); !ok || strings.TrimSpace(version) == "" {
+				return nil, fmt.Errorf("restart-version requires RELEASE_VERSION")
+			}
+		default:
+			return nil, fmt.Errorf("unsupported RELEASE_ACTION %v", action)
+		}
+		for _, name := range []string{"RELEASE_CHANNEL", "RELEASE_ENVIRONMENT"} {
+			if value, ok := resolved[name].(string); !ok || strings.TrimSpace(value) == "" {
+				return nil, fmt.Errorf("release action requires explicit %s", name)
+			}
+		}
 	}
 	return resolved, nil
 }

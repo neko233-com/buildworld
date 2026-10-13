@@ -3,19 +3,23 @@ package store
 import (
 	"fmt"
 	"strings"
+
+	"github.com/neko233-com/buildworld/internal/releasemeta"
 )
 
 const BuildSearchResultVersion = 1
 
 type BuildSearch struct {
-	Query     string
-	ProjectID *int64
-	Statuses  []string
-	Trigger   string
-	Branch    string
-	Pinned    *bool
-	Limit     int
-	Offset    int
+	Query              string
+	ProjectID          *int64
+	Statuses           []string
+	Trigger            string
+	Branch             string
+	ReleaseChannel     string
+	ReleaseEnvironment string
+	Pinned             *bool
+	Limit              int
+	Offset             int
 }
 
 type BuildSearchResult struct {
@@ -64,6 +68,15 @@ func buildSearchWhere(search BuildSearch) (string, []any) {
 		clauses = append(clauses, "b.pinned = ?")
 		args = append(args, *search.Pinned)
 	}
+	for _, target := range []struct{ name, value string }{
+		{ReleaseChannelParameter, search.ReleaseChannel},
+		{ReleaseEnvironmentParameter, search.ReleaseEnvironment},
+	} {
+		if value := strings.TrimSpace(target.value); value != "" {
+			clauses = append(clauses, "json_type(CASE WHEN json_valid(b.parameters) THEN b.parameters ELSE '{}' END, ?) = 'text' AND trim(json_extract(CASE WHEN json_valid(b.parameters) THEN b.parameters ELSE '{}' END, ?)) = ?")
+			args = append(args, "$."+target.name, "$."+target.name, value)
+		}
+	}
 	if query := strings.TrimSpace(search.Query); query != "" {
 		pattern := "%" + strings.ToLower(escapeLike(strings.TrimPrefix(query, "#"))) + "%"
 		clauses = append(clauses, `(LOWER(p.name) LIKE ? ESCAPE '\' OR
@@ -85,6 +98,9 @@ func buildSearchWhere(search BuildSearch) (string, []any) {
 // durable log bodies; callers can fetch a single build or standalone log on
 // demand. This keeps history payloads bounded as installations grow.
 func (s *Store) SearchBuilds(search BuildSearch) (*BuildSearchResult, error) {
+	if search.ReleaseEnvironment != "" && !releasemeta.ValidEnvironment(search.ReleaseEnvironment) {
+		return nil, fmt.Errorf("invalid release_environment")
+	}
 	if search.Limit <= 0 {
 		search.Limit = 25
 	}

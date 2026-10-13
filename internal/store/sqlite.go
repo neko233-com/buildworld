@@ -1076,6 +1076,9 @@ func (s *Store) FinishBuild(id int64, status string, durationMs int64) error {
 }
 
 func (s *Store) AppendBuildLog(id int64, line string) error {
+	if err := s.CaptureReleaseResults(id, line); err != nil {
+		return err
+	}
 	args := boundedBuildLogArgs(line)
 	args = append(args, id)
 	_, err := s.db.Exec("UPDATE builds SET log = "+appendBuildLogExpression+" WHERE id = ?", args...)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeft, CirclePlay, LoaderCircle, RefreshCw, Settings2 } from 'lucide-react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { BuildParametersForm, type BuildProject } from '../components/RunBuildDialog'
 import JenkinsPageShell from '../components/JenkinsPageShell'
@@ -21,6 +21,13 @@ export default function ProjectBuildWithParameters() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
+  const initialParameters: Record<string, string> = {}
+  for (const [queryName, parameterName] of [['release_channel', 'RELEASE_CHANNEL'], ['release_environment', 'RELEASE_ENVIRONMENT'], ['release_version', 'RELEASE_VERSION']]) {
+    const value = searchParams.get(queryName)
+    if (value) initialParameters[parameterName] = value
+  }
+  if (searchParams.get('release_action') === 'restart-version') initialParameters.RELEASE_ACTION = 'restart-version'
   const projectID = Number(id)
   const validProjectID = Number.isSafeInteger(projectID) && projectID > 0
   const [project, setProject] = useState<BuildProject | null>(null)
@@ -66,6 +73,7 @@ export default function ProjectBuildWithParameters() {
         <BuildParametersForm
           project={project}
           variant="page"
+          initialParameters={initialParameters}
           onCancel={() => navigate(`/projects/${project.id}`)}
           onQueued={build => navigate(`/builds/${build.id}`)}
         />

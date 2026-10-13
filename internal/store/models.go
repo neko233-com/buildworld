@@ -91,27 +91,28 @@ type ProjectSummary struct {
 }
 
 type Build struct {
-	ID               int64          `json:"id"`
-	ProjectID        int64          `json:"project_id"`
-	Number           int            `json:"number"`
-	Status           string         `json:"status"`
-	Trigger          string         `json:"trigger"`
-	Branch           string         `json:"branch,omitempty"`
-	CommitSHA        string         `json:"commit_sha,omitempty"`
-	Parameters       string         `json:"parameters,omitempty"`
-	WaitDependencyOn *int64         `json:"wait_dependency_on,omitempty"`
-	RetriedFrom      *int64         `json:"retried_from,omitempty"`
-	Pinned           bool           `json:"pinned"`
-	StartedAt        *time.Time     `json:"started_at,omitempty"`
-	FinishedAt       *time.Time     `json:"finished_at,omitempty"`
-	DurationMs       *int64         `json:"duration_ms,omitempty"`
-	Log              string         `json:"log,omitempty"`
-	ApprovalRequired bool           `json:"approval_required,omitempty"`
-	ApprovedBy       *int64         `json:"approved_by,omitempty"`
-	ApprovedAt       *time.Time     `json:"approved_at,omitempty"`
-	TimeoutSec       int            `json:"timeout_sec,omitempty"`
-	TestResultID     *int64         `json:"test_result_id,omitempty"`
-	Approval         *BuildApproval `json:"approval,omitempty"`
+	ID               int64                 `json:"id"`
+	ProjectID        int64                 `json:"project_id"`
+	Number           int                   `json:"number"`
+	Status           string                `json:"status"`
+	Trigger          string                `json:"trigger"`
+	Branch           string                `json:"branch,omitempty"`
+	CommitSHA        string                `json:"commit_sha,omitempty"`
+	Parameters       string                `json:"parameters,omitempty"`
+	ReleaseResults   []*BuildReleaseResult `json:"release_results,omitempty"`
+	WaitDependencyOn *int64                `json:"wait_dependency_on,omitempty"`
+	RetriedFrom      *int64                `json:"retried_from,omitempty"`
+	Pinned           bool                  `json:"pinned"`
+	StartedAt        *time.Time            `json:"started_at,omitempty"`
+	FinishedAt       *time.Time            `json:"finished_at,omitempty"`
+	DurationMs       *int64                `json:"duration_ms,omitempty"`
+	Log              string                `json:"log,omitempty"`
+	ApprovalRequired bool                  `json:"approval_required,omitempty"`
+	ApprovedBy       *int64                `json:"approved_by,omitempty"`
+	ApprovedAt       *time.Time            `json:"approved_at,omitempty"`
+	TimeoutSec       int                   `json:"timeout_sec,omitempty"`
+	TestResultID     *int64                `json:"test_result_id,omitempty"`
+	Approval         *BuildApproval        `json:"approval,omitempty"`
 }
 
 type EnvVar struct {

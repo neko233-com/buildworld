@@ -26,6 +26,7 @@ import (
 	"github.com/neko233-com/buildworld/internal/migration"
 	"github.com/neko233-com/buildworld/internal/plugin"
 	"github.com/neko233-com/buildworld/internal/portability"
+	"github.com/neko233-com/buildworld/internal/releasemeta"
 	"github.com/neko233-com/buildworld/internal/store"
 	"github.com/neko233-com/buildworld/internal/webhook"
 )
@@ -749,6 +750,7 @@ func (h *handlers) publicBuild(build *store.Build) *store.Build {
 	config := h.loadProjectBuildConfigForPresentation(project)
 	redactAll := strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm")
 	result := redactBuildParameters(build, secretBuildParameterNames(config), redactAll)
+	_ = h.d.Store.AttachReleaseResults([]*store.Build{result})
 	if approval, approvalErr := h.d.Store.GetBuildApprovalByBuild(build.ID); approvalErr == nil {
 		if policy, policyErr := engine.ResolveApprovalPolicy(config); policyErr == nil {
 			approval.Prompt = policy.Prompt
@@ -777,6 +779,7 @@ func (h *handlers) publicBuilds(builds []*store.Build) []*store.Build {
 		}
 		result = append(result, redactBuildParameters(build, names, redactAllByProject[build.ProjectID]))
 	}
+	_ = h.d.Store.AttachReleaseResults(result)
 	return result
 }
 
@@ -798,10 +801,16 @@ func (h *handlers) listBuilds(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) searchBuilds(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	search := store.BuildSearch{
-		Query:   query.Get("q"),
-		Trigger: query.Get("trigger"),
-		Branch:  query.Get("branch"),
-		Limit:   25,
+		Query:              query.Get("q"),
+		Trigger:            query.Get("trigger"),
+		Branch:             query.Get("branch"),
+		ReleaseChannel:     query.Get("release_channel"),
+		ReleaseEnvironment: query.Get("release_environment"),
+		Limit:              25,
+	}
+	if search.ReleaseEnvironment != "" && !releasemeta.ValidEnvironment(search.ReleaseEnvironment) {
+		writeErr(w, http.StatusBadRequest, "invalid release_environment")
+		return
 	}
 	if raw := query.Get("project_id"); raw != "" {
 		projectID, err := strconv.ParseInt(raw, 10, 64)
@@ -2034,6 +2043,16 @@ func (h *handlers) retryBuild(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDInt64(r)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	previous, err := h.d.Store.GetBuild(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "build not found")
+		return
+	}
+	var previousParameters map[string]interface{}
+	if json.Unmarshal([]byte(previous.Parameters), &previousParameters) == nil && previousParameters["RELEASE_ACTION"] == "publish-latest" {
+		writeErr(w, http.StatusBadRequest, "publish-latest cannot reuse an earlier confirmation; start a parameterized build and confirm the selected target again")
 		return
 	}
 	newBuild, err := h.d.Store.RetryBuild(id)

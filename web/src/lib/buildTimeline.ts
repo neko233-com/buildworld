@@ -18,7 +18,7 @@ export interface BuildTimeline {
 export function visibleBuildLog(log = ''): string {
   return log
     .split('\n')
-    .filter(line => !line.includes('::buildworld:plan '))
+    .filter(line => !line.includes('::buildworld:plan ') && !line.includes('::buildworld:release-result '))
     .join('\n')
     .trimEnd()
 }

@@ -10,12 +10,16 @@ import (
 // BuildOverview contains only fields needed by Jenkins-style project lists.
 // Build logs, parameters, and source metadata are intentionally excluded.
 type BuildOverview struct {
-	ID         int64      `json:"id"`
-	Number     int        `json:"number"`
-	Status     string     `json:"status"`
-	StartedAt  *time.Time `json:"started_at"`
-	FinishedAt *time.Time `json:"finished_at"`
-	DurationMs *int64     `json:"duration_ms"`
+	ID             int64                 `json:"id"`
+	Number         int                   `json:"number"`
+	Status         string                `json:"status"`
+	StartedAt      *time.Time            `json:"started_at"`
+	FinishedAt     *time.Time            `json:"finished_at"`
+	DurationMs     *int64                `json:"duration_ms"`
+	Action         string                `json:"action,omitempty"`
+	Version        string                `json:"version,omitempty"`
+	Branch         string                `json:"branch,omitempty"`
+	ReleaseResults []*BuildReleaseResult `json:"release_results,omitempty"`
 }
 
 type ProjectBuildOverview struct {

@@ -1,12 +1,87 @@
 # BuildWorld Pipelines
 
-BuildWorld v1 accepts exactly two pipeline source formats:
+BuildWorld accepts the following pipeline source formats:
 
 - restricted TypeScript DSL (recommended);
-- GitHub Actions-style YAML with a non-empty `jobs` map and job-local `steps`.
+- GitHub Actions-style YAML with a non-empty `jobs` map and job-local `steps`;
+- supported declarative Jenkinsfile pipelines, including SCM parameter metadata.
 
 JSON, Markdown, and legacy top-level `stages` YAML are rejected. Validation runs
 before save, template use, scheduling, or queueing.
+
+## Release channel and environment
+
+Release pipelines declare public `RELEASE_CHANNEL` choices and a public
+`RELEASE_ENVIRONMENT` string or choice parameter. Environment names must match
+`^[a-z][a-z0-9-]{0,31}$`; configured names such as `test`, `release`, `check`, and
+`audit` all work. The release tool must reject names without a controlled target
+binding. The pipeline owns choices and defaults. String inputs offer suggestions
+from the selected channel's retained history and the pipeline default;
+BuildWorld does not infer a target from the project name, build branch, or old
+records. Put `test` first (or explicitly make it the default) for test-first
+publishing, and require an explicit `release` selection to publish production.
+Both reserved parameters must be non-secret.
+
+For example, a Jenkinsfile can declare:
+
+```groovy
+parameters {
+    choice(name: 'RELEASE_CHANNEL', choices: ['wechat', 'taptap'], description: 'Release channel')
+    string(name: 'RELEASE_ENVIRONMENT', defaultValue: 'test', description: 'Configured release environment')
+    choice(name: 'RELEASE_ACTION', choices: ['restart-version', 'publish-latest'], description: 'Release action')
+    string(name: 'RELEASE_VERSION', defaultValue: '', description: 'Required for historical version restart')
+    booleanParam(name: 'CONFIRM_PUBLISH_LATEST', defaultValue: false, description: 'Explicit latest publication confirmation')
+}
+```
+
+The parameterized build page reads these choices from the authoritative pipeline.
+API callers use `POST /api/projects/{id}/builds` with:
+
+```json
+{"branch":"main","parameters":{"RELEASE_CHANNEL":"wechat","RELEASE_ENVIRONMENT":"test","RELEASE_ACTION":"restart-version","RELEASE_VERSION":"0.1.234"}}
+```
+
+The project page shows every target recorded in the retained build history,
+including the latest attempt and last successful pipeline completion time.
+`GET /api/projects/{id}/release-targets` exposes only public target names and
+bounded build summaries, without logs, credentials, or other parameters. It
+continues to work when SCM is unavailable. The history query accepts
+`release_channel` and `release_environment` filters and applies them before
+pagination, including builds older than the project's recent history window.
+
+Only records with both explicit string parameters are classified. Legacy or
+incomplete records remain unclassified. A successful publication requires
+`status=success` and a valid completion time; a newer failed, queued, or running
+attempt does not overwrite that target's last successful publication. Statistics
+refer to the whole release pipeline's result and do not independently prove
+application health or user traffic. A pipeline must report failure if its
+deployment or required health verification fails.
+
+`restart-version` requires a non-empty `RELEASE_VERSION`. `publish-latest`
+requires the literal boolean `CONFIRM_PUBLISH_LATEST=true`; all trigger paths
+share this validation. The browser hides the raw confirmation flag and asks
+for a second confirmation showing the selected channel, environment, branch,
+replacement, and service restart impact before it sends that flag. Replaying
+an older latest-publication build is rejected because its earlier confirmation
+must not authorize another latest publication. Start a new parameterized build
+to confirm the new operation.
+
+After successful deployment and required verification, the release tool should
+emit one complete public marker line:
+
+```text
+::buildworld:release-result {"channel":"wechat","environment":"test","action":"publish-latest","version":"0.1.234","branch":"release/wechat","component":"game-server"}
+```
+
+BuildWorld persists these results separately from bounded logs. The marker's
+channel, environment, and action must match the persisted request parameters;
+a historical restart's version must match too. The branch belongs to the actual
+release artifact and is never inferred from BuildWorld's SCM checkout branch.
+Multiple components can be recorded independently. Version shortcuts are only
+shown after a successful completed build with a non-ambiguous version result
+(or an explicit historical restart version). Legacy records with no version
+evidence do not gain an inferred version. Shortcuts prefill the selected target
+and version on the parameter page; the operator still explicitly queues it.
 
 ## TypeScript DSL
 

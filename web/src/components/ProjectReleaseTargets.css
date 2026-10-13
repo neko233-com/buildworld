@@ -1,0 +1,11 @@
+.project-release-targets { margin: 24px 0; }
+.project-release-targets h2 { margin: 0 0 10px; font-size: 16px; }
+.project-release-targets p { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--text-muted, #64748b); font-size: 12px; line-height: 1.6; }
+.project-release-target-table { max-width: 100%; overflow-x: auto; border: 1px solid #dbe3ec; border-radius: 6px; }
+.project-release-target-table table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+.project-release-target-table th, .project-release-target-table td { padding: 12px; border-bottom: 1px solid #e8edf3; white-space: nowrap; }
+.project-release-target-table th { color: #475569; background: #f6f8fb; font-weight: 600; }
+.project-release-target-table tr:last-child td { border-bottom: 0; }
+.project-release-target-table a { color: #1769c2; text-decoration: none; }
+.project-release-target-table a:hover { text-decoration: underline; }
+.project-release-target-table td span { color: #64748b; }

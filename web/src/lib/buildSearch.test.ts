@@ -32,4 +32,13 @@ describe('build history search parameters', () => {
     expect(query.get('offset')).toBe(String(BUILD_HISTORY_PAGE_SIZE * 2))
     expect(query.has('status')).toBe(false)
   })
+
+  it('preserves release targets through history links and pagination', () => {
+    const filters = readBuildSearchParams(new URLSearchParams('project=33&release_channel=taptap&release_environment=release&page=2'))
+    const query = new URLSearchParams(buildSearchQuery(filters))
+    expect(query.get('release_channel')).toBe('taptap')
+    expect(query.get('release_environment')).toBe('release')
+    expect(query.get('offset')).toBe('25')
+    expect(activeBuildFilterCount(filters)).toBe(3)
+  })
 })

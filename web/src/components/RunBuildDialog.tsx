@@ -4,7 +4,9 @@ import { parse as parseYAML } from 'yaml'
 import { api } from '../api'
 import { useI18n } from '../i18n'
 import { isTypeScriptPipelineSource } from '../lib/configFormat'
+import { releaseActionLabel, validReleaseEnvironment } from '../lib/releasePresentation'
 import { ModalDialog } from './ModalDialog'
+import { dialogs } from './AppDialogs'
 import './RunBuildDialog.css'
 
 export type BuildParameterDefinition = {
@@ -36,6 +38,7 @@ type BuildParametersFormProps = {
   onQueued: (build: any) => void
   onBusyChange?: (busy: boolean) => void
   variant?: 'dialog' | 'page'
+  initialParameters?: Record<string, string>
 }
 
 const supportedTypes = new Set<BuildParameterDefinition['type']>([
@@ -108,6 +111,7 @@ export function BuildParametersForm({
   onQueued,
   onBusyChange,
   variant = 'dialog',
+  initialParameters,
 }: BuildParametersFormProps) {
   const { t } = useI18n()
   const formID = useId().replace(/:/g, '')
@@ -118,11 +122,27 @@ export function BuildParametersForm({
   const [definitionsFailed, setDefinitionsFailed] = useState(false)
   const [definitionRequest, setDefinitionRequest] = useState(0)
   const [branch, setBranch] = useState(project.default_branch || 'main')
-  const [values, setValues] = useState<Record<string, string | boolean>>(() => initialParameterValues(definitions))
+  const [values, setValues] = useState<Record<string, string | boolean>>(() => ({ ...initialParameterValues(definitions), ...initialParameters }))
   const [saving, setSaving] = useState(false)
+  const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState('')
   const [branchError, setBranchError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [historicalEnvironments, setHistoricalEnvironments] = useState<{ channel: string; environment: string }[]>([])
+  const environmentDefinition = definitions.find(parameter => parameter.name === 'RELEASE_ENVIRONMENT')
+  const stringEnvironment = environmentDefinition?.type === 'string' && !environmentDefinition.secret
+
+  useEffect(() => {
+    let active = true
+    if (!stringEnvironment || loadingDefinitions) return
+    api.listReleaseTargets(project.id).then(targets => {
+      if (active) setHistoricalEnvironments(targets.filter(target => validReleaseEnvironment(target.environment)))
+    }).catch(() => {
+      // History suggestions are optional; the pipeline still validates the target.
+      if (active) setHistoricalEnvironments([])
+    })
+    return () => { active = false }
+  }, [loadingDefinitions, project.id, stringEnvironment])
 
   useEffect(() => {
     let active = true
@@ -181,6 +201,12 @@ export function BuildParametersForm({
         nextFieldErrors[parameter.name] = t('builds.requiredParameterMissing').replace('{name}', parameter.name)
       }
     }
+    if (values.RELEASE_ACTION === 'restart-version' && !String(values.RELEASE_VERSION || '').trim()) {
+      nextFieldErrors.RELEASE_VERSION = t('builds.requiredParameterMissing').replace('{name}', 'RELEASE_VERSION')
+    }
+    if (environmentDefinition && !validReleaseEnvironment(String(values.RELEASE_ENVIRONMENT ?? ''))) {
+      nextFieldErrors.RELEASE_ENVIRONMENT = t('projectDetail.invalidReleaseEnvironment')
+    }
     setBranchError(nextBranchError)
     setFieldErrors(nextFieldErrors)
 
@@ -194,6 +220,7 @@ export function BuildParametersForm({
 
     const parameters: Record<string, unknown> = {}
     definitions.forEach(parameter => {
+      if (parameter.name === 'RELEASE_VERSION' && values.RELEASE_ACTION === 'publish-latest') return
       const value = values[parameter.name]
       if (parameter.type === 'number' && value !== '') parameters[parameter.name] = Number(value)
       else if (parameter.type === 'boolean') parameters[parameter.name] = Boolean(value)
@@ -202,6 +229,20 @@ export function BuildParametersForm({
 
     setSaving(true)
     try {
+      if (parameters.RELEASE_ACTION === 'publish-latest') {
+        setConfirming(true)
+        const accepted = await dialogs.confirm(t('projectDetail.confirmPublishLatestHelp')
+          .replace('{channel}', String(parameters.RELEASE_CHANNEL || '-'))
+          .replace('{environment}', String(parameters.RELEASE_ENVIRONMENT || '-'))
+          .replace('{branch}', branch.trim()), {
+          title: t('projectDetail.confirmPublishLatest'), action: t('projectDetail.confirmPublishLatest'),
+        })
+        setConfirming(false)
+        if (!accepted) return
+        parameters.CONFIRM_PUBLISH_LATEST = true
+      } else if (parameters.RELEASE_ACTION) {
+        parameters.CONFIRM_PUBLISH_LATEST = false
+      }
       const build = await api.triggerBuild(project.id, {
         branch: branch.trim(),
         parameters,
@@ -210,12 +251,24 @@ export function BuildParametersForm({
     } catch (reason: any) {
       setError(reason?.message || t('builds.customBuildFailed'))
     } finally {
+      setConfirming(false)
       setSaving(false)
     }
   }
 
   const branchDescription = `${formID}-branch-description`
   const branchErrorID = `${formID}-branch-error`
+  const releaseParameterLabels: Record<string, string> = {
+    RELEASE_CHANNEL: t('projectDetail.releaseChannel'),
+    RELEASE_ENVIRONMENT: t('projectDetail.releaseEnvironment'),
+    RELEASE_ACTION: t('projectDetail.releaseAction'),
+    RELEASE_VERSION: t('projectDetail.historicalVersion'),
+  }
+  const visibleDefinitions = definitions.filter(parameter => !(parameter.name === 'CONFIRM_PUBLISH_LATEST' && definitions.some(definition => definition.name === 'RELEASE_ACTION')) && !(parameter.name === 'RELEASE_VERSION' && values.RELEASE_ACTION === 'publish-latest'))
+  const environmentOptions = [...new Set([
+    String(environmentDefinition?.defaultValue ?? ''),
+    ...historicalEnvironments.filter(target => target.channel === values.RELEASE_CHANNEL).map(target => target.environment),
+  ])].filter(validReleaseEnvironment)
 
   return <form className={`run-build-form ${variant === 'page' ? 'jenkins-parameter-form' : ''}`} onSubmit={handleSubmit} noValidate aria-busy={saving || loadingDefinitions || undefined}>
     <div className="run-build-body">
@@ -242,16 +295,20 @@ export function BuildParametersForm({
       <section className="run-parameter-section" aria-label={t('builds.buildParameters')}>
         <header>
           <div><SlidersHorizontal size={15} aria-hidden="true" /><strong>{t('builds.buildParameters')}</strong></div>
-          <span>{t('builds.parameterCount').replace('{count}', String(definitions.length))}</span>
+          <span>{t('builds.parameterCount').replace('{count}', String(visibleDefinitions.length))}</span>
         </header>
         {loadingDefinitions ? <div className="run-parameter-empty run-parameter-loading" role="status" aria-live="polite"><LoaderCircle className="timeline-spinner" size={16} aria-hidden="true" /><span>{t('common.loading')}</span></div> : definitionsFailed ? <div className="run-parameter-empty run-parameter-failure" role="alert"><span>{error}</span><button type="button" className="secondary-command" onClick={() => setDefinitionRequest(value => value + 1)}><RefreshCw size={14} aria-hidden="true" />{t('common.retry')}</button></div> : !definitions.length ? <p className="run-parameter-empty">{t('builds.noCustomParameters')}</p> : <div className="run-parameter-grid">
           {definitions.map((parameter, index) => {
+            if (parameter.name === 'CONFIRM_PUBLISH_LATEST' && definitions.some(definition => definition.name === 'RELEASE_ACTION')) return null
+            if (parameter.name === 'RELEASE_VERSION' && values.RELEASE_ACTION === 'publish-latest') return null
             const value = values[parameter.name]
             const controlID = `${formID}-parameter-${index}`
             const descriptionID = fieldDescriptionID(formID, index)
             const errorID = fieldErrorID(formID, index)
             const invalid = Boolean(fieldErrors[parameter.name])
-            const describedBy = [parameter.description ? descriptionID : '', invalid ? errorID : ''].filter(Boolean).join(' ') || undefined
+            const environmentInput = parameter.name === 'RELEASE_ENVIRONMENT' && stringEnvironment
+            const environmentHelpID = `${controlID}-environment-help`
+            const describedBy = [parameter.description ? descriptionID : '', environmentInput ? environmentHelpID : '', invalid ? errorID : ''].filter(Boolean).join(' ') || undefined
             const sharedProps = {
               id: controlID,
               disabled: saving,
@@ -259,10 +316,11 @@ export function BuildParametersForm({
               'aria-describedby': describedBy,
             }
             return <label key={parameter.name} className={parameter.type === 'text' ? 'wide' : ''} htmlFor={controlID}>
-              <span>{parameter.secret && <KeyRound size={12} aria-hidden="true" />}{parameter.name}{parameter.required && <em>*</em>}</span>
+              <span>{parameter.secret && <KeyRound size={12} aria-hidden="true" />}{releaseParameterLabels[parameter.name] || parameter.name}{(parameter.required || parameter.name === 'RELEASE_VERSION' && values.RELEASE_ACTION === 'restart-version') && <em>*</em>}</span>
               {parameter.type === 'choice' ? <select {...sharedProps} ref={element => { parameterRefs.current[parameter.name] = element }} value={String(value ?? '')} onChange={event => updateValue(parameter.name, event.target.value)}>
-                {parameter.choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
-              </select> : parameter.type === 'boolean' ? <span className="run-boolean-input"><input {...sharedProps} ref={element => { parameterRefs.current[parameter.name] = element }} type="checkbox" checked={value === true} onChange={event => updateValue(parameter.name, event.target.checked)} />{value === true ? t('common.enabled') : t('common.disabled')}</span> : parameter.type === 'text' ? <textarea {...sharedProps} ref={element => { parameterRefs.current[parameter.name] = element }} rows={3} value={String(value ?? '')} onChange={event => updateValue(parameter.name, event.target.value)} /> : <input {...sharedProps} ref={element => { parameterRefs.current[parameter.name] = element }} type={parameter.secret ? 'password' : parameter.type === 'number' ? 'number' : 'text'} value={String(value ?? '')} onChange={event => updateValue(parameter.name, event.target.value)} />}
+                {parameter.choices.map(choice => <option key={choice} value={choice}>{parameter.name === 'RELEASE_ACTION' ? releaseActionLabel(t, choice) : choice}</option>)}
+              </select> : parameter.type === 'boolean' ? <span className="run-boolean-input"><input {...sharedProps} ref={element => { parameterRefs.current[parameter.name] = element }} type="checkbox" checked={value === true} onChange={event => updateValue(parameter.name, event.target.checked)} />{value === true ? t('common.enabled') : t('common.disabled')}</span> : parameter.type === 'text' ? <textarea {...sharedProps} ref={element => { parameterRefs.current[parameter.name] = element }} rows={3} value={String(value ?? '')} onChange={event => updateValue(parameter.name, event.target.value)} /> : <input {...sharedProps} ref={element => { parameterRefs.current[parameter.name] = element }} type={parameter.secret ? 'password' : parameter.type === 'number' ? 'number' : 'text'} list={environmentInput ? `${controlID}-environments` : undefined} value={String(value ?? '')} onChange={event => updateValue(parameter.name, event.target.value)} />}
+              {environmentInput && <><datalist id={`${controlID}-environments`}>{environmentOptions.map(environment => <option key={environment} value={environment} />)}</datalist><small id={environmentHelpID}>{t('projectDetail.releaseEnvironmentHelp')}</small></>}
               {parameter.description && <small id={descriptionID}>{parameter.description}</small>}
               {invalid && <span className="run-field-error" id={errorID}>{fieldErrors[parameter.name]}</span>}
             </label>
@@ -275,7 +333,7 @@ export function BuildParametersForm({
       <button type="button" disabled={saving} onClick={() => { if (!saving) onCancel() }}>{t('common.cancel')}</button>
       <button type="submit" disabled={saving || loadingDefinitions || definitionsFailed}>
         {saving ? <LoaderCircle className="timeline-spinner" size={14} aria-hidden="true" /> : <CirclePlay size={14} aria-hidden="true" />}
-        <span role={saving ? 'status' : undefined}>{saving ? t('builds.queueing') : t('builds.queueBuild')}</span>
+        <span role={saving ? 'status' : undefined}>{confirming ? t('projectDetail.waitingPublishConfirmation') : saving ? t('builds.queueing') : t('builds.queueBuild')}</span>
       </button>
     </footer>
   </form>
