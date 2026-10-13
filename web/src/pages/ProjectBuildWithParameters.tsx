@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, CirclePlay, LoaderCircle, RefreshCw, Settings2 } from 'lucide-react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
@@ -22,12 +22,15 @@ export default function ProjectBuildWithParameters() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
-  const initialParameters: Record<string, string> = {}
-  for (const [queryName, parameterName] of [['release_channel', 'RELEASE_CHANNEL'], ['release_environment', 'RELEASE_ENVIRONMENT'], ['release_version', 'RELEASE_VERSION']]) {
-    const value = searchParams.get(queryName)
-    if (value) initialParameters[parameterName] = value
-  }
-  if (searchParams.get('release_action') === 'restart-version') initialParameters.RELEASE_ACTION = 'restart-version'
+  const initialParameters = useMemo(() => {
+    const parameters: Record<string, string> = {}
+    for (const [queryName, parameterName] of [['release_channel', 'RELEASE_CHANNEL'], ['release_environment', 'RELEASE_ENVIRONMENT'], ['release_version', 'RELEASE_VERSION']]) {
+      const value = searchParams.get(queryName)
+      if (value) parameters[parameterName] = value
+    }
+    if (searchParams.get('release_action') === 'restart-version') parameters.RELEASE_ACTION = 'restart-version'
+    return parameters
+  }, [searchParams])
   const projectID = Number(id)
   const validProjectID = Number.isSafeInteger(projectID) && projectID > 0
   const [project, setProject] = useState<BuildProject | null>(null)

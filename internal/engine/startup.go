@@ -56,6 +56,9 @@ func (r *BuildRunner) triggerStartupBuild(parent context.Context, project *store
 	if err != nil {
 		return fmt.Errorf("default parameters: %w", err)
 	}
+	if err := ValidateConfiguredReleaseTarget(config, parameters); err != nil {
+		return err
+	}
 	encoded, err := json.Marshal(parameters)
 	if err != nil {
 		return err

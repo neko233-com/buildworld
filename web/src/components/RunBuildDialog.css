@@ -3,6 +3,11 @@
   opacity: .45;
 }
 
+.run-build-form .run-parameter-section { overflow: visible; }
+.run-build-form .run-parameter-section > header { border-radius: 9px 9px 0 0; }
+.run-release-target-message { margin: 0; padding: 10px 12px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-surface); color: var(--ui-muted); font-size: 12px; line-height: 1.5; }
+.run-release-target-message.is-error { color: var(--ui-danger, #b6202a); background: #fff6f6; border-color: #efc3c8; }
+
 .run-build-form [aria-invalid="true"] {
   border-color: #d33840;
   box-shadow: 0 0 0 1px rgba(211, 56, 64, .15);

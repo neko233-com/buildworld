@@ -589,6 +589,10 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		r.fail(buildID, start, fmt.Sprintf("invalid pipeline config: %v", err), project)
 		return
 	}
+	if err := ValidateConfiguredReleaseTarget(cfg, parseParams(build.Parameters)); err != nil {
+		r.fail(buildID, start, err.Error(), project)
+		return
+	}
 	r.configureBuildSecretMasker(build, project, cfg)
 	defer r.clearBuildSecretMasker(buildID)
 	localExecution := len(cfg.AgentRequirements) == 0
@@ -1051,6 +1055,13 @@ func (r *BuildRunner) loadBuildConfig(ctx context.Context, project *store.Projec
 	if cfg.Environment == nil {
 		cfg.Environment = map[string]string{}
 	}
+	variables, err := r.store.ListEnvVars("project", &project.ID)
+	if err != nil {
+		return nil, errors.New("project release target metadata is unavailable")
+	}
+	if err := ApplyProjectReleaseTargets(cfg, variables); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 
@@ -1358,7 +1369,7 @@ func completedStepError(ctx context.Context, stepErr error) error {
 }
 
 func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}, stage string, onOutput func(string)) error {
-	stepEnv := AppendStepEnvironment(env, step.Config)
+	stepEnv := releaseParameterEnvironment(AppendStepEnvironment(env, step.Config), params)
 	workingDirectory := workspace
 	if configured := step.Config["working-directory"]; configured != "" {
 		resolved, err := ResolveWorkspaceDirectory(workspace, resolveVars(configured, stepEnv, params))
@@ -1562,6 +1573,15 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 	if projectVars, err := r.store.ListEnvVars("project", &pid); err == nil {
 		for _, v := range projectVars {
 			envMap[v.Name] = v.Value
+		}
+	}
+	// Jenkins parameter interpolation is lowered to shell environment references.
+	// Keep the operator's validated release selection authoritative after merging
+	// global/project settings; ordinary Jenkins variables retain their precedence.
+	releaseParameters := parseParams(build.Parameters)
+	for _, name := range []string{"RELEASE_CHANNEL", "RELEASE_ENVIRONMENT", "RELEASE_SHARED_SERVICE", "RELEASE_ACTION", "RELEASE_VERSION", "CONFIRM_PUBLISH_LATEST"} {
+		if value, exists := releaseParameters[name]; exists {
+			envMap[name] = fmt.Sprint(value)
 		}
 	}
 	if workspace != "" {

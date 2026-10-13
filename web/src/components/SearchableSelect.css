@@ -1,0 +1,17 @@
+.searchable-select { position: relative; min-width: 0; }
+.searchable-select-control { position: relative; }
+.searchable-select-control input { padding-left: 31px !important; padding-right: 34px !important; text-overflow: ellipsis; }
+.searchable-select-search { position: absolute; z-index: 1; left: 11px; top: calc(50% + 3px); transform: translateY(-50%); color: var(--ui-subtle); pointer-events: none; }
+.searchable-select-toggle { position: absolute; right: 4px; top: 9px; bottom: 3px; display: grid; place-items: center; width: 28px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--ui-muted); cursor: pointer; }
+.searchable-select-toggle:hover { color: var(--ui-accent); background: var(--ui-canvas); }
+.searchable-select-toggle:disabled { cursor: default; }
+.searchable-select-popup { position: absolute; z-index: 30; top: 100%; left: 0; right: 0; min-width: 180px; margin-top: 5px; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-surface); box-shadow: 0 8px 24px rgba(20, 35, 55, .14); overflow: hidden; }
+.searchable-select-options { max-height: 220px; overflow-y: auto; overscroll-behavior: contain; padding: 4px; }
+.searchable-select-options > button { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; padding: 8px; border: 0; border-radius: 5px; background: transparent; color: var(--ui-ink); text-align: left; cursor: pointer; font: inherit; }
+.searchable-select-options > button.active { background: var(--ui-accent-soft, #edf5ff); }
+.searchable-select-options > button > span { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; min-width: 0; }
+.searchable-select-options strong { font-size: 12px; font-weight: 600; }
+.searchable-select-options code, .searchable-select-options small { color: var(--ui-subtle); font-size: 10px; overflow-wrap: anywhere; }
+.searchable-select-options > button > svg { color: var(--ui-accent); flex: 0 0 auto; }
+.searchable-select-options > p { margin: 0; padding: 14px 9px; color: var(--ui-muted); font-size: 12px; }
+.searchable-select-hint { display: block; padding: 7px 10px; border-top: 1px solid var(--ui-border-soft); color: var(--ui-subtle); font-size: 10px; line-height: 1.5; }

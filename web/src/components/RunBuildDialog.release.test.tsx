@@ -22,7 +22,16 @@ beforeEach(() => {
     { name: 'RELEASE_ACTION', type: 'choice', choices: ['restart-version', 'publish-latest'], default: 'restart-version' },
     { name: 'RELEASE_VERSION', type: 'string' },
     { name: 'CONFIRM_PUBLISH_LATEST', type: 'boolean', default: false },
-  ] })
+  ], release_targets: { schemaVersion: 1, targets: [
+    { channel: 'wechat', environment: 'test', channelLabel: '微信' },
+    { channel: 'wechat', environment: 'release', channelLabel: '微信' },
+    { channel: 'wechat', environment: 'audit', channelLabel: '微信' },
+    { channel: 'wechat', environment: 'internal-2', channelLabel: '微信' },
+    { channel: 'taptap', environment: 'test', channelLabel: 'TapTap' },
+    { channel: 'taptap', environment: 'release', channelLabel: 'TapTap' },
+    { channel: 'taptap', environment: 'audit', channelLabel: 'TapTap' },
+    { channel: 'third-store', environment: 'preview-17', channelLabel: '第三渠道' },
+  ] } })
   vi.mocked(api.triggerBuild).mockResolvedValue({ id: 99 })
   vi.mocked(api.listReleaseTargets).mockResolvedValue([
     { channel: 'wechat', environment: 'qa-17', latest: null, last_success: null },
@@ -70,6 +79,7 @@ it('confirms the shared physical service and all configured targets without inve
   const metadata = await api.validateProject(33)
   metadata.parameters = metadata.parameters!.filter(parameter => parameter.name !== 'RELEASE_CHANNEL' && parameter.name !== 'RELEASE_ENVIRONMENT')
   metadata.parameters.push({ name: 'RELEASE_SHARED_SERVICE', type: 'string', default: 'sf-minigame-shared' })
+  metadata.release_targets = null
   vi.mocked(api.validateProject).mockResolvedValue(metadata)
   vi.mocked(dialogs.confirm).mockResolvedValue(true)
   await render({ RELEASE_ACTION: 'publish-latest' })
@@ -81,12 +91,15 @@ it('confirms the shared physical service and all configured targets without inve
   expect(api.triggerBuild).toHaveBeenCalledWith(33, { branch: 'release/game', parameters: { RELEASE_SHARED_SERVICE: 'sf-minigame-shared', RELEASE_ACTION: 'publish-latest', CONFIRM_PUBLISH_LATEST: true } })
 })
 
-it('offers channel history and default for string environments while accepting a new safe name', async () => {
+it('offers only configured linked environments for string declarations, without using history as authority', async () => {
   const metadata = await api.validateProject(33)
   metadata.parameters!.find(parameter => parameter.name === 'RELEASE_ENVIRONMENT')!.type = 'string'
   vi.mocked(api.validateProject).mockResolvedValue(metadata)
   await render({ RELEASE_VERSION: '0.1.234', RELEASE_ENVIRONMENT: 'internal-2' })
-  expect([...container.querySelectorAll('datalist option')].map(option => option.getAttribute('value'))).toEqual(['test', 'qa-17'])
+  const environment = container.querySelectorAll<HTMLInputElement>('input[role="combobox"]')[1]
+  await act(async () => environment.focus())
+  expect([...container.querySelectorAll('[role="option"]')].map(option => option.textContent)).toEqual(['test', 'release', 'audit', 'internal-2'])
+  expect(api.listReleaseTargets).not.toHaveBeenCalled()
   await submit()
   expect(api.triggerBuild).toHaveBeenCalledWith(33, expect.objectContaining({ parameters: expect.objectContaining({ RELEASE_ENVIRONMENT: 'internal-2' }) }))
 })
@@ -97,7 +110,70 @@ it('rejects invalid environments before showing a latest confirmation', async ()
   vi.mocked(api.validateProject).mockResolvedValue(metadata)
   await render({ RELEASE_ACTION: 'publish-latest', RELEASE_ENVIRONMENT: '../release' })
   await submit()
-  expect(container.textContent).toContain('Environment must start with a lowercase letter')
+  expect(container.textContent).toContain('is not configured for deployment or restart')
   expect(dialogs.confirm).not.toHaveBeenCalled()
   expect(api.triggerBuild).not.toHaveBeenCalled()
+})
+
+it('searches an arbitrary third channel and updates only its configured environment using the keyboard', async () => {
+  await render({ RELEASE_ACTION: 'publish-latest' })
+  const channel = container.querySelector<HTMLInputElement>('input[role="combobox"]')!
+  await act(async () => channel.focus())
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(channel, '第三')
+    channel.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(container.querySelectorAll('[role="option"]')).toHaveLength(1)
+  const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+  await act(async () => channel.dispatchEvent(enter))
+  expect(enter.defaultPrevented).toBe(true)
+  expect(channel.value).toBe('第三渠道')
+  const environment = container.querySelectorAll<HTMLInputElement>('input[role="combobox"]')[1]
+  expect(environment.value).toBe('preview-17')
+  await act(async () => environment.focus())
+  expect([...container.querySelectorAll('[role="option"]')].map(option => option.textContent)).toEqual(['preview-17'])
+  expect(api.triggerBuild).not.toHaveBeenCalled()
+  vi.mocked(dialogs.confirm).mockResolvedValue(true)
+  await submit()
+  expect(api.triggerBuild).toHaveBeenCalledWith(33, expect.objectContaining({ parameters: expect.objectContaining({ RELEASE_CHANNEL: 'third-store', RELEASE_ENVIRONMENT: 'preview-17', CONFIRM_PUBLISH_LATEST: true }) }))
+})
+
+it('preserves the exact historical target and version, then clears the version when the operator changes its target', async () => {
+  await render({ RELEASE_CHANNEL: 'taptap', RELEASE_ENVIRONMENT: 'audit', RELEASE_VERSION: '0.1.234' })
+  const controls = container.querySelectorAll<HTMLInputElement>('input[role="combobox"]')
+  expect(controls[0].value).toBe('TapTap')
+  expect(controls[1].value).toBe('audit')
+  const version = [...container.querySelectorAll<HTMLInputElement>('input')].find(input => input.value === '0.1.234')!
+  expect(version).toBeTruthy()
+  await act(async () => controls[0].focus())
+  await act(async () => (container.querySelectorAll('[role="option"]')[0] as HTMLButtonElement).click())
+  expect(controls[1].value).toBe('test')
+  expect(version.value).toBe('')
+  expect(container.textContent).toContain('Enter the historical version for this target again')
+  await submit()
+  expect(api.triggerBuild).not.toHaveBeenCalled()
+})
+
+it('does not replace or submit a removed historical target and fails closed without configured metadata', async () => {
+  await render({ RELEASE_CHANNEL: 'taptap', RELEASE_ENVIRONMENT: 'removed-env', RELEASE_VERSION: '0.1.234' })
+  expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true)
+  expect(container.textContent).toContain('taptap / removed-env is not configured')
+  await submit()
+  expect(api.triggerBuild).not.toHaveBeenCalled()
+  const metadata = await api.validateProject(33)
+  metadata.release_targets = null
+  vi.mocked(api.validateProject).mockResolvedValue(metadata)
+  await act(async () => root.render(<BuildParametersForm project={{ id: 34, name: 'Other', default_branch: 'main' }} initialParameters={{ RELEASE_VERSION: '0.1.234' }} onCancel={() => {}} onQueued={() => {}} />))
+  expect(container.textContent).toContain('RELEASE_TARGETS_JSON')
+  expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true)
+})
+
+it('loads a new historical shortcut on the same project without replacing it with the previous selection', async () => {
+  await render({ RELEASE_CHANNEL: 'wechat', RELEASE_ENVIRONMENT: 'test', RELEASE_VERSION: '0.1.132' })
+  await render({ RELEASE_CHANNEL: 'taptap', RELEASE_ENVIRONMENT: 'audit', RELEASE_VERSION: '0.1.234' })
+  const controls = container.querySelectorAll<HTMLInputElement>('input[role="combobox"]')
+  expect(controls[0].value).toBe('TapTap')
+  expect(controls[1].value).toBe('audit')
+  await submit()
+  expect(api.triggerBuild).toHaveBeenCalledWith(33, expect.objectContaining({ parameters: expect.objectContaining({ RELEASE_CHANNEL: 'taptap', RELEASE_ENVIRONMENT: 'audit', RELEASE_VERSION: '0.1.234' }) }))
 })

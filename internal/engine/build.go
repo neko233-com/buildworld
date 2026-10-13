@@ -20,14 +20,15 @@ type BuildParameter struct {
 }
 
 type BuildConfig struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Parameters  []BuildParameter  `json:"parameters,omitempty"`
-	Approval    *ApprovalPolicy   `json:"approval,omitempty"`
-	Stages      []Stage           `json:"stages"`
-	Triggers    []Trigger         `json:"triggers,omitempty"`
-	Environment map[string]string `json:"environment,omitempty"`
-	Artifacts   []string          `json:"artifacts,omitempty"`
+	Name           string                `json:"name"`
+	Description    string                `json:"description"`
+	Parameters     []BuildParameter      `json:"parameters,omitempty"`
+	ReleaseTargets *ReleaseTargetCatalog `json:"release_targets,omitempty"`
+	Approval       *ApprovalPolicy       `json:"approval,omitempty"`
+	Stages         []Stage               `json:"stages"`
+	Triggers       []Trigger             `json:"triggers,omitempty"`
+	Environment    map[string]string     `json:"environment,omitempty"`
+	Artifacts      []string              `json:"artifacts,omitempty"`
 	// Post contains Jenkins-style lifecycle steps keyed by always, success,
 	// failure, or cleanup. They run after the normal stages on every worker.
 	Post               map[string][]Step `json:"post,omitempty"`

@@ -12,15 +12,40 @@ before save, template use, scheduling, or queueing.
 ## Release channel and environment
 
 Release pipelines declare public `RELEASE_CHANNEL` choices and a public
-`RELEASE_ENVIRONMENT` string or choice parameter. Environment names must match
-`^[a-z][a-z0-9-]{0,31}$`; configured names such as `test`, `release`, `check`, and
-`audit` all work. The release tool must reject names without a controlled target
-binding. The pipeline owns choices and defaults. String inputs offer suggestions
-from the selected channel's retained history and the pipeline default;
-BuildWorld does not infer a target from the project name, build branch, or old
-records. Put `test` first (or explicitly make it the default) for test-first
-publishing, and require an explicit `release` selection to publish production.
-Both reserved parameters must be non-secret.
+`RELEASE_ENVIRONMENT` string or choice parameter. Each scoped release project
+also owns a **public, project-scoped** environment variable named
+`RELEASE_TARGETS_JSON`. It contains the release tool's controlled, deployable
+target matrix, using this data-only schema:
+
+```json
+{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"test","channelLabel":"Alpha","environmentLabel":"Test"},{"channel":"alpha","environment":"release","channelLabel":"Alpha"},{"channel":"third-store","environment":"audit-2","channelLabel":"Third store"}]}
+```
+
+Both channel and environment codes must match `^[a-z][a-z0-9-]{0,31}$`.
+The catalog is at most 64 KiB and contains 1–512 distinct pairs, optional labels up to 80 characters,
+and no credentials or other fields. A channel's label must be consistent across
+its entries. Obtain the catalog from the release tool's validated configuration
+export; retained history does not establish deployment authority. Global or
+secret variables cannot supply this catalog. Missing, malformed, or mixed-mode
+metadata prevents scoped releases from entering the queue.
+
+The matrix supplies the authoritative channel candidates, replacing the
+pipeline's bootstrap choices. It also supplies each channel's environments, so
+adding a valid target requires updating controlled configuration and this public
+catalog, without changing UI code or the Jenkinsfile's channel enumeration.
+Parameter declarations, types, and non-secret requirements remain mandatory.
+The downstream release tool must independently validate the full target binding.
+
+The parameterized build form presents searchable, linked selectors. Search
+matches labels and codes, with arrow-key navigation, Enter selection, Escape
+close, and normal Tab focus movement. The initial channel uses a valid pipeline
+default or the first configured channel. Its environment prefers configured
+`test`, then a valid pipeline default, then its first configured environment.
+Only exact configured pairs are accepted; the matrix does not create a Cartesian
+product. A historical shortcut retains its exact channel, environment, and
+version. Removed targets stay visibly unavailable and cannot be submitted.
+Changing the target clears the historical version to prevent restarting the
+previous target's version in a different target.
 
 For example, a Jenkinsfile can declare:
 
@@ -34,12 +59,23 @@ parameters {
 }
 ```
 
-The parameterized build page reads these choices from the authoritative pipeline.
+The form reads parameter declarations and the validated catalog from
+`POST /api/projects/{id}/validate`, which returns `release_targets` and
+`release_targets_required` with the ordinary pipeline metadata. Configure the
+public catalog before enabling this contract on an existing scoped project.
 API callers use `POST /api/projects/{id}/builds` with:
 
 ```json
 {"branch":"main","parameters":{"RELEASE_CHANNEL":"wechat","RELEASE_ENVIRONMENT":"test","RELEASE_ACTION":"restart-version","RELEASE_VERSION":"0.1.234"}}
 ```
+
+API creation, token triggers, historical retries, startup builds, and queued
+execution validate the selected pair against current project metadata. Removing
+a target also invalidates pending or retried requests for it. Validated release
+parameters remain authoritative when shell environments merge pipeline, global,
+project, stage, and step settings; configured variables cannot substitute another target,
+action, version, or latest-publication confirmation. Ordinary Jenkins environment
+precedence is unchanged.
 
 The project page shows every target recorded in the retained build history,
 including the latest attempt and last successful pipeline completion time.
@@ -74,7 +110,9 @@ blank values. A service ID is mandatory even when the pipeline default is
 missing; an undeclared request parameter never selects shared mode. The same
 latest-publication confirmation and historical-version guards apply to both
 contracts. Shared component builds retain ordinary project build history and
-do not fabricate per-game channel/environment publication records.
+do not fabricate per-game channel/environment publication records. Shared jobs
+do not require `RELEASE_TARGETS_JSON` and reject a scoped catalog declaration;
+their generic service-ID form remains separate from channel/environment selectors.
 
 ```json
 {"branch":"main","parameters":{"RELEASE_SHARED_SERVICE":"sf-minigame-shared","RELEASE_ACTION":"publish-latest","CONFIRM_PUBLISH_LATEST":true}}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/neko233-com/buildworld/internal/auth"
 	"github.com/neko233-com/buildworld/internal/config"
+	"github.com/neko233-com/buildworld/internal/engine"
 	"github.com/neko233-com/buildworld/internal/store"
 )
 
@@ -67,6 +68,9 @@ jobs:
       - {name: Publish, run: echo fixture}
 `, 0, nil, nil)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := data.SetEnvVar("project", &project.ID, engine.ReleaseTargetsVariable, `{"schemaVersion":1,"targets":[{"channel":"wechat","environment":"test"},{"channel":"taptap","environment":"release"}]}`, false, "public targets fixture"); err != nil {
 		t.Fatal(err)
 	}
 	handler := &handlers{d: Deps{Store: data}}

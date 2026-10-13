@@ -3,6 +3,9 @@ import { normalizeBuildProblemReport, type BuildProblemReport } from './lib/buil
 import { buildSearchQuery, type BuildSearchFilters, type BuildSearchResponse } from './lib/buildSearch'
 import type { BuildChain } from './lib/buildChain'
 import type { QueueMoveOperation } from './lib/queuePresentation'
+import type { ReleaseTargetCatalog } from './lib/releaseTargets'
+
+export type PipelineValidation = { valid: boolean; format: 'typescript' | 'yaml' | 'jenkinsfile' | 'auto'; stages: number; steps: number; parameters: any[]; allow_long_running: boolean; release_targets?: ReleaseTargetCatalog | null; release_targets_required?: boolean }
 
 // API client with JWT token management
 const API_BASE = '/api'
@@ -403,9 +406,9 @@ export const api = {
   triggerBuild: (id: number, data?: any) => request('POST', `/projects/${id}/builds`, data),
   listProjectChanges: (id: number) => request<ProjectChange[]>('GET', `/projects/${id}/changes`),
   validatePipeline: (source: string) =>
-    request<{ valid: boolean; format: 'typescript' | 'yaml' | 'jenkinsfile' | 'auto'; stages: number; steps: number; parameters: any[]; allow_long_running: boolean }>('POST', '/pipeline-validation', { source }),
+    request<PipelineValidation>('POST', '/pipeline-validation', { source }),
   validateProject: (id: number) =>
-    request<{ valid: boolean; format: 'typescript' | 'yaml' | 'jenkinsfile' | 'auto'; stages: number; steps: number; parameters: any[]; allow_long_running: boolean }>('POST', `/projects/${id}/validate`),
+    request<PipelineValidation>('POST', `/projects/${id}/validate`),
   migratePipeline: (format: string, source: string, name?: string) =>
     request<PipelineMigrationResult>('POST', `/pipeline-migrations/${encodeURIComponent(format)}`, { source, name }),
 

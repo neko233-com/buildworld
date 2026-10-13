@@ -480,12 +480,14 @@ func writeBuildConfigValidation(w http.ResponseWriter, config *engine.BuildConfi
 		stepCount += len(stage.Steps)
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"valid":              true,
-		"format":             format,
-		"stages":             len(config.Stages),
-		"steps":              stepCount,
-		"parameters":         config.Parameters,
-		"allow_long_running": config.AllowLongRunning,
+		"valid":                    true,
+		"format":                   format,
+		"stages":                   len(config.Stages),
+		"steps":                    stepCount,
+		"parameters":               config.Parameters,
+		"release_targets":          config.ReleaseTargets,
+		"release_targets_required": engine.ScopedReleaseParameters(config.Parameters),
+		"allow_long_running":       config.AllowLongRunning,
 	})
 }
 
@@ -612,19 +614,25 @@ func (h *handlers) loadProjectBuildConfig(ctx context.Context, project *store.Pr
 	if err != nil {
 		return nil, fmt.Errorf("invalid project build configuration: %w", err)
 	}
-	if project.TemplateID == nil {
-		return config, nil
+	if project.TemplateID != nil {
+		template, err := h.d.Store.GetBuildTemplate(*project.TemplateID)
+		if err != nil {
+			return nil, fmt.Errorf("project build template is unavailable: %w", err)
+		}
+		templateConfig, err := engine.ParsePipelineConfig(template.Config)
+		if err != nil {
+			return nil, fmt.Errorf("invalid build template configuration: %w", err)
+		}
+		config = engine.MergeBuildConfig(templateConfig, config)
 	}
-
-	template, err := h.d.Store.GetBuildTemplate(*project.TemplateID)
+	variables, err := h.d.Store.ListEnvVars("project", &project.ID)
 	if err != nil {
-		return nil, fmt.Errorf("project build template is unavailable: %w", err)
+		return nil, errors.New("project release target metadata is unavailable")
 	}
-	templateConfig, err := engine.ParsePipelineConfig(template.Config)
-	if err != nil {
-		return nil, fmt.Errorf("invalid build template configuration: %w", err)
+	if err := engine.ApplyProjectReleaseTargets(config, variables); err != nil {
+		return nil, err
 	}
-	return engine.MergeBuildConfig(templateConfig, config), nil
+	return config, nil
 }
 
 // loadProjectBuildConfigForPresentation never performs network I/O. Build
@@ -654,6 +662,9 @@ func (h *handlers) resolveProjectBuildParameters(project *store.Project, supplie
 	}
 	resolved, err := engine.ResolveBuildParameters(config.Parameters, supplied)
 	if err != nil {
+		return "", err
+	}
+	if err := engine.ValidateConfiguredReleaseTarget(config, resolved); err != nil {
 		return "", err
 	}
 	if len(resolved) == 0 {
@@ -2055,12 +2066,29 @@ func (h *handlers) retryBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "publish-latest cannot reuse an earlier confirmation; start a parameterized build and confirm the selected target again")
 		return
 	}
-	newBuild, err := h.d.Store.RetryBuild(id)
+	project, err := h.d.Store.GetProject(previous.ProjectID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "project not found")
 		return
 	}
-	project, err := h.d.Store.GetProject(newBuild.ProjectID)
+	config, err := h.loadProjectBuildConfig(r.Context(), project)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if engine.ScopedReleaseParameters(config.Parameters) || hasSharedReleaseParameter(config.Parameters) {
+		if _, err := engine.ResolveBuildParameters(config.Parameters, previousParameters); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		// A retry must keep the stored target exactly; current defaults must not
+		// turn an old unclassified build into a configured release implicitly.
+		if err := engine.ValidateConfiguredReleaseTarget(config, previousParameters); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	newBuild, err := h.d.Store.RetryBuild(id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2076,6 +2104,15 @@ func (h *handlers) retryBuild(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusCreated, h.publicBuild(newBuild))
+}
+
+func hasSharedReleaseParameter(parameters []engine.BuildParameter) bool {
+	for _, parameter := range parameters {
+		if strings.TrimSpace(parameter.Name) == "RELEASE_SHARED_SERVICE" {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *handlers) pinBuild(w http.ResponseWriter, r *http.Request) {
