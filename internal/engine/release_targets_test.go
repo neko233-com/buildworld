@@ -21,6 +21,35 @@ func scopedTargetConfigFixture() *BuildConfig {
 	}}
 }
 
+func TestReleaseBranchPinsVersionAndRejectsMismatchedSelections(t *testing.T) {
+	config := scopedTargetConfigFixture()
+	if err := ApplyProjectReleaseTargets(config, []*store.EnvVar{{Scope: "project", Name: ReleaseTargetsVariable, Value: configuredTargetsFixture}}); err != nil {
+		t.Fatal(err)
+	}
+	base := map[string]interface{}{"RELEASE_CHANNEL": "alpha", "RELEASE_ENVIRONMENT": "release", "RELEASE_ACTION": "restart-version", "RELEASE_BRANCH": "release/alpha/release/game-server/0.1.234"}
+	if err := ValidateConfiguredReleaseTarget(config, base); err != nil || base["RELEASE_VERSION"] != "0.1.234" {
+		t.Fatal("branch failed to pin its exact version", err)
+	}
+	for _, branch := range []string{"codex/release/alpha/release/game-server/0.1.234", "release/beta/release/game-server/0.1.234", "release/alpha/test/game-server/0.1.234", "release/alpha/release/../0.1.234", "release/alpha/release/game-server/latest"} {
+		wrong := map[string]interface{}{"RELEASE_CHANNEL": "alpha", "RELEASE_ENVIRONMENT": "release", "RELEASE_ACTION": "restart-version", "RELEASE_BRANCH": branch}
+		if ValidateConfiguredReleaseTarget(config, wrong) == nil {
+			t.Fatal("invalid branch selection accepted")
+		}
+	}
+	base["RELEASE_VERSION"] = "0.1.233"
+	if ValidateConfiguredReleaseTarget(config, base) == nil {
+		t.Fatal("branch/version mismatch accepted")
+	}
+	base["RELEASE_VERSION"], base["RELEASE_ACTION"] = "0.1.234", "publish-latest"
+	if ValidateConfiguredReleaseTarget(config, base) == nil {
+		t.Fatal("branch silently became latest publication")
+	}
+	actual := releaseParameterEnvironment([]string{"RELEASE_BRANCH=overlay"}, map[string]interface{}{"RELEASE_BRANCH": "release/alpha/release/game-server/0.1.234"})
+	if len(actual) != 1 || actual[0] != "RELEASE_BRANCH=release/alpha/release/game-server/0.1.234" {
+		t.Fatal("environment replaced pinned branch")
+	}
+}
+
 func TestReleaseTargetEnvironmentCannotOverrideValidatedOperatorParameters(t *testing.T) {
 	data, err := store.New(filepath.Join(t.TempDir(), "release-environment.db"))
 	if err != nil {

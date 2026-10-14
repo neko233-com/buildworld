@@ -1,3 +1,5 @@
+import type { BuildReleaseResult } from '../api'
+
 export const BUILD_HISTORY_PAGE_SIZE = 25
 
 export interface BuildSummary {
@@ -12,7 +14,7 @@ export interface BuildSummary {
   started_at?: string
   finished_at?: string
   duration_ms?: number
-  release_results?: Array<{ channel: string; environment: string; action: string; version: string; branch?: string; component?: string }>
+  release_results?: BuildReleaseResult[]
 }
 
 export interface BuildSearchFilters {

@@ -24,7 +24,7 @@ export default function ProjectBuildWithParameters() {
   const [searchParams] = useSearchParams()
   const initialParameters = useMemo(() => {
     const parameters: Record<string, string> = {}
-    for (const [queryName, parameterName] of [['release_channel', 'RELEASE_CHANNEL'], ['release_environment', 'RELEASE_ENVIRONMENT'], ['release_version', 'RELEASE_VERSION']]) {
+    for (const [queryName, parameterName] of [['release_channel', 'RELEASE_CHANNEL'], ['release_environment', 'RELEASE_ENVIRONMENT'], ['release_version', 'RELEASE_VERSION'], ['release_branch', 'RELEASE_BRANCH']]) {
       const value = searchParams.get(queryName)
       if (value) parameters[parameterName] = value
     }

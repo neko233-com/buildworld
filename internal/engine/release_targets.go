@@ -172,6 +172,16 @@ func ValidateConfiguredReleaseTarget(config *BuildConfig, parameters map[string]
 	}
 	channel, _ := parameters["RELEASE_CHANNEL"].(string)
 	environment, _ := parameters["RELEASE_ENVIRONMENT"].(string)
+	if branch, _ := parameters["RELEASE_BRANCH"].(string); branch != "" {
+		parts := strings.Split(branch, "/")
+		if len(parts) != 5 || !releasemeta.ValidRecord(branch, channel, environment, parts[3], parts[4]) || parameters["RELEASE_ACTION"] != "restart-version" {
+			return errors.New("release record branch does not match the selected channel, environment or restart action")
+		}
+		if version, _ := parameters["RELEASE_VERSION"].(string); version != "" && version != parts[4] {
+			return errors.New("release record branch and version differ")
+		}
+		parameters["RELEASE_VERSION"] = parts[4]
+	}
 	for _, target := range config.ReleaseTargets.Targets {
 		if target.Channel == channel && target.Environment == environment {
 			return nil
@@ -184,7 +194,7 @@ func ValidateConfiguredReleaseTarget(config *BuildConfig, parameters map[string]
 // overlays cannot replace a persisted release selection. Values remain literal,
 // and unrelated variables preserve the ordinary pipeline environment contract.
 func releaseParameterEnvironment(environment []string, parameters map[string]interface{}) []string {
-	names := []string{"RELEASE_CHANNEL", "RELEASE_ENVIRONMENT", "RELEASE_SHARED_SERVICE", "RELEASE_ACTION", "RELEASE_VERSION", "CONFIRM_PUBLISH_LATEST"}
+	names := []string{"RELEASE_CHANNEL", "RELEASE_ENVIRONMENT", "RELEASE_SHARED_SERVICE", "RELEASE_ACTION", "RELEASE_BRANCH", "RELEASE_VERSION", "CONFIRM_PUBLISH_LATEST"}
 	values := make(map[string]string, len(names))
 	for _, name := range names {
 		if value, exists := parameters[name]; exists {

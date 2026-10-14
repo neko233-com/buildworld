@@ -6,7 +6,7 @@ import { api } from '../api'
 import { dialogs } from './AppDialogs'
 import { BuildParametersForm } from './RunBuildDialog'
 
-vi.mock('../api', () => ({ api: { validateProject: vi.fn(), triggerBuild: vi.fn(), listReleaseTargets: vi.fn() } }))
+vi.mock('../api', () => ({ api: { validateProject: vi.fn(), triggerBuild: vi.fn(), listReleaseTargets: vi.fn(), listReleaseRecords: vi.fn() } }))
 vi.mock('./AppDialogs', () => ({ dialogs: { confirm: vi.fn() } }))
 let container: HTMLDivElement
 let root: Root
@@ -16,6 +16,7 @@ beforeEach(() => {
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
+  vi.mocked(api.listReleaseRecords).mockResolvedValue([])
   vi.mocked(api.validateProject).mockResolvedValue({ valid: true, format: 'jenkinsfile', stages: 1, steps: 1, allow_long_running: false, parameters: [
     { name: 'RELEASE_CHANNEL', type: 'choice', choices: ['wechat', 'taptap'], default: 'wechat' },
     { name: 'RELEASE_ENVIRONMENT', type: 'choice', choices: ['test', 'release', 'audit'], default: 'test' },
@@ -51,6 +52,22 @@ async function render(parameters: Record<string, string>) {
 async function submit() {
   await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
 }
+
+it('selects a published branch with its frozen config and runs tooling from main', async () => {
+  const metadata = await api.validateProject(33)
+  metadata.parameters!.push({ name: 'RELEASE_BRANCH', type: 'string' })
+  vi.mocked(api.validateProject).mockResolvedValue(metadata)
+  const branch = 'release/wechat/release/game-server/0.1.234'
+  vi.mocked(api.listReleaseRecords).mockResolvedValue([{ channel: 'wechat', environment: 'release', action: 'publish-latest', component: 'game-server', branch, version: '0.1.234', configVersion: '0.0.731', configCommit: 'a'.repeat(40) }])
+  await render({ RELEASE_CHANNEL: 'wechat', RELEASE_ENVIRONMENT: 'release' })
+  const selector = container.querySelectorAll<HTMLInputElement>('input[role="combobox"]')[2]
+  await act(async () => selector.focus())
+  expect(container.textContent).toContain('0.0.731')
+  await act(async () => (container.querySelector('[role="option"]') as HTMLButtonElement).click())
+  await submit()
+  expect(api.triggerBuild).toHaveBeenCalledWith(33, expect.objectContaining({ branch: 'main', parameters: expect.objectContaining({ RELEASE_BRANCH: branch, RELEASE_VERSION: '0.1.234', RELEASE_CHANNEL: 'wechat', RELEASE_ENVIRONMENT: 'release' }) }))
+  expect(dialogs.confirm).not.toHaveBeenCalled()
+})
 
 it('cancels latest without sending a build and never exposes a confirmation checkbox', async () => {
   vi.mocked(dialogs.confirm).mockResolvedValue(false)

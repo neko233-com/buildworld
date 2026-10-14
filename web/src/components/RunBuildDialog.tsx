@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { CirclePlay, GitBranch, KeyRound, LoaderCircle, RefreshCw, SlidersHorizontal, X } from 'lucide-react'
 import { parse as parseYAML } from 'yaml'
-import { api } from '../api'
+import { api, type BuildReleaseResult } from '../api'
 import { useI18n } from '../i18n'
 import { isTypeScriptPipelineSource } from '../lib/configFormat'
 import { releaseActionLabel, validReleaseEnvironment } from '../lib/releasePresentation'
@@ -133,6 +133,7 @@ export function BuildParametersForm({
   const [branchError, setBranchError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [releaseTargets, setReleaseTargets] = useState<ConfiguredReleaseTarget[]>([])
+  const [releaseRecords, setReleaseRecords] = useState<BuildReleaseResult[]>([])
   const [targetNotice, setTargetNotice] = useState('')
   const environmentDefinition = definitions.find(parameter => parameter.name === 'RELEASE_ENVIRONMENT')
   const scopedParameters = definitions.some(parameter => parameter.name === 'RELEASE_CHANNEL' || parameter.name === 'RELEASE_ENVIRONMENT')
@@ -147,10 +148,16 @@ export function BuildParametersForm({
     setLoadingDefinitions(true)
     setDefinitionsFailed(false)
     setError('')
-    api.validateProject(project.id).then(metadata => {
+    api.validateProject(project.id).then(async metadata => {
       if (!active) return
       if (metadata.valid === false) throw new Error(t('config.invalid'))
       const next = normalizeBuildParameterDefinitions(metadata.parameters)
+      const records = next.some(parameter => parameter.name === 'RELEASE_BRANCH') ? await api.listReleaseRecords(project.id) : []
+      if (!active) return
+      setReleaseRecords(records.filter(record => {
+        const parts = record.branch?.split('/')
+        return parts?.length === 5 && parts[0] === 'release' && parts[1] === record.channel && parts[2] === record.environment && parts[3] === record.component && parts[4] === record.version
+      }))
       const catalog = normalizeReleaseTargetCatalog(metadata.release_targets)
       if (metadata.release_targets && !catalog) throw new Error(t('projectDetail.invalidReleaseTargetCatalog'))
       setReleaseTargets(catalog?.targets || [])
@@ -184,7 +191,13 @@ export function BuildParametersForm({
     setValues(current => {
       const next = { ...current, [name]: value }
       if (name === 'RELEASE_CHANNEL') next.RELEASE_ENVIRONMENT = preferredReleaseEnvironment(releaseTargets, String(value), String(environmentDefinition?.defaultValue || ''))
-      if (targetChanged && current.RELEASE_ACTION === 'restart-version') next.RELEASE_VERSION = ''
+      if (targetChanged && current.RELEASE_ACTION === 'restart-version') { next.RELEASE_VERSION = ''; next.RELEASE_BRANCH = '' }
+      if (name === 'RELEASE_ACTION' && value !== 'restart-version') next.RELEASE_BRANCH = ''
+      if (name === 'RELEASE_VERSION' && next.RELEASE_BRANCH) next.RELEASE_BRANCH = ''
+      if (name === 'RELEASE_BRANCH') {
+        const record = releaseRecords.find(candidate => candidate.branch === value && candidate.channel === next.RELEASE_CHANNEL && candidate.environment === next.RELEASE_ENVIRONMENT)
+        next.RELEASE_VERSION = record?.version || ''
+      }
       return next
     })
     if (targetChanged) setTargetNotice(t(values.RELEASE_ACTION === 'restart-version' ? 'projectDetail.releaseTargetChangedRestart' : 'projectDetail.releaseTargetChanged'))
@@ -195,6 +208,7 @@ export function BuildParametersForm({
         delete next.RELEASE_CHANNEL
         delete next.RELEASE_ENVIRONMENT
         delete next.RELEASE_VERSION
+        delete next.RELEASE_BRANCH
       }
       return next
     })
@@ -212,7 +226,8 @@ export function BuildParametersForm({
     if (saving || loadingDefinitions || definitionsFailed) return
 
     setError('')
-    const nextBranchError = branch.trim() ? '' : t('builds.requiredParameterMissing').replace('{name}', t('builds.branch'))
+    const selectedSourceBranch = definitions.some(parameter => parameter.name === 'RELEASE_BRANCH') ? 'main' : branch.trim()
+    const nextBranchError = selectedSourceBranch ? '' : t('builds.requiredParameterMissing').replace('{name}', t('builds.branch'))
     const nextFieldErrors: Record<string, string> = {}
     for (const parameter of definitions) {
       if (parameter.required && parameter.type !== 'boolean' && !String(values[parameter.name] ?? '').trim()) {
@@ -242,7 +257,7 @@ export function BuildParametersForm({
 
     const parameters: Record<string, unknown> = {}
     definitions.forEach(parameter => {
-      if (parameter.name === 'RELEASE_VERSION' && values.RELEASE_ACTION === 'publish-latest') return
+      if ((parameter.name === 'RELEASE_VERSION' || parameter.name === 'RELEASE_BRANCH') && values.RELEASE_ACTION === 'publish-latest') return
       const value = values[parameter.name]
       if (parameter.type === 'number' && value !== '') parameters[parameter.name] = Number(value)
       else if (parameter.type === 'boolean') parameters[parameter.name] = Boolean(value)
@@ -258,7 +273,7 @@ export function BuildParametersForm({
           .replace('{service}', sharedService)
           .replace('{channel}', String(parameters.RELEASE_CHANNEL || '-'))
           .replace('{environment}', String(parameters.RELEASE_ENVIRONMENT || '-'))
-          .replace('{branch}', branch.trim())
+          .replace('{branch}', selectedSourceBranch)
         const accepted = await dialogs.confirm(confirmation, {
           title: t('projectDetail.confirmPublishLatest'), action: t('projectDetail.confirmPublishLatest'),
         })
@@ -269,7 +284,7 @@ export function BuildParametersForm({
         parameters.CONFIRM_PUBLISH_LATEST = false
       }
       const build = await api.triggerBuild(project.id, {
-        branch: branch.trim(),
+        branch: selectedSourceBranch,
         parameters,
       })
       onQueued(build)
@@ -288,15 +303,19 @@ export function BuildParametersForm({
     RELEASE_ENVIRONMENT: t('projectDetail.releaseEnvironment'),
     RELEASE_ACTION: t('projectDetail.releaseAction'),
     RELEASE_VERSION: t('projectDetail.historicalVersion'),
+    RELEASE_BRANCH: t('projectDetail.releaseRecordBranch'),
   }
-  const visibleDefinitions = definitions.filter(parameter => !(parameter.name === 'CONFIRM_PUBLISH_LATEST' && definitions.some(definition => definition.name === 'RELEASE_ACTION')) && !(parameter.name === 'RELEASE_VERSION' && values.RELEASE_ACTION === 'publish-latest'))
+  const visibleDefinitions = definitions.filter(parameter => !(parameter.name === 'CONFIRM_PUBLISH_LATEST' && definitions.some(definition => definition.name === 'RELEASE_ACTION')) && !((parameter.name === 'RELEASE_VERSION' || parameter.name === 'RELEASE_BRANCH') && values.RELEASE_ACTION === 'publish-latest'))
+  const recordOptions = releaseRecords.filter(record => record.channel === values.RELEASE_CHANNEL && record.environment === values.RELEASE_ENVIRONMENT).map(record => ({ value: record.branch!, label: record.branch!, detail: record.configVersion ? `${t('projectDetail.releaseConfigVersion')} ${record.configVersion} · ${record.configCommit?.slice(0, 12) || '-'}` : t('projectDetail.releaseConfigUnknown') }))
+  const selectedRecord = releaseRecords.find(record => record.branch === values.RELEASE_BRANCH)
+  const releaseBranchSelector = definitions.some(parameter => parameter.name === 'RELEASE_BRANCH')
   const channels = [...new Map(releaseTargets.map(target => [target.channel, target])).values()]
   const channelOptions = channels.map(target => ({ value: target.channel, label: target.channelLabel || target.channel, detail: t('projectDetail.configuredEnvironmentCount').replace('{count}', String(releaseTargets.filter(candidate => candidate.channel === target.channel).length)) }))
   const environmentOptions = releaseTargets.filter(target => target.channel === values.RELEASE_CHANNEL).map(target => ({ value: target.environment, label: target.environmentLabel || target.environment }))
 
   return <form className={`run-build-form ${variant === 'page' ? 'jenkins-parameter-form' : ''}`} onSubmit={handleSubmit} noValidate aria-busy={saving || loadingDefinitions || undefined}>
     <div className="run-build-body">
-      <label className="run-build-branch" htmlFor={`${formID}-branch`}>
+      {!releaseBranchSelector && <label className="run-build-branch" htmlFor={`${formID}-branch`}>
         <span><GitBranch size={14} aria-hidden="true" />{t('builds.branch')}<em>*</em></span>
         <input
           ref={branchRef}
@@ -314,7 +333,7 @@ export function BuildParametersForm({
         />
         <small id={branchDescription}>{t('builds.branchHelp')}</small>
         {branchError && <span className="run-field-error" id={branchErrorID}>{branchError}</span>}
-      </label>
+      </label>}
 
       <section className="run-parameter-section" aria-label={t('builds.buildParameters')}>
         <header>
@@ -339,6 +358,13 @@ export function BuildParametersForm({
               'aria-invalid': invalid || undefined,
               'aria-describedby': describedBy,
             }
+            if (parameter.name === 'RELEASE_BRANCH') return <label key={parameter.name} htmlFor={controlID}>
+              <span>{t('projectDetail.releaseRecordBranch')}</span>
+              <SearchableSelect id={controlID} inputRef={element => { parameterRefs.current[parameter.name] = element }} value={String(value ?? '')} options={recordOptions} onChange={next => updateValue(parameter.name, next)} disabled={saving} invalid={invalid} describedBy={describedBy} placeholder={t('projectDetail.searchReleaseRecord')} emptyLabel={t('projectDetail.noMatchingReleaseRecord')} keyboardHint={t('projectDetail.releaseTargetKeyboardHint')} />
+              <small id={descriptionID}>{t('projectDetail.releaseRecordHelp')}</small>
+              {selectedRecord && <small>{selectedRecord.configVersion ? `${t('projectDetail.releaseConfigVersion')} ${selectedRecord.configVersion} · ${selectedRecord.configCommit?.slice(0, 12) || '-'}` : t('projectDetail.releaseConfigUnknown')}</small>}
+              {invalid && <span className="run-field-error" id={errorID}>{fieldErrors[parameter.name]}</span>}
+            </label>
             return <label key={parameter.name} className={parameter.type === 'text' ? 'wide' : ''} htmlFor={controlID}>
               <span>{parameter.secret && <KeyRound size={12} aria-hidden="true" />}{releaseParameterLabels[parameter.name] || parameter.name}{(parameter.required || targetSelector || parameter.name === 'RELEASE_VERSION' && values.RELEASE_ACTION === 'restart-version') && <em>*</em>}</span>
               {targetSelector ? <SearchableSelect id={controlID} inputRef={element => { parameterRefs.current[parameter.name] = element }} value={String(value ?? '')} options={parameter.name === 'RELEASE_CHANNEL' ? channelOptions : environmentOptions} onChange={next => updateValue(parameter.name, next)} disabled={saving || !releaseTargets.length || parameter.name === 'RELEASE_ENVIRONMENT' && !environmentOptions.length} invalid={invalid || Boolean(releaseTargetError)} describedBy={describedBy} placeholder={t(parameter.name === 'RELEASE_CHANNEL' ? 'projectDetail.searchReleaseChannel' : 'projectDetail.searchReleaseEnvironment')} emptyLabel={t('projectDetail.noMatchingReleaseTarget')} keyboardHint={t('projectDetail.releaseTargetKeyboardHint')} /> : parameter.type === 'choice' ? <select {...sharedProps} ref={element => { parameterRefs.current[parameter.name] = element }} value={String(value ?? '')} onChange={event => updateValue(parameter.name, event.target.value)}>

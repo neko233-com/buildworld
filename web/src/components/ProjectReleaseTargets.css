@@ -1,4 +1,6 @@
 .project-release-targets { margin: 24px 0; }
+.project-release-records { margin-top: 12px; }
+.project-release-records summary { padding: 8px 0; cursor: pointer; font-size: 13px; }
 .project-release-targets h2 { margin: 0 0 10px; font-size: 16px; }
 .project-release-targets p { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--text-muted, #64748b); font-size: 12px; line-height: 1.6; }
 .project-release-target-table { max-width: 100%; overflow-x: auto; border: 1px solid #dbe3ec; border-radius: 6px; }

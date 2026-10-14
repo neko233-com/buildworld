@@ -13,12 +13,18 @@ import (
 const ReleaseResultMarker = "::buildworld:release-result "
 
 type BuildReleaseResult struct {
-	Channel     string `json:"channel"`
-	Environment string `json:"environment"`
-	Action      string `json:"action"`
-	Version     string `json:"version"`
-	Branch      string `json:"branch,omitempty"`
-	Component   string `json:"component,omitempty"`
+	SourceCommit     string `json:"sourceCommit,omitempty"`
+	ConfigCommit     string `json:"configCommit,omitempty"`
+	ConfigSnapshotID string `json:"configSnapshotId,omitempty"`
+	ConfigVersion    string `json:"configVersion,omitempty"`
+	SDKVersion       string `json:"sdkVersion,omitempty"`
+	GatewayVersion   string `json:"gatewayVersion,omitempty"`
+	Channel          string `json:"channel"`
+	Environment      string `json:"environment"`
+	Action           string `json:"action"`
+	Version          string `json:"version"`
+	Branch           string `json:"branch,omitempty"`
+	Component        string `json:"component,omitempty"`
 }
 
 const releaseResultsSchema = `CREATE TABLE IF NOT EXISTS build_release_results (
@@ -35,6 +41,24 @@ const releaseResultsSchema = `CREATE TABLE IF NOT EXISTS build_release_results (
 func addBuildReleaseResults(tx *sql.Tx) error {
 	_, err := tx.Exec(releaseResultsSchema)
 	return err
+}
+
+func addBuildReleaseIdentities(tx *sql.Tx) error {
+	for _, column := range []string{"source_commit", "config_commit", "config_snapshot_id", "config_version", "sdk_version", "gateway_version"} {
+		if _, err := tx.Exec("ALTER TABLE build_release_results ADD COLUMN " + column + " TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+	}
+	_, err := tx.Exec("UPDATE build_release_results SET branch=substr(branch, 7) WHERE branch LIKE 'codex/release/%'")
+	return err
+}
+
+func validReleaseIdentityHash(value string, length int) bool {
+	return value == "" || len(value) == length && strings.Trim(value, "0123456789abcdef") == ""
+}
+
+func validReleaseIdentity(result BuildReleaseResult) bool {
+	return validReleaseIdentityHash(result.SourceCommit, 40) && validReleaseIdentityHash(result.ConfigCommit, 40) && validReleaseIdentityHash(result.ConfigSnapshotID, 64) && validReleaseResultText(result.ConfigVersion, 128, false) && validReleaseResultText(result.SDKVersion, 128, false) && validReleaseResultText(result.GatewayVersion, 128, false) && (result.ConfigCommit == "") == (result.ConfigSnapshotID == "")
 }
 
 func validReleaseResultText(value string, maxLength int, required bool) bool {
@@ -68,7 +92,7 @@ func (s *Store) CaptureReleaseResults(buildID int64, content string) error {
 		if !validReleaseResultText(result.Channel, 64, true) || !releasemeta.ValidEnvironment(result.Environment) || !validReleaseResultText(result.Version, 128, true) || !validReleaseResultText(result.Branch, 255, false) || !validReleaseResultText(result.Component, 64, false) {
 			continue
 		}
-		if result.Action != "restart-version" && result.Action != "publish-latest" {
+		if !validReleaseIdentity(result) || (result.Action != "restart-version" && result.Action != "publish-latest") {
 			continue
 		}
 		if parameters["RELEASE_CHANNEL"] != result.Channel || parameters["RELEASE_ENVIRONMENT"] != result.Environment || parameters["RELEASE_ACTION"] != result.Action {
@@ -77,9 +101,12 @@ func (s *Store) CaptureReleaseResults(buildID int64, content string) error {
 		if result.Action == "restart-version" && parameters["RELEASE_VERSION"] != result.Version {
 			continue
 		}
-		_, err := s.db.Exec(`INSERT INTO build_release_results (build_id, component, channel, environment, action, version, branch)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(build_id, component) DO NOTHING`, buildID, result.Component, result.Channel, result.Environment, result.Action, result.Version, result.Branch)
+		if selected, ok := parameters["RELEASE_BRANCH"].(string); ok && selected != "" && selected != result.Branch {
+			continue
+		}
+		_, err := s.db.Exec(`INSERT INTO build_release_results (build_id, component, channel, environment, action, version, branch, source_commit, config_commit, config_snapshot_id, config_version, sdk_version, gateway_version)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(build_id, component) DO NOTHING`, buildID, result.Component, result.Channel, result.Environment, result.Action, result.Version, result.Branch, result.SourceCommit, result.ConfigCommit, result.ConfigSnapshotID, result.ConfigVersion, result.SDKVersion, result.GatewayVersion)
 		if err != nil {
 			return fmt.Errorf("persist release result: %w", err)
 		}
@@ -100,7 +127,7 @@ func (s *Store) AttachReleaseResults(builds []*Build) error {
 		byID[build.ID] = build
 		args, placeholders = append(args, build.ID), append(placeholders, "?")
 	}
-	rows, err := s.db.Query("SELECT build_id, channel, environment, action, version, branch, component FROM build_release_results WHERE build_id IN ("+strings.Join(placeholders, ",")+") ORDER BY component", args...)
+	rows, err := s.db.Query("SELECT build_id, channel, environment, action, version, branch, component, source_commit, config_commit, config_snapshot_id, config_version, sdk_version, gateway_version FROM build_release_results WHERE build_id IN ("+strings.Join(placeholders, ",")+") ORDER BY component", args...)
 	if err != nil {
 		return err
 	}
@@ -108,10 +135,37 @@ func (s *Store) AttachReleaseResults(builds []*Build) error {
 	for rows.Next() {
 		var id int64
 		var result BuildReleaseResult
-		if err := rows.Scan(&id, &result.Channel, &result.Environment, &result.Action, &result.Version, &result.Branch, &result.Component); err != nil {
+		if err := rows.Scan(&id, &result.Channel, &result.Environment, &result.Action, &result.Version, &result.Branch, &result.Component, &result.SourceCommit, &result.ConfigCommit, &result.ConfigSnapshotID, &result.ConfigVersion, &result.SDKVersion, &result.GatewayVersion); err != nil {
 			return err
 		}
 		byID[id].ReleaseResults = append(byID[id].ReleaseResults, &result)
 	}
 	return rows.Err()
+}
+
+// ListReleaseRecords returns completed successful publications without build logs or secret parameters.
+func (s *Store) ListReleaseRecords(projectID int64) ([]*BuildReleaseResult, error) {
+	rows, err := s.db.Query(`SELECT r.channel, r.environment, r.action, r.version, r.branch, r.component, r.source_commit, r.config_commit, r.config_snapshot_id, r.config_version, r.sdk_version, r.gateway_version
+		FROM build_release_results r JOIN builds b ON b.id=r.build_id WHERE b.project_id=? AND b.status='success' AND julianday(b.finished_at) IS NOT NULL AND r.branch<>'' ORDER BY b.finished_at DESC, b.id DESC LIMIT 512`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]*BuildReleaseResult, 0)
+	seen := make(map[string]bool)
+	for rows.Next() {
+		var record BuildReleaseResult
+		if err := rows.Scan(&record.Channel, &record.Environment, &record.Action, &record.Version, &record.Branch, &record.Component, &record.SourceCommit, &record.ConfigCommit, &record.ConfigSnapshotID, &record.ConfigVersion, &record.SDKVersion, &record.GatewayVersion); err != nil {
+			return nil, err
+		}
+		if seen[record.Branch] {
+			continue
+		}
+		if !releasemeta.ValidRecord(record.Branch, record.Channel, record.Environment, record.Component, record.Version) {
+			continue
+		}
+		seen[record.Branch] = true
+		result = append(result, &record)
+	}
+	return result, rows.Err()
 }

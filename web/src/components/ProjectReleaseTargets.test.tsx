@@ -7,7 +7,7 @@ import { api } from '../api'
 import { formatDateTime } from '../lib/dateTime'
 import ProjectReleaseTargets from './ProjectReleaseTargets'
 
-vi.mock('../api', () => ({ api: { listReleaseTargets: vi.fn() } }))
+vi.mock('../api', () => ({ api: { listReleaseTargets: vi.fn(), listReleaseRecords: vi.fn() } }))
 let container: HTMLDivElement
 let root: Root
 beforeEach(() => {
@@ -16,6 +16,7 @@ beforeEach(() => {
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
+  vi.mocked(api.listReleaseRecords).mockResolvedValue([])
 })
 afterEach(() => {
   act(() => root.unmount())

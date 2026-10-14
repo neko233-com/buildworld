@@ -55,6 +55,12 @@ export type BuildOverview = {
 }
 
 export type BuildReleaseResult = {
+  sourceCommit?: string
+  configCommit?: string
+  configSnapshotId?: string
+  configVersion?: string
+  sdkVersion?: string
+  gatewayVersion?: string
   channel: string
   environment: string
   action: string
@@ -400,6 +406,7 @@ export const api = {
     request<any>('PUT', '/projects/order', { ordered_ids: orderedIds }),
   getProject: (id: number) => request<any>('GET', `/projects/${id}`),
   listReleaseTargets: (id: number) => request<ReleaseTargetOverview[]>('GET', `/projects/${id}/release-targets`),
+  listReleaseRecords: (id: number) => request<BuildReleaseResult[]>('GET', `/projects/${id}/release-records`),
   createProject: (data: any) => request('POST', '/projects/', data),
   updateProject: (id: number, data: any) => request('PUT', `/projects/${id}`, data),
   deleteProject: (id: number) => request('DELETE', `/projects/${id}`),

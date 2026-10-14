@@ -140,6 +140,25 @@ shown after a successful completed build with a non-ambiguous version result
 evidence do not gain an inferred version. Shortcuts prefill the selected target
 and version on the parameter page; the operator still explicitly queues it.
 
+Scoped pipelines may declare `RELEASE_BRANCH` as an optional public string.
+The parameter page then selects completed successful release records from
+`GET /api/projects/{id}/release-records`, filtered by the configured channel and
+environment. Records use `release/<channel>/<environment>/<component>/<version>`;
+the engine checks the exact target and restart action and derives `RELEASE_VERSION`.
+Changing the target clears both values. Tooling is checked out from `main`; the
+selected release branch identifies the historical artifact, not the pipeline source.
+The deployment tool still checks the published artifact and exact Git record before
+any mutation, so a catalog entry alone never authorizes an unavailable artifact.
+
+Result markers also carry `sourceCommit`, `configCommit`, `configSnapshotId`,
+`configVersion`, `sdkVersion`, and `gatewayVersion`. Configuration identity comes
+from the packaged snapshot and its fixed commit marker, including on historical
+restarts; it is never refreshed from the latest configuration repository. The
+project view and branch selector display that recorded identity. Legacy results
+without these fields remain explicitly unknown. Migration 15 preserves existing
+results and removes the historical `codex/` release prefix. Successful completed
+records are deduplicated by branch; failed or running builds never replace them.
+
 ## TypeScript DSL
 
 TypeScript gives people and AI agents comments, completion, diagnostics, and a

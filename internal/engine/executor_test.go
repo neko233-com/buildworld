@@ -16,13 +16,17 @@ func TestExecutorRun(t *testing.T) {
 	executor := NewExecutor()
 
 	ctx := context.Background()
-	output, err := executor.Run(ctx, "echo", "hello")
+	command, args, expected := "echo", []string{"hello"}, "hello\n"
+	if runtime.GOOS == "windows" {
+		command, args, expected = "cmd", []string{"/c", "echo", "hello"}, "hello\r\n"
+	}
+	output, err := executor.Run(ctx, command, args...)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 
-	if output != "hello\n" {
-		t.Errorf("output = %q, want %q", output, "hello\n")
+	if output != expected {
+		t.Errorf("output = %q, want %q", output, expected)
 	}
 }
 
@@ -41,9 +45,13 @@ func TestRunWithOutputCallback(t *testing.T) {
 	ctx := context.Background()
 
 	var outputs []string
-	err := executor.RunWithOutput(ctx, "echo", func(s string) {
+	command, args := "echo", []string{"hello"}
+	if runtime.GOOS == "windows" {
+		command, args = "cmd", []string{"/c", "echo", "hello"}
+	}
+	err := executor.RunWithOutput(ctx, command, func(s string) {
 		outputs = append(outputs, s)
-	}, "hello")
+	}, args...)
 	if err != nil {
 		t.Fatalf("RunWithOutput() error = %v", err)
 	}

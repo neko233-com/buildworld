@@ -13,6 +13,7 @@ vi.mock('../api', () => ({
   api: {
     getProject: vi.fn(),
     listReleaseTargets: vi.fn(),
+    listReleaseRecords: vi.fn(),
     searchBuilds: vi.fn(),
     listProjectGroups: vi.fn(),
     validateProject: vi.fn(),
@@ -61,6 +62,7 @@ describe('ProjectDetail Jenkins Job status', () => {
     localStorage.setItem('locale', 'en')
     vi.mocked(api.getProject).mockResolvedValue(project)
     vi.mocked(api.listReleaseTargets).mockResolvedValue([])
+    vi.mocked(api.listReleaseRecords).mockResolvedValue([])
     vi.mocked(api.searchBuilds).mockResolvedValue({ version: 1, items: builds, total: builds.length, limit: 100, offset: 0 })
     vi.mocked(api.listProjectGroups).mockResolvedValue([{ id: 3, name: '服务器 Go' }])
     vi.mocked(api.validateProject).mockResolvedValue({ valid: true, format: 'yaml', stages: 1, steps: 1, parameters: [], allow_long_running: false })

@@ -121,6 +121,7 @@ func NewRouter(d Deps) http.Handler {
 					r.With(editors).Delete("/", h.deleteProject)
 					r.Get("/changes", h.listProjectChanges)
 					r.Get("/release-targets", h.listReleaseTargets)
+					r.Get("/release-records", h.listReleaseRecords)
 					r.Get("/builds", h.listProjectBuilds)
 					r.With(editors, auth.RequireAPITokenScope(auth.ScopeBuildTrigger)).Post("/builds", h.triggerBuild)
 					r.Get("/stats", h.getProjectStats)
