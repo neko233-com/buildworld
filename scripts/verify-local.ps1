@@ -114,7 +114,7 @@ try {
     foreach ($command in @(Get-Command bash -All -ErrorAction SilentlyContinue)) {
         if ($command.Source) { $bashCandidates.Add($command.Source) }
     }
-    foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+    foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432)) {
         if ($root) {
             $bashCandidates.Add((Join-Path $root 'Git\bin\bash.exe'))
             $bashCandidates.Add((Join-Path $root 'Git\usr\bin\bash.exe'))
