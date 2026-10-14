@@ -169,3 +169,27 @@ func (s *Store) ListReleaseRecords(projectID int64) ([]*BuildReleaseResult, erro
 	}
 	return result, rows.Err()
 }
+
+// GetProjectBuildReleaseStatus reads bounded metadata for a project-scoped
+// release observer. Log bodies and parameters are never loaded into memory.
+func (s *Store) GetProjectBuildReleaseStatus(projectID, buildID int64) (*Build, error) {
+	build := &Build{}
+	var started, finished sql.NullTime
+	var duration sql.NullInt64
+	err := s.db.QueryRow(`SELECT id, project_id, number, status, started_at, finished_at, duration_ms
+		FROM builds WHERE project_id=? AND id=?`, projectID, buildID).Scan(
+		&build.ID, &build.ProjectID, &build.Number, &build.Status, &started, &finished, &duration)
+	if err != nil {
+		return nil, err
+	}
+	if started.Valid {
+		build.StartedAt = &started.Time
+	}
+	if finished.Valid {
+		build.FinishedAt = &finished.Time
+	}
+	if duration.Valid {
+		build.DurationMs = &duration.Int64
+	}
+	return build, nil
+}
