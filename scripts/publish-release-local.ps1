@@ -8,6 +8,9 @@ param(
     [switch]$ReplaceExisting,
     [switch]$PruneOtherReleases,
 
+    [ValidateRange(1, 20)]
+    [int]$UploadBatchSize = 20,
+
     [ValidatePattern('^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')]
     [string]$Repository = 'neko233-com/buildworld'
 )
@@ -261,7 +264,7 @@ try {
     )
     $stagingReleaseCreated = $true
 
-    $batchSize = 20
+    $batchSize = $UploadBatchSize
     for ($offset = 0; $offset -lt $uploadAssets.Count; $offset += $batchSize) {
         $last = [Math]::Min($offset + $batchSize - 1, $uploadAssets.Count - 1)
         $verifiedBatch = @($uploadAssets[$offset..$last] | ForEach-Object {
