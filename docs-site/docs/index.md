@@ -1,18 +1,21 @@
 ---
+title: BuildWorld CI/CD Server
+description: BuildWorld is a self-hosted CI/CD server and Jenkins alternative for build automation, TypeScript and YAML pipelines, and deployment workflows.
 sidebar_position: 1
 ---
 
-# buildworld
+# BuildWorld
 
-A modern CI/CD server - Jenkins alternative with restricted TypeScript and
-GitHub Actions-style YAML pipelines, a plugin system, and distributed workers.
+BuildWorld is an open-source, self-hosted CI/CD server and Jenkins alternative
+for continuous integration, continuous delivery, build automation, pipelines
+as code, and deployment workflows.
 
 ## Features
 
 - **TypeScript Pipelines** - Typed, comment-friendly configuration with syntax diagnostics and a restricted runtime
 - **YAML Pipelines** - GitHub Actions-style YAML remains available for declarative workflows
 - **Plugin System** - Checksummed, out-of-process Go binary plugins with explicit lifecycle controls
-- **Agent-First Architecture** - Distributed build execution with agent pools and requirements
+- **Local-First Execution** - The built-in `builtin` executor runs builds on the server; remote Workers are optional
 - **Git Integration** - Reusable VCS repository templates for Git URLs, credentials, branches, polling, and checkout
 - **SSH Authentication** - Key and password-based SSH auth with credential management
 - **Environment Variables** - Global and project-level variables

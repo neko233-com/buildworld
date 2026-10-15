@@ -1,0 +1,311 @@
+<p align="center">
+  <h1 align="center">BuildWorld</h1>
+  <p align="center"><strong>生产级 CI/CD 服务器 — Jenkins 现代替代方案</strong></p>
+  <p align="center">
+    TypeScript DSL · 分布式 Worker · React 仪表盘 · 飞书通知 · 28+ 插件
+  </p>
+</p>
+
+<p align="center">
+  <a href="https://github.com/neko233-com/buildworld/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/neko233-com/buildworld"></a>
+  <a href="https://github.com/neko233-com/buildworld/blob/main/README.md"><img alt="English" src="https://img.shields.io/badge/English-README.md-blue"></a>
+</p>
+
+---
+
+## 一键安装
+
+> 默认通过 GitHub 镜像安装，适用于无法直连 GitHub 的网络；如需直连，设置 `BUILDWORLD_GITHUB_MIRROR=off`。
+
+<table>
+<tr>
+<td><strong>macOS / Linux</strong></td>
+<td><strong>Windows PowerShell</strong></td>
+</tr>
+<tr>
+<td>
+
+```sh
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | sh
+buildworld status
+```
+
+</td>
+<td>
+
+```powershell
+& ([scriptblock]::Create((
+  (Invoke-WebRequest -UseBasicParsing `
+    https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.ps1).Content
+)))
+buildworld status
+```
+
+</td>
+</tr>
+</table>
+
+浏览器打开 `http://127.0.0.1:8080`，默认账号 `root` / `root`，**首次登录后立即修改密码**。
+
+<details>
+<summary>指定版本 / 内网离线安装</summary>
+
+```sh
+# macOS / Linux
+sh install.sh 1.15.0
+
+# Windows
+.\install.ps1 -Version 1.15.0
+```
+
+内网部署：将 `release/vX.Y.Z/` 中的安装脚本、bundle 与 `checksums.txt` 一起发布到可信下载地址。
+</details>
+
+---
+
+## 架构总览
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      BuildWorld Server                       │
+│                    Go · Chi · SQLite · JWT                    │
+│                                                              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  │
+│  │ REST API │  │ WebSocket│  │  gRPC    │  │  Webhooks  │  │
+│  │ /api/*   │  │ 实时日志  │  │ Worker   │  │ GH/GL/Gitea│  │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └─────┬──────┘  │
+│       │              │              │               │         │
+│  ┌────┴──────────────┴──────────────┴───────────────┴──────┐ │
+│  │                    Build Engine                          │ │
+│  │   调度 · 队列 · 执行 · 插件 · 日志 · 制品 · 通知       │ │
+│  └────────────────────────┬────────────────────────────────┘ │
+│                           │                                   │
+│  ┌────────────────────────┴────────────────────────────────┐ │
+│  │                  SQLite + Migrations                     │ │
+│  └──────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+         │                              │
+    REST / WS                        gRPC
+         │                              │
+┌────────┴────────┐          ┌──────────┴──────────┐
+│   React SPA     │          │   Distributed       │
+│   Dashboard     │          │   Workers           │
+│   Vite + Monaco │          │   cmd/worker        │
+└─────────────────┘          └─────────────────────┘
+```
+
+**核心组件：**
+
+| 组件 | 目录 | 职责 |
+|------|------|------|
+| **Server** | `cmd/server` | HTTP API、WebSocket 实时日志、gRPC Worker 管理、构建引擎调度 |
+| **CLI** | `cmd/cli` | 用户交互：start / stop / restart / status / reset-password |
+| **Worker** | `cmd/worker` + `sdk/` | 分布式构建执行器，通过 gRPC 自动注册到 Server |
+| **Frontend** | `web/` | React SPA — Jenkins 风格仪表盘，Monaco 编辑器，实时日志 |
+| **Plugins** | `plugins/` | 28+ 构建/部署/通知插件，运行时动态加载 |
+| **Migrator** | `internal/jenkins` | Jenkinsfile → TypeScript DSL 自动转换 |
+
+---
+
+## 核心功能
+
+### Pipeline DSL
+
+支持 **TypeScript** 和 **YAML** 两种声明式 Pipeline：
+
+```typescript
+// TypeScript DSL — Monaco 编辑器提供校验与补全
+pipeline({
+  stages: [
+    stage("Build", async () => {
+      await sh("go build -o app ./cmd/server");
+    }),
+    stage("Test", async () => {
+      await sh("go test ./...");
+    }),
+    stage("Deploy", async () => {
+      await notify({ type: "feishu", message: "部署完成" });
+    }),
+  ],
+});
+```
+
+TypeScript Pipeline 在受限沙箱中执行，**禁止 `eval` 和 `new Function`**。
+
+### 分布式 Worker
+
+- 内置 `builtin` 执行器：单机即可运行
+- 远程 Worker 通过 gRPC 自动注册，支持水平扩展
+- Worker SDK (`sdk/`) 支持自定义 Worker 实现
+- 构建隔离：每次构建使用独立工作空间，自动清理
+
+### Web 控制台
+
+Jenkins 风格但更现代化的 React 仪表盘：
+
+- **Dashboard** — 项目列表、状态总览、左侧队列/最近构建面板
+- **Build Queue** — 实时构建队列，支持取消与重排
+- **Build Detail** — 实时日志流、制品列表、环境变量、变更集
+- **Project Configure** — 可视化配置 Pipeline、触发器、凭证
+- **Big Screen** — 大屏监控模式
+- **Credentials** — 凭证管理（用户名密码、SSH Key、API Token）
+- **Audit Log** — 操作审计日志
+- **Statistics** — 构建统计与趋势分析
+
+### 插件生态
+
+28+ 开箱即用的插件，覆盖主流构建工具与平台：
+
+| 类别 | 插件 |
+|------|------|
+| **构建工具** | Go, Cargo, Gradle, Maven, npm, pip, .NET, Shell, PowerShell |
+| **容器/部署** | Docker, Kubernetes, Helm, ArgoCD, Terraform, Ansible |
+| **SCM** | GitHub, GitLab, Gitea, SVN, Mercurial |
+| **通知** | Feishu (飞书), Slack, Discord, Telegram, Webhook |
+| **制品/安全** | S3, Vault, SonarQube |
+
+### Jenkins 迁移
+
+支持渐进式从 Jenkins 迁移，零停机切换：
+
+1. **导入** — 自动解析 Jenkinsfile，生成 TypeScript DSL
+2. **双跑** — 同一 commit 同时在 Jenkins 和 BuildWorld 执行
+3. **对比** — 比对环境变量、制品、通知、部署结果
+4. **切换** — 连续一致后关闭 Jenkins 触发器
+
+### 飞书通知
+
+原生 Go 实现，无外部依赖：
+
+```json
+{
+  "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/REDACTED"
+}
+```
+
+支持构建开始、成功、失败事件，发送富文本卡片消息。
+
+---
+
+## 运维速查
+
+```sh
+buildworld start              # 启动服务
+buildworld stop               # 停止服务
+buildworld restart            # 重启
+buildworld status             # 查看状态
+buildworld pause              # 暂停（卸载后台服务，防止自动拉起）
+buildworld resume             # 恢复
+buildworld enable-autostart   # 开机自启
+buildworld disable-autostart  # 关闭自启
+```
+
+```sh
+# 重置管理员密码
+printf '%s\n' 'new-strong-password' | buildworld reset-root-password --password-stdin
+```
+
+更新失败时，上个 bundle 保留在 `.previous` 目录，可随时回滚。
+
+---
+
+## 默认配置
+
+| 项目 | 默认值 |
+|------|--------|
+| 控制台 / API | `http://127.0.0.1:8080` |
+| 默认管理员 | `root` / `root` |
+| 数据库 | SQLite (`data/buildworld.db`) |
+| macOS bundle | `~/.local/lib/buildworld` |
+| macOS CLI | `~/.local/bin/buildworld` |
+| 数据与日志 | `~/Library/Application Support/buildworld` (macOS) |
+
+局域网访问时，将 `server.host` 改为受控网卡地址或使用反向代理 + TLS。**不要将密码、webhook 或 Git 凭据写入仓库。**
+
+---
+
+## 开发
+
+```bash
+# 后端测试
+go test ./...
+
+# 前端测试与构建
+cd web && npm ci && npm test -- --run && npm run build
+
+# 文档站构建
+cd docs-site && npm ci && npm run build
+```
+
+### 本地发布
+
+```powershell
+# 完整门禁验证
+.\scripts\verify-local.ps1
+
+# 六平台打包 (Windows / Linux / macOS × amd64 / arm64)
+.\scripts\release-local.ps1 -Version 1.15.0
+
+# 发布到 GitHub Release
+.\scripts\publish-release-local.ps1 -Version 1.15.0 -Publish -ReplaceExisting
+```
+
+所有 CI、测试、打包和发布均在本地完成，不使用 GitHub Actions。
+
+项目配置 → 触发方式可启用 **BuildWorld 启动后自动构建一次**。
+该选项默认关闭，每次服务启动使用流水线默认参数并遵循审批规则；
+禁用项目或已有执行中、排队、待审批构建的项目会跳过，避免与重启恢复重复。
+首页分组支持右键或 `Shift+F10` 打开重命名/删除菜单，重命名保留分组 ID、颜色、备注和项目归属。
+
+Jenkinsfile 构建参数同时作为 shell 环境变量传入。游戏发布 CLI 的终端
+`deploygame_cli ops resume-game-monitor --monitor-only=true` 保持长运行，取消仅停止观测；
+已发布项目的恢复判断由流水线核对活动代际、PID 与健康状态，不自动删除 staging 或重走停服。
+
+控制台正常退出会停止并等待所属构建进程树退出，随后清理工作区；中断构建保留恢复状态。
+控制台退出与用户取消构建分别处理：退出时只停止服务日志观测，不向已部署服务发送停止信号。
+
+桌面页面回归脚本位于 `web/e2e/desktopSmoke.mjs`。在已登录的内置 Browser
+测试会话中导入 `runDesktopSmoke`，传入 Browser 的 `tab`、隔离实例 URL 和
+可选的 `{ projectID, buildID }`，即可自动检查 24 个现有页面的标题、空白页、
+页面横向溢出、错误提示、错误覆盖层、未展开的进度标签及浏览器错误日志。
+此脚本只读，不触发业务构建、不修改生产数据，也不启用分布式 Worker。
+完整本地门禁仍由 `scripts/verify-local.ps1` 执行；真实保存、失败重试、键盘操作、
+启动构建、默认参数、审批及重启恢复均有针对性的 Web/Go 回归测试。
+
+---
+
+## 项目级发布回执
+
+持有项目 HTTP 发布链接的客户端，可以在原链接后追加以下只读路径：
+
+- `GET /release-status`：核对回执协议 `schemaVersion=1` 和所属 `projectId`。
+- `GET /builds/<buildId>`：读取同项目构建状态、完成时间和 `release_results`；不会加载或返回日志、构建参数及配置。
+- `GET /release-records`：读取已成功完成的固定版本记录，包括源码提交、配置提交与快照摘要。
+
+这些接口沿用原项目 token，轮换或禁用 HTTP 触发后立即失效，项目禁用返回既有 `project_disabled` 错误。状态接口不会触发、重试或取消构建；跨项目构建返回 404，响应禁止缓存。发布链接是凭据，不应写入源码、Console 或共享报告。
+
+客户端应在上传前检查服务能力，保存 POST 返回的构建 ID，再等待同一构建真正成功，并核对渠道、环境、动作和固定配置。HTTP 201 只表示受理；连接断开不能直接重复 POST，也不能把缺少正式回执的构建当成配套发布成功。
+
+## 项目结构
+
+```
+buildworld/
+├── cmd/
+│   ├── cli/          # CLI 入口
+│   ├── server/       # 服务端入口
+│   └── worker/       # 分布式 Worker 入口
+├── internal/         # 核心业务逻辑 (API · Engine · Store · Auth · Plugin)
+├── web/              # React SPA (Vite · TypeScript · Monaco)
+├── plugins/          # 28+ 插件 (构建 · 部署 · 通知 · SCM)
+├── proto/            # gRPC 协议定义
+├── sdk/              # Worker SDK
+├── scripts/          # 安装 · 发布 · 验证脚本
+├── docs-site/        # Docusaurus 文档站
+└── integration/      # 集成测试
+```
+
+---
+
+<p align="center">
+  <a href="README.md">English Version →</a>
+</p>

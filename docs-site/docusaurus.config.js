@@ -2,8 +2,8 @@
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'buildworld',
-  tagline: 'A modern CI/CD server - Jenkins alternative',
+  title: 'BuildWorld',
+  tagline: 'BuildWorld is a self-hosted CI/CD server and Jenkins alternative for build automation, pipeline as code, and deployment workflows.',
   favicon: 'img/favicon.svg',
   url: 'https://neko233-com.github.io',
   baseUrl: '/buildworld/',
@@ -49,8 +49,14 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
+      metadata: [
+        {
+          name: 'keywords',
+          content: 'BuildWorld, buildworld, CI/CD, self-hosted CI/CD server, build automation, pipeline as code, Jenkins alternative, continuous integration, continuous delivery, 自托管 CI/CD 服务器, 持续集成, 持续交付, 构建自动化, Jenkins 替代方案',
+        },
+      ],
       navbar: {
-        title: 'buildworld',
+        title: 'BuildWorld',
         logo: {
           alt: 'buildworld Logo',
           src: 'img/logo.svg',

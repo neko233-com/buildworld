@@ -1,18 +1,19 @@
 ---
+title: BuildWorld CI/CD 服务器
+description: BuildWorld 是一款开源、自托管 CI/CD 服务器和 Jenkins 替代方案，提供构建自动化、TypeScript 与 YAML 流水线以及部署工作流。
 sidebar_position: 1
 ---
 
-# buildworld
+# BuildWorld
 
-现代化 CI/CD 服务器 - Jenkins 替代方案，支持受限 TypeScript 与 GitHub
-Actions 风格 YAML 流水线、插件系统和分布式 Agent。
+BuildWorld 是一款开源、自托管 CI/CD 服务器和 Jenkins 替代方案，支持持续集成、持续交付、构建自动化、流水线即代码和部署工作流。
 
 ## 功能特性
 
 - **TypeScript 流水线** - 类型化、支持注释和语法诊断，并在受限运行时解析
 - **YAML 流水线** - 保留 GitHub Actions 风格的声明式 YAML 配置
 - **插件系统** - 经过校验、进程外运行的 Go 二进制插件，支持完整生命周期管理
-- **Agent 优先架构** - 分布式构建执行，支持 Agent 池和需求匹配
+- **本地优先执行** - 默认使用内置 `builtin` 执行器在服务器运行构建；远程 Worker 为可选部署方式
 - **Git 集成** - 使用 VCS 仓库模板复用 Git 地址、账号、分支、轮询与检出配置
 - **SSH 认证** - 密钥和密码 SSH 认证，带凭证管理
 - **环境变量** - 全局和项目级变量
