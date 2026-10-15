@@ -120,8 +120,8 @@ const config = {
                 href: 'https://github.com/neko233-com/buildworld/blob/main/CHANGELOG.md',
               },
               {
-                label: 'License',
-                href: 'https://github.com/neko233-com/buildworld/blob/main/LICENSE',
+                label: 'Releases',
+                href: 'https://github.com/neko233-com/buildworld/releases',
               },
             ],
           },

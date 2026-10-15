@@ -33,6 +33,15 @@ your network requires one.
 
 Download the latest release from [GitHub Releases](https://github.com/neko233-com/buildworld/releases). Every release contains a checksum-verified CLI, server, worker, and web UI bundle.
 
+GitHub assets use `.part000`, `.part001`, and subsequent chunks to accommodate
+restricted networks. Use the installer to reassemble and verify both the chunks
+and the complete archive; a single part is not an extractable bundle.
+
+Starting with `v1.16.23`, every bundle and Release includes `release-info.json`
+with its version, source commit, Go toolchain, build time, and supported platforms.
+Its SHA-256 is included in `checksums.txt`. This records artifact identity; it is
+not a digital signature.
+
 ### Available Binaries
 
 | Platform | CLI | Server | Worker |
@@ -90,20 +99,6 @@ buildworld version
 buildworld pause
 buildworld resume
 buildworld restart
-```
-
-## Docker Installation
-
-```bash
-# Pull image
-docker pull neko233/buildworld:latest
-
-# Run container
-docker run -d \
-  -p 8080:8080 \
-  -v buildworld-data:/data \
-  --name buildworld \
-  neko233/buildworld:latest
 ```
 
 ## Next Steps

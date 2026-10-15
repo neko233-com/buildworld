@@ -64,7 +64,8 @@ GitHub 可能显示平台托管的 Pages 部署记录。服务从 `gh-pages:/` �
 ```
 
 此命令用于恢复同一次新版本的文档发布。成功发布后，重复运行相同 tag 会跳过 HTML 构建和推送。
-若静态 commit 已提交，但 Pages 尚未确认构建成功，先检查 Pages 部署状态。
+若静态 commit 已提交，但 Pages 尚未确认构建成功，相同命令会重试该部署并校验准确 commit，
+不重新构建 HTML，也不重复推送静态提交。
 
 使用 `-ReleaseTag vX.Y.Z -Publish -WhatIf` 可读取远端状态、检查发布资格，不构建 HTML，也不写远端。
 前面的默认 dry-run 用于本地构建，不读取远端发布状态。

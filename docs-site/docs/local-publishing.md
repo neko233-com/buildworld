@@ -77,7 +77,8 @@ From the clean, reviewed source commit, retry with its explicit tag:
 This is recovery for the same new release, not a publishing path for `main`.
 After a successful publication, retrying the same tag skips HTML building and
 pushes. If the static commit was already submitted but Pages has not confirmed
-it as built, inspect the Pages deployment before retrying.
+it as built, the same command retries that deployment and verifies its exact
+commit without rebuilding HTML or pushing another static commit.
 
 To inspect eligibility without building or writing remote state, use
 `-ReleaseTag vX.Y.Z -Publish -WhatIf`. This reads remote state. The default

@@ -127,17 +127,12 @@ sh install.sh 1.15.0
 
 ```typescript
 // TypeScript DSL — Monaco 编辑器提供校验与补全
-pipeline({
+import { definePipeline, shell, stage } from '@buildworld/pipeline';
+
+export default definePipeline({
   stages: [
-    stage("Build", async () => {
-      await sh("go build -o app ./cmd/server");
-    }),
-    stage("Test", async () => {
-      await sh("go test ./...");
-    }),
-    stage("Deploy", async () => {
-      await notify({ type: "feishu", message: "部署完成" });
-    }),
+    stage('Build', [shell('Compile', 'go build -o app ./cmd/server')]),
+    stage('Test', [shell('Test', 'go test ./...')], { dependsOn: ['Build'] }),
   ],
 });
 ```

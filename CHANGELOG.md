@@ -8,6 +8,33 @@ All notable BuildWorld changes are recorded here. The project follows
 
 No unreleased changes.
 
+## [1.16.23] - 2026-10-15
+
+### Added
+
+- English-first README, Chinese README, and bilingual HTML documentation with
+  an explicitly dated historical local build-details screenshot.
+- A Chinese installation guide covering PowerShell, all six platform bundles,
+  multipart downloads, SHA-256 verification, user PATH, and service lifecycle.
+- A checksummed `release-info.json` in every bundle and as a Release asset,
+  recording the version, source commit, Go toolchain, build time, and platforms.
+- Isolated release runtime verification of CLI/server versions, health,
+  production Web UI, sign-in, and a real pipeline on the `builtin` executor.
+
+### Changed
+
+- Public HTML documentation publishes locally only for new release tags.
+  Ordinary main pushes and replacement releases do not publish the site.
+- Release notes come from this changelog. Packaging requires a clean source
+  tree and rejects source changes during the build.
+- README pipeline examples use the current restricted TypeScript DSL.
+
+### Fixed
+
+- Broken localized documentation links now fail verification.
+- Retrying an interrupted Pages deployment verifies the existing static commit
+  without rebuilding HTML or pushing a duplicate documentation commit.
+
 ## [1.0.0] - 2026-07-21
 
 First production release.

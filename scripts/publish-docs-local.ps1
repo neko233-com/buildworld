@@ -17,6 +17,7 @@ if ($Publish -and -not $ReleaseTag) {
     throw 'Documentation publication requires -ReleaseTag vX.Y.Z; main pushes do not build or publish the public site.'
 }
 . (Join-Path $PSScriptRoot 'docs-release-policy.ps1')
+. (Join-Path $PSScriptRoot 'docs-pages.ps1')
 
 $remote = 'origin'
 $repository = 'neko233-com/buildworld'
@@ -271,7 +272,15 @@ $decision = Get-DocsReleaseDecision -ReleaseTag $ReleaseTag -TagCommit $tagCommi
 if ($decision -eq 'AlreadyPublished') {
     $latestBuild = Get-LatestPagesBuild $repository
     if ($null -eq $latestBuild -or $latestBuild.commit -ne $remotePagesSha -or $latestBuild.status -ne 'built') {
-        throw "Documentation for $ReleaseTag is already submitted at $remotePagesSha, but Pages has not confirmed it as built. Inspect the Pages deployment before retrying."
+        if (-not $PSCmdlet.ShouldProcess("$repository Pages", "retry deployment of existing $ReleaseTag static commit $remotePagesSha without rebuilding or pushing")) { return }
+        $pages = Get-PagesState $repository
+        if ($pages.build_type -ne 'legacy' -or $pages.source.branch -ne $pagesBranch -or $pages.source.path -ne '/') {
+            throw 'Pages source changed; refusing to retry a deployment from an unexpected source.'
+        }
+        Request-PagesBuild $repository
+        Wait-DocsPagesBuild -Commit $remotePagesSha -TimeoutSeconds $PublishTimeoutSeconds -GetLatest { Get-LatestPagesBuild $repository }
+        Write-Host "Documentation deployment recovered for $ReleaseTag at $remotePagesSha`: $($pages.html_url)"
+        return
     }
     Write-Host "Documentation already published for $ReleaseTag ($sourceSha); no build or push required."
     return
@@ -380,42 +389,8 @@ try {
     # when the source branch is pushed before the Pages source is configured.
     Request-PagesBuild $repository
 
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($PublishTimeoutSeconds)
-    $lastStatus = "waiting for build commit $publishedSha"
-    $latestCommit = 'none'
-    do {
-        $latestBuild = Get-LatestPagesBuild $repository
-        if ($null -ne $latestBuild) {
-            $commitProperty = $latestBuild.PSObject.Properties['commit']
-            $statusProperty = $latestBuild.PSObject.Properties['status']
-            $latestCommit = if ($null -ne $commitProperty) { [string]$commitProperty.Value } else { 'unknown' }
-            $latestBuildStatus = if ($null -ne $statusProperty) { [string]$statusProperty.Value } else { 'unknown' }
-
-            if ($latestCommit -ieq $publishedSha) {
-                $lastStatus = $latestBuildStatus
-                if ($lastStatus -eq 'built') {
-                    Write-Host "Documentation for $ReleaseTag published from $publishedSha`: $($pages.html_url)"
-                    return
-                }
-                if ($lastStatus -eq 'errored') {
-                    $errorMessage = 'no error message returned'
-                    $errorProperty = $latestBuild.PSObject.Properties['error']
-                    if ($null -ne $errorProperty -and $null -ne $errorProperty.Value) {
-                        $messageProperty = $errorProperty.Value.PSObject.Properties['message']
-                        if ($null -ne $messageProperty -and $messageProperty.Value) {
-                            $errorMessage = [string]$messageProperty.Value
-                        }
-                    }
-                    throw "GitHub Pages failed to deploy commit ${publishedSha}: $errorMessage"
-                }
-            } else {
-                $lastStatus = "waiting for $publishedSha; latest build is $latestCommit ($latestBuildStatus)"
-            }
-        }
-        Start-Sleep -Seconds 5
-    } while ([DateTimeOffset]::UtcNow -lt $deadline)
-
-    throw "Timed out waiting for GitHub Pages commit $publishedSha (latest commit: $latestCommit; status: $lastStatus). The branch push succeeded; inspect Pages settings before retrying."
+    Wait-DocsPagesBuild -Commit $publishedSha -TimeoutSeconds $PublishTimeoutSeconds -GetLatest { Get-LatestPagesBuild $repository }
+    Write-Host "Documentation for $ReleaseTag published from $publishedSha`: $($pages.html_url)"
 } finally {
     if ($payloadPath -and (Test-Path -LiteralPath $payloadPath)) {
         try {

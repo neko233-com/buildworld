@@ -44,6 +44,15 @@
   are forbidden while applicable local verification is incomplete or failing.
 - A release bundle must include the CLI, server, worker, and `web/dist` for
   Windows amd64/arm64, Linux amd64/arm64, and macOS amd64/arm64.
+- Packaging requires a clean committed source tree. Every bundle and Release
+  includes a checksummed `release-info.json` recording version, source commit,
+  Go toolchain, build time, and supported platforms. Reject source changes
+  during packaging and any metadata/tag source mismatch before upload.
+- Before packaging on the Windows release host, run the isolated runtime gate
+  in `scripts/verify-runtime-local.ps1`: CLI/server versions, health, Web UI,
+  login, and a real `builtin` pipeline. Keep its state and PID isolated from
+  existing services. This does not establish Linux/macOS runtime acceptance
+  or deploy any production instance.
 - One-click PowerShell and shell installers verify SHA-256 checksums, install
   the CLI into the user environment PATH, and enable silent per-user autostart
   unless explicitly disabled.

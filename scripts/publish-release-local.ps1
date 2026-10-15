@@ -28,6 +28,7 @@ $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $output = Join-Path $repoRoot "release\$Version"
 . (Join-Path $PSScriptRoot 'release-upload.ps1')
 . (Join-Path $PSScriptRoot 'docs-release-policy.ps1')
+. (Join-Path $PSScriptRoot 'release-metadata.ps1')
 
 function Assert-Command([string]$Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
@@ -124,7 +125,7 @@ $requiredArchives = @(
     'buildworld-darwin-amd64.tar.gz',
     'buildworld-darwin-arm64.tar.gz'
 )
-foreach ($name in @($requiredArchives + 'install.ps1' + 'install.sh' + 'checksums.txt')) {
+foreach ($name in @($requiredArchives + 'install.ps1' + 'install.sh' + 'release-info.json' + 'checksums.txt')) {
     $path = Join-Path $output $name
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Release output is incomplete: missing $path"
@@ -161,7 +162,7 @@ if ($expected.Count -ne $payloadAssets.Count) {
 }
 
 $multipartAssets = @($payloadAssets | Where-Object {
-    $_.Name -in @('install.ps1', 'install.sh') -or $_.Name -match '\.part\d{3}$'
+    $_.Name -in @('install.ps1', 'install.sh', 'release-info.json') -or $_.Name -match '\.part\d{3}$'
 })
 foreach ($archive in $requiredArchives) {
     $partPattern = '^' + [regex]::Escape($archive) + '\.part\d{3}$'
@@ -229,6 +230,10 @@ $remoteHead = Get-CheckedOutput git @('-C', $repoRoot, 'rev-parse', "refs/remote
 if ($head -ne $remoteHead) {
     throw "Local HEAD $head does not equal $remote/$sourceBranch $remoteHead. Push reviewed source first."
 }
+$releaseMetadata = Get-Content -Raw -LiteralPath (Join-Path $output 'release-info.json') | ConvertFrom-Json
+if ($releaseMetadata.version -ne $Version -or $releaseMetadata.sourceCommit -ne $head) {
+    throw 'Release bundle metadata does not match the tag source; refusing to upload.'
+}
 
 $releases = (Get-CheckedOutput gh @('release', 'list', '--repo', $githubRepository, '--limit', '1000', '--json', 'tagName,isDraft')) | ConvertFrom-Json
 $releaseExists = @($releases | Where-Object { [string]$_.tagName -eq $Version }).Count -gt 0
@@ -241,18 +246,15 @@ if ($remoteTagCommit -and $remoteTagCommit -ne $head -and -not $ReplaceExisting)
     throw "Remote tag $Version points to $remoteTagCommit, not current HEAD $head. Re-run with -ReplaceExisting after review."
 }
 
-$notes = @"
-BuildWorld $Version
-
-Verified, built, and uploaded locally. GitHub Actions was not used.
-Includes CLI, server, worker, Web UI, TypeScript SDK, installers, checksums, and Windows/Linux/macOS amd64/arm64 bundles.
-"@
+$notes = Get-ReleaseNotes -Changelog (Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'CHANGELOG.md')) -Version $Version
 $stagingTag = "buildworld-staging-$($Version.Substring(1))-$($head.Substring(0, 12))-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
 $stagingTagPushed = $false
 $stagingReleaseCreated = $false
 $cutoverStarted = $false
 $publicationComplete = $false
+$notesPath = [IO.Path]::GetTempFileName()
 try {
+    [IO.File]::WriteAllText($notesPath, $notes, [Text.UTF8Encoding]::new($false))
     Invoke-Checked git @('-C', $repoRoot, 'tag', '--annotate', $stagingTag, '--message', "BuildWorld $Version verified staging", $head)
     Invoke-Checked git @('-C', $repoRoot, 'push', $remote, "refs/tags/${stagingTag}:refs/tags/${stagingTag}")
     $stagingTagPushed = $true
@@ -263,7 +265,7 @@ try {
         '--draft',
         '--latest=false',
         '--title', "BuildWorld $Version verified staging",
-        '--notes', $notes
+        '--notes-file', $notesPath
     )
     $stagingReleaseCreated = $true
 
@@ -317,7 +319,7 @@ try {
         '--tag', $Version,
         '--verify-tag',
         '--title', "BuildWorld $Version",
-        '--notes', $notes
+        '--notes-file', $notesPath
     )
     $stagingReleaseCreated = $false
     [void](Assert-ReleaseAssets $Version $uploadAssets $true)
@@ -339,6 +341,9 @@ try {
     }
     throw $failure
 } finally {
+    if (Test-Path -LiteralPath $notesPath) {
+        try { Remove-Item -LiteralPath $notesPath -Force } catch { Write-Warning "Temporary release notes cleanup failed: $notesPath" }
+    }
     if ($publicationComplete) {
         if ($stagingTagPushed) {
             & git -C $repoRoot push $remote ":refs/tags/$stagingTag" *> $null

@@ -68,6 +68,16 @@ try {
         if (-not $?) { throw 'Documentation release policy regression tests failed.' }
         $global:LASTEXITCODE = 0
     }
+    Invoke-Checked 'Release metadata regression tests' {
+        & (Join-Path $PSScriptRoot 'tests/release-metadata.test.ps1')
+        if (-not $?) { throw 'Release metadata regression tests failed.' }
+        $global:LASTEXITCODE = 0
+    }
+    Invoke-Checked 'Pages deployment recovery regression tests' {
+        & (Join-Path $PSScriptRoot 'tests/docs-pages.test.ps1')
+        if (-not $?) { throw 'Pages deployment recovery regression tests failed.' }
+        $global:LASTEXITCODE = 0
+    }
 
     $nodeVersion = (& node --version).Trim()
     if ($LASTEXITCODE -ne 0) { throw "node --version failed with exit code $LASTEXITCODE" }

@@ -11,7 +11,13 @@ if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
 }
 
 $Version = if ($Version.StartsWith('v')) { $Version } else { "v$Version" }
+. (Join-Path $PSScriptRoot 'release-metadata.ps1')
 $repoRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$sourceCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve release source commit.' }
+$sourceStatus = & git -C $repoRoot status --porcelain --untracked-files=all
+if ($LASTEXITCODE -ne 0 -or $sourceStatus) { throw 'Release packaging requires a clean, committed source tree.' }
+[void](Get-ReleaseNotes -Changelog (Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'CHANGELOG.md')) -Version $Version)
 $releaseRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot 'release'))
 $output = [IO.Path]::GetFullPath((Join-Path $releaseRoot $Version))
 $stagingOutput = [IO.Path]::GetFullPath((Join-Path $releaseRoot ('.staging-' + $Version + '-' + [guid]::NewGuid().ToString('N'))))
@@ -144,6 +150,11 @@ try {
     if (-not $?) {
         throw 'Local verification failed.'
     }
+    & (Join-Path $PSScriptRoot 'verify-runtime-local.ps1') -Version $Version
+    if (-not $?) { throw 'Isolated runtime verification failed; release packaging is forbidden.' }
+    $goVersion = (& go version).Trim()
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve Go toolchain version.' }
+    $releaseMetadata = New-ReleaseMetadata -Version $Version -SourceCommit $sourceCommit -GoVersion $goVersion
 
     # Release binaries use the repository's pure-Go SQLite driver. Force CGO
     # off so inherited developer settings cannot require host/cross C toolchains
@@ -161,6 +172,7 @@ try {
         Write-Host "Packaging $os/$arch ..."
         New-Item -ItemType Directory -Force -Path (Join-Path $stage 'web') | Out-Null
         New-Item -ItemType Directory -Force -Path (Join-Path $stage 'sdk\pipeline') | Out-Null
+        [IO.File]::WriteAllText((Join-Path $stage 'release-info.json'), ($releaseMetadata | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'apply-update.sh') -Destination (Join-Path $stage 'apply-update.sh') -Force
         $env:GOOS = $os
         $env:GOARCH = $arch
@@ -185,6 +197,7 @@ try {
             (Join-Path $stage "buildworld-server$extension"),
             (Join-Path $stage "buildworld-worker$extension"),
             (Join-Path $stage 'apply-update.sh'),
+            (Join-Path $stage 'release-info.json'),
             (Join-Path $stage 'web\dist\index.html'),
             (Join-Path $stage 'web\dist\script-api.html'),
             (Join-Path $stage 'sdk\pipeline\index.d.ts'),
@@ -217,6 +230,12 @@ try {
     Copy-Item (Join-Path $PSScriptRoot 'install.sh') (Join-Path $stagingOutput 'install.sh') -Force
     $assets.Add((Join-Path $stagingOutput 'install.ps1'))
     $assets.Add((Join-Path $stagingOutput 'install.sh'))
+    $metadataPath = Join-Path $stagingOutput 'release-info.json'
+    [IO.File]::WriteAllText($metadataPath, ($releaseMetadata | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
+    $assets.Add($metadataPath)
+    $finalCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
+    $sourceStatus = & git -C $repoRoot status --porcelain --untracked-files=all
+    if ($LASTEXITCODE -ne 0 -or $sourceStatus -or $finalCommit -ne $sourceCommit) { throw 'Source changed during packaging; refusing to finalize release assets.' }
 
     $checksums = foreach ($asset in $assets) {
         "{0}  {1}" -f (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path $asset -Leaf)
