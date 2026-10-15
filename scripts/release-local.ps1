@@ -12,6 +12,7 @@ if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
 
 $Version = if ($Version.StartsWith('v')) { $Version } else { "v$Version" }
 . (Join-Path $PSScriptRoot 'release-metadata.ps1')
+. (Join-Path $PSScriptRoot 'release-archive.ps1')
 $repoRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $sourceCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve release source commit.' }
@@ -68,7 +69,6 @@ function New-UnixReleaseArchive([string]$Stage, [string]$Archive) {
     # slash-normalized absolute paths for every tar operand while retaining the
     # native paths for PowerShell/.NET file operations and safety checks.
     $tarStage = $Stage.Replace('\', '/')
-    $tarArchive = $Archive.Replace('\', '/')
     $tarTemporary = $temporaryTar.Replace('\', '/')
     $binaries = @('./buildworld', './buildworld-server', './buildworld-worker', './apply-update.sh')
     try {
@@ -102,16 +102,8 @@ function New-UnixReleaseArchive([string]$Stage, [string]$Archive) {
             if ($null -ne $targetStream) { $targetStream.Dispose() }
         }
 
-        $listing = @(& $gnuTar --force-local -tzvf $tarArchive @binaries)
-        if ($LASTEXITCODE -ne 0) {
-            throw "tar mode verification failed with exit code $LASTEXITCODE"
-        }
-        foreach ($binary in $binaries) {
-            $entry = $listing | Where-Object { $_ -match "\s$([regex]::Escape($binary))$" } | Select-Object -First 1
-            if ($null -eq $entry -or $entry -notmatch '^-rwxr-xr-x\s') {
-                throw "Release archive entry must be executable (0755): $binary; found '$entry'"
-            }
-        }
+        Assert-GzipMatchesTar $Archive $temporaryTar
+        Assert-ReleaseTarModes $gnuTar $temporaryTar
     } finally {
         Remove-SafeFile $temporaryTar $stagingOutput 'temporary tar cleanup'
     }

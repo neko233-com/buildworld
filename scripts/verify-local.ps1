@@ -78,6 +78,11 @@ try {
         if (-not $?) { throw 'Pages deployment recovery regression tests failed.' }
         $global:LASTEXITCODE = 0
     }
+    Invoke-Checked 'Unix release archive regression tests' {
+        & (Join-Path $PSScriptRoot 'tests/release-archive.test.ps1')
+        if (-not $?) { throw 'Unix release archive regression tests failed.' }
+        $global:LASTEXITCODE = 0
+    }
 
     $nodeVersion = (& node --version).Trim()
     if ($LASTEXITCODE -ne 0) { throw "node --version failed with exit code $LASTEXITCODE" }

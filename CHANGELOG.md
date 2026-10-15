@@ -34,6 +34,8 @@ No unreleased changes.
 - Broken localized documentation links now fail verification.
 - Retrying an interrupted Pages deployment verifies the existing static commit
   without rebuilding HTML or pushing a duplicate documentation commit.
+- Unix release verification no longer requires `gzip.exe` on the packaging
+  host PATH; it verifies decompressed SHA-256 and executable modes directly.
 
 ## [1.0.0] - 2026-07-21
 
