@@ -83,6 +83,11 @@ try {
         if (-not $?) { throw 'Unix release archive regression tests failed.' }
         $global:LASTEXITCODE = 0
     }
+    Invoke-Checked 'Transient remote read regression tests' {
+        & (Join-Path $PSScriptRoot 'tests/network-read.test.ps1')
+        if (-not $?) { throw 'Transient remote read regression tests failed.' }
+        $global:LASTEXITCODE = 0
+    }
 
     $nodeVersion = (& node --version).Trim()
     if ($LASTEXITCODE -ne 0) { throw "node --version failed with exit code $LASTEXITCODE" }

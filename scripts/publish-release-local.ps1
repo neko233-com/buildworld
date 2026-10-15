@@ -29,6 +29,7 @@ $output = Join-Path $repoRoot "release\$Version"
 . (Join-Path $PSScriptRoot 'release-upload.ps1')
 . (Join-Path $PSScriptRoot 'docs-release-policy.ps1')
 . (Join-Path $PSScriptRoot 'release-metadata.ps1')
+. (Join-Path $PSScriptRoot 'network-read.ps1')
 
 function Assert-Command([string]$Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
@@ -44,19 +45,19 @@ function Invoke-Checked([string]$Command, [string[]]$Arguments) {
 }
 
 function Get-CheckedOutput([string]$Command, [string[]]$Arguments) {
-    $output = & $Command @Arguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Command failed with exit code ${LASTEXITCODE}: $($Arguments -join ' ')`n$($output -join [Environment]::NewLine)"
+    $result = Invoke-NetworkReadRetry -Read {
+        $output = & $Command @Arguments 2>&1
+        [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = @($output) }
     }
-    return ($output -join [Environment]::NewLine).Trim()
+    if ($result.ExitCode -ne 0) {
+        throw "$Command failed with exit code $($result.ExitCode): $($Arguments -join ' ')`n$($result.Output -join [Environment]::NewLine)"
+    }
+    return ($result.Output -join [Environment]::NewLine).Trim()
 }
 
 function Get-RemoteTagCommit([string]$Tag) {
-    $output = & git -C $repoRoot ls-remote --tags $remote "refs/tags/$Tag" "refs/tags/$Tag^{}" 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to inspect $remote tag ${Tag}: $($output -join [Environment]::NewLine)"
-    }
-    $lines = @($output | ForEach-Object { [string]$_ } | Where-Object { $_ })
+    $output = Get-CheckedOutput git @('-C', $repoRoot, 'ls-remote', '--tags', $remote, "refs/tags/$Tag", "refs/tags/$Tag^{}")
+    $lines = @($output -split '\r?\n' | Where-Object { $_ })
     if ($lines.Count -eq 0) { return $null }
     $peeled = $lines | Where-Object { $_ -match "refs/tags/$([regex]::Escape($Tag))\^\{\}$" } | Select-Object -First 1
     $selected = if ($peeled) { $peeled } else { $lines[0] }
@@ -224,7 +225,7 @@ foreach ($configuredRemote in $configuredRemoteUrls) {
     }
 }
 
-Invoke-Checked git @('-C', $repoRoot, 'fetch', '--no-tags', $remote, "+refs/heads/${sourceBranch}:refs/remotes/${remote}/${sourceBranch}")
+[void](Get-CheckedOutput git @('-C', $repoRoot, 'fetch', '--no-tags', $remote, "+refs/heads/${sourceBranch}:refs/remotes/${remote}/${sourceBranch}"))
 $head = Get-CheckedOutput git @('-C', $repoRoot, 'rev-parse', 'HEAD')
 $remoteHead = Get-CheckedOutput git @('-C', $repoRoot, 'rev-parse', "refs/remotes/$remote/$sourceBranch")
 if ($head -ne $remoteHead) {

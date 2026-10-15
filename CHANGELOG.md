@@ -36,6 +36,8 @@ No unreleased changes.
   without rebuilding HTML or pushing a duplicate documentation commit.
 - Unix release verification no longer requires `gzip.exe` on the packaging
   host PATH; it verifies decompressed SHA-256 and executable modes directly.
+- Remote read/fetch checks retry transient EOF, TLS handshake interruptions,
+  and gateway failures up to three times before reporting the original error.
 
 ## [1.0.0] - 2026-07-21
 

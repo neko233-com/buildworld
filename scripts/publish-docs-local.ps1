@@ -18,6 +18,7 @@ if ($Publish -and -not $ReleaseTag) {
 }
 . (Join-Path $PSScriptRoot 'docs-release-policy.ps1')
 . (Join-Path $PSScriptRoot 'docs-pages.ps1')
+. (Join-Path $PSScriptRoot 'network-read.ps1')
 
 $remote = 'origin'
 $repository = 'neko233-com/buildworld'
@@ -38,16 +39,23 @@ function Invoke-Checked([string]$Command, [string[]]$Arguments) {
 }
 
 function Get-CheckedOutput([string]$Command, [string[]]$Arguments) {
-    $output = & $Command @Arguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Command failed with exit code ${LASTEXITCODE}: $($Arguments -join ' ')`n$($output -join [Environment]::NewLine)"
+    $result = Invoke-NetworkReadRetry -Read {
+        $output = & $Command @Arguments 2>&1
+        [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = @($output) }
     }
-    return ($output -join [Environment]::NewLine).Trim()
+    if ($result.ExitCode -ne 0) {
+        throw "$Command failed with exit code $($result.ExitCode): $($Arguments -join ' ')`n$($result.Output -join [Environment]::NewLine)"
+    }
+    return ($result.Output -join [Environment]::NewLine).Trim()
 }
 
 function Get-RemoteBranchSha([string]$RepoRoot, [string]$Remote, [string]$Branch) {
-    $output = & git -C $RepoRoot ls-remote --exit-code --heads $Remote "refs/heads/$Branch" 2>&1
-    $exitCode = $LASTEXITCODE
+    $result = Invoke-NetworkReadRetry -Read {
+        $output = & git -C $RepoRoot ls-remote --exit-code --heads $Remote "refs/heads/$Branch" 2>&1
+        [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = @($output) }
+    }
+    $output = $result.Output
+    $exitCode = $result.ExitCode
     if ($exitCode -eq 2) {
         return $null
     }
@@ -88,8 +96,12 @@ function Get-LatestPagesBuild([string]$Repo) {
         '-H', 'X-GitHub-Api-Version: 2022-11-28',
         "repos/$Repo/pages/builds/latest"
     )
-    $output = & gh @arguments 2>&1
-    $exitCode = $LASTEXITCODE
+    $result = Invoke-NetworkReadRetry -Read {
+        $output = & gh @arguments 2>&1
+        [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = @($output) }
+    }
+    $output = $result.Output
+    $exitCode = $result.ExitCode
     if ($exitCode -eq 0) {
         return ($output -join [Environment]::NewLine) | ConvertFrom-Json
     }
@@ -241,10 +253,10 @@ foreach ($configuredRemote in $configuredRemoteUrls) {
     }
 }
 
-Invoke-Checked git @(
+[void](Get-CheckedOutput git @(
     '-C', $repoRoot, 'fetch', '--no-tags', $remote,
     "+refs/heads/${sourceBranch}:refs/remotes/${remote}/${sourceBranch}"
-)
+))
 $sourceSha = Get-CheckedOutput git @('-C', $repoRoot, 'rev-parse', 'HEAD')
 $remoteSourceSha = Get-CheckedOutput git @('-C', $repoRoot, 'rev-parse', "refs/remotes/$remote/$sourceBranch")
 if ($sourceSha -ne $remoteSourceSha) {
@@ -254,10 +266,10 @@ if ($sourceSha -ne $remoteSourceSha) {
 $remotePagesSha = Get-RemoteBranchSha $repoRoot $remote $pagesBranch
 $previousRelease = $null
 if ($remotePagesSha) {
-    Invoke-Checked git @(
+    [void](Get-CheckedOutput git @(
         '-C', $repoRoot, 'fetch', '--no-tags', $remote,
         "+refs/heads/${pagesBranch}:refs/remotes/${remote}/${pagesBranch}"
-    )
+    ))
     & git -C $repoRoot cat-file -e "${remotePagesSha}:.buildworld-release.json" 2>$null
     if ($LASTEXITCODE -eq 0) {
         $previousRelease = (Get-CheckedOutput git @('-C', $repoRoot, 'show', "${remotePagesSha}:.buildworld-release.json")) | ConvertFrom-Json
@@ -370,8 +382,10 @@ try {
     $payloadPath = Join-Path $tempRoot ("buildworld-pages-" + [guid]::NewGuid().ToString('N') + '.json')
     [IO.File]::WriteAllText($payloadPath, $payload, [Text.UTF8Encoding]::new($false))
 
-    & gh api --hostname github.com -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "repos/$repository/pages" --silent 2>$null
-    $pagesExists = $LASTEXITCODE -eq 0
+    $pagesExists = $true
+    try { [void](Get-PagesState $repository) } catch {
+        if ($_.Exception.Message -match '(?i)(HTTP\s+404|Not Found)') { $pagesExists = $false } else { throw }
+    }
     $method = if ($pagesExists) { 'PUT' } else { 'POST' }
     Invoke-Checked gh @(
         'api', '--hostname', 'github.com', '--method', $method,
