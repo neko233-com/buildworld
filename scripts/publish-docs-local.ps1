@@ -2,12 +2,21 @@
 param(
     [switch]$Publish,
 
+    [string]$ReleaseTag,
+
     [ValidateRange(30, 1800)]
     [int]$PublishTimeoutSeconds = 600
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+if ($Publish -and -not $ReleaseTag) {
+    throw 'Documentation publication requires -ReleaseTag vX.Y.Z; main pushes do not build or publish the public site.'
+}
+. (Join-Path $PSScriptRoot 'docs-release-policy.ps1')
 
 $remote = 'origin'
 $repository = 'neko233-com/buildworld'
@@ -60,6 +69,15 @@ function Get-PagesState([string]$Repo) {
         "repos/$Repo/pages"
     )
     return $json | ConvertFrom-Json
+}
+
+function Get-RemoteReleaseCommit([string]$Tag) {
+    $output = Get-CheckedOutput git @('-C', $repoRoot, 'ls-remote', '--tags', $remote, "refs/tags/$Tag", "refs/tags/$Tag^{}")
+    if (-not $output) { return $null }
+    $lines = @($output -split '\r?\n')
+    $peeled = @($lines | Where-Object { $_ -match '\^\{\}$' })
+    $selected = if ($peeled.Count) { $peeled[0] } else { $lines[0] }
+    return ($selected -split '\s+')[0]
 }
 
 function Get-LatestPagesBuild([string]$Repo) {
@@ -165,32 +183,22 @@ $buildRoot = Join-Path $docsRoot 'build'
 [void](Get-CheckedOutput git @('-C', $repoRoot, 'check-ref-format', '--branch', $sourceBranch))
 [void](Get-CheckedOutput git @('-C', $repoRoot, 'check-ref-format', '--branch', $pagesBranch))
 
-if ($Publish) {
-    & (Join-Path $PSScriptRoot 'verify-local.ps1')
-    if (-not $?) {
-        throw 'Canonical local verification failed.'
-    }
-} else {
+if (-not $Publish) {
     Push-Location $docsRoot
     try {
         Invoke-Checked npm @('ci')
         Invoke-Checked npm @('run', 'build')
+        Invoke-Checked node @('../scripts/check-docs-output.mjs')
     } finally {
         Pop-Location
     }
-}
-
-Assert-DocumentationOutput $buildRoot
-
-if (-not $Publish) {
+    Assert-DocumentationOutput $buildRoot
     Write-Host 'Dry run complete. No Git refs or GitHub remote settings were read or changed.'
     return
 }
 
-$publishTarget = "$repository Pages ($pagesBranch branch; public site)"
-if (-not $PSCmdlet.ShouldProcess($publishTarget, "publish documentation built from $sourceBranch")) {
-    Write-Host 'Publication preview complete. No Git refs or GitHub remote settings were read or changed.'
-    return
+if ($ReleaseTag -notmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+    throw 'Documentation publication requires a release tag in vX.Y.Z format.'
 }
 
 Assert-Command gh
@@ -198,14 +206,6 @@ Assert-Command gh
 $status = Get-CheckedOutput git @('-C', $repoRoot, 'status', '--porcelain', '--untracked-files=all')
 if ($status) {
     throw 'Refusing to publish from a dirty worktree. Commit or remove every source change first.'
-}
-
-Assert-Command pwsh
-Invoke-Checked pwsh @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'verify-local.ps1'))
-Assert-DocumentationOutput $buildRoot
-$status = Get-CheckedOutput git @('-C', $repoRoot, 'status', '--porcelain', '--untracked-files=all')
-if ($status) {
-    throw 'Local verification changed the worktree. Review and commit or remove those changes before publishing.'
 }
 
 $currentBranch = Get-CheckedOutput git @('-C', $repoRoot, 'branch', '--show-current')
@@ -251,14 +251,49 @@ if ($sourceSha -ne $remoteSourceSha) {
 }
 
 $remotePagesSha = Get-RemoteBranchSha $repoRoot $remote $pagesBranch
+$previousRelease = $null
 if ($remotePagesSha) {
     Invoke-Checked git @(
         '-C', $repoRoot, 'fetch', '--no-tags', $remote,
         "+refs/heads/${pagesBranch}:refs/remotes/${remote}/${pagesBranch}"
     )
+    & git -C $repoRoot cat-file -e "${remotePagesSha}:.buildworld-release.json" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $previousRelease = (Get-CheckedOutput git @('-C', $repoRoot, 'show', "${remotePagesSha}:.buildworld-release.json")) | ConvertFrom-Json
+    }
     $pagesBase = $remotePagesSha
 } else {
     $pagesBase = $sourceSha
+}
+
+$tagCommit = Get-RemoteReleaseCommit $ReleaseTag
+$decision = Get-DocsReleaseDecision -ReleaseTag $ReleaseTag -TagCommit $tagCommit -SourceCommit $sourceSha -PreviousRelease $previousRelease
+if ($decision -eq 'AlreadyPublished') {
+    $latestBuild = Get-LatestPagesBuild $repository
+    if ($null -eq $latestBuild -or $latestBuild.commit -ne $remotePagesSha -or $latestBuild.status -ne 'built') {
+        throw "Documentation for $ReleaseTag is already submitted at $remotePagesSha, but Pages has not confirmed it as built. Inspect the Pages deployment before retrying."
+    }
+    Write-Host "Documentation already published for $ReleaseTag ($sourceSha); no build or push required."
+    return
+}
+
+$publishTarget = "$repository Pages ($pagesBranch branch; public site)"
+if (-not $PSCmdlet.ShouldProcess($publishTarget, "build and publish documentation for new release tag $ReleaseTag ($sourceSha)")) {
+    Write-Host 'Publication preview complete. No documentation was built and no remote state was changed.'
+    return
+}
+
+# Only a verified, new release tag reaches the expensive HTML build and publish gate.
+Assert-Command pwsh
+Invoke-Checked pwsh @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'verify-local.ps1'))
+Assert-DocumentationOutput $buildRoot
+$status = Get-CheckedOutput git @('-C', $repoRoot, 'status', '--porcelain', '--untracked-files=all')
+$verifiedHead = Get-CheckedOutput git @('-C', $repoRoot, 'rev-parse', 'HEAD')
+$verifiedBranch = Get-CheckedOutput git @('-C', $repoRoot, 'branch', '--show-current')
+if ($status -or $verifiedHead -ne $sourceSha -or $verifiedBranch -ne $sourceBranch -or
+    (Get-RemoteReleaseCommit $ReleaseTag) -ne $sourceSha -or
+    (Get-RemoteBranchSha $repoRoot $remote $sourceBranch) -ne $sourceSha) {
+    throw 'Source or release tag changed during verification; refusing to publish.'
 }
 
 $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
@@ -281,6 +316,11 @@ try {
         "$sourceSha`n",
         [Text.UTF8Encoding]::new($false)
     )
+    [IO.File]::WriteAllText(
+        (Join-Path $worktreePath '.buildworld-release.json'),
+        (([ordered]@{ releaseTag = $ReleaseTag; sourceCommit = $sourceSha } | ConvertTo-Json) + "`n"),
+        [Text.UTF8Encoding]::new($false)
+    )
 
     if (Test-Path -LiteralPath (Join-Path $worktreePath '.github')) {
         throw 'Refusing to publish repository automation files in the Pages branch.'
@@ -294,7 +334,7 @@ try {
             '-C', $worktreePath,
             '-c', 'user.name=BuildWorld Docs',
             '-c', 'user.email=buildworld-pages@users.noreply.github.com',
-            'commit', '--no-gpg-sign', '-m', "docs: publish $sourceSha"
+            'commit', '--no-gpg-sign', '-m', "docs: publish $ReleaseTag ($sourceSha)"
         )
     } elseif ($diffExit -ne 0) {
         throw "Unable to compare generated Pages output (git exit $diffExit)."
@@ -354,7 +394,7 @@ try {
             if ($latestCommit -ieq $publishedSha) {
                 $lastStatus = $latestBuildStatus
                 if ($lastStatus -eq 'built') {
-                    Write-Host "Documentation published from $publishedSha`: $($pages.html_url)"
+                    Write-Host "Documentation for $ReleaseTag published from $publishedSha`: $($pages.html_url)"
                     return
                 }
                 if ($lastStatus -eq 'errored') {

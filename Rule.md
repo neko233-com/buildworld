@@ -33,6 +33,13 @@
   script must remain dry-run by default and require an explicit, confirmed
   `-Publish` before any remote write. The publish path must rerun
   `scripts/verify-local.ps1` and verify the exact Pages build commit.
+- Public documentation HTML is built and published only for a new `vX.Y.Z`
+  release tag by the local release publisher. Ordinary `main` pushes, staging
+  tags, and replacement releases must not publish documentation. The docs
+  publisher requires `-ReleaseTag`, verifies its remote commit against the
+  reviewed source, records the published tag and source commit, skips an
+  already published tag, and rejects tag rewrites or version downgrades.
+  Explicit local documentation builds remain available for verification.
 - Build and upload release binaries locally. Documentation and release uploads
   are forbidden while applicable local verification is incomplete or failing.
 - A release bundle must include the CLI, server, worker, and `web/dist` for

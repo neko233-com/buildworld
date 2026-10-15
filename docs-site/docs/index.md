@@ -10,6 +10,12 @@ BuildWorld is an open-source, self-hosted CI/CD server and Jenkins alternative
 for continuous integration, continuous delivery, build automation, pipelines
 as code, and deployment workflows.
 
+## Screenshots
+
+[![BuildWorld build details with the execution timeline, retry chain, and live logs](/img/screenshots/build-details-2026-07-22.png)](/img/screenshots/build-details-2026-07-22.png)
+
+Archived local desktop capture, **2026-07-22**, Chinese interface. Current releases have updated layouts and date formatting. [Screenshot notes and full-size image](./screenshots.md).
+
 ## Features
 
 - **TypeScript Pipelines** - Typed, comment-friendly configuration with syntax diagnostics and a restricted runtime
@@ -33,18 +39,21 @@ does not generate or retain a separate per-user SSH identity registry.
 
 ## Quick Start
 
-```bash
-# Install
-gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld/contents/scripts/install.sh | sh
+### macOS / Linux
 
-# Start server
-buildworld start
-
-# Open browser
-open http://localhost:8080
+```sh
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | sh
+buildworld status
 ```
 
-Default login: `root` / `root`
+### Windows PowerShell (`install.ps1`)
+
+```powershell
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.ps1).Content))
+buildworld status
+```
+
+Open `http://127.0.0.1:8080`. Default login: `root` / `root`; change the password immediately after the first login. Both installers verify SHA-256 and add the CLI to your user PATH. [Installation options](./installation.md).
 
 ## Architecture
 

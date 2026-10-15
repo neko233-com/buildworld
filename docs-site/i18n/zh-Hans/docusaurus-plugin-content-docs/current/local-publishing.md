@@ -1,83 +1,73 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 ---
 
-# 本地验证与发布
+# 本地验证与 release tag 发布
 
-BuildWorld 不使用 GitHub Actions。CI 检查、文档构建与 GitHub Pages 发布、
-六平台打包和 Release 上传都在受控机器本地完成。
+BuildWorld 的验证、文档构建、六平台打包和 Release 上传都在本地完成，不使用 GitHub Actions。
+
+**只有发布新的 `vX.Y.Z` release tag，才触发公开 HTML 文档的构建与发布。**
+普通 `main` 推送、staging tag 和替换现有 Release 均不发布 GitHub Pages。
+仍可显式执行本地预览构建。
 
 ## 前置条件
 
 - Node.js 24 与 npm；
-- Git 与 PowerShell；
-- 已通过 `gh auth login` 登录 GitHub CLI；
-- 拥有 `neko233-com/buildworld` 的管理员或维护者权限。
+- Git 与 PowerShell 7（`pwsh`）；
+- GitHub CLI 已通过 `gh auth login` 登录；
+- 拥有 `neko233-com/buildworld` 的维护权限；
+- 已完成必要的本地验证和生产检查。
 
-即使仓库为私有，GitHub Pages 仍公开可见。文档源码中禁止放入密钥、私有
-主机名、Token 或凭据。
+文档公开可见，正文和截图中都不能包含密钥、凭据、Token 或私有主机地址。
 
-## 仅构建的 dry-run
-
-默认命令安装锁定依赖、构建全部语言、检查必要入口并拒绝符号链接。它不
-fetch、不提交、不推送，也不修改 GitHub 设置。
+## 预览文档
 
 ```powershell
 .\scripts\publish-docs-local.ps1
 ```
 
-## 发布
+默认 dry-run 安装锁定依赖、构建中英文 HTML、检查入口和截图资源，并拒绝符号链接。
+它不读取远端发布状态、不 fetch、不提交、不推送，也不修改 Pages 设置。
+推送 `main` 不会自动调用此命令。
 
-先运行规范化本地门禁，复核并提交源码，把该提交推送到 `main`，并保持
-工作区干净。随后运行：
+## 发布新版本及其文档
 
-```powershell
-.\scripts\verify-local.ps1
-.\scripts\publish-docs-local.ps1 -Publish
-```
-
-发布具有高影响确认提示。确认后，脚本会再次强制执行同一本地门禁，只
-接受预期的 GitHub fetch 与 push URL，校验本地 `HEAD` 等于
-`origin/main`，创建隔离的临时 worktree，以 `docs-site/build` 替换其
-内容，添加 `.nojekyll`，再把一个静态站点提交正常推送到 `gh-pages`。
-随后脚本把 GitHub Pages 配置为从 `gh-pages:/` 分支发布，并等待本次发布
-commit 对应的 Pages 构建成功。
-
-分支推送后，GitHub 可能显示平台托管的 Pages 部署记录。它不会运行仓库
-workflow，也不会在 GitHub runner 上构建文档；`.nojekyll` 会让服务直接
-发布本地构建好的静态文件。
-
-当前源码分支和索引不会被切换或重写。脚本使用普通 push，因此并发的
-`gh-pages` 更新会导致发布失败，不会被强制覆盖。即使发布失败，临时
-worktree 也会清理。
-
-使用 PowerShell 标准预览模式，可在不读取或修改 Git/GitHub 发布状态的
-情况下检查文档构建和确认边界。依赖安装仍可能访问配置的 npm registry：
+复核源码、运行 `.\scripts\verify-local.ps1`，提交并推送到 `main`，保持工作区干净。
+将下方 `X.Y.Z` 替换为新的版本号：
 
 ```powershell
-.\scripts\publish-docs-local.ps1 -Publish -WhatIf
+.\scripts\publish-release-local.ps1 -Version X.Y.Z -Publish
 ```
 
-不要使用 `npm run deploy`、手工 force-push `gh-pages`，也不要添加 Actions
-workflow 作为备用发布路径。
+确认后，本地发布器构建六平台 bundle、上传 staging draft、逐项校验资产大小和 SHA-256，
+再创建最终 release tag 并公开 Release。仅当最终 tag 为新建时，才传入 `-ReleaseTag`
+调用文档发布器。使用 `-ReplaceExisting` 替换现有 Release 时跳过文档发布。
 
-## 本地 Release 发布
+文档发布器验证远端 tag 对应当前 `main` 上已复核的 `HEAD`，且 `HEAD` 等于 `origin/main`。
+它拒绝旧版本和被改写的 tag，跳过已经发布的 tag，并在上传 HTML 前重新执行完整本地门禁。
 
-Release 发布器同样默认 dry-run：执行完整本地门禁、构建六平台 bundle、
-逐项验证 SHA-256，但不写 GitHub：
+隔离的临时 worktree 接收验证后的静态文件和 `.nojekyll`；发布器在
+`.buildworld-release.json` 记录 `releaseTag` 与 `sourceCommit`，使用普通 push 推送到
+`gh-pages`，并验证 GitHub Pages 成功构建的 commit 与本次 Pages commit 完全一致。
+并发分支更新会导致失败，不会被覆盖。
+
+GitHub 可能显示平台托管的 Pages 部署记录。服务从 `gh-pages:/` 提供本地生成的静态文件，
+仓库不会运行 workflow，也不会在 GitHub runner 上构建文档。
+
+## 恢复失败的文档阶段
+
+若 Release 已成功而文档失败，错误信息会明确区分文档阶段。保留新 tag 和其源码提交，
+在对应的干净、已复核源码上显式指定该 tag 重试：
 
 ```powershell
-.\scripts\publish-release-local.ps1 -Version 1.0.0
+.\scripts\publish-docs-local.ps1 -ReleaseTag vX.Y.Z -Publish
 ```
 
-复核提交已在 `origin/main` 且生产检查通过后，替换 `v1.0.0` 并删除其他
-旧 Release：
+此命令用于恢复同一次新版本的文档发布。成功发布后，重复运行相同 tag 会跳过 HTML 构建和推送。
+若静态 commit 已提交，但 Pages 尚未确认构建成功，先检查 Pages 部署状态。
 
-```powershell
-.\scripts\publish-release-local.ps1 -Version 1.0.0 -Publish -ReplaceExisting -PruneOtherReleases
-```
+使用 `-ReleaseTag vX.Y.Z -Publish -WhatIf` 可读取远端状态、检查发布资格，不构建 HTML，也不写远端。
+前面的默认 dry-run 用于本地构建，不读取远端发布状态。
 
-正式发布需要高影响操作确认。脚本先创建 draft，本地分批上传，逐项核对
-远端资产名称与大小，全部正确后才公开为 Latest。`-PruneOtherReleases`
-删除旧 Release 二进制，但保留旧源码 tag。全程不使用 GitHub Actions。
+不要使用 `npm run deploy`、force-push `gh-pages` 或 Actions workflow 作为备用发布路径。
 

@@ -63,6 +63,11 @@ try {
         if (-not $?) { throw 'Release upload retry regression tests failed.' }
         $global:LASTEXITCODE = 0
     }
+    Invoke-Checked 'Documentation release policy regression tests' {
+        & (Join-Path $PSScriptRoot 'tests/docs-release-policy.test.ps1')
+        if (-not $?) { throw 'Documentation release policy regression tests failed.' }
+        $global:LASTEXITCODE = 0
+    }
 
     $nodeVersion = (& node --version).Trim()
     if ($LASTEXITCODE -ne 0) { throw "node --version failed with exit code $LASTEXITCODE" }
@@ -93,6 +98,7 @@ try {
     try {
         Invoke-Checked 'Documentation dependency install' { npm ci }
         Invoke-Checked 'Documentation production build' { npm run build }
+        Invoke-Checked 'Documentation screenshot and base URL checks' { node ../scripts/check-docs-output.mjs }
     } finally {
         Pop-Location
     }

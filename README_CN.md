@@ -1,8 +1,8 @@
 <p align="center">
   <h1 align="center">BuildWorld</h1>
-  <p align="center"><strong>生产级 CI/CD 服务器 — Jenkins 现代替代方案</strong></p>
+  <p align="center"><strong>自托管 CI/CD 服务器与 Jenkins 现代替代方案</strong></p>
   <p align="center">
-    TypeScript DSL · 分布式 Worker · React 仪表盘 · 飞书通知 · 28+ 插件
+    TypeScript DSL · 内置执行器 · React 仪表盘 · 飞书通知 · 插件生态
   </p>
 </p>
 
@@ -11,7 +11,19 @@
   <a href="https://github.com/neko233-com/buildworld/blob/main/README.md"><img alt="English" src="https://img.shields.io/badge/English-README.md-blue"></a>
 </p>
 
+<p align="center"><a href="README.md">English</a> · <a href="README_CN.md">简体中文</a> · <a href="https://neko233-com.github.io/buildworld/zh-Hans/">中文文档</a></p>
+
+BuildWorld 是开源、自托管的 **CI/CD 服务器**和 **Jenkins 替代方案**，提供构建自动化、TypeScript 与 YAML 流水线、部署工作流和 Web 控制台。默认使用本机 `builtin` 执行器，单机即可开始构建。
+
+**GitHub 仓库：** [neko233-com/buildworld](https://github.com/neko233-com/buildworld)
+
 ---
+
+## 界面截图
+
+[![BuildWorld 构建详情：执行时间线、重试构建链与实时日志](docs-site/static/img/screenshots/build-details-2026-07-22.png)](docs-site/static/img/screenshots/build-details-2026-07-22.png)
+
+本地桌面实拍，拍摄于 **2026-07-22**，界面语言为中文。这张历史构建详情截图展示执行时间线、重试构建链与实时日志；当前版本的布局和日期格式已有更新。点击图片可查看原图。[截图说明](docs-site/i18n/zh-Hans/docusaurus-plugin-content-docs/current/screenshots.md)。
 
 ## 一键安装
 
@@ -99,7 +111,7 @@ sh install.sh 1.15.0
 | 组件 | 目录 | 职责 |
 |------|------|------|
 | **Server** | `cmd/server` | HTTP API、WebSocket 实时日志、gRPC Worker 管理、构建引擎调度 |
-| **CLI** | `cmd/cli` | 用户交互：start / stop / restart / status / reset-password |
+| **CLI** | `cmd/cli` | 服务运维：start / pause / resume / restart / status / reset-root-password |
 | **Worker** | `cmd/worker` + `sdk/` | 分布式构建执行器，通过 gRPC 自动注册到 Server |
 | **Frontend** | `web/` | React SPA — Jenkins 风格仪表盘，Monaco 编辑器，实时日志 |
 | **Plugins** | `plugins/` | 28+ 构建/部署/通知插件，运行时动态加载 |
@@ -132,11 +144,11 @@ pipeline({
 
 TypeScript Pipeline 在受限沙箱中执行，**禁止 `eval` 和 `new Function`**。
 
-### 分布式 Worker
+### 构建执行
 
-- 内置 `builtin` 执行器：单机即可运行
-- 远程 Worker 通过 gRPC 自动注册，支持水平扩展
-- Worker SDK (`sdk/`) 支持自定义 Worker 实现
+- 默认使用内置 `builtin` 执行器，单机即可运行
+- 需要远程执行时，可选用通过 gRPC 注册的 Worker
+- 可选 Worker SDK (`sdk/`) 支持自定义 Worker 实现
 - 构建隔离：每次构建使用独立工作空间，自动清理
 
 ### Web 控制台
@@ -239,6 +251,8 @@ cd docs-site && npm ci && npm run build
 
 ### 本地发布
 
+本地发布器仅在创建并验证新的 `vX.Y.Z` release tag 后构建和发布中英文 HTML 文档。普通 `main` 推送、staging tag 和替换现有 Release 均不发布网站。详见[本地发布指南](docs-site/i18n/zh-Hans/docusaurus-plugin-content-docs/current/local-publishing.md)。
+
 ```powershell
 # 完整门禁验证
 .\scripts\verify-local.ps1
@@ -247,7 +261,7 @@ cd docs-site && npm ci && npm run build
 .\scripts\release-local.ps1 -Version 1.15.0
 
 # 发布到 GitHub Release
-.\scripts\publish-release-local.ps1 -Version 1.15.0 -Publish -ReplaceExisting
+.\scripts\publish-release-local.ps1 -Version X.Y.Z -Publish
 ```
 
 所有 CI、测试、打包和发布均在本地完成，不使用 GitHub Actions。

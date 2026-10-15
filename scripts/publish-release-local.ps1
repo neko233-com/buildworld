@@ -27,6 +27,7 @@ $githubRepository = "github.com/$Repository"
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $output = Join-Path $repoRoot "release\$Version"
 . (Join-Path $PSScriptRoot 'release-upload.ps1')
+. (Join-Path $PSScriptRoot 'docs-release-policy.ps1')
 
 function Assert-Command([string]$Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
@@ -179,6 +180,7 @@ if (-not $Publish) {
 }
 
 $operation = "publish $Version from local bundles"
+$operation += '; publish HTML documentation only if this creates a new release tag'
 if ($ReplaceExisting) { $operation += '; replace the existing release/tag if present' }
 if ($PruneOtherReleases) { $operation += '; delete every other GitHub Release (source tags remain)' }
 if (-not $PSCmdlet.ShouldProcess("$Repository GitHub Releases", $operation)) {
@@ -231,6 +233,7 @@ if ($head -ne $remoteHead) {
 $releases = (Get-CheckedOutput gh @('release', 'list', '--repo', $githubRepository, '--limit', '1000', '--json', 'tagName,isDraft')) | ConvertFrom-Json
 $releaseExists = @($releases | Where-Object { [string]$_.tagName -eq $Version }).Count -gt 0
 $remoteTagCommit = Get-RemoteTagCommit $Version
+$publishDocsForNewTag = Test-NewDocsReleaseTag -ExistingTagCommit $remoteTagCommit -ReleaseExists $releaseExists -Repository $Repository
 if ($releaseExists -and -not $ReplaceExisting) {
     throw "Release $Version already exists. Re-run with -ReplaceExisting after reviewing the replacement."
 }
@@ -357,3 +360,16 @@ if ($PruneOtherReleases) {
 }
 
 Write-Host "Release published and remotely verified: $Version"
+
+if ($publishDocsForNewTag) {
+    try {
+        # The parent confirmation includes documentation. Staging tags and
+        # replacement releases never trigger public documentation publication.
+        & (Join-Path $PSScriptRoot 'publish-docs-local.ps1') -ReleaseTag $Version -Publish -Confirm:$false
+        if (-not $?) { throw 'Documentation publisher failed.' }
+    } catch {
+        throw "Release $Version and its assets are published and verified; the documentation stage failed: $($_.Exception.Message)"
+    }
+} else {
+    Write-Host 'Documentation publication skipped: no new release tag was created for neko233-com/buildworld.'
+}

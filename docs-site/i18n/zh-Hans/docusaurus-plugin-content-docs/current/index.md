@@ -8,6 +8,12 @@ sidebar_position: 1
 
 BuildWorld 是一款开源、自托管 CI/CD 服务器和 Jenkins 替代方案，支持持续集成、持续交付、构建自动化、流水线即代码和部署工作流。
 
+## 界面截图
+
+[![BuildWorld 构建详情：执行时间线、重试构建链与实时日志](/img/screenshots/build-details-2026-07-22.png)](/img/screenshots/build-details-2026-07-22.png)
+
+历史本地桌面实拍，拍摄于 **2026-07-22**，界面语言为中文。当前版本的布局和日期格式已有更新。[截图说明与原图](./screenshots.md)。
+
 ## 功能特性
 
 - **TypeScript 流水线** - 类型化、支持注释和语法诊断，并在受限运行时解析
@@ -31,18 +37,21 @@ SSH 身份密钥表。
 
 ## 快速开始
 
-```bash
-# 安装
-gh api -H "Accept: application/vnd.github.raw+json" repos/neko233-com/buildworld/contents/scripts/install.sh | sh
+### macOS / Linux
 
-# 启动服务器
-buildworld start
-
-# 打开浏览器
-open http://localhost:8080
+```sh
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.sh | sh
+buildworld status
 ```
 
-默认登录: `root` / `root`
+### Windows PowerShell (`install.ps1`)
+
+```powershell
+& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://gh-proxy.com/https://raw.githubusercontent.com/neko233-com/buildworld/main/scripts/install.ps1).Content))
+buildworld status
+```
+
+打开 `http://127.0.0.1:8080`，默认账号为 `root` / `root`，首次登录后立即修改密码。两种安装器均验证 SHA-256，并将 CLI 加入用户 PATH。[安装选项](./installation)。
 
 ## 架构
 

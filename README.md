@@ -19,6 +19,12 @@ BuildWorld is an open-source, self-hosted **CI/CD server** for continuous integr
 
 ---
 
+## Screenshots
+
+[![BuildWorld build details showing the execution timeline, build chain, and live logs](docs-site/static/img/screenshots/build-details-2026-07-22.png)](docs-site/static/img/screenshots/build-details-2026-07-22.png)
+
+Local desktop capture from **2026-07-22** (Chinese interface). This archived build view shows the execution timeline, retry chain, and live logs. Current releases have updated layouts and date formatting. Click the image to view it at full size. [Screenshot notes](docs-site/docs/screenshots.md).
+
 ## Features
 
 - **Self-hosted CI/CD:** run the server and its SQLite database on infrastructure you control.
@@ -172,11 +178,13 @@ cd docs-site && npm ci && npm run build
 # Build bundles for Windows, Linux, and macOS (amd64 and arm64)
 .\scripts\release-local.ps1 -Version 1.15.0
 
-# Publish a verified bundle to GitHub Releases
-.\scripts\publish-release-local.ps1 -Version 1.15.0 -Publish -ReplaceExisting
+# Publish a NEW version after review and required production checks
+.\scripts\publish-release-local.ps1 -Version X.Y.Z -Publish
 ```
 
 Verification, builds, packaging, and release uploads run locally. This project does not use GitHub Actions for CI or publishing.
+
+The local release publisher builds and publishes the English/Chinese HTML documentation after it creates and verifies a **new `vX.Y.Z` release tag**. Ordinary `main` pushes, staging tags, and replacement releases do not publish the site. [Publishing guide](docs-site/docs/local-publishing.md).
 
 ## Repository layout
 

@@ -1,91 +1,88 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 ---
 
-# Local verification and publishing
+# Local verification and release-tag publishing
 
-BuildWorld does not use GitHub Actions. CI checks, documentation builds,
-GitHub Pages publication, six-platform packaging, and Release uploads run on a
-controlled local machine.
+BuildWorld runs verification, documentation builds, six-platform packaging,
+and Release uploads locally. It does not use GitHub Actions.
+
+**Only a new `vX.Y.Z` release tag triggers public HTML documentation building
+and publication.** An ordinary `main` push, staging tag, or replacement Release
+does not publish GitHub Pages. Explicit local preview builds remain available.
 
 ## Prerequisites
 
 - Node.js 24 and npm;
-- Git and PowerShell;
+- Git and PowerShell 7 (`pwsh`);
 - GitHub CLI authenticated with `gh auth login`;
-- admin or maintainer access to `neko233-com/buildworld`.
+- maintainer access to `neko233-com/buildworld`;
+- all required local verification and production checks completed.
 
-GitHub Pages is public even while the repository is private. Never put secrets,
-private hostnames, tokens, or credentials in the documentation source.
+Documentation is public. Keep secrets, credentials, tokens, and private
+hostnames out of source text and screenshots.
 
-## Build-only dry run
-
-The default command installs locked dependencies, builds every configured
-locale, checks the required entry points, and rejects symbolic links. It does
-not fetch, commit, push, or change GitHub settings.
+## Preview without publication
 
 ```powershell
 .\scripts\publish-docs-local.ps1
 ```
 
-## Publish
+The dry run installs locked dependencies, builds English and Chinese HTML,
+checks entry points and screenshot assets, and rejects symbolic links. It does
+not read remote publication state, fetch, commit, push, or change Pages settings.
+`main` pushes do not invoke this command automatically.
 
-First run the canonical local gate, review and commit the source, push that
-commit to `main`, and leave the worktree clean. Then run:
+## Publish a new release and its documentation
 
-```powershell
-.\scripts\verify-local.ps1
-.\scripts\publish-docs-local.ps1 -Publish
-```
-
-Publication has a high-impact confirmation prompt. After confirmation, the
-script reruns the same local gate, accepts only the expected GitHub fetch and
-push URLs, verifies that local `HEAD` equals `origin/main`, creates an isolated
-temporary worktree, replaces its contents with `docs-site/build`, adds
-`.nojekyll`, and pushes one static-site commit to `gh-pages`. It then configures
-GitHub Pages for legacy branch publication from `gh-pages:/` and waits for a
-successful Pages build whose commit matches that publication.
-
-GitHub can show a platform-managed Pages deployment record after the branch
-push. This does not run a repository workflow or build the documentation on a
-GitHub runner; `.nojekyll` makes the service publish the locally built static
-files directly.
-
-The current source branch and index are never switched or rewritten. A normal
-push is used, so a concurrent `gh-pages` update is rejected instead of being
-force-overwritten. Temporary worktree cleanup runs even when publication
-fails.
-
-Use PowerShell's standard preview mode to exercise the documentation build and
-confirmation boundary without reading or changing Git/GitHub publication
-state. Dependency installation can still access the configured npm registry:
+Review the source, run `.\scripts\verify-local.ps1`, commit to `main`, and push
+the reviewed commit. Keep the worktree clean. Replace `X.Y.Z` below with the
+new release version:
 
 ```powershell
-.\scripts\publish-docs-local.ps1 -Publish -WhatIf
+.\scripts\publish-release-local.ps1 -Version X.Y.Z -Publish
 ```
 
-Do not use `npm run deploy`, manually force-push `gh-pages`, or add an Actions
-workflow as an alternate publishing path.
+After confirmation, the local publisher builds all six platform bundles,
+uploads to a staging draft, verifies asset sizes and SHA-256 digests, then
+creates the final release tag and publishes the Release. Only when the final
+tag is new does it call the documentation publisher with `-ReleaseTag`.
+Replacing an existing Release with `-ReplaceExisting` skips documentation.
 
-## Local Release publication
+The documentation publisher verifies that the remote release tag resolves to
+the reviewed `HEAD` on `main` and that `HEAD` equals `origin/main`. It rejects
+older versions and rewritten tags, and skips an already published tag. It
+reruns the full local gate before uploading any generated HTML.
 
-The Release publisher is also dry-run by default. It runs the complete local
-gate, creates all six platform bundles, and verifies every SHA-256 entry without
-writing GitHub state:
+An isolated temporary worktree receives the verified static output and
+`.nojekyll`. The publisher records `releaseTag` and `sourceCommit` in
+`.buildworld-release.json`, pushes normally to `gh-pages`, and verifies that
+GitHub Pages reports the exact new Pages commit as built. Concurrent branch
+updates fail rather than being overwritten.
+
+GitHub may display a platform-managed Pages deployment record. The service
+serves the locally generated files from `gh-pages:/`; no repository workflow
+builds the documentation on a GitHub runner.
+
+## Recover the documentation stage
+
+If the Release succeeds but documentation fails, the error identifies the
+documentation stage separately. Keep the new tag and its source commit intact.
+From the clean, reviewed source commit, retry with its explicit tag:
 
 ```powershell
-.\scripts\publish-release-local.ps1 -Version 1.0.0
+.\scripts\publish-docs-local.ps1 -ReleaseTag vX.Y.Z -Publish
 ```
 
-After the reviewed commit is on `origin/main` and required production checks
-pass, publish the replacement `v1.0.0` and remove older Release objects with:
+This is recovery for the same new release, not a publishing path for `main`.
+After a successful publication, retrying the same tag skips HTML building and
+pushes. If the static commit was already submitted but Pages has not confirmed
+it as built, inspect the Pages deployment before retrying.
 
-```powershell
-.\scripts\publish-release-local.ps1 -Version 1.0.0 -Publish -ReplaceExisting -PruneOtherReleases
-```
+To inspect eligibility without building or writing remote state, use
+`-ReleaseTag vX.Y.Z -Publish -WhatIf`. This reads remote state. The default
+dry run above builds locally without reading remote publication state.
 
-This requires a high-impact confirmation. The script creates a draft, uploads
-assets in local batches, compares every remote name and size, and only then
-publishes it as Latest. `-PruneOtherReleases` deletes old Release binaries but
-keeps their source tags. GitHub Actions is never used.
+Do not use `npm run deploy`, force-push `gh-pages`, or add an Actions workflow
+as an alternate publishing path.
 
