@@ -8,6 +8,13 @@ All notable BuildWorld changes are recorded here. The project follows
 
 No unreleased changes.
 
+## [1.16.24] - 2026-10-18
+
+### Added
+
+- Project purpose descriptions can be entered during project creation and are
+  shown beneath project names on the dashboard.
+
 ## [1.16.23] - 2026-10-15
 
 ### Added
