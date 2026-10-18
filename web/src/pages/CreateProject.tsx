@@ -27,6 +27,7 @@ export default function CreateProject() {
   const [searchParams] = useSearchParams()
   const nameInputRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [itemType, setItemType] = useState<NewItemType>('pipeline')
   const [nameDirty, setNameDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -95,7 +96,7 @@ export default function CreateProject() {
       const branch = template?.default_branch || 'main'
       const project = await api.createProject({
         name: trimmedName,
-        description: '',
+        description: description.trim(),
         repo_url: repository,
         repo_type: 'git',
         default_branch: branch,
@@ -155,6 +156,19 @@ export default function CreateProject() {
               {nameError && <p id="jenkins-new-item-name-error" role="alert">{nameError}</p>}
             </div>
           </div>
+
+          {itemType === 'pipeline' && <div className="jenkins-new-item-form-item jenkins-new-item-description">
+            <label htmlFor="jenkins-new-item-description">{t('projectDetail.description')}</label>
+            <textarea
+              id="jenkins-new-item-description"
+              name="description"
+              rows={3}
+              disabled={saving}
+              value={description}
+              placeholder={t('projects.descriptionPlaceholder')}
+              onChange={event => setDescription(event.target.value)}
+            />
+          </div>}
 
           <fieldset className="jenkins-new-item-form-item">
             <legend>{t('projects.selectItemType')}</legend>

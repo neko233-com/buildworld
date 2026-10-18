@@ -57,7 +57,7 @@ const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONM
 
 const projects = [
   { id: 3, name: 'Zulu', default_branch: 'main', group_id: 20, favorite: false, quick_access: false },
-  { id: 1, name: 'Alpha', default_branch: 'develop', group_id: 20, favorite: true, quick_access: false },
+  { id: 1, name: 'Alpha', description: 'Builds and deploys the account service', default_branch: 'develop', group_id: 20, favorite: true, quick_access: false },
   { id: 2, name: 'Beta', default_branch: 'main', group_id: 10, favorite: false, quick_access: true, config: 'stages: []' },
 ]
 
@@ -215,7 +215,8 @@ describe('Dashboard Jenkins job view', () => {
     expect(retryBuild).not.toHaveBeenCalled()
 
     expect(rowFor(3).querySelector('.jenkins-job-name small')).toBeNull()
-    expect(rowFor(1).querySelector('.jenkins-job-name small')?.textContent).toBe('develop')
+    expect(rowFor(1).querySelector('.jenkins-job-description')?.textContent).toBe('Builds and deploys the account service')
+    expect(rowFor(1).querySelector('.jenkins-job-branch')?.textContent).toBe('develop')
     expect(container.querySelector('.jenkins-rail-history-item')?.textContent).not.toContain('· main')
 
     const storage = container.querySelector('.jenkins-storage-monitor.warning')

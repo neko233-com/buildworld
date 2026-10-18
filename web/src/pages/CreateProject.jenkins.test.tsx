@@ -84,6 +84,15 @@ describe('Jenkins New Item flow', () => {
     })
   }
 
+  async function enterDescription(value: string) {
+    const input = container.querySelector<HTMLTextAreaElement>('#jenkins-new-item-description')
+    await act(async () => {
+      if (!input) return
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+
   it('matches Jenkins item-name and item-type selection semantics', async () => {
     await renderPage()
 
@@ -112,6 +121,7 @@ describe('Jenkins New Item flow', () => {
     vi.mocked(api.createProject).mockImplementation(() => new Promise(resolve => { finishCreate = resolve }))
     await renderPage()
     await enterName('release-pipeline')
+    await enterDescription('Builds and deploys the match server')
     await act(async () => {
       container.querySelector<HTMLInputElement>('input[value="pipeline"]')?.click()
     })
@@ -125,6 +135,7 @@ describe('Jenkins New Item flow', () => {
     expect(api.validatePipeline).not.toHaveBeenCalled()
     expect(api.createProject).toHaveBeenCalledWith(expect.objectContaining({
       name: 'release-pipeline',
+      description: 'Builds and deploys the match server',
       repo_type: 'git',
       config: '',
       pipeline_format: 'jenkinsfile',
