@@ -215,7 +215,7 @@ describe('Dashboard Jenkins job view', () => {
     expect(retryBuild).not.toHaveBeenCalled()
 
     expect(rowFor(3).querySelector('.jenkins-job-name small')).toBeNull()
-    expect(rowFor(1).querySelector('.jenkins-job-description')?.textContent).toBe('Builds and deploys the account service')
+    expect(rowFor(1).querySelector('.jenkins-dashboard-project-description')?.textContent).toBe('Builds and deploys the account service')
     expect(rowFor(1).querySelector('.jenkins-job-branch')?.textContent).toBe('develop')
     expect(container.querySelector('.jenkins-rail-history-item')?.textContent).not.toContain('· main')
 
