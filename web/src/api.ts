@@ -72,6 +72,7 @@ export type BuildReleaseResult = {
 export type ReleaseTargetOverview = {
   channel: string
   environment: string
+  appId?: string
   latest: BuildOverview | null
   last_success: BuildOverview | null
 }

@@ -21,6 +21,7 @@ type ReleaseTarget struct {
 	Environment      string `json:"environment"`
 	ChannelLabel     string `json:"channelLabel,omitempty"`
 	EnvironmentLabel string `json:"environmentLabel,omitempty"`
+	AppID            string `json:"appId,omitempty"`
 }
 
 type ReleaseTargetCatalog struct {
@@ -49,6 +50,21 @@ func validReleaseLabel(label string) bool {
 	return true
 }
 
+func validReleaseAppID(appID string) bool {
+	if appID == "" {
+		return true
+	}
+	if utf8.RuneCountInString(appID) > 128 || strings.TrimSpace(appID) != appID {
+		return false
+	}
+	for _, character := range appID {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
+}
+
 func ParseReleaseTargetCatalog(value string) (*ReleaseTargetCatalog, error) {
 	invalid := errors.New("RELEASE_TARGETS_JSON must contain a valid public schemaVersion=1 target catalog")
 	if len(value) == 0 || len(value) > 65536 {
@@ -64,7 +80,7 @@ func ParseReleaseTargetCatalog(value string) (*ReleaseTargetCatalog, error) {
 	channelLabels := make(map[string]string)
 	for _, target := range catalog.Targets {
 		key := target.Channel + "/" + target.Environment
-		if !releasemeta.ValidEnvironment(target.Channel) || !releasemeta.ValidEnvironment(target.Environment) || seen[key] || !validReleaseLabel(target.ChannelLabel) || !validReleaseLabel(target.EnvironmentLabel) {
+		if !releasemeta.ValidEnvironment(target.Channel) || !releasemeta.ValidEnvironment(target.Environment) || seen[key] || !validReleaseLabel(target.ChannelLabel) || !validReleaseLabel(target.EnvironmentLabel) || !validReleaseAppID(target.AppID) {
 			return nil, invalid
 		}
 		if label, exists := channelLabels[target.Channel]; exists && label != target.ChannelLabel {

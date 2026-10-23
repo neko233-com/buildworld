@@ -21,12 +21,12 @@ export default function ProjectReleaseTargets({ projectId, refreshKey }: { proje
         : <>
           <p>{t('projectDetail.releaseTargetsHelp')}</p>
           <div className="project-release-target-table"><table>
-            <thead><tr><th>{t('projectDetail.releaseChannel')}</th><th>{t('projectDetail.releaseEnvironment')}</th><th>{t('projectDetail.lastReleaseSuccess')}</th><th>{t('projectDetail.releaseVersion')}</th><th>{t('projectDetail.latestBuild')}</th><th>{t('builds.title')}</th></tr></thead>
+            <thead><tr><th>{t('projectDetail.releaseChannel')}</th><th>{t('projectDetail.releaseEnvironment')}</th><th>{t('projectDetail.releaseAppId')}</th><th>{t('projectDetail.lastReleaseSuccess')}</th><th>{t('projectDetail.releaseVersion')}</th><th>{t('projectDetail.latestBuild')}</th><th>{t('builds.title')}</th></tr></thead>
             <tbody>{targets?.map(target => {
               const query = new URLSearchParams({ project: String(projectId), release_channel: target.channel, release_environment: target.environment })
               const restartQuery = target.last_success?.version ? new URLSearchParams({ release_action: 'restart-version', release_channel: target.channel, release_environment: target.environment, release_version: target.last_success.version, ...(target.last_success.branch ? { release_branch: target.last_success.branch } : {}) }) : null
               return <tr key={`${target.channel}:${target.environment}`}>
-                <td>{target.channel}</td><td><code>{target.environment}</code></td>
+                <td>{target.channel}</td><td><code>{target.environment}</code></td><td><code>{target.appId || '-'}</code></td>
                 <td>{target.last_success ? <Link to={`/builds/${target.last_success.id}`}><time dateTime={target.last_success.finished_at || undefined}>{formatDateTime(target.last_success.finished_at)}</time> <span>#{target.last_success.number}</span></Link> : t('projectDetail.noReleaseSuccess')}</td>
                 <td>{target.last_success?.version || '-'}{target.last_success?.branch && <small> · {target.last_success.branch}</small>}{target.last_success?.release_results?.map(record => record.configVersion && <div key={record.component}>{t('projectDetail.releaseConfigVersion')} {record.configVersion} · <code>{record.configCommit?.slice(0, 12)}</code></div>)}{restartQuery && <div><Link to={`/projects/${projectId}/build?${restartQuery}`}>{t('projectDetail.restartVersion')}</Link></div>}</td>
                 <td>{target.latest ? <Link to={`/builds/${target.latest.id}`}>#{target.latest.number} · {buildStatusLabel(t, target.latest.status)}{target.latest.action && <small> · {releaseActionLabel(t, target.latest.action)}</small>}</Link> : '-'}</td>

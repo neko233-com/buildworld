@@ -109,8 +109,23 @@ func TestConfiguredReleaseTargetsSupplyArbitraryChannelsAndLinkedEnvironments(t 
 	}
 }
 
+func TestReleaseTargetCatalogCarriesDistinctPublicAppIDs(t *testing.T) {
+	raw := `{"schemaVersion":1,"targets":[{"channel":"wechat","environment":"test","appId":"wx-test-id"},{"channel":"wechat","environment":"release","appId":"wx-release-id"},{"channel":"taptap","environment":"test","appId":"tap-test-id"},{"channel":"taptap","environment":"release","appId":"tap-release-id"}]}`
+	catalog, err := ParseReleaseTargetCatalog(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := make(map[string]bool, len(catalog.Targets))
+	for _, target := range catalog.Targets {
+		if target.AppID == "" || seen[target.AppID] {
+			t.Fatalf("target AppId is missing or duplicated: %+v", target)
+		}
+		seen[target.AppID] = true
+	}
+}
+
 func TestConfiguredReleaseCatalogRejectsInvalidOrSecretDeclarationsWithoutDisclosure(t *testing.T) {
-	for _, raw := range []string{"", "null", `{`, `{"schemaVersion":2,"targets":[]}`, `{"schemaVersion":1,"targets":[]}`, `{"schemaVersion":1,"targets":[{"channel":"../private-sentinel","environment":"test"}]}`, `{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"Test"}]}`, `{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"test","password":"private-sentinel"}]}`, `{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"test"},{"channel":"alpha","environment":"test"}]}`, configuredTargetsFixture + `{}`} {
+	for _, raw := range []string{"", "null", `{`, `{"schemaVersion":2,"targets":[]}`, `{"schemaVersion":1,"targets":[]}`, `{"schemaVersion":1,"targets":[{"channel":"../private-sentinel","environment":"test"}]}`, `{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"Test"}]}`, `{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"test","appId":"bad\nvalue"}]}`, `{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"test","appId":" padded "}]}`, `{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"test","appId":123}]}`, `{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"test","password":"private-sentinel"}]}`, `{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"test"},{"channel":"alpha","environment":"test"}]}`, configuredTargetsFixture + `{}`} {
 		if _, err := ParseReleaseTargetCatalog(raw); err == nil || strings.Contains(err.Error(), "private-sentinel") {
 			t.Fatal("invalid public catalog accepted or raw value exposed")
 		}

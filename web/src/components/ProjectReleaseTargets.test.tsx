@@ -28,12 +28,15 @@ afterEach(() => {
 it('shows completed publication time and independent target history links', async () => {
   const finished = '2026-10-13T01:23:45Z'
   vi.mocked(api.listReleaseTargets).mockResolvedValue([
-    { channel: 'wechat', environment: 'test', latest: { id: 125, number: 9, status: 'failed' }, last_success: { id: 123, number: 7, status: 'success', started_at: '2026-10-12T01:00:00Z', finished_at: finished } },
-    { channel: 'taptap', environment: 'release', latest: { id: 124, number: 8, status: 'failed' }, last_success: null },
+    { channel: 'wechat', environment: 'test', appId: 'wx-test-id', latest: { id: 125, number: 9, status: 'failed' }, last_success: { id: 123, number: 7, status: 'success', started_at: '2026-10-12T01:00:00Z', finished_at: finished } },
+    { channel: 'taptap', environment: 'release', appId: 'tap-release-id', latest: { id: 124, number: 8, status: 'failed' }, last_success: null },
   ])
   await act(async () => root.render(<MemoryRouter><ProjectReleaseTargets projectId={33} /></MemoryRouter>))
   expect(container.textContent).toContain(formatDateTime(finished))
   expect(container.textContent).toContain('No successful publication')
+  expect(container.querySelector('thead')?.textContent).toContain('AppId')
+  expect(container.querySelectorAll('tbody tr')[0]?.querySelectorAll('td')[2]?.textContent).toBe('wx-test-id')
+  expect(container.querySelectorAll('tbody tr')[1]?.querySelectorAll('td')[2]?.textContent).toBe('tap-release-id')
   expect(container.querySelector('a[href="/builds/123"]')?.textContent).toContain('#7')
   const historyLinks = [...container.querySelectorAll('a')].map(link => link.getAttribute('href'))
   expect(historyLinks).toContain('/builds?project=33&release_channel=wechat&release_environment=test')

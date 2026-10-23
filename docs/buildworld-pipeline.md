@@ -18,12 +18,15 @@ also owns a **public, project-scoped** environment variable named
 target matrix, using this data-only schema:
 
 ```json
-{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"test","channelLabel":"Alpha","environmentLabel":"Test"},{"channel":"alpha","environment":"release","channelLabel":"Alpha"},{"channel":"third-store","environment":"audit-2","channelLabel":"Third store"}]}
+{"schemaVersion":1,"targets":[{"channel":"alpha","environment":"test","channelLabel":"Alpha","environmentLabel":"Test","appId":"alpha-test-id"},{"channel":"alpha","environment":"release","channelLabel":"Alpha","appId":"alpha-release-id"},{"channel":"third-store","environment":"audit-2","channelLabel":"Third store","appId":"third-store-audit-id"}]}
 ```
 
 Both channel and environment codes must match `^[a-z][a-z0-9-]{0,31}$`.
 The catalog is at most 64 KiB and contains 1–512 distinct pairs, optional labels up to 80 characters,
-and no credentials or other fields. A channel's label must be consistent across
+and an optional public `appId` up to 128 characters per target. AppIds are display metadata; they do not
+replace the protected channel credentials or determine runtime login routing. When a project uses
+different platform identities for each target, assign each pair its corresponding distinct AppId.
+The catalog contains no credentials or other fields. A channel's label must be consistent across
 its entries. Obtain the catalog from the release tool's validated configuration
 export; retained history does not establish deployment authority. Global or
 secret variables cannot supply this catalog. Missing, malformed, or mixed-mode
@@ -69,6 +72,22 @@ API callers use `POST /api/projects/{id}/builds` with:
 {"branch":"main","parameters":{"RELEASE_CHANNEL":"wechat","RELEASE_ENVIRONMENT":"test","RELEASE_ACTION":"restart-version","RELEASE_VERSION":"0.1.234"}}
 ```
 
+The project-specific HTTP trigger accepts the same parameter object in its
+POST body. Keep its generated opaque URL private; callers cannot use this
+endpoint to bypass declared parameter validation or the configured release
+target catalog:
+
+```http
+POST <project-http-trigger-url>
+Content-Type: application/json
+
+{"branch":"main","parameters":{"RELEASE_CHANNEL":"taptap","RELEASE_ENVIRONMENT":"test","RELEASE_ACTION":"publish-latest","CONFIRM_PUBLISH_LATEST":true}}
+```
+
+The AppId is resolved from the selected controlled target and is not a trigger
+parameter. This keeps the displayed identity, server-side credentials, and
+published target bound together.
+
 API creation, token triggers, historical retries, startup builds, and queued
 execution validate the selected pair against current project metadata. Removing
 a target also invalidates pending or retried requests for it. Validated release
@@ -77,8 +96,8 @@ project, stage, and step settings; configured variables cannot substitute anothe
 action, version, or latest-publication confirmation. Ordinary Jenkins environment
 precedence is unchanged.
 
-The project page shows every target recorded in the retained build history,
-including the latest attempt and last successful pipeline completion time.
+The project page combines the configured target catalog with retained build history,
+showing each target's optional AppId, latest attempt, and last successful pipeline completion time.
 `GET /api/projects/{id}/release-targets` exposes only public target names and
 bounded build summaries, without logs, credentials, or other parameters. It
 continues to work when SCM is unavailable. The history query accepts

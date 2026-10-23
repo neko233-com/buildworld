@@ -34,11 +34,19 @@ func TestReleaseTargetAPIKeepsSCMHistoryAvailableWithoutReturningParameters(t *t
 	if err := data.FinishBuild(build.ID, "success", 0); err != nil {
 		t.Fatal(err)
 	}
+	if err := data.SetEnvVar("project", &project.ID, engine.ReleaseTargetsVariable, `{"schemaVersion":1,"targets":[{"channel":"wechat","environment":"test","appId":"wx-test-id"},{"channel":"wechat","environment":"release","appId":"wx-release-id"},{"channel":"taptap","environment":"test","appId":"tap-test-id"},{"channel":"taptap","environment":"release","appId":"tap-release-id"}]}`, false, "public targets fixture"); err != nil {
+		t.Fatal(err)
+	}
 	handler := &handlers{d: Deps{Store: data}}
 	response := httptest.NewRecorder()
 	handler.listReleaseTargets(response, requestWithRouteID("GET", "/api/projects/1/release-targets", bytes.NewReader(nil), project.ID))
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"last_success"`) || !strings.Contains(response.Body.String(), `"wechat"`) {
 		t.Fatalf("response = %d %s", response.Code, response.Body.String())
+	}
+	for _, appID := range []string{"wx-test-id", "wx-release-id", "tap-test-id", "tap-release-id"} {
+		if !strings.Contains(response.Body.String(), `"appId":"`+appID+`"`) {
+			t.Fatalf("response omitted configured AppId %q: %s", appID, response.Body.String())
+		}
 	}
 	if strings.Contains(response.Body.String(), "private-token") || strings.Contains(response.Body.String(), "parameters") || strings.Contains(response.Body.String(), `"log"`) {
 		t.Fatalf("target response exposed unrelated data: %s", response.Body.String())

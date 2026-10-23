@@ -489,6 +489,7 @@
     "publishLatest": "构建并发布最新",
     "restartVersion": "重启此版本",
     "releaseEnvironment": "环境",
+    "releaseAppId": "AppId",
     "releaseEnvironmentHelp": "仅显示已配置可部署的目标；切换渠道后环境联动，默认优先选择 test。",
     "releaseTargetsNotConfigured": "此项目尚未配置可部署目标。请管理员设置公开项目变量 RELEASE_TARGETS_JSON 后重试。",
     "invalidReleaseTargetCatalog": "发布目标配置无效，请管理员检查公开目标矩阵后重试。",

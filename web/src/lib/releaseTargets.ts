@@ -5,9 +5,21 @@ export type ConfiguredReleaseTarget = {
   environment: string
   channelLabel?: string
   environmentLabel?: string
+  appId?: string
 }
 
 export type ReleaseTargetCatalog = { schemaVersion: 1; targets: ConfiguredReleaseTarget[] }
+
+function validReleaseAppID(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && [...value].length <= 128
+    && value.trim() === value
+    && ![...value].some(character => {
+      const code = character.codePointAt(0)!
+      return code < 32 || code >= 127 && code <= 159
+    })
+}
 
 export function normalizeReleaseTargetCatalog(value: unknown): ReleaseTargetCatalog | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -19,8 +31,9 @@ export function normalizeReleaseTargetCatalog(value: unknown): ReleaseTargetCata
   for (const candidate of source.targets) {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
     const target = candidate as Record<string, unknown>
-    if (Object.keys(target).some(key => !['channel', 'environment', 'channelLabel', 'environmentLabel'].includes(key))) return null
+    if (Object.keys(target).some(key => !['channel', 'environment', 'channelLabel', 'environmentLabel', 'appId'].includes(key))) return null
     if (typeof target.channel !== 'string' || typeof target.environment !== 'string' || !validReleaseEnvironment(target.channel) || !validReleaseEnvironment(target.environment)) return null
+    if (target.appId !== undefined && !validReleaseAppID(target.appId)) return null
     const key = `${target.channel}/${target.environment}`
     if (seen.has(key)) return null
     for (const label of [target.channelLabel, target.environmentLabel]) {
@@ -30,7 +43,7 @@ export function normalizeReleaseTargetCatalog(value: unknown): ReleaseTargetCata
     if (channelLabels.has(target.channel) && channelLabels.get(target.channel) !== channelLabel) return null
     channelLabels.set(target.channel, channelLabel)
     seen.add(key)
-    targets.push({ channel: target.channel, environment: target.environment, channelLabel: target.channelLabel as string | undefined, environmentLabel: target.environmentLabel as string | undefined })
+    targets.push({ channel: target.channel, environment: target.environment, channelLabel: target.channelLabel as string | undefined, environmentLabel: target.environmentLabel as string | undefined, appId: target.appId as string | undefined })
   }
   return { schemaVersion: 1, targets }
 }
