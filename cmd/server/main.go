@@ -70,6 +70,11 @@ func main() {
 	if err := auth.SetupDefaultAdmin(db); err != nil {
 		log.Printf("Warning: Failed to setup default admin: %v", err)
 	}
+	if path, _, err := auth.EnsureLocalHTTPToken(db, cfg.Database.Path); err != nil {
+		log.Printf("Local HTTP API token unavailable: %v", err)
+	} else {
+		log.Printf("Authenticated HTTP API ready; private local token file: %s", path)
+	}
 
 	jwtSecret, jwtSecretPath, generated, err := auth.LoadOrCreateJWTSecret(cfg.Auth.JWTSecret, cfg.Database.Path)
 	if err != nil {

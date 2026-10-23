@@ -31,6 +31,7 @@ func init() {
 	rootCmd.AddCommand(pauseCmd)
 	rootCmd.AddCommand(resumeCmd)
 	rootCmd.AddCommand(resetRootPasswordCmd)
+	rootCmd.AddCommand(httpTokenCmd)
 	rootCmd.AddCommand(enableAutostartCmd)
 	rootCmd.AddCommand(disableAutostartCmd)
 	rootCmd.AddCommand(versionCmd)

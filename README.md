@@ -60,6 +60,23 @@ buildworld status
 
 Open `http://127.0.0.1:8080` and sign in with `root` / `root`. **Change the default password immediately after the first login.**
 
+### HTTP API automation by default
+
+The server automatically provisions one private local API token on first start;
+no dashboard switch is required. Its file is `<database.path>.http-token`
+(0600 on Unix). SQLite stores only its hash. `buildworld http-token` prints the
+file path, never the token value, and can provision it for an existing installation
+without changing the root password or restarting the server. Use the token in the
+`Authorization: Bearer` header through a protected secret or environment variable;
+never put it in URLs, pipeline parameters, logs or Git.
+
+The token uses the existing root administrator and `build:trigger` scope.
+It does not grant `system:update`. Existing authorization and audit still apply;
+the value survives restarts. Revocation, owner deletion or demotion does not cause
+automatic reissue. Invalid files and symlinks are rejected without replacement.
+Serve remote automation over HTTPS or a trusted private network. The API remains
+authenticated, with the existing listener address and network exposure preserved.
+
 <details>
 <summary>Install a specific version or deploy offline</summary>
 

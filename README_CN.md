@@ -59,6 +59,19 @@ buildworld status
 
 浏览器打开 `http://127.0.0.1:8080`，默认账号 `root` / `root`，**首次登录后立即修改密码**。
 
+### 默认提供 HTTP Token API
+
+服务首次启动自动生成本机专用 API Token，无需在控制台手动开启。Token 位于
+`<database.path>.http-token`（Unix 权限 0600），数据库只保存散列。
+`buildworld http-token` 仅输出受保护文件路径，不回显 Token；已有安装也可直接
+补建，无需改 root 密码或重启服务。通过受控 Secret 或环境变量读取 Token，放入
+`Authorization: Bearer` 请求头，禁止写入 URL、流水线参数、日志或 Git。
+
+默认 Token 复用现有 root 管理员，仅附加 `build:trigger`，不授予 `system:update`；
+现有权限和审计继续生效。重启复用同一 Token，撤销或账号删除、降权后不自动补发。
+损坏文件和符号链接拒绝覆盖。远程调用使用 HTTPS 或可信内网；保持原监听地址和
+网络暴露范围，API 始终要求鉴权。
+
 <details>
 <summary>指定版本 / 内网离线安装</summary>
 
