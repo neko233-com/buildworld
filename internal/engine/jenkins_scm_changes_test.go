@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/neko233-com/buildworld/internal/store"
 )
 
 func TestJenkinsSCMChangesCaptureEachCommitAndRename(t *testing.T) {
@@ -50,6 +52,42 @@ func TestJenkinsSCMChangesCaptureEachCommitAndRename(t *testing.T) {
 	first, err := collectJenkinsSCMChanges(context.Background(), repo, revision, "")
 	if err != nil || len(first) != 0 {
 		t.Fatalf("first checkout changes=%+v err=%v", first, err)
+	}
+}
+
+func TestJenkinsPullRequestHeadHistory(t *testing.T) {
+	for _, tc := range []struct {
+		ref, id string
+		ok      bool
+	}{
+		{"refs/pull/123/head", "123", true},
+		{"refs/pull/123/merge", "", false},
+		{"refs/pull/0/head", "", false},
+		{"refs/pull/01/head", "", false},
+		{"refs/pull/a/head", "", false},
+		{"refs/heads/feature", "", false},
+	} {
+		id, ok := jenkinsPullRequestHead(tc.ref)
+		if id != tc.id || ok != tc.ok {
+			t.Fatalf("ref=%q id=%q ok=%v", tc.ref, id, ok)
+		}
+	}
+	for _, record := range []store.JenkinsSCMCheckout{
+		{HistoryKnown: true, ChangesJSON: `[]`},
+		{HistoryKnown: true, ChangesJSON: `{"version":2,"changes":[]}`},
+		{HistoryKnown: false, ChangesJSON: `{"version":1,"changes":[]}`},
+	} {
+		_, unknown, err := jenkinsPullRequestChanges([]store.JenkinsSCMCheckout{record})
+		if err != nil || !unknown {
+			t.Fatalf("unverified history accepted: %+v unknown=%v err=%v", record, unknown, err)
+		}
+	}
+	jsonChanges, unknown, err := jenkinsPullRequestChanges([]store.JenkinsSCMCheckout{
+		{HistoryKnown: true, ChangesJSON: `{"version":1,"changes":[{"revision":"a","title":"one","comment":"one","paths":["a.go"]}]}`},
+		{HistoryKnown: true, ChangesJSON: `{"version":1,"changes":[{"revision":"b","title":"two","comment":"two","paths":["b.go"]}]}`},
+	})
+	if err != nil || unknown || !strings.Contains(jsonChanges, "a.go") || !strings.Contains(jsonChanges, "b.go") {
+		t.Fatalf("aggregated=%s unknown=%v err=%v", jsonChanges, unknown, err)
 	}
 }
 

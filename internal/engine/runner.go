@@ -640,9 +640,28 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(build.TimeoutSec)*time.Second)
 		defer cancel()
 	}
-	captureSCMChanges := pipelineUsesJenkinsSCMChanges(cfg)
-	scmState := &jenkinsSCMRunState{capture: captureSCMChanges}
+	usesSCMChanges := pipelineUsesJenkinsSCMChanges(cfg)
+	_, isPullRequestHead := jenkinsPullRequestHead(strings.TrimSpace(build.Branch))
+	isPullRequestHead = isPullRequestHead && strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm")
+	// Jenkins gathers PR changes for future builds even when this particular
+	// Jenkinsfile does not yet contain a changelog-based condition.
+	scmState := &jenkinsSCMRunState{capture: usesSCMChanges || isPullRequestHead}
 	ctx = context.WithValue(ctx, jenkinsSCMCaptureContextKey{}, scmState)
+	if isPullRequestHead {
+		previous, err := r.store.JenkinsSCMCheckoutForBuild(build.ID)
+		if err == nil && previous == nil {
+			repositoryHash := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(project.PipelineSCMRepo))))
+			err = r.store.SaveJenkinsSCMCheckout(store.JenkinsSCMCheckout{
+				BuildID: build.ID, ProjectID: project.ID, BuildNumber: build.Number,
+				RepositoryHash: repositoryHash, Branch: strings.TrimSpace(build.Branch),
+				HistoryKnown: true, ChangesJSON: `{"version":1,"changes":[]}`,
+			})
+		}
+		if err != nil {
+			r.fail(buildID, start, "cannot record PR build checkout state", project)
+			return
+		}
+	}
 	if len(cfg.AgentRequirements) > 0 {
 		worker := r.selectRemoteWorker(cfg)
 		if worker == nil {
@@ -722,7 +741,32 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			stageStatuses[stageKey] = StageStatusSkipped
 			continue
 		}
-		if captureSCMChanges && scmState.checkoutVisible.Load() {
+		stageUsesSCMChanges := usesSCMChanges && jenkinsWhenUsesSCMChanges(stage.JenkinsWhen)
+		if stageUsesSCMChanges && isPullRequestHead {
+			repository := strings.TrimSpace(project.PipelineSCMRepo)
+			repositoryHash := fmt.Sprintf("%x", sha256.Sum256([]byte(repository)))
+			records, err := r.store.JenkinsSCMCheckoutsForHead(project.ID, build.Number, repositoryHash, strings.TrimSpace(build.Branch), scmState.checkoutVisible.Load(), jenkinsSCMChangeLogMaxBytes)
+			if err != nil {
+				r.fail(buildID, start, fmt.Sprintf("load PR SCM changelog: %v", err), project)
+				return
+			}
+			changes, unknown, err := jenkinsPullRequestChanges(records)
+			if err != nil {
+				r.fail(buildID, start, fmt.Sprintf("load PR SCM changelog: %v", err), project)
+				return
+			}
+			missing, err := r.store.JenkinsSCMHeadHasUnrecordedBuilds(project.ID, build.Number, strings.TrimSpace(build.Branch))
+			if err != nil {
+				r.fail(buildID, start, fmt.Sprintf("inspect PR SCM history: %v", err), project)
+				return
+			}
+			unknown = unknown || missing
+			conditionEnvironment[jenkinsSCMChangesContextKey] = changes
+			delete(conditionEnvironment, jenkinsSCMHistoryUnknownContextKey)
+			if unknown {
+				conditionEnvironment[jenkinsSCMHistoryUnknownContextKey] = "true"
+			}
+		} else if stageUsesSCMChanges && scmState.checkoutVisible.Load() {
 			checkout, err := r.store.JenkinsSCMCheckoutForBuild(buildID)
 			if err != nil {
 				r.fail(buildID, start, fmt.Sprintf("load SCM changelog: %v", err), project)
@@ -1478,10 +1522,14 @@ func (r *BuildRunner) checkoutJenkinsSCM(ctx context.Context, workspace string, 
 	baseline := ""
 	historyKnown := true
 	if checkout != nil {
-		if checkout.ProjectID != project.ID || checkout.BuildNumber != build.Number || checkout.RepositoryHash != repositoryHash || checkout.Branch != branchKey || checkout.Revision != revision {
+		if checkout.ProjectID != project.ID || checkout.BuildNumber != build.Number || checkout.RepositoryHash != repositoryHash || checkout.Branch != branchKey || (checkout.Revision != "" && checkout.Revision != revision) {
 			return fmt.Errorf("persisted SCM checkout identity does not match this build")
 		}
-	} else {
+		if checkout.Revision == "" {
+			checkout = nil
+		}
+	}
+	if checkout == nil {
 		baseline, historyKnown, err = r.store.PreviousJenkinsSCMRevision(project.ID, build.Number, repositoryHash, branchKey)
 		if err != nil {
 			return err
@@ -1524,7 +1572,11 @@ func (r *BuildRunner) checkoutJenkinsSCM(ctx context.Context, workspace string, 
 			return err
 		}
 	}
-	encoded, err := json.Marshal(changes)
+	var captured interface{} = changes
+	if _, isPullRequestHead := jenkinsPullRequestHead(branchKey); isPullRequestHead {
+		captured = jenkinsSCMHeadChanges{Version: 1, Changes: changes}
+	}
+	encoded, err := json.Marshal(captured)
 	if err != nil {
 		return fmt.Errorf("encode SCM changelog: %w", err)
 	}
@@ -1739,6 +1791,13 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 		branchName = project.DefaultBranch
 	}
 	tagName := ""
+	pullRequestID := ""
+	if strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm") {
+		if id, ok := jenkinsPullRequestHead(branchName); ok {
+			pullRequestID = id
+			branchName = "PR-" + id
+		}
+	}
 	if strings.HasPrefix(branchName, "refs/tags/") {
 		tagName = strings.TrimPrefix(branchName, "refs/tags/")
 		branchName = tagName
@@ -1755,6 +1814,9 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 	}
 	if tagName != "" {
 		envMap["TAG_NAME"] = tagName
+	}
+	if pullRequestID != "" {
+		envMap["CHANGE_ID"] = pullRequestID
 	}
 	for k, v := range cfg.Environment {
 		envMap[k] = v

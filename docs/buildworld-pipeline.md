@@ -303,10 +303,16 @@ repository and branch. The first observed checkout has no changes. With
 `skipDefaultCheckout()`, conditions before explicit `checkout scm` see no
 changelog. If earlier builds exist but their checkout history is unavailable,
 the condition fails instead of assuming an empty history; the current checkout
-establishes the baseline for the next build. Manually supplying `CHANGE_ID`
-does not turn the project into a multibranch pull-request SCM head: conditions
-still use this build's changelog. Pull-request-wide changelog aggregation and
-automatic PR source identities are not implemented.
+establishes the baseline for the next build. An SCM build of an explicit
+`refs/pull/<number>/head` is treated as a PR head: `BRANCH_NAME` is
+`PR-<number>`, `CHANGE_ID` is the number, and `changeset`/`changelog` inspect
+the captured checkouts of earlier builds of that same project, repository and
+PR head as well as this build's checkout. Earlier builds' changes remain
+visible before this build checks out. Builds without a checkout record that
+fact; older or incomplete snapshots fail closed instead of guessing. The total
+aggregated history is limited to 16 MiB. Manually supplying `CHANGE_ID` alone
+does not identify a PR head. Automatic PR webhook identities, provider-specific
+metadata and merge-ref strategies are not implemented.
 Git collection excludes merge commits, records at most 1024 commits and fails
 if its output exceeds 16 MiB. Regular expressions use Go syntax rather than
 Java's complete regular-expression language.

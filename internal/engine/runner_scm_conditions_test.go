@@ -94,6 +94,156 @@ func TestJenkinsSCMBuildFetchesPinnedHiddenRef(t *testing.T) {
 	}
 }
 
+func TestJenkinsPullRequestAggregatesPriorBuildChanges(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is unavailable")
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("POSIX shell is unavailable")
+	}
+	t.Setenv("PATH", filepath.Dir(sh)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	root := t.TempDir()
+	origin, repository := filepath.Join(root, "origin.git"), filepath.Join(root, "repository")
+	runRunnerSCMGit(t, "init", "--bare", origin)
+	runRunnerSCMGit(t, "init", repository)
+	runRunnerSCMGit(t, "-C", repository, "config", "user.email", "test@example.invalid")
+	runRunnerSCMGit(t, "-C", repository, "config", "user.name", "Test")
+	jenkinsfile := filepath.Join(repository, "Jenkinsfile")
+	initial := `pipeline { agent any stages { stage('build') { steps { sh 'echo INITIAL_BUILD' } } } }`
+	if err := os.WriteFile(jenkinsfile, []byte(initial), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRunnerSCMGit(t, "-C", repository, "add", "Jenkinsfile")
+	runRunnerSCMGit(t, "-C", repository, "commit", "-m", "base")
+	runRunnerSCMGit(t, "-C", repository, "branch", "-M", "main")
+	runRunnerSCMGit(t, "-C", repository, "remote", "add", "origin", origin)
+	runRunnerSCMGit(t, "-C", repository, "push", "origin", "main")
+	runRunnerSCMGit(t, "--git-dir", origin, "symbolic-ref", "HEAD", "refs/heads/main")
+	runRunnerSCMGit(t, "-C", repository, "checkout", "-b", "contribution")
+	ref := "refs/pull/123/head"
+	runRunnerSCMGit(t, "-C", repository, "push", "origin", "HEAD:"+ref)
+	originPath := filepath.ToSlash(origin)
+	if !strings.HasPrefix(originPath, "/") {
+		originPath = "/" + originPath
+	}
+	originURL := (&url.URL{Scheme: "file", Path: originPath}).String()
+	database, err := store.New(filepath.Join(root, "buildworld.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	project, err := database.CreateProject("pr-history", "", "", "git", "main", "", 0, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetProjectPipelineSource(project.ID, "jenkinsfile", "scm", originURL, "main", "Jenkinsfile"); err != nil {
+		t.Fatal(err)
+	}
+	runner := engine.NewBuildRunner(database, nil, filepath.Join(root, "workspaces"), nil)
+	defer runner.Shutdown(context.Background())
+	runBuild := func(number int, branch string) *store.Build {
+		t.Helper()
+		build, err := database.CreateBuild(project.ID, number, "manual", branch, "", "", nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runner.Run(build.ID)
+		result := waitForRunnerSCMBuild(t, database, build.ID, 25*time.Second)
+		if result.Status != "success" {
+			t.Fatalf("build %d status=%s log=%s", number, result.Status, result.Log)
+		}
+		return result
+	}
+	runBuild(1, ref)
+	if err := os.Mkdir(filepath.Join(repository, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "src", "service.go"), []byte("package service\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRunnerSCMGit(t, "-C", repository, "add", "src/service.go")
+	runRunnerSCMGit(t, "-C", repository, "commit", "-m", "feat: service")
+	runRunnerSCMGit(t, "-C", repository, "push", "origin", "HEAD:"+ref)
+	second := runBuild(2, ref)
+	checkout, err := database.JenkinsSCMCheckoutForBuild(second.ID)
+	if err != nil || checkout == nil || !strings.Contains(checkout.ChangesJSON, "src/service.go") || !strings.Contains(checkout.ChangesJSON, `"version":1`) {
+		t.Fatalf("PR changes must be captured even without a when condition: checkout=%+v err=%v", checkout, err)
+	}
+	source := `pipeline { agent any options { skipDefaultCheckout() } stages {
+stage('before') { when { changeset 'src/**/*.go' } steps { sh 'echo PRIOR_PR_CHANGE' } }
+stage('checkout') { steps { checkout scm } }
+stage('after') { when { allOf { changeset 'src/**/*.go'; changelog 'feat:.*' } } steps { sh 'echo AGGREGATED_PR_CHANGE' } }
+stage('identity') { when { allOf { changeRequest id: '123'; branch 'PR-123' } } steps { sh 'echo PR_IDENTITY_MATCHED' } }
+} }`
+	if err := os.WriteFile(jenkinsfile, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRunnerSCMGit(t, "-C", repository, "add", "Jenkinsfile")
+	runRunnerSCMGit(t, "-C", repository, "commit", "-m", "add conditions")
+	runRunnerSCMGit(t, "-C", repository, "push", "origin", "HEAD:"+ref)
+	third := runBuild(3, ref)
+	for _, marker := range []string{"PRIOR_PR_CHANGE", "AGGREGATED_PR_CHANGE", "PR_IDENTITY_MATCHED"} {
+		if !strings.Contains(third.Log, marker) {
+			t.Fatalf("missing %s: %s", marker, third.Log)
+		}
+	}
+	withoutCheckout := `pipeline { agent any options { skipDefaultCheckout() } stages { stage('skip') { steps { sh 'echo NO_CHECKOUT' } } } }`
+	if err := os.WriteFile(jenkinsfile, []byte(withoutCheckout), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRunnerSCMGit(t, "-C", repository, "add", "Jenkinsfile")
+	runRunnerSCMGit(t, "-C", repository, "commit", "-m", "skip checkout")
+	runRunnerSCMGit(t, "-C", repository, "push", "origin", "HEAD:"+ref)
+	fourth := runBuild(4, ref)
+	var emptyCheckout *store.JenkinsSCMCheckout
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		emptyCheckout, err = database.JenkinsSCMCheckoutForBuild(fourth.ID)
+		if err != nil || emptyCheckout != nil {
+			break
+		}
+	}
+	if err != nil || emptyCheckout == nil || emptyCheckout.Revision != "" {
+		t.Fatalf("no-checkout build was not recorded: checkout=%+v err=%v", emptyCheckout, err)
+	}
+	if err := os.WriteFile(jenkinsfile, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRunnerSCMGit(t, "-C", repository, "add", "Jenkinsfile")
+	runRunnerSCMGit(t, "-C", repository, "commit", "-m", "restore conditions")
+	runRunnerSCMGit(t, "-C", repository, "push", "origin", "HEAD:"+ref)
+	fifth := runBuild(5, ref)
+	if !strings.Contains(fifth.Log, "PRIOR_PR_CHANGE") || !strings.Contains(fifth.Log, "AGGREGATED_PR_CHANGE") {
+		t.Fatalf("no-checkout build hid PR history: %s", fifth.Log)
+	}
+	otherRef := "refs/pull/124/head"
+	runRunnerSCMGit(t, "-C", repository, "push", "origin", "HEAD:"+otherRef)
+	other := runBuild(6, otherRef)
+	for _, marker := range []string{"PRIOR_PR_CHANGE", "AGGREGATED_PR_CHANGE", "PR_IDENTITY_MATCHED"} {
+		if strings.Contains(other.Log, marker) {
+			t.Fatalf("another PR inherited %s: %s", marker, other.Log)
+		}
+	}
+	legacyRef := "refs/pull/125/head"
+	runRunnerSCMGit(t, "-C", repository, "push", "origin", "HEAD:"+legacyRef)
+	legacy, err := database.CreateBuild(project.ID, 7, "manual", legacyRef, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishBuild(legacy.ID, "success", 1); err != nil {
+		t.Fatal(err)
+	}
+	current, err := database.CreateBuild(project.ID, 8, "manual", legacyRef, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.Run(current.ID)
+	uncertain := waitForRunnerSCMBuild(t, database, current.ID, 25*time.Second)
+	if uncertain.Status != "failed" || !strings.Contains(uncertain.Log, "checkout history is unavailable") || strings.Contains(uncertain.Log, "PRIOR_PR_CHANGE") {
+		t.Fatalf("unknown PR history must fail closed: status=%s log=%s", uncertain.Status, uncertain.Log)
+	}
+}
+
 func TestJenkinsSCMConditionsUseCheckoutHistory(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is unavailable")

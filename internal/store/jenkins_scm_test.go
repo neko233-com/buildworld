@@ -77,6 +77,72 @@ func TestJenkinsSCMHistoryDoesNotInventLegacyCheckout(t *testing.T) {
 	}
 }
 
+func TestJenkinsSCMHeadHistoryTracksBuildsWithoutCheckout(t *testing.T) {
+	db, err := New(filepath.Join(t.TempDir(), "buildworld.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	project, err := db.CreateProject("pr-history", "", "", "git", "main", "", 0, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch := "refs/pull/42/head"
+	build, err := db.CreateBuild(project.ID, 1, "manual", branch, "sha", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision, known, err := db.PreviousJenkinsSCMRevision(project.ID, 2, "repo", branch); err != nil || !known || revision != "" {
+		t.Fatalf("active prior build should not invent a changelog: revision=%q known=%v err=%v", revision, known, err)
+	}
+	if err := db.FinishBuild(build.ID, "success", 1); err != nil {
+		t.Fatal(err)
+	}
+	missing, err := db.JenkinsSCMHeadHasUnrecordedBuilds(project.ID, 2, branch)
+	if err != nil || !missing {
+		t.Fatalf("missing prior build=%v err=%v", missing, err)
+	}
+	marker := JenkinsSCMCheckout{BuildID: build.ID, ProjectID: project.ID, BuildNumber: 1, RepositoryHash: "repo", Branch: branch, HistoryKnown: true, ChangesJSON: `{"version":1,"changes":[]}`}
+	if err := db.SaveJenkinsSCMCheckout(marker); err != nil {
+		t.Fatal(err)
+	}
+	missing, err = db.JenkinsSCMHeadHasUnrecordedBuilds(project.ID, 2, branch)
+	if err != nil || missing {
+		t.Fatalf("known no-checkout build=%v err=%v", missing, err)
+	}
+	revision, known, err := db.PreviousJenkinsSCMRevision(project.ID, 2, "repo", branch)
+	if err != nil || !known || revision != "" {
+		t.Fatalf("no-checkout baseline=%q known=%v err=%v", revision, known, err)
+	}
+	marker.Revision = "actual"
+	if err := db.SaveJenkinsSCMCheckout(marker); err != nil {
+		t.Fatalf("recovered build could not record its checkout: %v", err)
+	}
+	revision, known, err = db.PreviousJenkinsSCMRevision(project.ID, 2, "repo", branch)
+	if err != nil || !known || revision != "actual" {
+		t.Fatalf("recovered checkout baseline=%q known=%v err=%v", revision, known, err)
+	}
+	for _, tc := range []struct {
+		number  int
+		repo    string
+		branch  string
+		include bool
+		want    int
+	}{
+		{1, "repo", branch, false, 0}, {1, "repo", branch, true, 1},
+		{2, "repo", branch, false, 1}, {2, "other", branch, false, 0},
+		{2, "repo", "refs/pull/43/head", false, 0},
+	} {
+		records, err := db.JenkinsSCMCheckoutsForHead(project.ID, tc.number, tc.repo, tc.branch, tc.include, 1024)
+		if err != nil || len(records) != tc.want {
+			t.Fatalf("case=%+v records=%+v err=%v", tc, records, err)
+		}
+	}
+	if _, err := db.JenkinsSCMCheckoutsForHead(project.ID, 2, "repo", branch, false, 1); err == nil {
+		t.Fatal("oversized PR history was accepted")
+	}
+}
+
 func TestJenkinsSCMCheckoutConcurrentSaveAndPrune(t *testing.T) {
 	db, err := New(filepath.Join(t.TempDir(), "buildworld.db"))
 	if err != nil {

@@ -141,6 +141,25 @@ func (c *Client) EnsureRevisionContext(ctx context.Context, repoPath, ref, revis
 	return fmt.Errorf("pinned SCM revision is not available from the configured origin")
 }
 
+// FetchRefCommitContext resolves an explicit remote ref to the immutable commit
+// that was fetched, without relying on a local branch or a moving ref later on.
+func (c *Client) FetchRefCommitContext(ctx context.Context, repoPath, ref string) (string, error) {
+	if !strings.HasPrefix(ref, "refs/") || strings.ContainsAny(ref, "\x00\r\n") {
+		return "", fmt.Errorf("invalid SCM ref")
+	}
+	if _, err := workspaceGitCommand(ctx, repoPath, "fetch", "--no-tags", "origin", ref); err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", fmt.Errorf("fetch SCM ref from configured origin failed")
+	}
+	commit, err := workspaceGitCommand(ctx, repoPath, "rev-parse", "--verify", "FETCH_HEAD^{commit}")
+	if err != nil {
+		return "", fmt.Errorf("resolve fetched SCM ref to a commit")
+	}
+	return strings.TrimSpace(commit), nil
+}
+
 // ForceCheckoutRevisionContext restores tracked files to the selected SCM
 // revision while retaining unrelated untracked workspace files.
 func (c *Client) ForceCheckoutRevisionContext(ctx context.Context, repoPath, branch, revision string) error {

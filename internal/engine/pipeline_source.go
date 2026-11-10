@@ -375,13 +375,14 @@ func fetchSCMObject(ctx context.Context, src SCMPipelineSource, requirePipeline 
 	}
 
 	client := git.NewClient()
+	explicitRef := strings.HasPrefix(branch, "refs/") && !strings.HasPrefix(branch, "refs/tags/")
 	if src.CredSSHKey != "" {
 		if err := client.CloneWithSSHContext(ctx, cloneURL, dest, src.CredUser, src.CredSSHKey); err != nil {
 			return "", "", "", "", err
 		}
 	} else {
 		args := []string{"clone"}
-		if src.Revision == "" && !strings.HasPrefix(branch, "refs/tags/") {
+		if src.Revision == "" && !strings.HasPrefix(branch, "refs/tags/") && !explicitRef {
 			args = append(args, "--branch", branch, "--depth", "1")
 		}
 		args = append(args, "--", cloneURL, dest)
@@ -391,13 +392,18 @@ func fetchSCMObject(ctx context.Context, src SCMPipelineSource, requirePipeline 
 			return "", "", "", "", fmt.Errorf("git clone failed: %w, output: %s", err, out)
 		}
 	}
-	if src.Revision != "" || src.CredSSHKey != "" || strings.HasPrefix(branch, "refs/tags/") {
+	if src.Revision != "" || src.CredSSHKey != "" || strings.HasPrefix(branch, "refs/tags/") || explicitRef {
 		ref := branch
 		if src.Revision != "" {
 			if err := client.EnsureRevisionContext(ctx, dest, branch, src.Revision); err != nil {
 				return "", "", "", "", err
 			}
 			ref = src.Revision
+		} else if explicitRef {
+			ref, err = client.FetchRefCommitContext(ctx, dest, branch)
+			if err != nil {
+				return "", "", "", "", err
+			}
 		}
 		cmd := processtree.CommandContext(ctx, "git", "-C", dest, "checkout", "--detach", ref)
 		cmd.Env = git.NonInteractiveEnvironment(cmd.Environ())

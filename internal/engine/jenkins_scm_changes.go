@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/neko233-com/buildworld/internal/git"
 	"github.com/neko233-com/buildworld/internal/processtree"
+	"github.com/neko233-com/buildworld/internal/store"
 )
 
 const jenkinsSCMChangeLogMaxBytes = 16 << 20
@@ -24,11 +26,15 @@ type jenkinsSCMRunState struct {
 
 func pipelineUsesJenkinsSCMChanges(config *BuildConfig) bool {
 	for _, stage := range config.Stages {
-		if strings.Contains(stage.JenkinsWhen, "jenkinsChangeSet(") || strings.Contains(stage.JenkinsWhen, "jenkinsChangeLog(") {
+		if jenkinsWhenUsesSCMChanges(stage.JenkinsWhen) {
 			return true
 		}
 	}
 	return false
+}
+
+func jenkinsWhenUsesSCMChanges(condition string) bool {
+	return strings.Contains(condition, "jenkinsChangeSet(") || strings.Contains(condition, "jenkinsChangeLog(")
 }
 
 type jenkinsSCMChange struct {
@@ -36,6 +42,53 @@ type jenkinsSCMChange struct {
 	Title    string   `json:"title"`
 	Comment  string   `json:"comment"`
 	Paths    []string `json:"paths"`
+}
+
+type jenkinsSCMHeadChanges struct {
+	Version int                `json:"version"`
+	Changes []jenkinsSCMChange `json:"changes"`
+}
+
+// jenkinsPullRequestHead identifies a provider's explicit PR-head ref, not a
+// user-supplied CHANGE_ID environment value.
+func jenkinsPullRequestHead(ref string) (string, bool) {
+	if !strings.HasPrefix(ref, "refs/pull/") || !strings.HasSuffix(ref, "/head") {
+		return "", false
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(ref, "refs/pull/"), "/head")
+	if len(id) == 0 || len(id) > 20 || id[0] == '0' {
+		return "", false
+	}
+	for _, ch := range id {
+		if ch < '0' || ch > '9' {
+			return "", false
+		}
+	}
+	return id, true
+}
+
+// jenkinsPullRequestChanges aggregates only snapshots that explicitly record
+// that changelog capture was enabled for that SCM head.
+func jenkinsPullRequestChanges(records []store.JenkinsSCMCheckout) (string, bool, error) {
+	changes := make([]jenkinsSCMChange, 0)
+	for _, record := range records {
+		if !record.HistoryKnown {
+			return "", true, nil
+		}
+		var captured jenkinsSCMHeadChanges
+		if err := json.Unmarshal([]byte(record.ChangesJSON), &captured); err != nil || captured.Version != 1 || captured.Changes == nil {
+			return "", true, nil
+		}
+		changes = append(changes, captured.Changes...)
+	}
+	data, err := json.Marshal(changes)
+	if err != nil {
+		return "", false, fmt.Errorf("encode Jenkins SCM head history: %w", err)
+	}
+	if len(data) > jenkinsSCMChangeLogMaxBytes {
+		return "", false, fmt.Errorf("Jenkins SCM head history exceeds %d bytes", jenkinsSCMChangeLogMaxBytes)
+	}
+	return string(data), false, nil
 }
 
 type boundedSCMOutput struct{ bytes.Buffer }
