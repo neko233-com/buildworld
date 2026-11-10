@@ -235,8 +235,9 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 				return compareJenkinsString(first, actual, comparator, "GLOB")
 			case "jenkinsEnvironment":
 				second, _ := strconv.Unquote(node.Args[1].(*ast.BasicLit).Value)
-				value, found := environment[first]
-				return found && value == second, nil
+				// Jenkins treats an absent environment variable and an empty value
+				// as equivalent for this condition.
+				return environment[first] == second, nil
 			}
 		}
 		selector := node.Fun.(*ast.SelectorExpr)

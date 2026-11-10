@@ -133,6 +133,31 @@ steps { sh 'echo deploy' } } } }`
 	}
 }
 
+func TestJenkinsWhenEnvironmentMissingAndEmpty(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		env   map[string]string
+		want  bool
+	}{
+		{"", nil, true},
+		{"", map[string]string{"RELEASE_MODE": ""}, true},
+		{"production", nil, false},
+		{"", map[string]string{"RELEASE_MODE": "production"}, false},
+		{"production", map[string]string{"RELEASE_MODE": "production"}, true},
+		{"production", map[string]string{"RELEASE_MODE": "Production"}, false},
+	} {
+		source := fmt.Sprintf(`pipeline { agent any stages { stage('deploy') { when { environment name: 'RELEASE_MODE', value: '%s' } steps { sh 'echo deploy' } } } }`, tc.value)
+		config, err := engine.ParseJenkinsfileConfig(source, "environment")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := engine.ShouldRunStageWithJenkinsContext(config.Stages[0], nil, nil, tc.env, "main")
+		if err != nil || got != tc.want {
+			t.Fatalf("value=%q env=%v: got %v want %v: %v", tc.value, tc.env, got, tc.want, err)
+		}
+	}
+}
+
 func TestJenkinsWhenBranchComparators(t *testing.T) {
 	for _, tc := range []struct {
 		condition, branch string
@@ -208,6 +233,10 @@ func TestJenkinsWhenRunsThroughRealLocalRunner(t *testing.T) {
 		t.Skip("POSIX shell is not available")
 	}
 	t.Setenv("PATH", filepath.Dir(sh)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	const absentVariable = "BUILDWORLD_JENKINS_WHEN_EXPECTED_ABSENT_871093"
+	if _, exists := os.LookupEnv(absentVariable); exists {
+		t.Skip("test variable is unexpectedly set")
+	}
 	root := t.TempDir()
 	db, err := store.New(filepath.Join(root, "buildworld.db"))
 	if err != nil {
@@ -222,6 +251,7 @@ TAG_NAME = 'release-1'
 }
 stages { stage('guarded') { environment { DEPLOY_TO = 'stage' } when { allOf { branch 'main'; environment name: 'DEPLOY_TO', value: 'production'; expression { !params.ENTRY_ONLY } } } steps { sh 'test "$DEPLOY_TO" = stage; echo guarded-command-executed' } }
 stage('tagged') { when { allOf { buildingTag(); tag 'release-*' } } steps { sh 'echo tag-command-executed' } }
+stage('missing-env') { when { environment name: 'BUILDWORLD_JENKINS_WHEN_EXPECTED_ABSENT_871093', value: '' } steps { sh 'echo missing-env-executed' } }
 stage('always') { steps { sh 'echo always-command-executed' } } } }`
 	project, err := db.CreateProject("jenkins-when", "", "", "git", "main", source, 0, nil, nil)
 	if err != nil {
@@ -262,6 +292,9 @@ stage('always') { steps { sh 'echo always-command-executed' } } } }`
 		}
 		if !strings.Contains(build.Log, "tag-command-executed") {
 			t.Fatalf("tag stage missing: %s", build.Log)
+		}
+		if !strings.Contains(build.Log, "missing-env-executed") {
+			t.Fatalf("missing environment condition stage missing: %s", build.Log)
 		}
 	}
 }
