@@ -6,7 +6,17 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
-No unreleased changes.
+### Fixed
+
+- Reject unsafe self-updates of a system-managed macOS service before it is
+  interrupted, and report a healthy unchanged service accurately on rollback.
+- Resolve SCM build parameters and approval rules from the selected immutable
+  revision, including webhook, startup, scheduled, and retry paths. Preserve
+  full webhook object IDs and hold approval-required builds before queueing.
+- Require a fresh confirmation for `publish-latest` instead of replaying it
+  through automatic retry.
+- Allocate per-project build numbers atomically for concurrent triggers and
+  retries, including simultaneous approval-required builds.
 
 ## [1.16.27] - 2026-11-11
 

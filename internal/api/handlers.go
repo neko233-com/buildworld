@@ -615,31 +615,55 @@ func (h *handlers) validateProjectBuildTemplate(templateID *int64) error {
 }
 
 func (h *handlers) loadProjectBuildConfig(ctx context.Context, project *store.Project) (*engine.BuildConfig, error) {
+	config, _, err := h.loadProjectBuildConfigAt(ctx, project, nil)
+	return config, err
+}
+
+// loadProjectBuildConfigAt resolves a build's selected branch and revision
+// before evaluating parameters or approval requirements.
+func (h *handlers) loadProjectBuildConfigAt(ctx context.Context, project *store.Project, build *store.Build) (*engine.BuildConfig, string, error) {
 	loadCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
-	config, err := engine.ResolveProjectBuildConfig(loadCtx, project)
+	var config *engine.BuildConfig
+	var revision string
+	var err error
+	if build == nil {
+		config, err = engine.ResolveProjectBuildConfig(loadCtx, project)
+	} else {
+		var source string
+		source, revision, err = engine.ResolveBuildPipelineSource(loadCtx, project, build)
+		if err == nil {
+			format := engine.NormalizeFormat(project.PipelineFormat)
+			if format == engine.FormatYAML {
+				if detected := engine.DetectPipelineFormat(source); detected != engine.FormatYAML {
+					format = detected
+				}
+			}
+			config, err = engine.ParsePipelineConfigWithFormat(format, source, project.Name)
+		}
+	}
 	if err != nil {
-		return nil, fmt.Errorf("invalid project build configuration: %w", err)
+		return nil, "", fmt.Errorf("invalid project build configuration: %w", err)
 	}
 	if project.TemplateID != nil {
 		template, err := h.d.Store.GetBuildTemplate(*project.TemplateID)
 		if err != nil {
-			return nil, fmt.Errorf("project build template is unavailable: %w", err)
+			return nil, "", fmt.Errorf("project build template is unavailable: %w", err)
 		}
 		templateConfig, err := engine.ParsePipelineConfig(template.Config)
 		if err != nil {
-			return nil, fmt.Errorf("invalid build template configuration: %w", err)
+			return nil, "", fmt.Errorf("invalid build template configuration: %w", err)
 		}
 		config = engine.MergeBuildConfig(templateConfig, config)
 	}
 	variables, err := h.d.Store.ListEnvVars("project", &project.ID)
 	if err != nil {
-		return nil, errors.New("project release target metadata is unavailable")
+		return nil, "", errors.New("project release target metadata is unavailable")
 	}
 	if err := engine.ApplyProjectReleaseTargets(config, variables); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return config, nil
+	return config, revision, nil
 }
 
 // loadProjectBuildConfigForPresentation never performs network I/O. Build
@@ -667,6 +691,10 @@ func (h *handlers) resolveProjectBuildParameters(project *store.Project, supplie
 	if err != nil {
 		return "", err
 	}
+	return resolveParametersForConfig(config, supplied)
+}
+
+func resolveParametersForConfig(config *engine.BuildConfig, supplied map[string]interface{}) (string, error) {
 	resolved, err := engine.ResolveBuildParameters(config.Parameters, supplied)
 	if err != nil {
 		return "", err
@@ -684,11 +712,23 @@ func (h *handlers) resolveProjectBuildParameters(project *store.Project, supplie
 	return string(encoded), nil
 }
 
-func (h *handlers) requestBuildApproval(project *store.Project, build *store.Build, requesterID int64) error {
-	config, err := h.loadProjectBuildConfig(context.Background(), project)
+func (h *handlers) prepareProjectBuild(ctx context.Context, project *store.Project, branch, requestedRevision string, supplied map[string]interface{}) (*engine.BuildConfig, string, string, error) {
+	build := &store.Build{Branch: branch, CommitSHA: requestedRevision}
+	config, revision, err := h.loadProjectBuildConfigAt(ctx, project, build)
 	if err != nil {
-		return err
+		return nil, "", "", err
 	}
+	parameters, err := resolveParametersForConfig(config, supplied)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if revision == "" {
+		revision = requestedRevision
+	}
+	return config, revision, parameters, nil
+}
+
+func (h *handlers) requestBuildApprovalForConfig(build *store.Build, requesterID int64, config *engine.BuildConfig) error {
 	required, err := engine.ApprovalRequired(config)
 	if err != nil || !required {
 		return err
@@ -701,6 +741,17 @@ func (h *handlers) requestBuildApproval(project *store.Project, build *store.Bui
 		return err
 	}
 	return nil
+}
+
+func (h *handlers) approvalHold(config *engine.BuildConfig) (bool, error) {
+	required, err := engine.ApprovalRequired(config)
+	if err != nil {
+		return false, err
+	}
+	if required && h.d.Approval == nil {
+		return false, errors.New("approval service is unavailable")
+	}
+	return required, nil
 }
 
 func secretBuildParameterNames(config *engine.BuildConfig) map[string]struct{} {
@@ -925,23 +976,23 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 	if branch == "" {
 		branch = project.DefaultBranch
 	}
-	paramsJSON, err := h.resolveProjectBuildParameters(project, req.Parameters)
+	config, revision, paramsJSON, err := h.prepareProjectBuild(r.Context(), project, branch, "", req.Parameters)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	hold, err := h.approvalHold(config)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	num, err := h.d.Store.NextBuildNumber(project.ID)
+	build, err := h.d.Store.CreateNextBuildWithApproval(project.ID, "manual", branch, revision, paramsJSON, nil, nil, hold)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	build, err := h.d.Store.CreateBuild(project.ID, num, "manual", branch, "", paramsJSON, nil, nil)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := h.requestBuildApproval(project, build, userIDOf(r)); err != nil {
+	if err := h.requestBuildApprovalForConfig(build, userIDOf(r), config); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1608,21 +1659,36 @@ func (h *handlers) triggerBuildByWebhook(payload webhook.WebhookPayload) error {
 		if !p.Enabled {
 			continue
 		}
-		if p.RepoURL == "" {
+		repository := strings.TrimSpace(p.RepoURL)
+		if strings.EqualFold(strings.TrimSpace(p.PipelineSourceMode), "scm") {
+			// The event revision must belong to the repository from which this
+			// job resolves and checks out its pipeline, including SCM-only jobs.
+			repository = strings.TrimSpace(p.PipelineSCMRepo)
+		}
+		if repository == "" {
 			continue
 		}
-		if p.RepoURL == payload.Repository.CloneURL || p.RepoURL == payload.Repository.FullName {
+		if repository == payload.Repository.CloneURL || repository == payload.Repository.FullName {
 			branch, commit, _ := webhook.ParsePushEvent(payload)
-			parameters, err := h.resolveProjectBuildParameters(p, nil)
+			if branch == "" {
+				return nil
+			}
+			if !webhook.ValidCommitID(commit) {
+				return errors.New("webhook push requires a complete immutable commit ID")
+			}
+			config, revision, parameters, err := h.prepareProjectBuild(context.Background(), p, branch, commit, nil)
 			if err != nil {
 				return fmt.Errorf("resolve webhook build parameters: %w", err)
 			}
-			num, _ := h.d.Store.NextBuildNumber(p.ID)
-			build, err := h.d.Store.CreateBuild(p.ID, num, "webhook", branch, commit, parameters, nil, nil)
+			hold, err := h.approvalHold(config)
 			if err != nil {
 				return err
 			}
-			if err := h.requestBuildApproval(p, build, 0); err != nil {
+			build, err := h.d.Store.CreateNextBuildWithApproval(p.ID, "webhook", branch, revision, parameters, nil, nil, hold)
+			if err != nil {
+				return err
+			}
+			if err := h.requestBuildApprovalForConfig(build, 0, config); err != nil {
 				return err
 			}
 			if h.d.Runner != nil {
@@ -2082,7 +2148,7 @@ func (h *handlers) retryBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "project not found")
 		return
 	}
-	config, err := h.loadProjectBuildConfig(r.Context(), project)
+	config, _, err := h.loadProjectBuildConfigAt(r.Context(), project, previous)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -2099,12 +2165,17 @@ func (h *handlers) retryBuild(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	newBuild, err := h.d.Store.RetryBuild(id)
+	hold, err := h.approvalHold(config)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	newBuild, err := h.d.Store.RetryBuildWithApproval(id, hold)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := h.requestBuildApproval(project, newBuild, userIDOf(r)); err != nil {
+	if err := h.requestBuildApprovalForConfig(newBuild, userIDOf(r), config); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -3088,22 +3159,22 @@ func (h *handlers) projectHTTPTriggerBuild(w http.ResponseWriter, r *http.Reques
 	if branch == "" {
 		branch = project.DefaultBranch
 	}
-	paramsJSON, err := h.resolveProjectBuildParameters(project, req.Parameters)
+	config, revision, paramsJSON, err := h.prepareProjectBuild(r.Context(), project, branch, "", req.Parameters)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	number, err := h.d.Store.NextBuildNumber(project.ID)
+	hold, err := h.approvalHold(config)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	build, err := h.d.Store.CreateNextBuildWithApproval(project.ID, "http", branch, revision, paramsJSON, nil, nil, hold)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	build, err := h.d.Store.CreateBuild(project.ID, number, "http", branch, "", paramsJSON, nil, nil)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := h.requestBuildApproval(project, build, 0); err != nil {
+	if err := h.requestBuildApprovalForConfig(build, 0, config); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -3164,22 +3235,22 @@ func (h *handlers) httpTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	if branch == "" {
 		branch = project.DefaultBranch
 	}
-	paramsJSON, err := h.resolveProjectBuildParameters(project, req.Parameters)
+	config, revision, paramsJSON, err := h.prepareProjectBuild(r.Context(), project, branch, "", req.Parameters)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	num, err := h.d.Store.NextBuildNumber(project.ID)
+	hold, err := h.approvalHold(config)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	build, err := h.d.Store.CreateNextBuildWithApproval(project.ID, "api", branch, revision, paramsJSON, nil, nil, hold)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	build, err := h.d.Store.CreateBuild(project.ID, num, "api", branch, "", paramsJSON, nil, nil)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := h.requestBuildApproval(project, build, principal.UserID); err != nil {
+	if err := h.requestBuildApprovalForConfig(build, principal.UserID, config); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

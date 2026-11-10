@@ -227,19 +227,40 @@ func (tc *TriggerChecker) triggerProjectBuild(p *store.Project, trigger, branch,
 	if branch == "" {
 		branch = p.DefaultBranch
 	}
-	num, err := tc.store.NextBuildNumber(p.ID)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	config, revision, err := resolveConfiguredBuild(ctx, tc.store, p, &store.Build{Branch: branch, CommitSHA: commitSHA})
+	if err != nil {
+		fmt.Printf("build trigger project %d: cannot resolve pipeline\n", p.ID)
+		return
+	}
+	parameters, err := ResolveBuildParameters(config.Parameters, nil)
+	if err != nil {
+		fmt.Printf("build trigger project %d: invalid default parameters\n", p.ID)
+		return
+	}
+	if err := ValidateConfiguredReleaseTarget(config, parameters); err != nil {
+		fmt.Printf("build trigger project %d: invalid release target\n", p.ID)
+		return
+	}
+	encoded, err := json.Marshal(parameters)
 	if err != nil {
 		return
 	}
-	build, err := tc.store.CreateBuild(p.ID, num, trigger, branch, commitSHA, "", dependency, nil)
+	requiresApproval, err := ApprovalRequired(config)
 	if err != nil {
 		return
 	}
-	if config, configErr := tc.loadProjectConfig(p); configErr == nil {
-		if _, approvalErr := tc.approval.RequestIfRequired(build.ID, 0, config); approvalErr != nil {
-			_ = tc.store.FinishBuild(build.ID, "failed", 0)
-			return
-		}
+	if revision != "" {
+		commitSHA = revision
+	}
+	build, err := tc.store.CreateNextBuildWithApproval(p.ID, trigger, branch, commitSHA, string(encoded), dependency, nil, requiresApproval)
+	if err != nil {
+		return
+	}
+	if _, approvalErr := tc.approval.RequestIfRequired(build.ID, 0, config); approvalErr != nil {
+		_ = tc.store.FinishBuild(build.ID, "failed", 0)
+		return
 	}
 	if tc.runner != nil {
 		_ = tc.runner.Enqueue(build.ID)

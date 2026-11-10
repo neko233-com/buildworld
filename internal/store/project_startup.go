@@ -39,6 +39,11 @@ func (s *Store) StartupBuildEligible(id int64) (bool, error) {
 // CreateStartupBuild checks eligibility and allocates a build number atomically.
 // Existing pending, running or approval work already provides startup recovery.
 func (s *Store) CreateStartupBuild(id int64, branch, parameters string, approvalRequired bool) (*Build, error) {
+	return s.CreateStartupBuildAtRevision(id, branch, "", parameters, approvalRequired)
+}
+
+// CreateStartupBuildAtRevision atomically records the pipeline revision with its startup build.
+func (s *Store) CreateStartupBuildAtRevision(id int64, branch, revision, parameters string, approvalRequired bool) (*Build, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -50,7 +55,7 @@ func (s *Store) CreateStartupBuild(id int64, branch, parameters string, approval
 		return nil, err
 	}
 	result, err := tx.Exec(`INSERT INTO builds (project_id, number, status, trigger, branch, commit_sha, parameters, approval_required)
-		SELECT ?, COALESCE(MAX(number),0)+1, CASE WHEN ? THEN 'pending_approval' ELSE 'pending' END, 'startup', ?, '', ?, ? FROM builds WHERE project_id=?`, id, approvalRequired, branch, parameters, approvalRequired, id)
+		SELECT ?, COALESCE(MAX(number),0)+1, CASE WHEN ? THEN 'pending_approval' ELSE 'pending' END, 'startup', ?, ?, ?, ? FROM builds WHERE project_id=?`, id, approvalRequired, branch, revision, parameters, approvalRequired, id)
 	if err != nil {
 		return nil, err
 	}

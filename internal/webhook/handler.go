@@ -14,6 +14,7 @@ import (
 
 type WebhookPayload struct {
 	Ref        string `json:"ref"`
+	After      string `json:"after"`
 	Repository struct {
 		FullName string `json:"full_name"`
 		CloneURL string `json:"clone_url"`
@@ -142,17 +143,31 @@ func (h *WebhookHandler) computeHMAC(payload []byte) []byte {
 	return mac.Sum(nil)
 }
 
-// ParsePushEvent parses a push event and returns relevant information
+// ParsePushEvent returns the full immutable ref target. A deleted or non-push
+// ref has an empty branch so callers do not accidentally build the latest tip.
 func ParsePushEvent(payload WebhookPayload) (branch, commit, repo string) {
-	// Extract branch from ref (refs/heads/main -> main)
-	branch = strings.TrimPrefix(payload.Ref, "refs/heads/")
-	commit = payload.HeadCommit.ID
-	repo = payload.Repository.FullName
-
-	// Shorten commit hash
-	if len(commit) > 7 {
-		commit = commit[:7]
+	ref := strings.TrimSpace(payload.Ref)
+	if ref == "" || (payload.After != "" && strings.Trim(payload.After, "0") == "") {
+		return "", "", payload.Repository.FullName
 	}
-
+	branch = strings.TrimPrefix(ref, "refs/heads/")
+	commit = payload.After
+	if commit == "" {
+		commit = payload.HeadCommit.ID
+	}
+	repo = payload.Repository.FullName
 	return branch, commit, repo
+}
+
+// ValidCommitID accepts complete SHA-1 and SHA-256 object IDs only.
+func ValidCommitID(commit string) bool {
+	if len(commit) != 40 && len(commit) != 64 {
+		return false
+	}
+	for _, c := range commit {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return strings.Trim(commit, "0") != ""
 }

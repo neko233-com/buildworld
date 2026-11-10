@@ -776,14 +776,45 @@ func deleteProjectTx(tx *sql.Tx, id int64) error {
 // ---------------- Builds ----------------
 
 func (s *Store) CreateBuild(projectID int64, number int, trigger, branch, commitSHA, parameters string, waitDependencyOn, retriedFrom *int64) (*Build, error) {
+	return s.CreateBuildWithApproval(projectID, number, trigger, branch, commitSHA, parameters, waitDependencyOn, retriedFrom, false)
+}
+
+// CreateBuildWithApproval persists the hold atomically with the build so the
+// queue cannot dispatch it before the approval record is initialized.
+func (s *Store) CreateBuildWithApproval(projectID int64, number int, trigger, branch, commitSHA, parameters string, waitDependencyOn, retriedFrom *int64, approvalRequired bool) (*Build, error) {
+	status := "pending"
+	if approvalRequired {
+		status = "pending_approval"
+	}
 	res, err := s.db.Exec(
-		"INSERT INTO builds (project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
-		projectID, number, trigger, branch, commitSHA, parameters, waitDependencyOn, retriedFrom,
+		"INSERT INTO builds (project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, approval_required) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		projectID, number, status, trigger, branch, commitSHA, parameters, waitDependencyOn, retriedFrom, approvalRequired,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
+	return s.GetBuild(id)
+}
+
+// CreateNextBuildWithApproval allocates the per-project number and durable
+// approval hold in one SQLite statement, including under concurrent triggers.
+func (s *Store) CreateNextBuildWithApproval(projectID int64, trigger, branch, commitSHA, parameters string, waitDependencyOn, retriedFrom *int64, approvalRequired bool) (*Build, error) {
+	status := "pending"
+	if approvalRequired {
+		status = "pending_approval"
+	}
+	res, err := s.db.Exec(`INSERT INTO builds
+		(project_id, number, status, trigger, branch, commit_sha, parameters, wait_dependency_on, retried_from, approval_required)
+		SELECT ?, COALESCE(MAX(number), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ? FROM builds WHERE project_id = ?`,
+		projectID, status, trigger, branch, commitSHA, parameters, waitDependencyOn, retriedFrom, approvalRequired, projectID)
+	if err != nil {
+		return nil, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
 	return s.GetBuild(id)
 }
 
@@ -1146,16 +1177,17 @@ func retainCompleteBuildLog(log string) string {
 }
 
 func (s *Store) RetryBuild(buildID int64) (*Build, error) {
+	return s.RetryBuildWithApproval(buildID, false)
+}
+
+// RetryBuildWithApproval preserves the earlier source identity and atomically holds approval work.
+func (s *Store) RetryBuildWithApproval(buildID int64, approvalRequired bool) (*Build, error) {
 	old, err := s.GetBuild(buildID)
 	if err != nil {
 		return nil, err
 	}
-	num, err := s.NextBuildNumber(old.ProjectID)
-	if err != nil {
-		return nil, err
-	}
 	retriedFrom := buildID
-	return s.CreateBuild(old.ProjectID, num, "retry", old.Branch, old.CommitSHA, old.Parameters, nil, &retriedFrom)
+	return s.CreateNextBuildWithApproval(old.ProjectID, "retry", old.Branch, old.CommitSHA, old.Parameters, nil, &retriedFrom, approvalRequired)
 }
 
 func (s *Store) PinBuild(buildID int64, pinned bool) error {

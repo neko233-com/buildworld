@@ -199,11 +199,32 @@ func TestParsePushEvent(t *testing.T) {
 		t.Errorf("branch = %s, want main", branch)
 	}
 
-	if commit != "abc123d" {
-		t.Errorf("commit = %s, want abc123d", commit)
+	if commit != "abc123def456789" {
+		t.Errorf("commit = %s, want full commit", commit)
 	}
 
 	if repo != "user/repo" {
 		t.Errorf("repo = %s, want user/repo", repo)
+	}
+}
+
+func TestParsePushEventUsesAuthoritativeAfterAndIgnoresDeletion(t *testing.T) {
+	p := WebhookPayload{Ref: "refs/heads/main", After: "0123456789abcdef0123456789abcdef01234567"}
+	p.HeadCommit.ID = "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	branch, commit, _ := ParsePushEvent(p)
+	if branch != "main" || commit != p.After || !ValidCommitID(commit) {
+		t.Fatalf("branch=%q commit=%q", branch, commit)
+	}
+	p.After = "0000000000000000000000000000000000000000"
+	if branch, _, _ := ParsePushEvent(p); branch != "" {
+		t.Fatalf("deleted ref triggered branch %q", branch)
+	}
+	for _, value := range []string{"", "abcdef0", "g123456789abcdef0123456789abcdef01234567", p.After} {
+		if ValidCommitID(value) {
+			t.Fatalf("accepted invalid commit %q", value)
+		}
+	}
+	if !ValidCommitID("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef") {
+		t.Fatal("rejected SHA-256 commit")
 	}
 }

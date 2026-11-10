@@ -277,15 +277,27 @@ Jenkins import translates Jenkinsfiles directly to restricted TypeScript, then
 validates translated output. It does not create an intermediate JSON or Markdown
 pipeline.
 
-Jenkins `when` currently supports a case-sensitive exact branch name without wildcards and
-boolean expressions such as `expression { !params.ENTRY_ONLY }`, including
-parentheses, `!`, `&&`, `||`, and equality between boolean or string values.
-Other `when` forms, Groovy expressions, and wildcard
-branches are rejected during conversion instead of running unconditionally.
-This is a restricted subset, not a general Groovy interpreter. Pipelines with
-these expressions cannot be dispatched to remote workers. Re-import previously
-converted pipelines from the Jenkinsfile so that conditions discarded by older
-versions are restored.
+Jenkins `when` supports `allOf`, `anyOf`, `not`, branch and tag patterns,
+`buildingTag()`, environment equality and a side-effect-free expression subset.
+Branch and tag patterns support `GLOB`, `EQUALS` and `REGEXP` comparators; Go's
+regular-expression syntax is narrower than Java's. Expressions support `params`
+and `env`, boolean operators, equality and `toString().toBoolean()`; nonempty
+strings are true under Groovy truth. Pipeline environment is visible to `when`;
+the stage's own environment applies after its condition succeeds. Tag conditions
+require a populated `TAG_NAME`.
+
+Unsupported conditions and arbitrary Groovy are rejected rather than executed
+unconditionally. `beforeAgent`, `beforeInput` and `beforeOptions` are not yet
+supported. Conditional Jenkins stages cannot be dispatched to remote workers.
+Re-import previously converted pipelines from the Jenkinsfile so conditions
+discarded by older versions are restored.
+
+SCM build triggers resolve the selected branch and immutable commit before
+deriving parameter defaults and approval requirements. The same commit supplies
+the Jenkinsfile and workspace, including after recovery or retry. A push webhook
+requires a complete SHA-1 or SHA-256 object ID; deletion events do not start a
+build. Approval-required builds are held before entering the queue, and an
+automatic retry of `publish-latest` requires a new manual confirmation.
 
 Complete helper reference is served by a running instance at
 `/script-api.html`. Public documentation continues at

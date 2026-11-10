@@ -19,6 +19,14 @@ definition and workspace are checked out at that same commit, recorded on the
 build and exposed as `GIT_COMMIT`. A build recovered after a controller restart
 uses the recorded commit even if the branch has advanced. If the commit is no
 longer available, the build fails instead of executing a different revision.
+Manual, webhook, scheduled and startup paths derive parameter defaults and
+approval requirements from that selected revision. Retries preserve the stored
+parameters and use the same revision for approval rules. A push webhook
+must provide a complete SHA-1 or SHA-256 object ID; deleting a ref does not
+start a build. Approval holds are persisted before queueing, and automatic retry
+does not reuse `publish-latest` confirmation. Shared templates and project
+environment settings remain separately managed and are not part of the Git
+revision snapshot.
 
 ## Jenkins `when` conditions
 

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -32,8 +33,18 @@ func NewApprovalService(dataStore *store.Store) *ApprovalService {
 	return &ApprovalService{store: dataStore}
 }
 
-func (a *ApprovalService) loadProjectConfig(project *store.Project) (*BuildConfig, error) {
-	config, err := ParsePipelineConfig(project.Config)
+func (a *ApprovalService) loadProjectConfig(project *store.Project, build *store.Build) (*BuildConfig, error) {
+	source, _, err := ResolveBuildPipelineSource(context.Background(), project, build)
+	if err != nil {
+		return nil, err
+	}
+	format := NormalizeFormat(project.PipelineFormat)
+	if format == FormatYAML {
+		if detected := DetectPipelineFormat(source); detected != FormatYAML {
+			format = detected
+		}
+	}
+	config, err := ParsePipelineConfigWithFormat(format, source, project.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +71,7 @@ func (a *ApprovalService) policyForBuild(buildID int64) (ApprovalPolicy, *store.
 	if err != nil {
 		return ApprovalPolicy{}, nil, nil, fmt.Errorf("project not found: %w", err)
 	}
-	config, err := a.loadProjectConfig(project)
+	config, err := a.loadProjectConfig(project, build)
 	if err != nil {
 		return ApprovalPolicy{}, nil, nil, fmt.Errorf("invalid build configuration: %w", err)
 	}
@@ -117,8 +128,8 @@ func (a *ApprovalService) RequestApproval(buildID, requesterID int64) error {
 		}
 	}
 	if _, err := a.store.CreateBuildApproval(buildID, requesterID, requesterName); err != nil {
-		_ = a.store.SetBuildApprovalRequired(buildID, false)
-		_ = a.store.UpdateBuildStatus(buildID, "pending")
+		// Leave the durable hold intact. The caller marks the build failed;
+		// releasing it here would allow a concurrent dispatcher to start it.
 		return err
 	}
 	return nil

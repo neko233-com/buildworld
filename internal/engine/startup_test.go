@@ -20,6 +20,11 @@ func (f slowStartupSCMFetcher) FetchSCMPipeline(ctx context.Context, _ SCMPipeli
 	return "", FormatJenkinsfile, ctx.Err()
 }
 
+func (f slowStartupSCMFetcher) FetchSCMPipelineWithRevision(ctx context.Context, source SCMPipelineSource) (string, PipelineFormat, string, error) {
+	content, format, err := f.FetchSCMPipeline(ctx, source)
+	return content, format, "", err
+}
+
 func TestStartupSCMDoesNotBlockReadinessAndStopsWithQueue(t *testing.T) {
 	root := t.TempDir()
 	data, err := store.New(filepath.Join(root, "slow-startup.db"))
@@ -58,6 +63,45 @@ func TestStartupSCMDoesNotBlockReadinessAndStopsWithQueue(t *testing.T) {
 	builds, _ := data.ListBuildsByProject(project.ID)
 	if len(builds) != 0 {
 		t.Fatal("cancelled startup created a build")
+	}
+}
+
+func TestStartupPersistsResolvedSCMRevisionWithDefaultsAndApproval(t *testing.T) {
+	root := t.TempDir()
+	data, err := store.New(filepath.Join(root, "startup-pinned.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	project, err := data.CreateProject("startup-pinned", "", "https://example.invalid/repo.git", "git", "main", "", 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := data.SetProjectPipelineSource(project.ID, "yaml", "scm", project.RepoURL, "main", "pipeline.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.SetProjectBuildOnStartup(project.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	project, err = data.GetProject(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := DefaultSCMFetcher
+	DefaultSCMFetcher = triggerStaticSCMFetcher{source: "approval:\n  strategy: single\nparameters:\n  - {name: RUN, type: boolean, default: true}\njobs:\n  verify:\n    steps:\n      - {run: echo ok}\n"}
+	t.Cleanup(func() { DefaultSCMFetcher = previous })
+	runner := NewBuildRunner(data, nil, filepath.Join(root, "workspaces"), nil)
+	defer runner.Shutdown(context.Background())
+	if err := runner.triggerStartupBuild(context.Background(), project, NewApprovalService(data)); err != nil {
+		t.Fatal(err)
+	}
+	builds, err := data.ListBuildsByProject(project.ID)
+	if err != nil || len(builds) != 1 {
+		t.Fatalf("builds=%+v error=%v", builds, err)
+	}
+	build := builds[0]
+	if build.CommitSHA != "0123456789abcdef0123456789abcdef01234567" || !build.ApprovalRequired || build.Status != "pending_approval" || !strings.Contains(build.Parameters, `"RUN":true`) {
+		t.Fatalf("startup build=%+v", build)
 	}
 }
 

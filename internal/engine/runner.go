@@ -1063,18 +1063,24 @@ func (r *BuildRunner) loadBuildConfig(ctx context.Context, project *store.Projec
 }
 
 func (r *BuildRunner) parseBuildConfig(project *store.Project, source string) (*BuildConfig, error) {
+	return parseConfiguredBuild(r.store, project, source)
+}
+
+func parseConfiguredBuild(data *store.Store, project *store.Project, source string) (*BuildConfig, error) {
 	cfg, err := ParsePipelineConfig(source)
 	if err != nil {
 		return nil, err
 	}
 	if project.TemplateID != nil {
-		tmpl, err := r.store.GetBuildTemplate(*project.TemplateID)
-		if err == nil {
-			tmplCfg, err := ParsePipelineConfig(tmpl.Config)
-			if err == nil {
-				cfg = MergeBuildConfig(tmplCfg, cfg)
-			}
+		tmpl, err := data.GetBuildTemplate(*project.TemplateID)
+		if err != nil {
+			return nil, fmt.Errorf("load build template: %w", err)
 		}
+		tmplCfg, err := ParsePipelineConfig(tmpl.Config)
+		if err != nil {
+			return nil, fmt.Errorf("invalid build template: %w", err)
+		}
+		cfg = MergeBuildConfig(tmplCfg, cfg)
 	}
 	if err := ValidatePipelineSemantics(cfg); err != nil {
 		return nil, err
@@ -1082,7 +1088,7 @@ func (r *BuildRunner) parseBuildConfig(project *store.Project, source string) (*
 	if cfg.Environment == nil {
 		cfg.Environment = map[string]string{}
 	}
-	variables, err := r.store.ListEnvVars("project", &project.ID)
+	variables, err := data.ListEnvVars("project", &project.ID)
 	if err != nil {
 		return nil, errors.New("project release target metadata is unavailable")
 	}
@@ -1090,6 +1096,15 @@ func (r *BuildRunner) parseBuildConfig(project *store.Project, source string) (*
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func resolveConfiguredBuild(ctx context.Context, data *store.Store, project *store.Project, build *store.Build) (*BuildConfig, string, error) {
+	source, revision, err := ResolveBuildPipelineSource(ctx, project, build)
+	if err != nil {
+		return nil, "", err
+	}
+	config, err := parseConfiguredBuild(data, project, source)
+	return config, revision, err
 }
 
 func (r *BuildRunner) matchAgent(build *store.Build, project *store.Project) bool {
@@ -1800,6 +1815,11 @@ func (r *BuildRunner) scheduleAutomaticRetry(buildID int64) {
 	if err != nil {
 		return
 	}
+	original := build
+	if parseParams(original.Parameters)["RELEASE_ACTION"] == "publish-latest" {
+		r.log(buildID, "", "Automatic retry skipped: publish-latest requires a new confirmation")
+		return
+	}
 	depth := 0
 	seen := map[int64]struct{}{build.ID: {}}
 	for build.RetriedFrom != nil {
@@ -1817,10 +1837,41 @@ func (r *BuildRunner) scheduleAutomaticRetry(buildID int64) {
 			return
 		}
 	}
-	retry, err := r.store.RetryBuild(buildID)
+	project, err := r.store.GetProject(original.ProjectID)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	config, _, err := resolveConfiguredBuild(ctx, r.store, project, original)
+	if err != nil {
+		r.log(buildID, "", "Automatic retry skipped: cannot verify the pinned pipeline")
+		return
+	}
+	requiresApproval, err := ApprovalRequired(config)
+	if err != nil {
+		return
+	}
+	var requesterID int64
+	if requiresApproval {
+		previousApproval, err := r.store.GetBuildApprovalByBuild(buildID)
+		if err != nil {
+			r.log(buildID, "", "Automatic retry skipped: original approval is unavailable")
+			return
+		}
+		requesterID = previousApproval.UserID
+	}
+	retry, err := r.store.RetryBuildWithApproval(buildID, requiresApproval)
 	if err != nil {
 		r.log(buildID, "", fmt.Sprintf("Automatic retry could not be scheduled: %v", err))
 		return
+	}
+	if requiresApproval {
+		if _, err := NewApprovalService(r.store).RequestIfRequired(retry.ID, requesterID, config); err != nil {
+			_ = r.store.FinishBuild(retry.ID, "failed", 0)
+			r.log(buildID, "", "Automatic retry skipped: cannot initialize approval")
+			return
+		}
 	}
 	r.log(buildID, "", fmt.Sprintf("Automatic retry scheduled as build #%d", retry.Number))
 	if err := r.Enqueue(retry.ID); err != nil {

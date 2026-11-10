@@ -3,11 +3,61 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestConcurrentBuildNumberAllocationAndApprovalHold(t *testing.T) {
+	for _, concurrency := range []int{16, 64} {
+		t.Run(fmt.Sprintf("concurrency-%d", concurrency), func(t *testing.T) {
+			data, cleanup := newTestStore(t)
+			defer cleanup()
+			project, err := data.CreateProject("concurrent", "", "", "git", "main", "jobs: {}", 0, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			type result struct {
+				build *Build
+				err   error
+			}
+			results := make(chan result, concurrency)
+			start := make(chan struct{})
+			var group sync.WaitGroup
+			for i := 0; i < concurrency; i++ {
+				group.Add(1)
+				go func(hold bool) {
+					defer group.Done()
+					<-start
+					build, err := data.CreateNextBuildWithApproval(project.ID, "manual", "main", "", "", nil, nil, hold)
+					if err == nil && (build.ApprovalRequired != hold || (hold && build.Status != "pending_approval") || (!hold && build.Status != "pending")) {
+						err = fmt.Errorf("incorrect approval hold: %+v", build)
+					}
+					results <- result{build: build, err: err}
+				}(i%2 == 0)
+			}
+			close(start)
+			group.Wait()
+			close(results)
+			seen := make(map[int]bool)
+			for item := range results {
+				if item.err != nil {
+					t.Fatal(item.err)
+				}
+				if item.build.Number < 1 || item.build.Number > concurrency || seen[item.build.Number] {
+					t.Fatalf("duplicate or invalid number %d", item.build.Number)
+				}
+				seen[item.build.Number] = true
+			}
+			if len(seen) != concurrency {
+				t.Fatalf("allocated %d of %d builds", len(seen), concurrency)
+			}
+		})
+	}
+}
 
 func newTestStore(t *testing.T) (*Store, func()) {
 	t.Helper()

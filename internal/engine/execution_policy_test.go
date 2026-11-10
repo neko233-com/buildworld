@@ -13,6 +13,79 @@ import (
 	"github.com/neko233-com/buildworld/internal/store"
 )
 
+func TestAutomaticRetryPreservesApprovalAndNeverReusesReleaseConfirmation(t *testing.T) {
+	root := t.TempDir()
+	data, err := store.New(filepath.Join(root, "safe-retry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	requester, err := data.CreateUser("requester", "requester@example.test", "hash", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	approver, err := data.CreateUser("approver", "approver@example.test", "hash", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := "approval:\n  strategy: single\n  required_roles: [admin]\n  allow_requester: false\njobs:\n  build:\n    steps:\n      - run: echo ok\n"
+	project, err := data.CreateProject("safe-retry", "", "", "git", "main", source, requester.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build, err := data.CreateBuildWithApproval(project.ID, 1, "manual", "main", "", "", nil, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.CreateBuildQueueItem(build.ID, project.ID, project.Name, 0, build.Trigger, build.Branch); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := ParsePipelineConfig(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := NewApprovalService(data)
+	if _, err := approval.RequestIfRequired(build.ID, requester.ID, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := approval.Approve(build.ID, approver.ID, "reviewed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.FinishBuild(build.ID, "failed", 1); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewBuildRunner(data, nil, filepath.Join(root, "workspaces"), nil)
+	defer runner.Shutdown(context.Background())
+	if err := runner.ConfigureExecutionPolicy(ExecutionPolicy{DefaultTimeoutSec: 10, MaxConcurrentBuilds: 1, MaxConcurrentLocalBuilds: 1, RetryLimit: 1, FailFast: true}); err != nil {
+		t.Fatal(err)
+	}
+	runner.scheduleAutomaticRetry(build.ID)
+	builds, err := data.ListBuildsByProject(project.ID)
+	if err != nil || len(builds) != 2 {
+		t.Fatalf("builds=%+v error=%v", builds, err)
+	}
+	retry := builds[0]
+	if retry.Status != "pending_approval" || !retry.ApprovalRequired || retry.RetriedFrom == nil || *retry.RetriedFrom != build.ID {
+		t.Fatalf("retry=%+v", retry)
+	}
+	pending, err := data.GetBuildApprovalByBuild(retry.ID)
+	if err != nil || pending.UserID != requester.ID || pending.Status != "pending" {
+		t.Fatalf("pending=%+v error=%v", pending, err)
+	}
+	if err := approval.Approve(retry.ID, requester.ID, ""); err == nil || !strings.Contains(err.Error(), "own build") {
+		t.Fatalf("requester could approve retry: %v", err)
+	}
+	release, err := data.CreateBuild(project.ID, 3, "manual", "main", "", `{"RELEASE_ACTION":"publish-latest"}`, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.scheduleAutomaticRetry(release.ID)
+	builds, err = data.ListBuildsByProject(project.ID)
+	if err != nil || len(builds) != 3 {
+		t.Fatalf("release confirmation was replayed: builds=%+v error=%v", builds, err)
+	}
+}
+
 func TestControllerShutdownStopsChildrenAndKeepsBuildRecoverable(t *testing.T) {
 	root := t.TempDir()
 	database, err := store.New(filepath.Join(root, "shutdown.db"))

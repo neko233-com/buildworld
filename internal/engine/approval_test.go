@@ -1,12 +1,76 @@
 package engine
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/neko233-com/buildworld/internal/store"
 )
+
+func TestSCMApprovalUsesTheBuildsPinnedPolicy(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is unavailable")
+	}
+	repo := filepath.Join(t.TempDir(), "repo")
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "--initial-branch=main", repo)
+	git("-C", repo, "config", "user.email", "test@example.invalid")
+	git("-C", repo, "config", "user.name", "BuildWorld Test")
+	writePipeline := func(role, prompt string) string {
+		t.Helper()
+		source := "approval:\n  strategy: single\n  required_roles: [" + role + "]\n  prompt: " + prompt + "\njobs:\n  run:\n    steps:\n      - run: echo ok\n"
+		if err := os.WriteFile(filepath.Join(repo, "pipeline.yaml"), []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		git("-C", repo, "add", "pipeline.yaml")
+		git("-C", repo, "commit", "-m", prompt)
+		return source
+	}
+	oldSource := writePipeline("admin", "old-policy")
+	revision := git("-C", repo, "rev-parse", "HEAD")
+	writePipeline("developer", "new-policy")
+	data := newApprovalTestStore(t)
+	project, err := data.CreateProject("scm-approval", "", repo, "git", "main", "", 0, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := data.SetProjectPipelineSource(project.ID, "yaml", "scm", repo, "main", "pipeline.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	build, err := data.CreateBuild(project.ID, 1, "webhook", "main", revision, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := ParsePipelineConfig(oldSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewApprovalService(data)
+	if required, err := service.RequestIfRequired(build.ID, 0, config); err != nil || !required {
+		t.Fatalf("required=%t error=%v", required, err)
+	}
+	pending, err := service.ListPendingDetails()
+	if err != nil || len(pending) != 1 || pending[0].Prompt != "old-policy" || len(pending[0].RequiredRoles) != 1 || pending[0].RequiredRoles[0] != "admin" {
+		t.Fatalf("pending=%+v error=%v", pending, err)
+	}
+	developer, err := data.CreateUser("developer", "developer@example.test", "hash", "developer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Approve(build.ID, developer.ID, ""); err == nil || !strings.Contains(err.Error(), "role") {
+		t.Fatalf("developer unexpectedly approved old policy: %v", err)
+	}
+}
 
 func newApprovalTestStore(t *testing.T) *store.Store {
 	t.Helper()

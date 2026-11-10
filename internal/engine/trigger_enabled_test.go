@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/neko233-com/buildworld/internal/store"
@@ -13,6 +14,50 @@ type triggerStaticSCMFetcher struct{ source string }
 
 func (f triggerStaticSCMFetcher) FetchSCMPipeline(context.Context, SCMPipelineSource) (string, PipelineFormat, error) {
 	return f.source, FormatTypeScript, nil
+}
+
+func TestAutomaticTriggerPersistsDefaultsAndApprovalBeforeQueue(t *testing.T) {
+	data, err := store.New(filepath.Join(t.TempDir(), "automatic.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	source := `approval:
+  strategy: single
+parameters:
+  - name: RUN
+    type: boolean
+    default: true
+jobs:
+  verify:
+    steps:
+      - run: echo ok
+`
+	project, err := data.CreateProject("scheduled-approval", "", "", "git", "main", source, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	NewTriggerChecker(data, nil, nil).triggerProjectBuild(project, "schedule", "main", "", nil)
+	builds, err := data.ListBuildsByProject(project.ID)
+	if err != nil || len(builds) != 1 {
+		t.Fatalf("builds=%+v error=%v", builds, err)
+	}
+	build := builds[0]
+	if build.Status != "pending_approval" || !build.ApprovalRequired || !strings.Contains(build.Parameters, `"RUN":true`) {
+		t.Fatalf("build=%+v", build)
+	}
+	approval, err := data.GetBuildApprovalByBuild(build.ID)
+	if err != nil || approval.Status != "pending" {
+		t.Fatalf("approval=%+v error=%v", approval, err)
+	}
+}
+
+func (f triggerStaticSCMFetcher) FetchSCMPipelineWithRevision(_ context.Context, source SCMPipelineSource) (string, PipelineFormat, string, error) {
+	revision := source.Revision
+	if revision == "" {
+		revision = "0123456789abcdef0123456789abcdef01234567"
+	}
+	return f.source, FormatTypeScript, revision, nil
 }
 
 func TestGitLSRemoteHonorsContextCancellation(t *testing.T) {

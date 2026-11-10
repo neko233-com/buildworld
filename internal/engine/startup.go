@@ -48,7 +48,7 @@ func (r *BuildRunner) startStartupBuilds(ctx context.Context) {
 func (r *BuildRunner) triggerStartupBuild(parent context.Context, project *store.Project, approval *ApprovalService) error {
 	ctx, cancel := context.WithTimeout(parent, 25*time.Second)
 	defer cancel()
-	config, err := r.loadBuildConfig(ctx, project)
+	config, revision, err := resolveConfiguredBuild(ctx, r.store, project, &store.Build{Branch: project.DefaultBranch})
 	if err != nil {
 		return fmt.Errorf("load pipeline: %w", err)
 	}
@@ -72,7 +72,7 @@ func (r *BuildRunner) triggerStartupBuild(parent context.Context, project *store
 	}
 	// Persist the approval hold with the build itself so a concurrent dispatcher
 	// cannot start execution while its approval record is being initialized.
-	build, err := r.store.CreateStartupBuild(project.ID, project.DefaultBranch, string(encoded), requiresApproval)
+	build, err := r.store.CreateStartupBuildAtRevision(project.ID, project.DefaultBranch, revision, string(encoded), requiresApproval)
 	if err != nil || build == nil {
 		return err
 	}
