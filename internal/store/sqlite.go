@@ -742,6 +742,7 @@ func deleteProjectTx(tx *sql.Tx, id int64) error {
 		query string
 		args  []interface{}
 	}{
+		{"Jenkins SCM checkouts", "DELETE FROM jenkins_scm_checkouts WHERE project_id=?", []interface{}{id}},
 		{"notification events", "DELETE FROM notification_events WHERE build_id IN (SELECT id FROM builds WHERE project_id=?)", []interface{}{id}},
 		{"artifacts", "DELETE FROM artifacts WHERE build_id IN (SELECT id FROM builds WHERE project_id=?)", []interface{}{id}},
 		{"queue items", "DELETE FROM build_queue_items WHERE project_id=? OR build_id IN (SELECT id FROM builds WHERE project_id=?)", []interface{}{id, id}},
@@ -938,6 +939,9 @@ func (s *Store) PruneCompletedBuilds(projectID int64, retain int) error {
 		return rows.Err()
 	}
 	for _, id := range ids[retain:] {
+		if _, err := s.db.Exec("DELETE FROM jenkins_scm_checkouts WHERE build_id = ?", id); err != nil {
+			return err
+		}
 		if _, err := s.db.Exec("DELETE FROM notification_events WHERE build_id = ?", id); err != nil {
 			return err
 		}

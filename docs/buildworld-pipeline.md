@@ -278,7 +278,8 @@ validates translated output. It does not create an intermediate JSON or Markdown
 pipeline.
 
 Jenkins `when` supports `allOf`, `anyOf`, `not`, branch and tag patterns,
-`buildingTag()`, environment equality (including literal `ignoreCase`), `equals`, `changeRequest`, and a side-effect-free expression subset.
+`buildingTag()`, `changeset`, `changelog`, environment equality (including literal
+`ignoreCase`), `equals`, `changeRequest`, and a side-effect-free expression subset.
 Branch and tag patterns support `GLOB`, `EQUALS` and `REGEXP` comparators; Go's
 regular-expression syntax is narrower than Java's. Expressions support `params`
 and `env`, `currentBuild.number`, boolean and ordered comparisons, equality and
@@ -295,6 +296,23 @@ retain their existing workspace setup. Other tag conditions require a populated
 BuildWorld's explicit `::buildworld:set NAME=value` output markers update the
 environment seen by later stages and their `when` conditions. Stage-local
 environment declarations do not leak into later conditions.
+
+`changeset` and `changelog` use the persisted changes from the build's actual
+SCM checkout, compared with the previous observed checkout of the same project,
+repository and branch. The first observed checkout has no changes. With
+`skipDefaultCheckout()`, conditions before explicit `checkout scm` see no
+changelog. If earlier builds exist but their checkout history is unavailable,
+the condition fails instead of assuming an empty history; the current checkout
+establishes the baseline for the next build. Pull-request-wide changelog
+aggregation is not implemented and is rejected when `CHANGE_ID` is present.
+Git collection excludes merge commits, records at most 1024 commits and fails
+if its output exceeds 16 MiB. Regular expressions use Go syntax rather than
+Java's complete regular-expression language.
+
+SCM checkout records use database migration 17. Older BuildWorld binaries reject
+databases with a newer migration ledger; verify a data-preserving downgrade or
+restore procedure before deploying this version. An installation-directory
+rollback alone does not roll back the database schema.
 
 `changeRequest()` evaluates the existing `CHANGE_ID` and related `CHANGE_*`
 environment values, including named filters and `EQUALS`, `GLOB` or `REGEXP`

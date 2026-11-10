@@ -16,6 +16,8 @@ import (
 
 // A NUL-containing key cannot originate from an OS environment variable.
 const jenkinsBuildNumberContextKey = "\x00buildworld.currentBuild.number"
+const jenkinsSCMChangesContextKey = "\x00buildworld.currentBuild.scmChanges"
+const jenkinsSCMHistoryUnknownContextKey = "\x00buildworld.currentBuild.scmHistoryUnknown"
 
 // ValidateJenkinsWhen accepts only the supported, side-effect-free boolean subset.
 func ValidateJenkinsWhen(condition string) error {
@@ -68,6 +70,20 @@ func validateJenkinsExpr(expr ast.Expr) error {
 					if err != nil || !jenkinsChangeRequestField(field) {
 						return fmt.Errorf("invalid changeRequest field")
 					}
+				}
+			}
+			return nil
+		}
+		if ident, ok := node.Fun.(*ast.Ident); ok && ((ident.Name == "jenkinsChangeSet" && len(node.Args) == 3) || (ident.Name == "jenkinsChangeLog" && len(node.Args) == 1)) {
+			for _, arg := range node.Args {
+				if literal, ok := arg.(*ast.BasicLit); !ok || literal.Kind != token.STRING {
+					return fmt.Errorf("Jenkins SCM condition arguments must be literal strings")
+				}
+			}
+			if ident.Name == "jenkinsChangeSet" {
+				caseSensitive, err := strconv.Unquote(node.Args[2].(*ast.BasicLit).Value)
+				if err != nil || (caseSensitive != "true" && caseSensitive != "false") {
+					return fmt.Errorf("changeset caseSensitive must be a literal boolean")
 				}
 			}
 			return nil
@@ -197,6 +213,27 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 		if ident, ok := node.Fun.(*ast.Ident); ok {
 			if ident.Name == "jenkinsBuildingTag" {
 				return environment["TAG_NAME"] != "", nil
+			}
+			if ident.Name == "jenkinsChangeSet" || ident.Name == "jenkinsChangeLog" {
+				if _, exists := environment["CHANGE_ID"]; exists {
+					return nil, fmt.Errorf("Jenkins change-request changelog aggregation is not supported")
+				}
+				if environment[jenkinsSCMHistoryUnknownContextKey] == "true" {
+					return nil, fmt.Errorf("previous Jenkins SCM checkout history is unavailable")
+				}
+				var changes []jenkinsSCMChange
+				if raw := environment[jenkinsSCMChangesContextKey]; raw != "" {
+					if err := json.Unmarshal([]byte(raw), &changes); err != nil {
+						return nil, fmt.Errorf("invalid Jenkins SCM changelog: %w", err)
+					}
+				}
+				pattern, _ := strconv.Unquote(node.Args[0].(*ast.BasicLit).Value)
+				if ident.Name == "jenkinsChangeLog" {
+					return jenkinsMatchesChangeLog(pattern, changes)
+				}
+				comparator, _ := strconv.Unquote(node.Args[1].(*ast.BasicLit).Value)
+				caseSensitive, _ := strconv.Unquote(node.Args[2].(*ast.BasicLit).Value)
+				return jenkinsMatchesChangeSet(pattern, comparator, caseSensitive == "true", changes)
 			}
 			if ident.Name == "jenkinsChangeRequest" {
 				if _, exists := environment["CHANGE_ID"]; !exists {
@@ -464,34 +501,35 @@ func jenkinsCompare(left, right interface{}) (int, error) {
 
 // matchJenkinsBranch implements the default case-insensitive Ant-style path glob.
 func matchJenkinsBranch(pattern, branch string) (bool, error) {
-	patterns, parts := strings.Split(pattern, "/"), strings.Split(branch, "/")
-	type position struct{ pattern, part int }
-	visited := make(map[position]bool)
-	var match func(int, int) (bool, error)
-	match = func(pi, bi int) (bool, error) {
-		key := position{pi, bi}
-		if visited[key] {
-			return false, nil
-		}
-		visited[key] = true
-		if pi == len(patterns) {
-			return bi == len(parts), nil
-		}
-		if patterns[pi] == "**" {
-			if ok, err := match(pi+1, bi); ok || err != nil {
-				return ok, err
-			}
-			if bi < len(parts) {
-				return match(pi, bi+1)
-			}
-			return false, nil
-		}
-		if bi == len(parts) {
-			return false, nil
+	return matchJenkinsPath(pattern, branch, false)
+}
+
+func matchJenkinsPath(pattern, branch string, caseSensitive bool) (bool, error) {
+	compiled, err := compileJenkinsPathPattern(pattern, caseSensitive)
+	if err != nil {
+		return false, err
+	}
+	return compiled.matches(branch), nil
+}
+
+type jenkinsPathPattern struct {
+	patterns []string
+	segments []*regexp.Regexp
+}
+
+func compileJenkinsPathPattern(pattern string, caseSensitive bool) (*jenkinsPathPattern, error) {
+	patterns := strings.Split(pattern, "/")
+	compiled := &jenkinsPathPattern{patterns: patterns, segments: make([]*regexp.Regexp, len(patterns))}
+	for index, part := range patterns {
+		if part == "**" {
+			continue
 		}
 		var expression strings.Builder
-		expression.WriteString("(?i)^")
-		for _, char := range patterns[pi] {
+		if !caseSensitive {
+			expression.WriteString("(?i)")
+		}
+		expression.WriteString("^")
+		for _, char := range part {
 			switch char {
 			case '*':
 				expression.WriteString(".*")
@@ -502,9 +540,43 @@ func matchJenkinsBranch(pattern, branch string) (bool, error) {
 			}
 		}
 		expression.WriteString("$")
-		ok, err := regexp.MatchString(expression.String(), parts[bi])
-		if err != nil || !ok {
-			return false, err
+		var err error
+		compiled.segments[index], err = regexp.Compile(expression.String())
+		if err != nil {
+			return nil, err
+		}
+	}
+	return compiled, nil
+}
+
+func (compiled *jenkinsPathPattern) matches(branch string) bool {
+	patterns, parts := compiled.patterns, strings.Split(branch, "/")
+	type position struct{ pattern, part int }
+	visited := make(map[position]bool)
+	var match func(int, int) bool
+	match = func(pi, bi int) bool {
+		key := position{pi, bi}
+		if visited[key] {
+			return false
+		}
+		visited[key] = true
+		if pi == len(patterns) {
+			return bi == len(parts)
+		}
+		if patterns[pi] == "**" {
+			if match(pi+1, bi) {
+				return true
+			}
+			if bi < len(parts) {
+				return match(pi, bi+1)
+			}
+			return false
+		}
+		if bi == len(parts) {
+			return false
+		}
+		if !compiled.segments[pi].MatchString(parts[bi]) {
+			return false
 		}
 		return match(pi+1, bi+1)
 	}

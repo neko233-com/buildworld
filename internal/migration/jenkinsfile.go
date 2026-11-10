@@ -1288,6 +1288,75 @@ func parseJenkinsWhenChildren(source, mask, operator string, flags *jenkinsWhenF
 			}
 			conditions = append(conditions, function+"("+strconv.Quote(value)+")")
 			cursor = end
+		case "changeset", "changelog":
+			position := skipSourceSpace(source, after, len(source))
+			var args string
+			var end int
+			if position < len(source) && source[position] == '(' {
+				close, ok := matchingDelimiter(mask, position, '(', ')', len(mask))
+				if !ok {
+					return "", fmt.Errorf("unterminated %s arguments", word)
+				}
+				args = source[position+1 : close]
+				end = close + 1
+			} else {
+				args = source[position:]
+				end = position
+			}
+			start := skipSourceSpace(args, 0, len(args))
+			pattern, comparator, caseSensitive := "", "GLOB", "false"
+			var tail int
+			if start < len(args) && (args[start] == '\'' || args[start] == '"') {
+				var ok bool
+				pattern, tail, ok = parseWhenLiteral(args, start)
+				if !ok {
+					return "", fmt.Errorf("%s requires a literal pattern", word)
+				}
+			} else {
+				var values map[string]string
+				var err error
+				values, tail, err = parseWhenNamedExpressions(args, groovyCodeMask(args), start)
+				if err != nil {
+					return "", fmt.Errorf("invalid %s arguments", word)
+				}
+				pattern, err = strconv.Unquote(values["pattern"])
+				if err != nil {
+					return "", fmt.Errorf("%s requires a literal pattern", word)
+				}
+				for name, value := range values {
+					switch name {
+					case "pattern":
+					case "comparator":
+						if word != "changeset" {
+							return "", fmt.Errorf("unsupported changelog comparator")
+						}
+						comparator, err = strconv.Unquote(value)
+						if err != nil {
+							return "", fmt.Errorf("changeset comparator must be a literal string")
+						}
+					case "caseSensitive":
+						if word != "changeset" || (value != "true" && value != "false") {
+							return "", fmt.Errorf("changeset caseSensitive must be a literal boolean")
+						}
+						caseSensitive = value
+					default:
+						return "", fmt.Errorf("unsupported %s argument %q", word, name)
+					}
+				}
+			}
+			if position < len(source) && source[position] == '(' {
+				if strings.TrimSpace(args[tail:]) != "" {
+					return "", fmt.Errorf("unexpected %s argument", word)
+				}
+			} else {
+				end += tail
+			}
+			if word == "changeset" {
+				conditions = append(conditions, "jenkinsChangeSet("+strconv.Quote(pattern)+","+strconv.Quote(comparator)+","+strconv.Quote(caseSensitive)+")")
+			} else {
+				conditions = append(conditions, "jenkinsChangeLog("+strconv.Quote(pattern)+")")
+			}
+			cursor = end
 		case "environment":
 			position := skipSourceSpace(source, after, len(source))
 			var values map[string]string

@@ -349,6 +349,25 @@ var schemaMigrations = []schemaMigration{
 	{version: 14, name: "build-release-results", up: addBuildReleaseResults},
 	{version: 15, name: "build-release-identities", up: addBuildReleaseIdentities},
 	{version: 16, name: "durable-webhook-deliveries", up: addWebhookDeliveries},
+	{version: 17, name: "jenkins-scm-checkouts", up: addJenkinsSCMCheckouts},
+}
+
+func addJenkinsSCMCheckouts(tx *sql.Tx) error {
+	_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS jenkins_scm_checkouts (
+		build_id INTEGER PRIMARY KEY REFERENCES builds(id) ON DELETE CASCADE,
+		project_id INTEGER NOT NULL REFERENCES projects(id),
+		build_number INTEGER NOT NULL,
+		repository_hash TEXT NOT NULL,
+		branch TEXT NOT NULL,
+		revision TEXT NOT NULL,
+		base_revision TEXT NOT NULL DEFAULT '',
+		history_known BOOLEAN NOT NULL DEFAULT TRUE,
+		changes_json TEXT NOT NULL DEFAULT '[]',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_jenkins_scm_checkout_history
+		ON jenkins_scm_checkouts(project_id, repository_hash, branch, build_number DESC);`)
+	return err
 }
 
 func addWebhookDeliveries(tx *sql.Tx) error {

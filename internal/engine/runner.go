@@ -640,6 +640,9 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(build.TimeoutSec)*time.Second)
 		defer cancel()
 	}
+	captureSCMChanges := pipelineUsesJenkinsSCMChanges(cfg)
+	scmState := &jenkinsSCMRunState{capture: captureSCMChanges}
+	ctx = context.WithValue(ctx, jenkinsSCMCaptureContextKey{}, scmState)
 	if len(cfg.AgentRequirements) > 0 {
 		worker := r.selectRemoteWorker(cfg)
 		if worker == nil {
@@ -718,6 +721,21 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			r.log(buildID, stage.Name, fmt.Sprintf("SKIPPED: branch %q does not match %s", branch, strings.Join(stage.Branches, ", ")))
 			stageStatuses[stageKey] = StageStatusSkipped
 			continue
+		}
+		if captureSCMChanges && scmState.checkoutVisible.Load() {
+			checkout, err := r.store.JenkinsSCMCheckoutForBuild(buildID)
+			if err != nil {
+				r.fail(buildID, start, fmt.Sprintf("load SCM changelog: %v", err), project)
+				return
+			}
+			delete(conditionEnvironment, jenkinsSCMChangesContextKey)
+			delete(conditionEnvironment, jenkinsSCMHistoryUnknownContextKey)
+			if checkout != nil {
+				conditionEnvironment[jenkinsSCMChangesContextKey] = checkout.ChangesJSON
+				if !checkout.HistoryKnown {
+					conditionEnvironment[jenkinsSCMHistoryUnknownContextKey] = "true"
+				}
+			}
 		}
 		jenkinsBranch := conditionEnvironment["BRANCH_NAME"]
 		if jenkinsBranch == "" {
@@ -1451,6 +1469,24 @@ func (r *BuildRunner) checkoutJenkinsSCM(ctx context.Context, workspace string, 
 	if branch == "" {
 		return fmt.Errorf("SCM branch or tag is required")
 	}
+	branchKey := strings.TrimPrefix(branch, "refs/heads/")
+	repositoryHash := fmt.Sprintf("%x", sha256.Sum256([]byte(repository)))
+	checkout, err := r.store.JenkinsSCMCheckoutForBuild(build.ID)
+	if err != nil {
+		return err
+	}
+	baseline := ""
+	historyKnown := true
+	if checkout != nil {
+		if checkout.ProjectID != project.ID || checkout.BuildNumber != build.Number || checkout.RepositoryHash != repositoryHash || checkout.Branch != branchKey || checkout.Revision != revision {
+			return fmt.Errorf("persisted SCM checkout identity does not match this build")
+		}
+	} else {
+		baseline, historyKnown, err = r.store.PreviousJenkinsSCMRevision(project.ID, build.Number, repositoryHash, branchKey)
+		if err != nil {
+			return err
+		}
+	}
 	r.log(build.ID, "SCM Checkout", fmt.Sprintf("Checking out Jenkins SCM repository %s (branch=%s)", repository, branch))
 	entries, err := os.ReadDir(workspace)
 	if err != nil {
@@ -1463,7 +1499,38 @@ func (r *BuildRunner) checkoutJenkinsSCM(ctx context.Context, workspace string, 
 	} else if err := r.gitClient.PrepareExistingWorkspaceContext(ctx, workspace, repository, revision); err != nil {
 		return fmt.Errorf("prepare SCM workspace: %w", err)
 	}
-	return r.gitClient.ForceCheckoutRevisionContext(ctx, workspace, branch, revision)
+	if err := r.gitClient.ForceCheckoutRevisionContext(ctx, workspace, branch, revision); err != nil {
+		return err
+	}
+	if checkout != nil {
+		if state, ok := ctx.Value(jenkinsSCMCaptureContextKey{}).(*jenkinsSCMRunState); ok {
+			state.checkoutVisible.Store(true)
+		}
+		return nil
+	}
+	changes := []jenkinsSCMChange{}
+	state, _ := ctx.Value(jenkinsSCMCaptureContextKey{}).(*jenkinsSCMRunState)
+	if state != nil && state.capture {
+		changes, err = collectJenkinsSCMChanges(ctx, workspace, revision, baseline)
+		if err != nil {
+			return err
+		}
+	}
+	encoded, err := json.Marshal(changes)
+	if err != nil {
+		return fmt.Errorf("encode SCM changelog: %w", err)
+	}
+	if err := r.store.SaveJenkinsSCMCheckout(store.JenkinsSCMCheckout{
+		BuildID: build.ID, ProjectID: project.ID, BuildNumber: build.Number,
+		RepositoryHash: repositoryHash, Branch: branchKey, Revision: revision,
+		BaseRevision: baseline, HistoryKnown: historyKnown, ChangesJSON: string(encoded),
+	}); err != nil {
+		return err
+	}
+	if state != nil {
+		state.checkoutVisible.Store(true)
+	}
+	return nil
 }
 
 func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}, stage string, onOutput func(string)) error {
