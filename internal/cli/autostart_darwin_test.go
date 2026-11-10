@@ -5,8 +5,24 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestStopMacOSLaunchAgentReportsUnsupportedDomain(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	launcher := filepath.Join(dir, "launchctl")
+	script := "#!/bin/sh\ncase \"$1\" in\nbootout) echo 'Domain does not support specified action' >&2; exit 125;;\nlist) printf 'PID\\tStatus\\tLabel\\n65118\\t0\\tcom.buildworld.server\\n';;\n*) exit 1;;\nesac\n"
+	if err := os.WriteFile(launcher, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	stopped, err := stopAutostartService()
+	if stopped || err == nil || !strings.Contains(err.Error(), "Domain does not support") {
+		t.Fatalf("stopped=%v err=%v", stopped, err)
+	}
+}
 
 func TestWriteMacOSAutostartFileReplacesAtomicallyWithRequestedMode(t *testing.T) {
 	directory := t.TempDir()

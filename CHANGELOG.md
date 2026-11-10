@@ -8,6 +8,8 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ### Fixed
 
+- Avoid directly terminating a supervised macOS server and report the
+  launchctl failure when its active LaunchAgent cannot be unloaded.
 - Reject unsafe self-updates of a system-managed macOS service before it is
   interrupted, and report a healthy unchanged service accurately on rollback.
 - Resolve SCM build parameters and approval rules from the selected immutable

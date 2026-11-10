@@ -113,10 +113,12 @@ func stopAutostartService() (bool, error) {
 		return false, err
 	}
 	path := macOSAutostartPathsForHome(home).plist
-	if err := exec.Command("launchctl", "bootout", "gui/"+strconv.Itoa(os.Getuid()), path).Run(); err != nil {
-		return false, nil
+	output, err := exec.Command("launchctl", "bootout", "gui/"+strconv.Itoa(os.Getuid()), path).CombinedOutput()
+	if err == nil {
+		return true, nil
 	}
-	return true, nil
+	listing, listErr := exec.Command("launchctl", "list").Output()
+	return macOSLaunchAgentStopResult(err, string(output), listing, listErr)
 }
 
 func startAutostartService() (bool, error) {

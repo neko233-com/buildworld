@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -34,6 +35,28 @@ func TestMacOSAutostartUsesStableUserLauncher(t *testing.T) {
 	}
 	if strings.Contains(plist, server) || strings.Contains(plist, config) {
 		t.Fatal("plist must not expose or bind directly to server/config paths")
+	}
+}
+
+func TestMacOSLaunchAgentStopFailsClosedWhenLoaded(t *testing.T) {
+	bootErr := errors.New("exit status 125")
+	listing := []byte("PID\tStatus\tLabel\n65118\t0\tcom.buildworld.server\n51110\t0\tcom.neko233.gitsss.production\n")
+	stopped, err := macOSLaunchAgentStopResult(bootErr, "Domain does not support specified action", listing, nil)
+	if stopped || !errors.Is(err, bootErr) || !strings.Contains(err.Error(), "Domain does not support") {
+		t.Fatalf("stopped=%v err=%v", stopped, err)
+	}
+	stopped, err = macOSLaunchAgentStopResult(bootErr, "not found", []byte("PID Status Label\n1 0 com.other.service\n"), nil)
+	if stopped || err != nil {
+		t.Fatalf("absent agent: stopped=%v err=%v", stopped, err)
+	}
+	listErr := errors.New("list unavailable")
+	stopped, err = macOSLaunchAgentStopResult(bootErr, "", nil, listErr)
+	if stopped || !errors.Is(err, listErr) {
+		t.Fatalf("unavailable list: stopped=%v err=%v", stopped, err)
+	}
+	stopped, err = macOSLaunchAgentStopResult(nil, "", nil, nil)
+	if !stopped || err != nil {
+		t.Fatalf("successful bootout: stopped=%v err=%v", stopped, err)
 	}
 }
 

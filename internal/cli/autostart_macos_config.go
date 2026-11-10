@@ -21,6 +21,25 @@ func macOSAutostartPathsForHome(home string) macOSAutostartPaths {
 	}
 }
 
+// macOSLaunchAgentStopResult distinguishes an absent agent from one that
+// launchctl cannot unload, so the caller never kills a supervised process
+// while KeepAlive is still active.
+func macOSLaunchAgentStopResult(bootErr error, bootOutput string, listing []byte, listErr error) (bool, error) {
+	if bootErr == nil {
+		return true, nil
+	}
+	if listErr != nil {
+		return false, fmt.Errorf("cannot inspect macOS LaunchAgents after bootout failed: %w", listErr)
+	}
+	for _, line := range strings.Split(string(listing), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[len(fields)-1] == launchAgentName {
+			return false, fmt.Errorf("cannot unload active macOS LaunchAgent %s: %w: %s", launchAgentName, bootErr, strings.TrimSpace(bootOutput))
+		}
+	}
+	return false, nil
+}
+
 func macOSShellLiteral(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
