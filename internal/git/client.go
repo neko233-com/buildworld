@@ -89,6 +89,21 @@ func (c *Client) CheckoutContext(ctx context.Context, repoPath, branch string) e
 	return nil
 }
 
+// CheckoutBranchAtRevisionContext pins a disposable workspace while retaining its branch name.
+func (c *Client) CheckoutBranchAtRevisionContext(ctx context.Context, repoPath, branch, revision string) error {
+	branch = strings.TrimPrefix(branch, "refs/heads/")
+	if branch == "" || strings.HasPrefix(branch, "-") || revision == "" || strings.HasPrefix(revision, "-") {
+		return fmt.Errorf("branch and revision are required")
+	}
+	cmd := processtree.CommandContext(ctx, "git", "-C", repoPath, "checkout", "-B", branch, revision)
+	cmd.Env = NonInteractiveEnvironment(cmd.Environ())
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git checkout pinned branch failed: %w, output: %s", err, output)
+	}
+	return nil
+}
+
 // NonInteractiveEnvironment keeps CI Git commands from waiting forever for a
 // terminal/keychain prompt and aborts an HTTP transfer that makes no progress.
 // Safety values replace inherited values so server launch environment cannot

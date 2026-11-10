@@ -687,12 +687,13 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			r.fail(buildID, start, fmt.Sprintf("SCM checkout: git clone: %v", err), project)
 			return
 		}
-		checkout := build.CommitSHA
-		if checkout == "" {
-			checkout = branch
-		}
-		if checkout != "" {
-			if err := r.gitClient.CheckoutContext(ctx, workspace, checkout); err != nil {
+		if build.CommitSHA != "" && branch != "" {
+			if err := r.gitClient.CheckoutBranchAtRevisionContext(ctx, workspace, branch, build.CommitSHA); err != nil {
+				r.fail(buildID, start, fmt.Sprintf("SCM checkout: git checkout: %v", err), project)
+				return
+			}
+		} else if branch != "" {
+			if err := r.gitClient.CheckoutContext(ctx, workspace, branch); err != nil {
 				r.fail(buildID, start, fmt.Sprintf("SCM checkout: git checkout: %v", err), project)
 				return
 			}

@@ -8,6 +8,13 @@ All notable BuildWorld changes are recorded here. The project follows
 
 No unreleased changes.
 
+## [1.16.27] - 2026-11-11
+
+### Fixed
+
+- Preserve the selected branch name while checking out an immutable SCM
+  revision, so existing Jenkinsfiles can verify their branch and commit.
+
 ## [1.16.26] - 2026-11-11
 
 ### Added

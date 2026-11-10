@@ -52,7 +52,7 @@ func scmRevisionPipeline(marker string) string {
 	if marker == "feature" {
 		branch = "feature"
 	}
-	return fmt.Sprintf(`pipeline { agent any stages { stage('verify') { steps { sh 'set -eu; test "$(cat marker)" = %s; test "$GIT_COMMIT" = "$(git rev-parse HEAD)"; test "$BRANCH_NAME" = %s; echo verified-%s' } } } }`, marker, branch, marker)
+	return fmt.Sprintf(`pipeline { agent any stages { stage('verify') { steps { sh 'set -eu; test "$(cat marker)" = %s; test "$GIT_COMMIT" = "$(git rev-parse HEAD)"; test "$BRANCH_NAME" = %s; test "$(git branch --show-current)" = %s; echo verified-%s' } } } }`, marker, branch, branch, marker)
 }
 
 func TestSCMPipelinePinsDefinitionAndWorkspaceAcrossAdvanceAndRestart(t *testing.T) {
