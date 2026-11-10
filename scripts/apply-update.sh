@@ -11,12 +11,14 @@ install_dir="${7:-}"
 config_path="${8:-}"
 
 previous_dir="${install_dir}.previous"
+snapshot_dir="${install_dir}.snapshot-${operation_id}"
 operation_dir="$(dirname "$bundle")"
 stage="$operation_dir/install"
 activated=0
 rotated=0
 was_running=0
 had_autostart=0
+pause_attempted=0
 bin_link=
 
 json_escape() {
@@ -52,6 +54,7 @@ case "$version" in
 esac
 printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || fail "invalid update version"
 printf '%s\n' "$expected_checksum" | grep -Eq '^[a-f0-9]{64}$' || fail "invalid update checksum"
+printf '%s\n' "$operation_id" | grep -Eq '^[a-f0-9]+$' || fail "invalid update operation id"
 
 case "$install_dir" in
   ""|"/"|"$HOME") fail "unsafe installation directory" ;;
@@ -59,6 +62,10 @@ esac
 [ -d "$install_dir" ] || fail "current installation directory is missing"
 [ -x "$install_dir/buildworld" ] || fail "current BuildWorld CLI is missing"
 [ -f "$bundle" ] || fail "staged update bundle is missing"
+if [ -e "$previous_dir" ] || [ -L "$previous_dir" ]; then
+  [ -d "$previous_dir" ] && [ ! -L "$previous_dir" ] || fail "previous installation is not a directory"
+  [ ! -e "$snapshot_dir" ] && [ ! -L "$snapshot_dir" ] || fail "rollback snapshot already exists"
+fi
 
 file_checksum() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -135,36 +142,41 @@ restore_previous() {
       mkdir -p "$(dirname "$bin_link")" || rollback_failed=1
       ln -sf "$install_dir/buildworld" "$bin_link" || rollback_failed=1
     fi
-    if [ "$was_running" = "1" ]; then
-      if [ "$had_autostart" = "1" ]; then
-        run_cli "$install_dir/buildworld" enable-autostart >/dev/null 2>&1 || rollback_failed=1
-      else
-        run_cli "$install_dir/buildworld" start >/dev/null 2>&1 || rollback_failed=1
-      fi
+  fi
+  if [ "$pause_attempted" = "1" ] && [ "$was_running" = "1" ]; then
+    if [ "$had_autostart" = "1" ]; then
+      run_cli "$install_dir/buildworld" enable-autostart >/dev/null 2>&1 || rollback_failed=1
+    else
+      run_cli "$install_dir/buildworld" start >/dev/null 2>&1 || rollback_failed=1
     fi
   fi
   return "$rollback_failed"
 }
 
 apply_update() {
-  write_status "applying" "verified update is being installed"
+  write_status "applying" "verified update is being installed" || return 1
   if [ "$was_running" = "1" ]; then
-    run_cli "$install_dir/buildworld" pause
+    pause_attempted=1
+    run_cli "$install_dir/buildworld" pause || return 1
   fi
   sleep 1
-  rm -rf "$previous_dir"
-  mv "$install_dir" "$previous_dir"
+  if [ -e "$previous_dir" ] || [ -L "$previous_dir" ]; then
+    [ -d "$previous_dir" ] && [ ! -L "$previous_dir" ] || return 1
+    [ ! -e "$snapshot_dir" ] && [ ! -L "$snapshot_dir" ] || return 1
+    mv "$previous_dir" "$snapshot_dir" || return 1
+  fi
+  mv "$install_dir" "$previous_dir" || return 1
   rotated=1
-  mv "$stage" "$install_dir"
+  mv "$stage" "$install_dir" || return 1
   activated=1
   if [ "$bin_link" != "$install_dir/buildworld" ]; then
-    mkdir -p "$(dirname "$bin_link")"
-    ln -sf "$install_dir/buildworld" "$bin_link"
+    mkdir -p "$(dirname "$bin_link")" || return 1
+    ln -sf "$install_dir/buildworld" "$bin_link" || return 1
   fi
   if [ "$had_autostart" = "1" ]; then
-    run_cli "$install_dir/buildworld" enable-autostart
+    run_cli "$install_dir/buildworld" enable-autostart || return 1
   elif [ "$was_running" = "1" ]; then
-    run_cli "$install_dir/buildworld" start
+    run_cli "$install_dir/buildworld" start || return 1
   fi
 
   attempt=0

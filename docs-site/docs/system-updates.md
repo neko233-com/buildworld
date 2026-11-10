@@ -18,8 +18,9 @@ merely because a newer version exists.
 - archives are size-limited, path-checked, and required to contain the complete
   CLI, server, worker, Web UI, Pipeline SDK, and trusted update helper;
 - only one update may run at a time;
-- installation is transactional and preserves one `.previous` bundle for
-  automatic rollback;
+- installation is transactional; the immediately previous bundle remains
+  in `.previous` for automatic rollback, while an existing `.previous` is
+  retained as an operation-specific `.snapshot-<id>` before replacement;
 - tokens, credentials, host paths, and update logs are never returned by the
   update API.
 
