@@ -419,8 +419,13 @@ func ShouldRunStage(stage Stage, statuses map[string]string) (bool, error) {
 
 // ShouldRunStageWithParameters evaluates a Jenkins condition and dependencies.
 func ShouldRunStageWithParameters(stage Stage, statuses map[string]string, params map[string]interface{}) (bool, error) {
+	return ShouldRunStageWithJenkinsContext(stage, statuses, params, nil, "")
+}
+
+// ShouldRunStageWithJenkinsContext supplies runtime environment and SCM branch to Jenkins conditions.
+func ShouldRunStageWithJenkinsContext(stage Stage, statuses map[string]string, params map[string]interface{}, environment map[string]string, branch string) (bool, error) {
 	if stage.JenkinsWhen != "" {
-		matched, err := EvaluateJenkinsWhen(stage.JenkinsWhen, params)
+		matched, err := EvaluateJenkinsWhenContext(stage.JenkinsWhen, params, environment, branch)
 		if err != nil || !matched {
 			return false, err
 		}

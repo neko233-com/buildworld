@@ -700,6 +700,12 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		r.fail(buildID, start, fmt.Sprintf("plugin build.before hook: %v", err), project)
 		return
 	}
+	conditionEnvironment := make(map[string]string)
+	for _, entry := range append(os.Environ(), env...) {
+		if name, value, ok := strings.Cut(entry, "="); ok {
+			conditionEnvironment[name] = value
+		}
+	}
 
 	totalStages := len(cfg.Stages)
 	var failedSteps []string
@@ -715,7 +721,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			stageStatuses[stageKey] = StageStatusSkipped
 			continue
 		}
-		shouldRun, conditionErr := ShouldRunStageWithParameters(stage, stageStatuses, params)
+		shouldRun, conditionErr := ShouldRunStageWithJenkinsContext(stage, stageStatuses, params, conditionEnvironment, branch)
 		if conditionErr != nil {
 			r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 			r.fail(buildID, start, fmt.Sprintf("stage %q condition: %v", stage.Name, conditionErr), project)
@@ -1542,6 +1548,10 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 	// these before configured environments so an explicitly configured pipeline
 	// value retains Jenkins' normal override behaviour.
 	buildNumber := strconv.Itoa(build.Number)
+	branchName := build.Branch
+	if branchName == "" {
+		branchName = project.DefaultBranch
+	}
 	envMap := map[string]string{
 		"BUILD_NUMBER":       buildNumber,
 		"BUILD_ID":           buildNumber,
@@ -1549,6 +1559,7 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 		"BUILD_TAG":          "buildworld-" + project.Name + "-" + buildNumber,
 		"JOB_NAME":           project.Name,
 		"JOB_BASE_NAME":      project.Name,
+		"BRANCH_NAME":        branchName,
 	}
 	for k, v := range cfg.Environment {
 		envMap[k] = v

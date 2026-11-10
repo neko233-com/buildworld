@@ -366,8 +366,14 @@ pipeline {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := config.Stages[0].Branches; len(got) != 1 || got[0] != "main" {
-		t.Fatalf("stage branches = %#v", got)
+	for _, tc := range []struct {
+		branch string
+		want   bool
+	}{{"main", true}, {"MAIN", true}, {"other", false}} {
+		got, err := engine.ShouldRunStageWithJenkinsContext(config.Stages[0], nil, nil, nil, tc.branch)
+		if err != nil || got != tc.want {
+			t.Fatalf("branch %q: got %v: %v", tc.branch, got, err)
+		}
 	}
 }
 

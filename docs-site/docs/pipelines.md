@@ -4,14 +4,33 @@ sidebar_position: 4
 
 # Pipeline Guide
 
-BuildWorld accepts a declarative TypeScript pipeline or GitHub Actions-style
-YAML. TypeScript is recommended for people and AI agents: Monaco provides
+BuildWorld accepts a Jenkinsfile, a declarative TypeScript pipeline, or GitHub
+Actions-style YAML. TypeScript is recommended for people and AI agents: Monaco provides
 comments, completion, syntax diagnostics, and live server validation before the
 configuration can be saved.
 
 The TypeScript file is parsed as data by an AST allowlist. It is not executed as
 JavaScript. Dynamic code (`eval`, `Function`, functions, loops, timers,
 promises, Node.js APIs, file access, and network access) is rejected.
+
+## Jenkins `when` conditions
+
+Imported Jenkinsfiles support nested `allOf`, `anyOf`, and `not`, implicit
+AND between sibling conditions, literal `branch` patterns with `GLOB`,
+`EQUALS`, or `REGEXP` comparators, literal `environment` checks, and a
+side-effect-free expression subset. Expressions support `params` and `env`
+values, boolean operators, equality comparisons, and `toString().toBoolean()`.
+Groovy truth applies: a nonempty string such as `"false"` is true unless it
+is explicitly converted. Branch GLOB matching is case-insensitive and follows
+Ant-style path segments. Pipeline environment is visible to `when`; a stage's
+own environment is applied to its steps after its `when` succeeds.
+
+This is not an arbitrary Groovy interpreter. Unsupported expressions,
+declarative conditions, and `beforeAgent`, `beforeInput`, or `beforeOptions`
+are rejected rather than silently running a guarded stage. REGEXP patterns
+must be accepted by Go's regular-expression engine, which supports a smaller
+syntax than Java's. Verify jobs using unsupported Jenkins plugins or features
+against Jenkins before migrating them.
 
 ## TypeScript pipeline
 

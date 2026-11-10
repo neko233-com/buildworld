@@ -128,22 +128,22 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 
 	pipelineSource := source[pipeline.start:pipeline.end]
 	pipelineMask := mask[pipeline.start:pipeline.end]
-	if environment, found := namedBlock(pipelineSource, pipelineMask, "environment", 0, len(pipelineSource)); found {
+	if environment, found := namedDirectBlock(pipelineSource, pipelineMask, "environment"); found {
 		parseJenkinsEnvironment(pipelineSource[environment.start:environment.end], config.Environment, &warnings)
 	}
-	if parameters, found := namedBlock(pipelineSource, pipelineMask, "parameters", 0, len(pipelineSource)); found {
+	if parameters, found := namedDirectBlock(pipelineSource, pipelineMask, "parameters"); found {
 		parseJenkinsParameters(pipelineSource[parameters.start:parameters.end], config, &warnings)
 	}
-	if triggers, found := namedBlock(pipelineSource, pipelineMask, "triggers", 0, len(pipelineSource)); found {
+	if triggers, found := namedDirectBlock(pipelineSource, pipelineMask, "triggers"); found {
 		parseJenkinsTriggers(pipelineSource[triggers.start:triggers.end], config, &warnings)
 	}
 	parseJenkinsArtifacts(pipelineSource, config)
 	parseJenkinsAgent(pipelineSource, pipelineMask, config, &warnings)
-	if options, found := namedBlock(pipelineSource, pipelineMask, "options", 0, len(pipelineSource)); found {
+	if options, found := namedDirectBlock(pipelineSource, pipelineMask, "options"); found {
 		parseJenkinsOptions(pipelineSource[options.start:options.end], config, &warnings)
 	}
 
-	stagesBlock, found := namedBlock(pipelineSource, pipelineMask, "stages", 0, len(pipelineSource))
+	stagesBlock, found := namedDirectBlock(pipelineSource, pipelineMask, "stages")
 	if !found {
 		return nil, fmt.Errorf("declarative Jenkinsfile must contain stages { ... }")
 	}
@@ -157,7 +157,7 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 		config.AllowLongRunning = true
 	}
 
-	if post, found := namedBlock(pipelineSource, pipelineMask, "post", 0, len(pipelineSource)); found {
+	if post, found := namedDirectBlock(pipelineSource, pipelineMask, "post"); found {
 		parseJenkinsPost(pipelineSource[post.start:post.end], config, &warnings)
 	}
 
@@ -510,6 +510,31 @@ func namedBlock(source, mask, name string, from, limit int) (sourceRange, bool) 
 	return sourceRange{}, false
 }
 
+// namedDirectBlock finds a declaration only at the current block depth.
+func namedDirectBlock(source, mask, name string) (sourceRange, bool) {
+	depth := 0
+	for cursor := 0; cursor < len(mask); cursor++ {
+		switch mask[cursor] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+		default:
+			if depth == 0 && strings.HasPrefix(mask[cursor:], name) && (cursor == 0 || !isIdentifierByte(mask[cursor-1])) && (cursor+len(name) == len(mask) || !isIdentifierByte(mask[cursor+len(name)])) {
+				open := skipSpace(mask, cursor+len(name), len(mask))
+				if open < len(mask) && mask[open] == '{' {
+					end, ok := matchingDelimiter(mask, open, '{', '}', len(mask))
+					if ok {
+						return sourceRange{start: open + 1, end: end}, true
+					}
+					return sourceRange{}, false
+				}
+			}
+		}
+	}
+	return sourceRange{}, false
+}
+
 func parseJenkinsEnvironment(source string, environment map[string]string, warnings *[]Warning) {
 	matches := environmentAssignment.FindAllStringSubmatch(source, -1)
 	for _, match := range matches {
@@ -613,6 +638,10 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 		if whenErr != nil {
 			return nil, fmt.Errorf("stage %q when: %w", stageName, whenErr)
 		}
+		stageEnvironment := map[string]string{}
+		if environment, found := namedDirectBlock(body, bodyMask, "environment"); found {
+			parseJenkinsEnvironment(body[environment.start:environment.end], stageEnvironment, warnings)
+		}
 		stepsBlock, found := namedBlock(body, bodyMask, "steps", 0, len(body))
 		if !found {
 			*warnings = appendWarning(*warnings, "stage_without_steps", fmt.Sprintf("Stage %q has no declarative steps block and was skipped.", stageName))
@@ -624,17 +653,17 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			for _, warning := range stepWarnings {
 				*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
 			}
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Steps: steps})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, Steps: steps})
 			position = closeBody + 1
 			continue
 		}
 		if watch, ok := extractJenkinsServiceWatch(stepSource, strings.TrimSpace(stageName)); ok {
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Steps: []engine.Step{watch}})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, Steps: []engine.Step{watch}})
 			position = closeBody + 1
 			continue
 		}
 		if command, ok := translateJenkinsPIDStopStage(stepSource); ok {
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Steps: []engine.Step{{
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, Steps: []engine.Step{{
 				Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + command,
 			}}})
 			position = closeBody + 1
@@ -653,6 +682,7 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			Name:        strings.TrimSpace(stageName),
 			Branches:    branches,
 			JenkinsWhen: whenExpression,
+			Environment: stageEnvironment,
 			Steps: []engine.Step{{
 				Name:    strings.TrimSpace(stageName),
 				Type:    "shell",
@@ -836,32 +866,211 @@ func parseJenkinsWhen(source, mask string) ([]string, string, error) {
 	if findToken(mask, "when", block.end+1, len(mask)) >= 0 {
 		return nil, "", fmt.Errorf("multiple when blocks are unsupported")
 	}
-	start := skipSpace(bodyMask, 0, len(bodyMask))
-	if start < len(bodyMask) && findToken(bodyMask, "branch", start, len(bodyMask)) == start {
-		value, end, ok := parseGroovyString(body, skipSourceSpace(body, start+len("branch"), len(body)))
-		if ok && value != "" && !strings.ContainsAny(value, "*?[]") && strings.TrimSpace(bodyMask[end:]) == "" {
-			return []string{value}, "", nil
-		}
+	expression, err := parseJenkinsWhenChildren(body, bodyMask, "&&")
+	if err != nil {
+		return nil, "", fmt.Errorf("unsupported Jenkins when condition: %w", err)
 	}
-	if start < len(bodyMask) && findToken(bodyMask, "expression", start, len(bodyMask)) == start {
-		open := skipSpace(bodyMask, start+len("expression"), len(bodyMask))
-		if open < len(bodyMask) && bodyMask[open] == '{' {
-			end, ok := matchingDelimiter(bodyMask, open, '{', '}', len(bodyMask))
-			if ok && strings.TrimSpace(bodyMask[end+1:]) == "" {
-				expression := strings.TrimSpace(body[open+1 : end])
-				if strings.HasPrefix(expression, "return ") {
-					expression = strings.TrimSpace(strings.TrimPrefix(expression, "return "))
+	if err := engine.ValidateJenkinsWhen(expression); err != nil {
+		return nil, "", fmt.Errorf("unsupported Jenkins when condition: %w", err)
+	}
+	return nil, expression, nil
+}
+
+// parseJenkinsWhenChildren keeps nested and implicit allOf conditions ordered.
+func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
+	var conditions []string
+	for cursor := 0; cursor < len(mask); {
+		cursor = skipSpace(mask, cursor, len(mask))
+		for cursor < len(mask) && mask[cursor] == ';' {
+			cursor = skipSpace(mask, cursor+1, len(mask))
+		}
+		if cursor == len(mask) {
+			break
+		}
+		index, word := nextIdentifier(mask, cursor)
+		if index != cursor {
+			return "", fmt.Errorf("unexpected condition syntax")
+		}
+		after := cursor + len(word)
+		switch word {
+		case "allOf", "anyOf", "not", "expression":
+			open := skipSpace(mask, after, len(mask))
+			if open >= len(mask) || mask[open] != '{' {
+				return "", fmt.Errorf("%s requires a block", word)
+			}
+			end, ok := matchingDelimiter(mask, open, '{', '}', len(mask))
+			if !ok {
+				return "", fmt.Errorf("unterminated %s", word)
+			}
+			var condition string
+			if word == "expression" {
+				condition = strings.TrimSpace(source[open+1 : end])
+				if strings.HasPrefix(condition, "return ") {
+					condition = strings.TrimSpace(strings.TrimPrefix(condition, "return "))
 				}
-				expression, ok = normalizeJenkinsWhenStrings(expression)
-				if expression != "" {
-					if err := engine.ValidateJenkinsWhen(expression); ok && err == nil {
-						return nil, expression, nil
-					}
+				condition = strings.TrimSpace(strings.TrimSuffix(condition, ";"))
+				condition, ok = normalizeJenkinsWhenStrings(condition)
+				if !ok || condition == "" {
+					return "", fmt.Errorf("invalid expression")
+				}
+			} else {
+				join := "&&"
+				if word == "anyOf" {
+					join = "||"
+				}
+				if word == "not" {
+					join = "!"
+				}
+				var err error
+				condition, err = parseJenkinsWhenChildren(source[open+1:end], mask[open+1:end], join)
+				if err != nil {
+					return "", err
+				}
+				if word == "not" {
+					condition = "!(" + condition + ")"
 				}
 			}
+			conditions = append(conditions, "("+condition+")")
+			cursor = end + 1
+		case "branch":
+			position := skipSourceSpace(source, after, len(source))
+			if position < len(source) && source[position] == '(' {
+				end, ok := matchingDelimiter(mask, position, '(', ')', len(mask))
+				if !ok {
+					return "", fmt.Errorf("unterminated branch arguments")
+				}
+				inner := source[position+1 : end]
+				start := skipSourceSpace(inner, 0, len(inner))
+				if start < len(inner) && (inner[start] == '\'' || inner[start] == '"') {
+					value, tail, ok := parseGroovyString(inner, start)
+					if !ok || value == "" || strings.TrimSpace(inner[tail:]) != "" || strings.ContainsAny(inner[start+1:tail-1], "\\\r\n$") {
+						return "", fmt.Errorf("branch requires a literal pattern")
+					}
+					conditions = append(conditions, "jenkinsBranch("+strconv.Quote(value)+")")
+				} else {
+					values, tail, err := parseWhenNamedStrings(inner, start)
+					if err != nil || strings.TrimSpace(inner[tail:]) != "" {
+						return "", fmt.Errorf("invalid branch arguments")
+					}
+					condition, err := makeWhenBranch(values)
+					if err != nil {
+						return "", err
+					}
+					conditions = append(conditions, condition)
+				}
+				cursor = end + 1
+				continue
+			}
+			if position < len(source) && source[position] != '\'' && source[position] != '"' {
+				values, end, err := parseWhenNamedStrings(source, position)
+				if err != nil {
+					return "", err
+				}
+				condition, err := makeWhenBranch(values)
+				if err != nil {
+					return "", err
+				}
+				conditions = append(conditions, condition)
+				cursor = end
+				continue
+			}
+			value, end, ok := parseGroovyString(source, position)
+			if !ok || value == "" || strings.ContainsAny(source[position+1:end-1], "\\\r\n$") {
+				return "", fmt.Errorf("branch requires a literal pattern")
+			}
+			conditions = append(conditions, "jenkinsBranch("+strconv.Quote(value)+")")
+			cursor = end
+		case "environment":
+			position := skipSourceSpace(source, after, len(source))
+			var values map[string]string
+			var end int
+			var err error
+			if position < len(source) && source[position] == '(' {
+				close, ok := matchingDelimiter(mask, position, '(', ')', len(mask))
+				if !ok {
+					return "", fmt.Errorf("unterminated environment arguments")
+				}
+				inner := source[position+1 : close]
+				var tail int
+				values, tail, err = parseWhenNamedStrings(inner, 0)
+				if err == nil && strings.TrimSpace(inner[tail:]) != "" {
+					err = fmt.Errorf("unexpected environment argument")
+				}
+				end = close + 1
+			} else {
+				values, end, err = parseWhenNamedStrings(source, position)
+			}
+			if err != nil || len(values) != 2 || values["name"] == "" {
+				return "", fmt.Errorf("environment requires literal name and value")
+			}
+			value, exists := values["value"]
+			if !exists {
+				return "", fmt.Errorf("environment requires value")
+			}
+			conditions = append(conditions, "jenkinsEnvironment("+strconv.Quote(values["name"])+","+strconv.Quote(value)+")")
+			cursor = end
+		default:
+			return "", fmt.Errorf("unsupported condition %q", word)
 		}
 	}
-	return nil, "", fmt.Errorf("unsupported Jenkins when condition; refusing to run the stage unconditionally")
+	if len(conditions) == 0 {
+		return "", fmt.Errorf("condition block must not be empty")
+	}
+	if operator == "!" && len(conditions) != 1 {
+		return "", fmt.Errorf("not requires one child")
+	}
+	if operator == "!" {
+		return conditions[0], nil
+	}
+	return strings.Join(conditions, " "+operator+" "), nil
+}
+
+func makeWhenBranch(values map[string]string) (string, error) {
+	pattern, exists := values["pattern"]
+	if !exists || pattern == "" || len(values) > 2 {
+		return "", fmt.Errorf("branch requires a literal pattern")
+	}
+	for name := range values {
+		if name != "pattern" && name != "comparator" {
+			return "", fmt.Errorf("unsupported branch argument %q", name)
+		}
+	}
+	comparator := values["comparator"]
+	if comparator == "" {
+		comparator = "GLOB"
+	}
+	return "jenkinsBranch(" + strconv.Quote(pattern) + "," + strconv.Quote(comparator) + ")", nil
+}
+
+func parseWhenNamedStrings(source string, cursor int) (map[string]string, int, error) {
+	values := map[string]string{}
+	for {
+		cursor = skipSourceSpace(source, cursor, len(source))
+		start := cursor
+		for cursor < len(source) && isIdentifierByte(source[cursor]) {
+			cursor++
+		}
+		name := source[start:cursor]
+		cursor = skipSourceSpace(source, cursor, len(source))
+		if name == "" || cursor >= len(source) || source[cursor] != ':' {
+			return nil, 0, fmt.Errorf("expected named argument")
+		}
+		cursor = skipSourceSpace(source, cursor+1, len(source))
+		start = cursor
+		value, end, ok := parseGroovyString(source, cursor)
+		if !ok || strings.ContainsAny(source[start+1:end-1], "\\\r\n$") {
+			return nil, 0, fmt.Errorf("expected literal argument")
+		}
+		if _, exists := values[name]; exists {
+			return nil, 0, fmt.Errorf("duplicate argument")
+		}
+		values[name] = value
+		cursor = skipSourceSpace(source, end, len(source))
+		if cursor >= len(source) || source[cursor] != ',' {
+			return values, cursor, nil
+		}
+		cursor++
+	}
 }
 
 // normalizeJenkinsWhenStrings translates simple literal strings without accepting GStrings or escape semantics.
