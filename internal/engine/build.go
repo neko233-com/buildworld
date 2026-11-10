@@ -38,10 +38,11 @@ type BuildConfig struct {
 	// AllowLongRunning is derived during semantic validation for an
 	// unconditional terminal service observer. A source flag alone cannot
 	// suppress the default finite build timeout.
-	AllowLongRunning  bool                `json:"allow_long_running,omitempty"`
-	DisableConcurrent bool                `json:"disable_concurrent,omitempty"`
-	AbortPrevious     bool                `json:"abort_previous,omitempty"`
-	Toolchains        map[string][]string `json:"toolchains,omitempty"`
+	AllowLongRunning    bool                `json:"allow_long_running,omitempty"`
+	DisableConcurrent   bool                `json:"disable_concurrent,omitempty"`
+	AbortPrevious       bool                `json:"abort_previous,omitempty"`
+	SkipDefaultCheckout bool                `json:"skip_default_checkout,omitempty"`
+	Toolchains          map[string][]string `json:"toolchains,omitempty"`
 }
 
 type Stage struct {
@@ -272,21 +273,22 @@ func MergeBuildConfig(template, project *BuildConfig) *BuildConfig {
 		return template
 	}
 	merged := &BuildConfig{
-		Name:               project.Name,
-		Description:        project.Description,
-		Parameters:         append([]BuildParameter{}, template.Parameters...),
-		Approval:           template.Approval,
-		Stages:             append([]Stage{}, template.Stages...),
-		Triggers:           append([]Trigger{}, template.Triggers...),
-		Environment:        map[string]string{},
-		Artifacts:          append([]string{}, template.Artifacts...),
-		Post:               clonePostSteps(template.Post),
-		AgentRequirements:  append([]string{}, template.AgentRequirements...),
-		RetentionCompleted: template.RetentionCompleted,
-		TimeoutSec:         template.TimeoutSec,
-		AllowLongRunning:   template.AllowLongRunning,
-		DisableConcurrent:  template.DisableConcurrent,
-		AbortPrevious:      template.AbortPrevious,
+		Name:                project.Name,
+		Description:         project.Description,
+		Parameters:          append([]BuildParameter{}, template.Parameters...),
+		Approval:            template.Approval,
+		Stages:              append([]Stage{}, template.Stages...),
+		Triggers:            append([]Trigger{}, template.Triggers...),
+		Environment:         map[string]string{},
+		Artifacts:           append([]string{}, template.Artifacts...),
+		Post:                clonePostSteps(template.Post),
+		AgentRequirements:   append([]string{}, template.AgentRequirements...),
+		RetentionCompleted:  template.RetentionCompleted,
+		TimeoutSec:          template.TimeoutSec,
+		AllowLongRunning:    template.AllowLongRunning,
+		DisableConcurrent:   template.DisableConcurrent,
+		AbortPrevious:       template.AbortPrevious,
+		SkipDefaultCheckout: template.SkipDefaultCheckout,
 	}
 	if merged.Name == "" {
 		merged.Name = template.Name
@@ -308,6 +310,7 @@ func MergeBuildConfig(template, project *BuildConfig) *BuildConfig {
 	}
 	if len(project.Stages) > 0 {
 		merged.Stages = project.Stages
+		merged.SkipDefaultCheckout = project.SkipDefaultCheckout
 	}
 	merged.Triggers = append(merged.Triggers, project.Triggers...)
 	if len(project.Artifacts) > 0 {

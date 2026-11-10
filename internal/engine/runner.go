@@ -672,40 +672,10 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	// executing the Jenkinsfile.  The source fetch used to read the Jenkinsfile
 	// itself must not be mistaken for that workspace checkout: shell steps still
 	// need a real .git directory and the complete repository contents.
-	if strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm") {
-		repository := strings.TrimSpace(project.PipelineSCMRepo)
-		if repository == "" {
-			r.fail(buildID, start, "SCM pipeline repository is empty", project)
+	if strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm") && !cfg.SkipDefaultCheckout {
+		if err := r.checkoutJenkinsSCM(ctx, workspace, project, build); err != nil {
+			r.fail(buildID, start, fmt.Sprintf("SCM checkout: %v", err), project)
 			return
-		}
-		branch := strings.TrimSpace(build.Branch)
-		if branch == "" {
-			branch = strings.TrimSpace(project.PipelineSCMBranch)
-		}
-		if branch == "" {
-			branch = strings.TrimSpace(project.DefaultBranch)
-		}
-		r.log(buildID, "SCM Checkout", fmt.Sprintf("Checking out Jenkins SCM repository %s (branch=%s)", repository, branch))
-		if err := r.gitClient.CloneContext(ctx, repository, workspace); err != nil {
-			r.fail(buildID, start, fmt.Sprintf("SCM checkout: git clone: %v", err), project)
-			return
-		}
-		if build.CommitSHA != "" && branch != "" {
-			var err error
-			if strings.HasPrefix(branch, "refs/tags/") {
-				err = r.gitClient.CheckoutDetachedAtRevisionContext(ctx, workspace, build.CommitSHA)
-			} else {
-				err = r.gitClient.CheckoutBranchAtRevisionContext(ctx, workspace, branch, build.CommitSHA)
-			}
-			if err != nil {
-				r.fail(buildID, start, fmt.Sprintf("SCM checkout: git checkout: %v", err), project)
-				return
-			}
-		} else if branch != "" {
-			if err := r.gitClient.CheckoutContext(ctx, workspace, branch); err != nil {
-				r.fail(buildID, start, fmt.Sprintf("SCM checkout: git checkout: %v", err), project)
-				return
-			}
 		}
 	}
 
@@ -1430,6 +1400,37 @@ func completedStepError(ctx context.Context, stepErr error) error {
 	return stepErr
 }
 
+// checkoutJenkinsSCM checks out the immutable revision used to load the
+// Jenkinsfile. It never substitutes a moving branch tip for that revision.
+func (r *BuildRunner) checkoutJenkinsSCM(ctx context.Context, workspace string, project *store.Project, build *store.Build) error {
+	if !strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm") {
+		return fmt.Errorf("checkout scm requires an SCM-sourced Jenkinsfile")
+	}
+	repository := strings.TrimSpace(project.PipelineSCMRepo)
+	revision := strings.TrimSpace(build.CommitSHA)
+	if repository == "" || revision == "" {
+		return fmt.Errorf("SCM repository and pinned revision are required")
+	}
+	branch := strings.TrimSpace(build.Branch)
+	if branch == "" {
+		branch = strings.TrimSpace(project.PipelineSCMBranch)
+	}
+	if branch == "" {
+		branch = strings.TrimSpace(project.DefaultBranch)
+	}
+	if branch == "" {
+		return fmt.Errorf("SCM branch or tag is required")
+	}
+	r.log(build.ID, "SCM Checkout", fmt.Sprintf("Checking out Jenkins SCM repository %s (branch=%s)", repository, branch))
+	if err := r.gitClient.CloneContext(ctx, repository, workspace); err != nil {
+		return fmt.Errorf("git clone: %w", err)
+	}
+	if strings.HasPrefix(branch, "refs/tags/") {
+		return r.gitClient.CheckoutDetachedAtRevisionContext(ctx, workspace, revision)
+	}
+	return r.gitClient.CheckoutBranchAtRevisionContext(ctx, workspace, branch, revision)
+}
+
 func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}, stage string, onOutput func(string)) error {
 	stepEnv := releaseParameterEnvironment(AppendStepEnvironment(env, step.Config), params)
 	workingDirectory := workspace
@@ -1441,6 +1442,22 @@ func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace str
 		workingDirectory = resolved
 	}
 	switch step.Type {
+	case "jenkins_delete_dir":
+		if workingDirectory != workspace {
+			return fmt.Errorf("Jenkins deleteDir is only supported at the workspace root")
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := r.workspaces.Clean(workspace); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("delete Jenkins workspace: %w", err)
+		}
+		return os.MkdirAll(workspace, 0o755)
+	case "jenkins_checkout_scm":
+		if workingDirectory != workspace {
+			return fmt.Errorf("Jenkins checkout scm is only supported at the workspace root")
+		}
+		return r.checkoutJenkinsSCM(ctx, workspace, project, build)
 	case "service_watch":
 		return WatchService(ctx, workingDirectory, resolveWatchConfig(step.Config, stepEnv, params), onOutput)
 	case "shell", "", "tail":

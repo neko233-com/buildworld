@@ -81,6 +81,13 @@ func init() {
 		}
 		messages := make([]string, 0, len(warnings))
 		for _, warning := range warnings {
+			// Migration previews may contain a best-effort translation, but live
+			// execution must never discard a warning about changed semantics.
+			switch warning.Code {
+			case "macos_protected_directory", "macos_feishu_helper_install_required":
+			default:
+				return nil, nil, fmt.Errorf("Jenkinsfile requires manual conversion (%s): %s", warning.Code, warning.Message)
+			}
 			messages = append(messages, warning.Message)
 		}
 		return config, messages, nil
@@ -361,6 +368,28 @@ func parseJenkinsArtifacts(source string, config *engine.BuildConfig) {
 }
 
 func parseJenkinsOptions(source string, config *engine.BuildConfig, warnings *[]Warning) {
+	mask := groovyCodeMask(source)
+	if index := findToken(mask, "skipDefaultCheckout", 0, len(mask)); index >= 0 {
+		position := skipSpace(mask, index+len("skipDefaultCheckout"), len(mask))
+		if position >= len(mask) || mask[position] != '(' {
+			*warnings = appendWarning(*warnings, "options_review_required", "skipDefaultCheckout requires literal parentheses.")
+		} else if end, ok := matchingDelimiter(mask, position, '(', ')', len(mask)); !ok {
+			*warnings = appendWarning(*warnings, "options_review_required", "skipDefaultCheckout has an unclosed argument.")
+		} else {
+			argument := strings.TrimSpace(mask[position+1 : end])
+			switch argument {
+			case "", "true":
+				config.SkipDefaultCheckout = true
+			case "false":
+				config.SkipDefaultCheckout = false
+			default:
+				*warnings = appendWarning(*warnings, "options_review_required", "skipDefaultCheckout requires a literal boolean.")
+			}
+			if findToken(mask, "skipDefaultCheckout", end+1, len(mask)) >= 0 {
+				*warnings = appendWarning(*warnings, "options_review_required", "skipDefaultCheckout must not be duplicated.")
+			}
+		}
+	}
 	if match := retentionDeclaration.FindStringSubmatch(source); len(match) == 2 {
 		if retain, err := strconv.Atoi(match[1]); err == nil {
 			config.RetentionCompleted = retain
@@ -814,23 +843,28 @@ func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) 
 		if containsJenkinsInputStep(stepSource) {
 			return nil, fmt.Errorf("stage %q: Jenkins input step is not supported; refusing to bypass approval", stageName)
 		}
+		workspaceSteps, remainder := parseJenkinsWorkspaceStepPrefix(stepSource)
+		if len(workspaceSteps) > 0 {
+			stepSource = remainder
+		}
 		if steps, stepWarnings, ok := translateJenkinsStageWatchSteps(stepSource, strings.TrimSpace(stageName)); ok {
 			for _, warning := range stepWarnings {
 				*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
 			}
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: steps})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, steps...)})
 			position = closeBody + 1
 			continue
 		}
 		if watch, ok := extractJenkinsServiceWatch(stepSource, strings.TrimSpace(stageName)); ok {
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: []engine.Step{watch}})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, watch)})
 			position = closeBody + 1
 			continue
 		}
 		if command, ok := translateJenkinsPIDStopStage(stepSource); ok {
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: []engine.Step{{
+			*warnings = appendWarning(*warnings, "pid_stop_manual_review_required", fmt.Sprintf("Stage %q uses a generated process shutdown policy that must be reviewed before execution.", stageName))
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, engine.Step{
 				Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + command,
-			}}})
+			})})
 			position = closeBody + 1
 			continue
 		}
@@ -838,7 +872,7 @@ func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) 
 		for _, warning := range commandWarnings {
 			*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
 		}
-		if strings.TrimSpace(command) == "" {
+		if strings.TrimSpace(command) == "" && len(workspaceSteps) == 0 {
 			*warnings = appendWarning(*warnings, "stage_without_supported_commands", fmt.Sprintf("Stage %q contains no supported sh/echo/script/dir commands and was skipped.", stageName))
 			position = closeBody + 1
 			continue
@@ -849,12 +883,10 @@ func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) 
 			JenkinsWhen: whenExpression,
 			Environment: stageEnvironment,
 			TimeoutSec:  stageTimeout,
-			Steps: []engine.Step{{
-				Name:    strings.TrimSpace(stageName),
-				Type:    "shell",
-				Shell:   "bash",
-				Command: "set -e\n\n" + strings.TrimSpace(command),
-			}},
+			Steps:       workspaceSteps,
+		}
+		if strings.TrimSpace(command) != "" {
+			stage.Steps = append(stage.Steps, engine.Step{Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + strings.TrimSpace(command)})
 		}
 		applyJenkinsGitStageTimeout(&stage)
 		stages = append(stages, stage)
@@ -864,6 +896,55 @@ func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) 
 		return nil, fmt.Errorf("Jenkinsfile has no stages with supported executable commands")
 	}
 	return stages, nil
+}
+
+// parseJenkinsWorkspaceStepPrefix retains the common literal workspace steps
+// as distinct operations; unsupported placements remain visible to validation.
+func parseJenkinsWorkspaceStepPrefix(source string) ([]engine.Step, string) {
+	mask := groovyCodeMask(source)
+	var steps []engine.Step
+	cursor := 0
+	for {
+		cursor = skipSpace(mask, cursor, len(mask))
+		for cursor < len(mask) && mask[cursor] == ';' {
+			cursor = skipSpace(mask, cursor+1, len(mask))
+		}
+		index, word := nextIdentifier(mask, cursor)
+		if index != cursor {
+			break
+		}
+		after := skipSpace(mask, cursor+len(word), len(mask))
+		switch word {
+		case "deleteDir":
+			if after >= len(mask) || mask[after] != '(' {
+				return steps, source[cursor:]
+			}
+			end, ok := matchingDelimiter(mask, after, '(', ')', len(mask))
+			if !ok || strings.TrimSpace(mask[after+1:end]) != "" {
+				return steps, source[cursor:]
+			}
+			steps = append(steps, engine.Step{Name: "deleteDir", Type: "jenkins_delete_dir"})
+			cursor = end + 1
+		case "checkout":
+			if after < len(mask) && mask[after] == '(' {
+				end, ok := matchingDelimiter(mask, after, '(', ')', len(mask))
+				if !ok || strings.TrimSpace(mask[after+1:end]) != "scm" {
+					return steps, source[cursor:]
+				}
+				cursor = end + 1
+			} else {
+				index, argument := nextIdentifier(mask, after)
+				if index != after || argument != "scm" {
+					return steps, source[cursor:]
+				}
+				cursor = after + len(argument)
+			}
+			steps = append(steps, engine.Step{Name: "checkout scm", Type: "jenkins_checkout_scm"})
+		default:
+			return steps, source[cursor:]
+		}
+	}
+	return steps, source[cursor:]
 }
 
 // translateJenkinsPIDStopStage preserves the common declarative Jenkins
@@ -1520,6 +1601,13 @@ func translateJenkinsShell(source string) (string, []Warning) {
 				}
 			}
 			warnings = appendWarning(warnings, "unsupported_condition", "a Groovy condition could not be converted; move it into an sh block and review the result.")
+		default:
+			// Do not silently flatten the body of an unknown Groovy step or
+			// control-flow block into unconditional shell commands.
+			next := skipSpace(mask, after, len(mask))
+			if word == "checkout" || (next < len(mask) && (mask[next] == '(' || mask[next] == '{')) {
+				warnings = appendWarning(warnings, "unsupported_step", fmt.Sprintf("Groovy step or control flow %q could not be converted automatically.", word))
+			}
 		}
 		cursor = after
 	}

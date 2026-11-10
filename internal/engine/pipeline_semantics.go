@@ -45,6 +45,9 @@ func ValidatePipelineSemantics(config *BuildConfig) error {
 		}
 		for stepIndex := range stage.Steps {
 			step := &stage.Steps[stepIndex]
+			if (step.Type == "jenkins_delete_dir" || step.Type == "jenkins_checkout_scm") && len(config.AgentRequirements) > 0 {
+				return fmt.Errorf("stage %q step %q: Jenkins workspace operations require the local executor", stage.Name, step.Name)
+			}
 			if err := ValidatePipelineCondition(step.If); err != nil {
 				return fmt.Errorf("stage %q step %q if: %w", stage.Name, step.Name, err)
 			}

@@ -848,10 +848,10 @@ pipeline {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(config.Stages) != 1 || len(config.Stages[0].Steps) != 1 {
+	if len(config.Stages) != 1 || len(config.Stages[0].Steps) != 3 || config.Stages[0].Steps[0].Type != "jenkins_delete_dir" || config.Stages[0].Steps[1].Type != "jenkins_checkout_scm" {
 		t.Fatalf("stages = %#v", config.Stages)
 	}
-	command := config.Stages[0].Steps[0].Command
+	command := config.Stages[0].Steps[2].Command
 	for _, expected := range []string{
 		`if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then`,
 		`BuildWorld: workspace already contains the SCM checkout; skipping legacy git clone into .`,
@@ -863,7 +863,7 @@ pipeline {
 		}
 	}
 	if strings.Contains(command, "deleteDir()") || strings.Contains(command, "checkout scm") {
-		t.Fatalf("Jenkins SCM directives must not run after BuildWorld prepares the workspace:\n%s", command)
+		t.Fatalf("Jenkins SCM directives must remain separate native steps:\n%s", command)
 	}
 	if strings.Index(command, "if git rev-parse --is-inside-work-tree") > strings.Index(command, "git clone --depth 1") {
 		t.Fatalf("legacy clone appears before the workspace guard:\n%s", command)

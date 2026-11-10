@@ -308,6 +308,19 @@ supported. Conditional Jenkins stages cannot be dispatched to remote workers.
 Re-import previously converted pipelines from the Jenkinsfile so conditions
 discarded by older versions are restored.
 
+The migration preview may provide a best-effort conversion with warnings.
+Live Jenkinsfile execution refuses semantic conversion warnings, including
+unsupported Groovy conditions, directories, omitted stages, and generated
+process shutdown policies. Rewrite those constructs in supported steps and
+review the resulting behavior before running them. macOS protected-directory
+notices remain informational and do not grant operating-system permissions.
+Literal `deleteDir()` and `checkout scm` at the start of a stage execute in
+order against the per-build workspace; `checkout scm` requires an SCM-sourced
+Jenkinsfile and checks out its already-pinned commit. `skipDefaultCheckout()`
+and its literal boolean argument control the initial automatic checkout.
+Workspace operations in other positions or nested Groovy blocks require manual
+conversion and are not silently treated as successful.
+
 Stage `options { timeout(...) }` supports positive integral seconds, minutes
 (the default), hours and days. Stage-level or step-level `input`, stage `post`,
 `parallel`, `matrix`, nested stages, unsupported options and specific stage

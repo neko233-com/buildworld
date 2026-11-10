@@ -76,6 +76,88 @@ func TestJenkinsWhenUnsupportedNeverBecomesUnconditional(t *testing.T) {
 	}
 }
 
+func TestJenkinsLiveRejectsLossyStepConversion(t *testing.T) {
+	for _, tc := range []struct {
+		name, steps, warning string
+	}{
+		{"condition", `script { if (params.DEPLOY) { sh 'echo MUST_NOT_RUN' } } sh 'echo after'`, "unsupported_condition"},
+		{"directory", `dir(params.DIR) { sh 'echo MUST_NOT_RUN' }`, "unsupported_dir"},
+		{"loop", `script { while (params.DEPLOY) { sh 'echo MUST_NOT_RUN' } }`, "unsupported_step"},
+		{"wrapper", `retry(3) { sh 'echo MUST_NOT_RUN' }`, "unsupported_step"},
+		{"plugin_step", `unstash('unknown'); sh 'echo after'`, "unsupported_step"},
+		{"generated_stop_policy", `script { def oldPid = sh(returnStdout: true, script: 'cat "$PID_FILE"').trim(); sh "kill -TERM ${oldPid}" }`, "pid_stop_manual_review_required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := fmt.Sprintf(`pipeline { agent any stages { stage('deploy') { steps { %s } } } }`, tc.steps)
+			preview, err := NewJenkinsfileStrategy().Convert(Request{Source: source})
+			if err != nil || !hasWarning(preview.Warnings, tc.warning) {
+				t.Fatalf("migration preview must retain warning %q: preview=%+v err=%v", tc.warning, preview, err)
+			}
+			if _, err := engine.ParseJenkinsfileConfig(source, "unsafe"); err == nil || !strings.Contains(err.Error(), tc.warning) {
+				t.Fatalf("live execution accepted lossy conversion: %v", err)
+			}
+		})
+	}
+}
+
+func TestJenkinsSkipDefaultCheckoutLiteralOptions(t *testing.T) {
+	for _, tc := range []struct {
+		option string
+		want   bool
+	}{
+		{"skipDefaultCheckout()", true},
+		{"skipDefaultCheckout(true)", true},
+		{"skipDefaultCheckout(false)", false},
+	} {
+		source := fmt.Sprintf(`pipeline { agent any options { %s } stages { stage('build') { steps { sh 'echo ok' } } } }`, tc.option)
+		config, err := engine.ParseJenkinsfileConfig(source, "checkout")
+		if err != nil || config.SkipDefaultCheckout != tc.want {
+			t.Fatalf("option=%q config=%+v err=%v", tc.option, config, err)
+		}
+	}
+	for _, option := range []string{"skipDefaultCheckout(params.SKIP)", "skipDefaultCheckout(); skipDefaultCheckout(false)"} {
+		source := fmt.Sprintf(`pipeline { agent any options { %s } stages { stage('build') { steps { sh 'echo ok' } } } }`, option)
+		if _, err := engine.ParseJenkinsfileConfig(source, "checkout"); err == nil {
+			t.Fatalf("invalid option accepted: %s", option)
+		}
+	}
+}
+
+func TestJenkinsRunnerDoesNotExecuteUnsupportedConditionalBody(t *testing.T) {
+	root := t.TempDir()
+	db, err := store.New(filepath.Join(root, "buildworld.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	source := `pipeline { agent any stages { stage('deploy') { steps { script { if (params.DEPLOY) { sh 'echo MUST_NOT_RUN' } } sh 'echo after' } } } }`
+	project, err := db.CreateProject("unsafe-when", "", "", "git", "main", source, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build, err := db.CreateBuild(project.ID, 1, "manual", "main", "", `{}`, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := engine.NewBuildRunner(db, nil, filepath.Join(root, "workspaces"), nil)
+	defer runner.Shutdown(context.Background())
+	runner.Run(build.ID)
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		build, err = db.GetBuild(build.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if build.Status == "failed" || build.Status == "success" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if build.Status != "failed" || !strings.Contains(build.Log, "unsupported_condition") || strings.Contains(build.Log, "MUST_NOT_RUN") {
+		t.Fatalf("status=%s log=%s", build.Status, build.Log)
+	}
+}
+
 func TestConditionalJenkinsWatcherDoesNotRemoveTimeout(t *testing.T) {
 	config := &engine.BuildConfig{Stages: []engine.Stage{{Name: "watch", JenkinsWhen: "!params.ENTRY_ONLY", Steps: []engine.Step{{Type: "shell", Command: "go run ./tools/deploygame_cli ops resume-game-monitor --monitor-only=true"}}}}}
 	if err := engine.ValidatePipelineSemantics(config); err != nil {
