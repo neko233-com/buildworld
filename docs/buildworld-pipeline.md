@@ -341,8 +341,9 @@ an older installation does not gain this protection until it is upgraded.
 
 `changeRequest()` evaluates the existing `CHANGE_ID` and related `CHANGE_*`
 environment values, including named filters and `EQUALS`, `GLOB` or `REGEXP`
-comparators. No pull-request webhook or automatic change-request metadata is
-created by this feature; the source integration must supply those variables.
+comparators. The opt-in webhook integration described above supplies verified
+metadata for supported change requests; other source integrations must supply
+their own values.
 The [Jenkins implementation](https://github.com/jenkinsci/pipeline-model-definition-plugin/blob/master/pipeline-model-definition/src/main/java/org/jenkinsci/plugins/pipeline/modeldefinition/when/impl/ChangeRequestConditional.java)
 currently accepts a `url` filter but does not check it, so BuildWorld rejects
 that filter rather than allowing a guard to be silently ignored. Groovy literal escapes are supported in condition strings;
