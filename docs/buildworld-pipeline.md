@@ -278,7 +278,7 @@ validates translated output. It does not create an intermediate JSON or Markdown
 pipeline.
 
 Jenkins `when` supports `allOf`, `anyOf`, `not`, branch and tag patterns,
-`buildingTag()`, environment equality, `equals`, and a side-effect-free expression subset.
+`buildingTag()`, environment equality, `equals`, `changeRequest`, and a side-effect-free expression subset.
 Branch and tag patterns support `GLOB`, `EQUALS` and `REGEXP` comparators; Go's
 regular-expression syntax is narrower than Java's. Expressions support `params`
 and `env`, `currentBuild.number`, boolean and ordered comparisons, equality and
@@ -290,6 +290,16 @@ the short tag name is exposed as `TAG_NAME` and `BRANCH_NAME`; `GIT_COMMIT` is
 the pinned commit, with annotated tag objects verified and peeled. Inline jobs
 retain their existing workspace setup. Other tag conditions require a populated
 `TAG_NAME` in the build environment.
+
+`changeRequest()` evaluates the existing `CHANGE_ID` and related `CHANGE_*`
+environment values, including named filters and `EQUALS`, `GLOB` or `REGEXP`
+comparators. No pull-request webhook or automatic change-request metadata is
+created by this feature; the source integration must supply those variables.
+The [Jenkins implementation](https://github.com/jenkinsci/pipeline-model-definition-plugin/blob/master/pipeline-model-definition/src/main/java/org/jenkinsci/plugins/pipeline/modeldefinition/when/impl/ChangeRequestConditional.java)
+currently accepts a `url` filter but does not check it, so BuildWorld rejects
+that filter rather than allowing a guard to be silently ignored. Groovy literal escapes are supported in condition strings;
+interpolated strings and regular-expression constructs unsupported by Go are
+rejected instead of being evaluated as a different condition.
 
 Unsupported conditions and arbitrary Groovy are rejected rather than executed
 unconditionally. `beforeAgent`, `beforeInput` and `beforeOptions` are not yet

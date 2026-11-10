@@ -1126,8 +1126,8 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 				inner := source[position+1 : end]
 				start := skipSourceSpace(inner, 0, len(inner))
 				if start < len(inner) && (inner[start] == '\'' || inner[start] == '"') {
-					value, tail, ok := parseGroovyString(inner, start)
-					if !ok || (word == "branch" && value == "") || strings.TrimSpace(inner[tail:]) != "" || strings.ContainsAny(inner[start+1:tail-1], "\\\r\n$") {
+					value, tail, ok := parseWhenLiteral(inner, start)
+					if !ok || (word == "branch" && value == "") || strings.TrimSpace(inner[tail:]) != "" {
 						return "", fmt.Errorf("%s requires a literal pattern", word)
 					}
 					conditions = append(conditions, function+"("+strconv.Quote(value)+")")
@@ -1158,8 +1158,8 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 				cursor = end
 				continue
 			}
-			value, end, ok := parseGroovyString(source, position)
-			if !ok || (word == "branch" && value == "") || strings.ContainsAny(source[position+1:end-1], "\\\r\n$") {
+			value, end, ok := parseWhenLiteral(source, position)
+			if !ok || (word == "branch" && value == "") {
 				return "", fmt.Errorf("%s requires a literal pattern", word)
 			}
 			conditions = append(conditions, function+"("+strconv.Quote(value)+")")
@@ -1192,6 +1192,45 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 				return "", fmt.Errorf("environment requires value")
 			}
 			conditions = append(conditions, "jenkinsEnvironment("+strconv.Quote(values["name"])+","+strconv.Quote(value)+")")
+			cursor = end
+		case "changeRequest":
+			position := skipSourceSpace(source, after, len(source))
+			values := map[string]string{}
+			end := position
+			if position < len(mask) && mask[position] == '(' {
+				close, ok := matchingDelimiter(mask, position, '(', ')', len(mask))
+				if !ok {
+					return "", fmt.Errorf("unterminated changeRequest arguments")
+				}
+				inner := source[position+1 : close]
+				if strings.TrimSpace(inner) != "" {
+					var tail int
+					var err error
+					values, tail, err = parseWhenNamedStrings(inner, 0)
+					if err != nil || strings.TrimSpace(inner[tail:]) != "" {
+						return "", fmt.Errorf("invalid changeRequest arguments")
+					}
+				}
+				end = close + 1
+			} else if position < len(source) && isIdentifierByte(source[position]) {
+				nameEnd := position
+				for nameEnd < len(source) && isIdentifierByte(source[nameEnd]) {
+					nameEnd++
+				}
+				colon := skipSourceSpace(source, nameEnd, len(source))
+				if colon < len(source) && source[colon] == ':' {
+					var err error
+					values, end, err = parseWhenNamedStrings(source, position)
+					if err != nil {
+						return "", fmt.Errorf("invalid changeRequest arguments")
+					}
+				}
+			}
+			condition, err := makeChangeRequestCondition(values)
+			if err != nil {
+				return "", err
+			}
+			conditions = append(conditions, condition)
 			cursor = end
 		case "equals":
 			position := skipSourceSpace(source, after, len(source))
@@ -1231,6 +1270,30 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 		return conditions[0], nil
 	}
 	return strings.Join(conditions, " "+operator+" "), nil
+}
+
+func makeChangeRequestCondition(values map[string]string) (string, error) {
+	// The Jenkins plugin currently accepts url but does not actually compare
+	// CHANGE_URL. Reject it rather than silently dropping a release guard.
+	fields := []struct{ argument, environment string }{
+		{"id", "CHANGE_ID"}, {"target", "CHANGE_TARGET"}, {"branch", "CHANGE_BRANCH"},
+		{"fork", "CHANGE_FORK"}, {"title", "CHANGE_TITLE"}, {"author", "CHANGE_AUTHOR"},
+		{"authorDisplayName", "CHANGE_AUTHOR_DISPLAY_NAME"}, {"authorEmail", "CHANGE_AUTHOR_EMAIL"},
+	}
+	allowed := map[string]bool{"comparator": true}
+	args := []string{strconv.Quote(values["comparator"])}
+	for _, field := range fields {
+		allowed[field.argument] = true
+		if value, ok := values[field.argument]; ok {
+			args = append(args, strconv.Quote(field.environment), strconv.Quote(value))
+		}
+	}
+	for name := range values {
+		if !allowed[name] {
+			return "", fmt.Errorf("unsupported changeRequest argument %q", name)
+		}
+	}
+	return "jenkinsChangeRequest(" + strings.Join(args, ",") + ")", nil
 }
 
 func parseWhenNamedExpressions(source, mask string, cursor int) (map[string]string, int, error) {
@@ -1313,9 +1376,8 @@ func parseWhenNamedStrings(source string, cursor int) (map[string]string, int, e
 			return nil, 0, fmt.Errorf("expected named argument")
 		}
 		cursor = skipSourceSpace(source, cursor+1, len(source))
-		start = cursor
-		value, end, ok := parseGroovyString(source, cursor)
-		if !ok || strings.ContainsAny(source[start+1:end-1], "\\\r\n$") {
+		value, end, ok := parseWhenLiteral(source, cursor)
+		if !ok {
 			return nil, 0, fmt.Errorf("expected literal argument")
 		}
 		if _, exists := values[name]; exists {
@@ -1330,7 +1392,7 @@ func parseWhenNamedStrings(source string, cursor int) (map[string]string, int, e
 	}
 }
 
-// normalizeJenkinsWhenStrings translates simple literal strings without accepting GStrings or escape semantics.
+// normalizeJenkinsWhenStrings decodes literal strings but rejects interpolation.
 func normalizeJenkinsWhenStrings(expression string) (string, bool) {
 	var result strings.Builder
 	for i := 0; i < len(expression); {
@@ -1339,9 +1401,8 @@ func normalizeJenkinsWhenStrings(expression string) (string, bool) {
 			i++
 			continue
 		}
-		quote := expression[i]
-		value, end, ok := parseGroovyString(expression, i)
-		if !ok || strings.ContainsAny(expression[i+1:end-1], "\\\r\n") || (quote == '"' && strings.Contains(value, "$")) {
+		value, end, ok := parseWhenLiteral(expression, i)
+		if !ok {
 			return "", false
 		}
 		result.WriteString(strconv.Quote(value))

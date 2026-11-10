@@ -56,6 +56,21 @@ func validateJenkinsExpr(expr ast.Expr) error {
 				return validateJenkinsExpr(selector.X)
 			}
 		}
+		if ident, ok := node.Fun.(*ast.Ident); ok && ident.Name == "jenkinsChangeRequest" && len(node.Args) >= 1 && len(node.Args)%2 == 1 {
+			for i, arg := range node.Args {
+				literal, ok := arg.(*ast.BasicLit)
+				if !ok || literal.Kind != token.STRING {
+					return fmt.Errorf("changeRequest arguments must be literal strings")
+				}
+				if i > 0 && i%2 == 1 {
+					field, err := strconv.Unquote(literal.Value)
+					if err != nil || !jenkinsChangeRequestField(field) {
+						return fmt.Errorf("invalid changeRequest field")
+					}
+				}
+			}
+			return nil
+		}
 		if ident, ok := node.Fun.(*ast.Ident); ok && (((ident.Name == "jenkinsBranch" || ident.Name == "jenkinsTag") && (len(node.Args) == 1 || len(node.Args) == 2)) || (ident.Name == "jenkinsEnvironment" && len(node.Args) == 2)) {
 			for _, arg := range node.Args {
 				if literal, ok := arg.(*ast.BasicLit); !ok || literal.Kind != token.STRING {
@@ -176,6 +191,28 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 			if ident.Name == "jenkinsBuildingTag" {
 				return environment["TAG_NAME"] != "", nil
 			}
+			if ident.Name == "jenkinsChangeRequest" {
+				if _, exists := environment["CHANGE_ID"]; !exists {
+					return false, nil
+				}
+				comparator, _ := strconv.Unquote(node.Args[0].(*ast.BasicLit).Value)
+				for i := 1; i < len(node.Args); i += 2 {
+					field, _ := strconv.Unquote(node.Args[i].(*ast.BasicLit).Value)
+					pattern, _ := strconv.Unquote(node.Args[i+1].(*ast.BasicLit).Value)
+					if pattern == "" {
+						continue
+					}
+					actual := environment[field]
+					if strings.TrimSpace(actual) == "" {
+						actual = ""
+					}
+					matched, err := compareJenkinsString(pattern, actual, comparator, "EQUALS")
+					if err != nil || !matched {
+						return matched, err
+					}
+				}
+				return true, nil
+			}
 			first, _ := strconv.Unquote(node.Args[0].(*ast.BasicLit).Value)
 			switch ident.Name {
 			case "jenkinsBranch", "jenkinsTag":
@@ -193,14 +230,7 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 				if len(node.Args) == 2 {
 					comparator, _ = strconv.Unquote(node.Args[1].(*ast.BasicLit).Value)
 				}
-				switch strings.ToUpper(comparator) {
-				case "EQUALS":
-					return first == actual, nil
-				case "REGEXP":
-					return regexp.MatchString("^(?:"+first+")$", actual)
-				default:
-					return matchJenkinsBranch(first, actual)
-				}
+				return compareJenkinsString(first, actual, comparator, "GLOB")
 			case "jenkinsEnvironment":
 				second, _ := strconv.Unquote(node.Args[1].(*ast.BasicLit).Value)
 				value, found := environment[first]
@@ -293,6 +323,30 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 		}
 	}
 	return false, fmt.Errorf("unsupported Jenkins expression")
+}
+
+func jenkinsChangeRequestField(field string) bool {
+	switch field {
+	case "CHANGE_ID", "CHANGE_TARGET", "CHANGE_BRANCH", "CHANGE_FORK", "CHANGE_TITLE", "CHANGE_AUTHOR", "CHANGE_AUTHOR_DISPLAY_NAME", "CHANGE_AUTHOR_EMAIL":
+		return true
+	default:
+		return false
+	}
+}
+
+func compareJenkinsString(pattern, actual, comparator, fallback string) (bool, error) {
+	comparator = strings.ToUpper(comparator)
+	if comparator != "EQUALS" && comparator != "REGEXP" && comparator != "GLOB" {
+		comparator = fallback
+	}
+	switch comparator {
+	case "EQUALS":
+		return pattern == actual, nil
+	case "REGEXP":
+		return regexp.MatchString("^(?:"+pattern+")$", actual)
+	default:
+		return matchJenkinsBranch(pattern, actual)
+	}
 }
 
 // jenkinsEqual keeps numeric values numeric and never coerces strings to numbers.
