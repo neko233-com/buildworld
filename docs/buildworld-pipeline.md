@@ -303,8 +303,10 @@ repository and branch. The first observed checkout has no changes. With
 `skipDefaultCheckout()`, conditions before explicit `checkout scm` see no
 changelog. If earlier builds exist but their checkout history is unavailable,
 the condition fails instead of assuming an empty history; the current checkout
-establishes the baseline for the next build. Pull-request-wide changelog
-aggregation is not implemented and is rejected when `CHANGE_ID` is present.
+establishes the baseline for the next build. Manually supplying `CHANGE_ID`
+does not turn the project into a multibranch pull-request SCM head: conditions
+still use this build's changelog. Pull-request-wide changelog aggregation and
+automatic PR source identities are not implemented.
 Git collection excludes merge commits, records at most 1024 commits and fails
 if its output exceeds 16 MiB. Regular expressions use Go syntax rather than
 Java's complete regular-expression language.

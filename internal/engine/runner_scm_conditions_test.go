@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,84 @@ import (
 	_ "github.com/neko233-com/buildworld/internal/migration"
 	"github.com/neko233-com/buildworld/internal/store"
 )
+
+func TestJenkinsSCMBuildFetchesPinnedHiddenRef(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is unavailable")
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("POSIX shell is unavailable")
+	}
+	t.Setenv("PATH", filepath.Dir(sh)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	root := t.TempDir()
+	origin, repository := filepath.Join(root, "origin.git"), filepath.Join(root, "repository")
+	runRunnerSCMGit(t, "init", "--bare", origin)
+	runRunnerSCMGit(t, "init", repository)
+	runRunnerSCMGit(t, "-C", repository, "config", "user.email", "test@example.invalid")
+	runRunnerSCMGit(t, "-C", repository, "config", "user.name", "Test")
+	jenkinsfile := filepath.Join(repository, "Jenkinsfile")
+	if err := os.WriteFile(jenkinsfile, []byte(`pipeline { agent any stages { stage('build') { steps { sh 'echo WRONG_SOURCE' } } } }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRunnerSCMGit(t, "-C", repository, "add", "Jenkinsfile")
+	runRunnerSCMGit(t, "-C", repository, "commit", "-m", "base")
+	runRunnerSCMGit(t, "-C", repository, "branch", "-M", "main")
+	runRunnerSCMGit(t, "-C", repository, "remote", "add", "origin", origin)
+	runRunnerSCMGit(t, "-C", repository, "push", "origin", "main")
+	runRunnerSCMGit(t, "--git-dir", origin, "symbolic-ref", "HEAD", "refs/heads/main")
+	runRunnerSCMGit(t, "-C", repository, "checkout", "-b", "contribution")
+	if err := os.WriteFile(jenkinsfile, []byte(`pipeline { agent any stages { stage('build') { steps { sh 'echo HIDDEN_REF_SOURCE' } } } }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRunnerSCMGit(t, "-C", repository, "add", "Jenkinsfile")
+	runRunnerSCMGit(t, "-C", repository, "commit", "-m", "contribution")
+	revisionBytes, err := exec.Command("git", "-C", repository, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := strings.TrimSpace(string(revisionBytes))
+	ref := "refs/pull/123/head"
+	runRunnerSCMGit(t, "-C", repository, "push", "origin", "HEAD:"+ref)
+	originPath := filepath.ToSlash(origin)
+	if !strings.HasPrefix(originPath, "/") {
+		originPath = "/" + originPath
+	}
+	originURL := (&url.URL{Scheme: "file", Path: originPath}).String()
+	probe := filepath.Join(root, "ordinary-clone")
+	runRunnerSCMGit(t, "clone", originURL, probe)
+	if err := exec.Command("git", "-C", probe, "cat-file", "-e", revision+"^{commit}").Run(); err == nil {
+		t.Fatal("fixture's hidden commit unexpectedly exists in a normal clone")
+	}
+	if _, _, _, err := engine.FetchSCMPipelineWithRevision(context.Background(), engine.SCMPipelineSource{
+		RepoURL: originURL, Branch: ref, Revision: strings.Repeat("f", 40), Path: "Jenkinsfile", Format: engine.FormatJenkinsfile,
+	}); err == nil {
+		t.Fatal("missing pinned commit must not fall back to the hidden ref tip")
+	}
+	database, err := store.New(filepath.Join(root, "buildworld.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	project, err := database.CreateProject("hidden-ref", "", "", "git", "main", "", 0, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetProjectPipelineSource(project.ID, "jenkinsfile", "scm", originURL, "main", "Jenkinsfile"); err != nil {
+		t.Fatal(err)
+	}
+	build, err := database.CreateBuild(project.ID, 1, "manual", ref, revision, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := engine.NewBuildRunner(database, nil, filepath.Join(root, "workspaces"), nil)
+	defer runner.Shutdown(context.Background())
+	runner.Run(build.ID)
+	finished := waitForRunnerSCMBuild(t, database, build.ID, 20*time.Second)
+	if finished.Status != "success" || finished.CommitSHA != revision || !strings.Contains(finished.Log, "HIDDEN_REF_SOURCE") || strings.Contains(finished.Log, "WRONG_SOURCE") {
+		t.Fatalf("hidden ref status=%s commit=%s log=%s", finished.Status, finished.CommitSHA, finished.Log)
+	}
+}
 
 func TestJenkinsSCMConditionsUseCheckoutHistory(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
@@ -30,11 +109,12 @@ func TestJenkinsSCMConditionsUseCheckoutHistory(t *testing.T) {
 	runRunnerSCMGit(t, "-C", repository, "config", "user.email", "test@example.invalid")
 	runRunnerSCMGit(t, "-C", repository, "config", "user.name", "Test")
 	source := `pipeline { agent any
+environment { CHANGE_ID = '123' }
 options { skipDefaultCheckout() }
 stages {
 stage('before') { when { changeset 'src/**/*.go' } steps { sh 'echo BEFORE_CHECKOUT_INCORRECT' } }
 stage('checkout') { steps { checkout scm } }
-stage('changed') { when { allOf { changeset pattern: 'src/**/*.go', caseSensitive: true; changelog 'feat:.*' } } steps { sh 'echo SCM_CHANGED_EXECUTED' } }
+stage('changed') { when { allOf { changeRequest id: '123'; changeset pattern: 'src/**/*.go', caseSensitive: true; changelog 'feat:.*' } } steps { sh 'echo SCM_CHANGED_EXECUTED' } }
 stage('missing') { when { changeset 'missing/**' } steps { sh 'echo SCM_MISSING_INCORRECT' } }
 } }`
 	if err := os.WriteFile(filepath.Join(repository, "Jenkinsfile"), []byte(source), 0o644); err != nil {

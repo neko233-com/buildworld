@@ -87,8 +87,11 @@ func TestJenkinsSCMConditionMatchers(t *testing.T) {
 	}
 	delete(env, jenkinsSCMHistoryUnknownContextKey)
 	env["CHANGE_ID"] = "123"
-	if _, err := EvaluateJenkinsWhenContext(`jenkinsChangeSet("**/*.go","GLOB","false")`, nil, env, "main"); err == nil {
-		t.Fatal("unimplemented change-request history must not be silently miscomputed")
+	if got, err := EvaluateJenkinsWhenContext(`jenkinsChangeSet("**/*.go","GLOB","false")`, nil, env, "main"); err != nil || !got {
+		t.Fatalf("a manually supplied CHANGE_ID must not invalidate the current checkout: got=%v err=%v", got, err)
+	}
+	if got, err := EvaluateJenkinsWhenContext(`jenkinsChangeLog("feat:.*")`, nil, env, "main"); err != nil || !got {
+		t.Fatalf("a manually supplied CHANGE_ID must not invalidate the current changelog: got=%v err=%v", got, err)
 	}
 }
 

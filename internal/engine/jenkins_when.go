@@ -215,9 +215,6 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 				return environment["TAG_NAME"] != "", nil
 			}
 			if ident.Name == "jenkinsChangeSet" || ident.Name == "jenkinsChangeLog" {
-				if _, exists := environment["CHANGE_ID"]; exists {
-					return nil, fmt.Errorf("Jenkins change-request changelog aggregation is not supported")
-				}
 				if environment[jenkinsSCMHistoryUnknownContextKey] == "true" {
 					return nil, fmt.Errorf("previous Jenkins SCM checkout history is unavailable")
 				}

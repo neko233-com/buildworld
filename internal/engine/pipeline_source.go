@@ -394,6 +394,9 @@ func fetchSCMObject(ctx context.Context, src SCMPipelineSource, requirePipeline 
 	if src.Revision != "" || src.CredSSHKey != "" || strings.HasPrefix(branch, "refs/tags/") {
 		ref := branch
 		if src.Revision != "" {
+			if err := client.EnsureRevisionContext(ctx, dest, branch, src.Revision); err != nil {
+				return "", "", "", "", err
+			}
 			ref = src.Revision
 		}
 		cmd := processtree.CommandContext(ctx, "git", "-C", dest, "checkout", "--detach", ref)

@@ -96,6 +96,51 @@ func workspaceGitCommand(ctx context.Context, repoPath string, args ...string) (
 	return string(output), nil
 }
 
+// EnsureRevisionContext obtains a pinned commit that is not in the ordinary
+// branch clone, for example a provider's refs/pull/.../head. It never substitutes
+// the current ref tip for the requested revision.
+func (c *Client) EnsureRevisionContext(ctx context.Context, repoPath, ref, revision string) error {
+	if len(revision) < 7 || len(revision) > 64 {
+		return fmt.Errorf("invalid SCM revision")
+	}
+	for _, ch := range revision {
+		if !(ch >= '0' && ch <= '9' || ch >= 'a' && ch <= 'f' || ch >= 'A' && ch <= 'F') {
+			return fmt.Errorf("invalid SCM revision")
+		}
+	}
+	hasCommit := func() bool {
+		_, err := workspaceGitCommand(ctx, repoPath, "cat-file", "-e", revision+"^{commit}")
+		return err == nil
+	}
+	if hasCommit() {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if strings.HasPrefix(ref, "refs/") && !strings.ContainsAny(ref, "\x00\r\n") {
+		_, _ = workspaceGitCommand(ctx, repoPath, "fetch", "--no-tags", "origin", ref)
+		if hasCommit() {
+			return nil
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Some providers retain superseded commits and allow an exact object fetch.
+	// Do not include Git's output here: the configured origin can contain credentials.
+	if len(revision) == 40 || len(revision) == 64 {
+		_, _ = workspaceGitCommand(ctx, repoPath, "fetch", "--no-tags", "origin", revision)
+		if hasCommit() {
+			return nil
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fmt.Errorf("pinned SCM revision is not available from the configured origin")
+}
+
 // ForceCheckoutRevisionContext restores tracked files to the selected SCM
 // revision while retaining unrelated untracked workspace files.
 func (c *Client) ForceCheckoutRevisionContext(ctx context.Context, repoPath, branch, revision string) error {

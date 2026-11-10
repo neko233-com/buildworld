@@ -1499,6 +1499,9 @@ func (r *BuildRunner) checkoutJenkinsSCM(ctx context.Context, workspace string, 
 	} else if err := r.gitClient.PrepareExistingWorkspaceContext(ctx, workspace, repository, revision); err != nil {
 		return fmt.Errorf("prepare SCM workspace: %w", err)
 	}
+	if err := r.gitClient.EnsureRevisionContext(ctx, workspace, branch, revision); err != nil {
+		return err
+	}
 	if err := r.gitClient.ForceCheckoutRevisionContext(ctx, workspace, branch, revision); err != nil {
 		return err
 	}
@@ -1511,6 +1514,11 @@ func (r *BuildRunner) checkoutJenkinsSCM(ctx context.Context, workspace string, 
 	changes := []jenkinsSCMChange{}
 	state, _ := ctx.Value(jenkinsSCMCaptureContextKey{}).(*jenkinsSCMRunState)
 	if state != nil && state.capture {
+		if baseline != "" && baseline != revision {
+			if err := r.gitClient.EnsureRevisionContext(ctx, workspace, "", baseline); err != nil {
+				return fmt.Errorf("previous SCM checkout: %w", err)
+			}
+		}
 		changes, err = collectJenkinsSCMChanges(ctx, workspace, revision, baseline)
 		if err != nil {
 			return err
