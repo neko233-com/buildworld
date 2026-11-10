@@ -641,8 +641,12 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		defer cancel()
 	}
 	usesSCMChanges := pipelineUsesJenkinsSCMChanges(cfg)
-	_, isPullRequestHead := jenkinsPullRequestHead(strings.TrimSpace(build.Branch))
+	pullRequestID, isPullRequestHead := jenkinsPullRequestHead(strings.TrimSpace(build.Branch))
 	isPullRequestHead = isPullRequestHead && strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm")
+	if isPullRequestHead && build.Trigger == "webhook" && readJenkinsChangeRequestContext(build.Parameters, pullRequestID) == nil {
+		r.fail(buildID, start, "authenticated PR webhook metadata is unavailable", project)
+		return
+	}
 	// Jenkins gathers PR changes for future builds even when this particular
 	// Jenkinsfile does not yet contain a changelog-based condition.
 	scmState := &jenkinsSCMRunState{capture: usesSCMChanges || isPullRequestHead}
@@ -1817,6 +1821,14 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 	}
 	if pullRequestID != "" {
 		envMap["CHANGE_ID"] = pullRequestID
+		if build.Trigger == "webhook" {
+			if change := readJenkinsChangeRequestContext(build.Parameters, pullRequestID); change != nil {
+				envMap["CHANGE_TARGET"] = change.Target
+				envMap["CHANGE_BRANCH"] = change.Branch
+				envMap["CHANGE_TITLE"] = change.Title
+				envMap["CHANGE_AUTHOR"] = change.Author
+			}
+		}
 	}
 	for k, v := range cfg.Environment {
 		envMap[k] = v

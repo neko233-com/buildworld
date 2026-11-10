@@ -58,6 +58,7 @@ type Project struct {
 	QuickAccess        bool      `json:"quick_access"`
 	Enabled            bool      `json:"enabled"`
 	BuildOnStartup     bool      `json:"build_on_startup"`
+	PullRequestWebhook bool      `json:"pull_request_webhook"`
 	HTTPTriggerEnabled bool      `json:"http_trigger_enabled"`
 	HTTPTriggerToken   string    `json:"-"`
 	HTTPTriggerURL     string    `json:"http_trigger_url,omitempty"`

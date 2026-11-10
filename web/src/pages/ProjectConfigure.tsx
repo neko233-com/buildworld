@@ -23,6 +23,7 @@ type ValidationField = 'name' | 'schedule' | 'pipeline' | 'scmRepo' | 'scmPath'
 type ProjectConfigureForm = {
   enabled: boolean
   build_on_startup: boolean
+  pull_request_webhook: boolean
   http_trigger_enabled: boolean
   name: string
   description: string
@@ -52,6 +53,7 @@ function projectToForm(project: any): ProjectConfigureForm {
   return {
     enabled: project.enabled !== false,
     build_on_startup: project.build_on_startup === true,
+    pull_request_webhook: project.pull_request_webhook === true,
     http_trigger_enabled: project.http_trigger_enabled === true,
     name: project.name || '',
     description: project.description || '',
@@ -308,6 +310,10 @@ export default function ProjectConfigure() {
       focusValidationError('scmPath')
       return
     }
+    if (form.pull_request_webhook && (form.pipeline_source_mode !== 'scm' || form.pipeline_format !== 'jenkinsfile')) {
+      setFormError(t('projectDetail.pullRequestWebhookRequiresSCM'))
+      return
+    }
 
     setSavingIntent(intent)
     setFormError('')
@@ -327,6 +333,7 @@ export default function ProjectConfigure() {
       const payload = {
         enabled: form.enabled,
         build_on_startup: form.build_on_startup,
+        pull_request_webhook: form.pull_request_webhook,
         http_trigger_enabled: form.http_trigger_enabled,
         name: form.name,
         description: form.description,
@@ -435,7 +442,11 @@ export default function ProjectConfigure() {
             <label className="jenkins-configure-check"><input type="checkbox" checked={form.build_on_startup} onChange={event => setForm(current => current ? { ...current, build_on_startup: event.target.checked } : current)} /><span>{t('projectDetail.buildOnStartup')}</span></label>
             <small>{t('projectDetail.buildOnStartupHelp')}</small>
           </fieldset>
-          {scheduleSupported ? <fieldset className="jenkins-configure-trigger" disabled={!editable}>
+          <fieldset className="jenkins-configure-trigger jenkins-configure-pr-trigger" disabled={!editable}>
+            <label className="jenkins-configure-check"><input type="checkbox" checked={form.pull_request_webhook} disabled={!form.pull_request_webhook && (form.pipeline_source_mode !== 'scm' || form.pipeline_format !== 'jenkinsfile')} onChange={event => { setForm(current => current ? { ...current, pull_request_webhook: event.target.checked } : current); setFormError('') }} /><span>{t('projectDetail.pullRequestWebhook')}</span></label>
+            <small>{t('projectDetail.pullRequestWebhookHelp')}</small>
+          </fieldset>
+          {scheduleSupported ? <fieldset className="jenkins-configure-trigger jenkins-configure-schedule-trigger" disabled={!editable}>
             <label className="jenkins-configure-check"><input type="checkbox" checked={scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} /><span>{t('projectDetail.scheduleBuilds')}</span></label>
             {scheduleEnabled && <label><span>Cron</span><input id="jenkins-configure-schedule-cron" required aria-invalid={validationErrors.schedule || undefined} aria-describedby={validationErrors.schedule ? 'jenkins-configure-form-error' : undefined} value={scheduleCron} onChange={event => { setScheduleCron(event.target.value); clearValidationError('schedule') }} placeholder="0 2 * * *" /><small>{t('projectDetail.scheduleDescription')}</small></label>}
           </fieldset> : scmJenkinsfileTriggers ? <div className="jenkins-configure-disabled"><TimerReset size={18} /><div><strong>{t('projectDetail.triggerManagedByJenkinsfileTitle')}</strong><p>{t('projectDetail.triggerManagedByJenkinsfile')}</p></div></div> : <div className="jenkins-configure-disabled"><TimerReset size={18} /><div><strong>{t('common.disabled')}</strong><p>{t('projectDetail.triggerUnavailableForSource').replace('{source}', form.pipeline_source_mode === 'scm' ? t('projectDetail.pipelineScriptFromSCM') : 'Jenkinsfile')}</p></div></div>}

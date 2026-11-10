@@ -296,6 +296,7 @@
   accent-color: #0b6ee5;
 }
 
+.jenkins-configure-pr-trigger,
 .jenkins-configure-http-trigger {
   margin-top: 20px;
   padding-top: 18px;

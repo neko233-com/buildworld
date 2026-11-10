@@ -207,7 +207,16 @@ type createProjectReq struct {
 	PipelineSCMPath    string   `json:"pipeline_scm_path"`
 	Enabled            *bool    `json:"enabled"`
 	BuildOnStartup     *bool    `json:"build_on_startup"`
+	PullRequestWebhook *bool    `json:"pull_request_webhook"`
 	HTTPTriggerEnabled *bool    `json:"http_trigger_enabled"`
+}
+
+func validatePullRequestWebhook(enabled bool, req createProjectReq) error {
+	if enabled && (!strings.EqualFold(strings.TrimSpace(req.PipelineSourceMode), "scm") ||
+		!strings.EqualFold(strings.TrimSpace(req.PipelineFormat), "jenkinsfile") || strings.TrimSpace(req.PipelineSCMRepo) == "") {
+		return errors.New("PR webhook requires an SCM-sourced Jenkinsfile and repository")
+	}
+	return nil
 }
 
 func newHTTPTriggerToken() (string, error) {
@@ -326,6 +335,10 @@ func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
+	if err := validatePullRequestWebhook(req.PullRequestWebhook != nil && *req.PullRequestWebhook, req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if req.GroupID != nil {
 		if _, err := h.d.Store.GetProjectGroup(*req.GroupID); err != nil {
 			writeErr(w, http.StatusBadRequest, "project group not found")
@@ -359,6 +372,12 @@ func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.BuildOnStartup != nil {
 		if err := h.d.Store.SetProjectBuildOnStartup(p.ID, *req.BuildOnStartup); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if req.PullRequestWebhook != nil {
+		if err := h.d.Store.SetProjectPullRequestWebhook(p.ID, *req.PullRequestWebhook); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -428,6 +447,14 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
 	}
+	pullRequestWebhook := existing.PullRequestWebhook
+	if req.PullRequestWebhook != nil {
+		pullRequestWebhook = *req.PullRequestWebhook
+	}
+	if err := validatePullRequestWebhook(pullRequestWebhook, req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := h.d.Store.UpdateProject(id, req.Name, req.Description, req.RepoURL, req.RepoType,
 		req.DefaultBranch, req.Config, req.VCSRootID, req.TemplateID, req.Tags); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -450,6 +477,12 @@ func (h *handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.BuildOnStartup != nil {
 		if err := h.d.Store.SetProjectBuildOnStartup(id, *req.BuildOnStartup); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if req.PullRequestWebhook != nil {
+		if err := h.d.Store.SetProjectPullRequestWebhook(id, *req.PullRequestWebhook); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}

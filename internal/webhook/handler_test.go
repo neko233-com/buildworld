@@ -51,6 +51,56 @@ func TestWebhookHandlerGitHub(t *testing.T) {
 	}
 }
 
+func TestPullRequestWebhookEventsAreAuthenticatedAndFiltered(t *testing.T) {
+	body := []byte(`{"action":"opened","number":42,"repository":{"id":7,"full_name":"team/repo"},"pull_request":{"number":42,"state":"open","head":{"sha":"0123456789abcdef0123456789abcdef01234567","repo":{"id":7}},"base":{"repo":{"id":7}}}}`)
+	for _, tc := range []struct {
+		name, provider, event, action string
+		wantReceived                  bool
+	}{
+		{"github open", "github", "pull_request", "opened", true},
+		{"github update", "github", "pull_request", "synchronize", true},
+		{"github closed", "github", "pull_request", "closed", false},
+		{"gitea update", "gitea", "pull_request_sync", "synchronized", true},
+		{"gitea review", "gitea", "pull_request_review", "opened", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := NewWebhookHandler("secret")
+			got := false
+			handler.OnPush(func(payload WebhookPayload) error {
+				got = payload.Kind == "pull_request" && payload.Number == 42 && payload.PullRequest != nil
+				return nil
+			})
+			data := bytes.Replace(body, []byte(`"action":"opened"`), []byte(`"action":"`+tc.action+`"`), 1)
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(data))
+			if tc.provider == "github" {
+				req.Header.Set("X-GitHub-Event", tc.event)
+				req.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(handler.computeHMAC(data)))
+			} else {
+				req.Header.Set("X-Gitea-Event", tc.event)
+				req.Header.Set("X-Gitea-Signature", hex.EncodeToString(handler.computeHMAC(data)))
+			}
+			response := httptest.NewRecorder()
+			if tc.provider == "github" {
+				handler.HandleGitHubWebhook(response, req)
+			} else {
+				handler.HandleGiteaWebhook(response, req)
+			}
+			if response.Code != http.StatusOK || got != tc.wantReceived {
+				t.Fatalf("status=%d received=%v", response.Code, got)
+			}
+		})
+	}
+	handler := NewWebhookHandler("secret")
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	req.Header.Set("X-Hub-Signature-256", "sha256=invalid")
+	response := httptest.NewRecorder()
+	handler.HandleGitHubWebhook(response, req)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid signature status=%d", response.Code)
+	}
+}
+
 func TestWebhookHandlerGitLabSignedPush(t *testing.T) {
 	handler := NewWebhookHandler("gitlab-secret")
 	received := false
@@ -206,6 +256,7 @@ func TestParsePushEvent(t *testing.T) {
 	payload := WebhookPayload{
 		Ref: "refs/heads/main",
 		Repository: struct {
+			ID         int64  `json:"id"`
 			FullName   string `json:"full_name"`
 			CloneURL   string `json:"clone_url"`
 			GitHTTPURL string `json:"git_http_url"`

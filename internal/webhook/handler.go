@@ -17,9 +17,13 @@ type WebhookPayload struct {
 	Provider   string `json:"-"`
 	DeliveryID string `json:"-"`
 	BodyHash   string `json:"-"`
+	Kind       string `json:"kind,omitempty"`
+	Action     string `json:"action,omitempty"`
+	Number     int64  `json:"number,omitempty"`
 	Ref        string `json:"ref"`
 	After      string `json:"after"`
 	Repository struct {
+		ID         int64  `json:"id"`
 		FullName   string `json:"full_name"`
 		CloneURL   string `json:"clone_url"`
 		GitHTTPURL string `json:"git_http_url"`
@@ -37,6 +41,40 @@ type WebhookPayload struct {
 	Sender struct {
 		Login string `json:"login"`
 	} `json:"sender"`
+	PullRequest *PullRequestPayload `json:"pull_request,omitempty"`
+	Change      *PullRequestChange  `json:"change,omitempty"`
+}
+
+// PullRequestPayload contains only provider fields used to authorize and pin a PR build.
+type PullRequestPayload struct {
+	Number int64  `json:"number"`
+	State  string `json:"state"`
+	Title  string `json:"title"`
+	User   struct {
+		Login string `json:"login"`
+	} `json:"user"`
+	Head struct {
+		Ref  string `json:"ref"`
+		SHA  string `json:"sha"`
+		Repo *struct {
+			ID int64 `json:"id"`
+		} `json:"repo"`
+	} `json:"head"`
+	Base struct {
+		Ref  string `json:"ref"`
+		Repo *struct {
+			ID int64 `json:"id"`
+		} `json:"repo"`
+	} `json:"base"`
+}
+
+// PullRequestChange is the bounded, credential-free metadata persisted for a build.
+type PullRequestChange struct {
+	ID     string `json:"id"`
+	Target string `json:"target"`
+	Branch string `json:"branch"`
+	Title  string `json:"title"`
+	Author string `json:"author"`
 }
 
 // MatchesRepository accepts the clone identities emitted by supported push providers.
@@ -158,10 +196,11 @@ func (h *WebhookHandler) HandleGiteaWebhook(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *WebhookHandler) handlePayload(w http.ResponseWriter, body io.Reader, provider, deliveryID, event string, raw []byte) {
-	// Providers send other event types to the same endpoint. Only pushes can
-	// create a build; tolerate absent event headers from compatible senders.
+	// Providers send other event types to the same endpoint. PR events are
+	// identified by the verified provider header, not by a body-supplied field.
 	event = strings.ToLower(strings.TrimSpace(event))
-	if event != "" && event != "push" && !(provider == "gitlab" && (event == "push hook" || event == "tag push hook")) {
+	prEvent := (provider == "github" && event == "pull_request") || (provider == "gitea" && (event == "pull_request" || event == "pull_request_sync"))
+	if !prEvent && event != "" && event != "push" && !(provider == "gitlab" && (event == "push hook" || event == "tag push hook")) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -169,6 +208,15 @@ func (h *WebhookHandler) handlePayload(w http.ResponseWriter, body io.Reader, pr
 	if err := json.NewDecoder(body).Decode(&payload); err != nil {
 		http.Error(w, "Failed to parse payload", http.StatusBadRequest)
 		return
+	}
+	payload.Kind = "push"
+	if prEvent {
+		payload.Kind = "pull_request"
+		action := strings.ToLower(strings.TrimSpace(payload.Action))
+		if action != "opened" && action != "reopened" && action != "synchronize" && !(provider == "gitea" && action == "synchronized") {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 	}
 	hash := sha256.Sum256(raw)
 	payload.Provider, payload.DeliveryID, payload.BodyHash = provider, deliveryID, hex.EncodeToString(hash[:])

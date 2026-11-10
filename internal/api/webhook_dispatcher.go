@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/neko233-com/buildworld/internal/engine"
 	"github.com/neko233-com/buildworld/internal/store"
 	"github.com/neko233-com/buildworld/internal/webhook"
 )
@@ -78,11 +80,35 @@ func (h *handlers) receiveWebhook(payload webhook.WebhookPayload) error {
 		return errors.New("missing or invalid provider delivery ID")
 	}
 	branch, commit, _ := webhook.ParsePushEvent(payload)
+	var change *webhook.PullRequestChange
+	if payload.Kind == "pull_request" {
+		pr := payload.PullRequest
+		if pr == nil || payload.Number < 1 || (pr.Number != 0 && pr.Number != payload.Number) || !strings.EqualFold(pr.State, "open") {
+			return errors.New("invalid pull request event")
+		}
+		// An enabled project can execute its Jenkinsfile with configured
+		// credentials. Do not automatically execute code from another repository.
+		if payload.Repository.ID < 1 || pr.Head.Repo == nil || pr.Base.Repo == nil || pr.Head.Repo.ID != payload.Repository.ID || pr.Base.Repo.ID != payload.Repository.ID {
+			return nil
+		}
+		id := strconv.FormatInt(payload.Number, 10)
+		branch = "refs/pull/" + id + "/head"
+		commit = pr.Head.SHA
+		change = &webhook.PullRequestChange{ID: id, Target: pr.Base.Ref, Branch: pr.Head.Ref, Title: pr.Title, Author: pr.User.Login}
+		for _, value := range []string{change.Target, change.Branch, change.Title, change.Author} {
+			if len(value) > 2048 || strings.ContainsRune(value, '\x00') {
+				return errors.New("invalid pull request metadata")
+			}
+		}
+	}
+	if change == nil && strings.HasPrefix(strings.TrimSpace(payload.Ref), "refs/pull/") {
+		return errors.New("PR refs require an authenticated PR event and project opt-in")
+	}
 	if len(payload.Ref) > 1024 {
 		return errors.New("webhook ref is too long")
 	}
 	if branch != "" && !webhook.ValidCommitID(commit) {
-		return errors.New("webhook push requires a complete immutable commit ID")
+		return errors.New("webhook build requires a complete immutable commit ID")
 	}
 	projects, err := h.d.Store.ListProjects()
 	if err != nil {
@@ -94,6 +120,9 @@ func (h *handlers) receiveWebhook(payload webhook.WebhookPayload) error {
 			if !p.Enabled {
 				continue
 			}
+			if change != nil && (!p.PullRequestWebhook || !strings.EqualFold(strings.TrimSpace(p.PipelineSourceMode), "scm") || !strings.EqualFold(strings.TrimSpace(p.PipelineFormat), "jenkinsfile")) {
+				continue
+			}
 			repository := strings.TrimSpace(p.RepoURL)
 			if strings.EqualFold(strings.TrimSpace(p.PipelineSourceMode), "scm") {
 				repository = strings.TrimSpace(p.PipelineSCMRepo)
@@ -103,9 +132,12 @@ func (h *handlers) receiveWebhook(payload webhook.WebhookPayload) error {
 			}
 		}
 	}
-	// No repository URL, commit message or sender is needed after matching;
-	// persist only the immutable source identity, never embedded URL credentials.
+	// Never persist repository URLs or credentials in a webhook delivery. PR
+	// builds additionally retain only the bounded fields needed by conditions.
 	stored := webhook.WebhookPayload{Ref: payload.Ref}
+	if change != nil {
+		stored.Kind, stored.Ref, stored.Change = "pull_request", branch, change
+	}
 	if branch != "" {
 		stored.After = commit
 	}
@@ -159,10 +191,24 @@ func (h *handlers) processWebhookTarget(ctx context.Context, target *store.Webho
 	if err := json.Unmarshal([]byte(target.Payload), &payload); err != nil {
 		return err
 	}
+	if payload.Kind == "pull_request" && !project.PullRequestWebhook && target.BuildID == 0 {
+		return h.d.Store.FinishWebhookTarget(target, "skipped", "PR webhook disabled", time.Time{})
+	}
 	branch, commit, _ := webhook.ParsePushEvent(payload)
 	config, revision, parameters, err := h.prepareProjectBuild(ctx, project, branch, commit, nil)
 	if err != nil {
 		return err
+	}
+	if payload.Kind == "pull_request" {
+		if payload.Change == nil || branch != "refs/pull/"+payload.Change.ID+"/head" {
+			return errors.New("missing PR metadata")
+		}
+		parameters, err = engine.AttachJenkinsChangeRequestContext(parameters, engine.JenkinsChangeRequestContext{
+			ID: payload.Change.ID, Target: payload.Change.Target, Branch: payload.Change.Branch, Title: payload.Change.Title, Author: payload.Change.Author,
+		})
+		if err != nil {
+			return err
+		}
 	}
 	hold, err := h.approvalHold(config)
 	if err != nil {
