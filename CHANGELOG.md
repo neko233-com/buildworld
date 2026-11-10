@@ -17,6 +17,9 @@ All notable BuildWorld changes are recorded here. The project follows
   through automatic retry.
 - Allocate per-project build numbers atomically for concurrent triggers and
   retries, including simultaneous approval-required builds.
+- Preserve declarative stage timeouts, evaluate Jenkins `equals` and numeric
+  comparisons without losing integer precision, and reject unsupported stage
+  approval, agent, post and nested execution rather than silently bypassing them.
 
 ## [1.16.27] - 2026-11-11
 

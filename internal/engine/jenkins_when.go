@@ -1,14 +1,20 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 )
+
+// A NUL-containing key cannot originate from an OS environment variable.
+const jenkinsBuildNumberContextKey = "\x00buildworld.currentBuild.number"
 
 // ValidateJenkinsWhen accepts only the supported, side-effect-free boolean subset.
 func ValidateJenkinsWhen(condition string) error {
@@ -31,11 +37,14 @@ func validateJenkinsExpr(expr ast.Expr) error {
 			return nil
 		}
 	case *ast.BasicLit:
-		if node.Kind == token.STRING {
+		if node.Kind == token.STRING || node.Kind == token.INT {
 			return nil
 		}
 	case *ast.SelectorExpr:
 		if root, ok := node.X.(*ast.Ident); ok && (root.Name == "params" || root.Name == "env") {
+			return nil
+		}
+		if root, ok := node.X.(*ast.Ident); ok && root.Name == "currentBuild" && node.Sel.Name == "number" {
 			return nil
 		}
 	case *ast.CallExpr:
@@ -59,8 +68,13 @@ func validateJenkinsExpr(expr ast.Expr) error {
 		if node.Op == token.NOT {
 			return validateJenkinsExpr(node.X)
 		}
+		if node.Op == token.SUB {
+			if literal, ok := node.X.(*ast.BasicLit); ok && literal.Kind == token.INT {
+				return nil
+			}
+		}
 	case *ast.BinaryExpr:
-		if node.Op == token.LAND || node.Op == token.LOR || node.Op == token.EQL || node.Op == token.NEQ {
+		if node.Op == token.LAND || node.Op == token.LOR || node.Op == token.EQL || node.Op == token.NEQ || node.Op == token.LSS || node.Op == token.LEQ || node.Op == token.GTR || node.Op == token.GEQ {
 			if err := validateJenkinsExpr(node.X); err != nil {
 				return err
 			}
@@ -101,8 +115,12 @@ func jenkinsTruth(value interface{}) (bool, error) {
 		return v != "", nil
 	case float64:
 		return v != 0, nil
-	case int:
-		return v != 0, nil
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, json.Number:
+		n, _, err := jenkinsNumeric(v)
+		if err != nil {
+			return false, err
+		}
+		return n.Sign() != 0, nil
 	default:
 		return false, fmt.Errorf("unsupported Jenkins truth value %T", value)
 	}
@@ -118,8 +136,26 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 		}
 		return node.Name == "true", nil
 	case *ast.BasicLit:
+		if node.Kind == token.INT {
+			number, err := strconv.ParseInt(node.Value, 0, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid or excessive Jenkins integer")
+			}
+			return json.Number(strconv.FormatInt(number, 10)), nil
+		}
 		return strconv.Unquote(node.Value)
 	case *ast.SelectorExpr:
+		if root, ok := node.X.(*ast.Ident); ok && root.Name == "currentBuild" {
+			value, exists := environment[jenkinsBuildNumberContextKey]
+			if !exists {
+				value = environment["BUILD_NUMBER"]
+			}
+			number, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || number < 1 {
+				return nil, fmt.Errorf("Jenkins build number is unavailable")
+			}
+			return json.Number(strconv.FormatInt(number, 10)), nil
+		}
 		if root, ok := node.X.(*ast.Ident); ok && root.Name == "env" {
 			if value, found := environment[node.Sel.Name]; found {
 				return value, nil
@@ -131,7 +167,7 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 			return nil, nil
 		}
 		switch v.(type) {
-		case bool, string, nil, float64, int:
+		case bool, string, nil, float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, json.Number:
 			return v, nil
 		}
 		return nil, fmt.Errorf("unsupported Jenkins parameter %q type %T", node.Sel.Name, v)
@@ -191,6 +227,14 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 			return strings.EqualFold(s, "true") || strings.EqualFold(s, "y") || s == "1", nil
 		}
 	case *ast.UnaryExpr:
+		if node.Op == token.SUB {
+			literal := node.X.(*ast.BasicLit)
+			number, err := strconv.ParseInt("-"+literal.Value, 0, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid or excessive Jenkins integer")
+			}
+			return json.Number(strconv.FormatInt(number, 10)), nil
+		}
 		v, err := evalJenkinsExpr(node.X, params, environment, branch)
 		if err != nil {
 			return nil, err
@@ -227,12 +271,111 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 		case token.LOR:
 			return jenkinsTruth(right)
 		case token.EQL:
-			return left == right, nil
+			return jenkinsEqual(left, right)
 		case token.NEQ:
-			return left != right, nil
+			equal, err := jenkinsEqual(left, right)
+			return !equal, err
+		case token.LSS, token.LEQ, token.GTR, token.GEQ:
+			comparison, err := jenkinsCompare(left, right)
+			if err != nil {
+				return false, err
+			}
+			switch node.Op {
+			case token.LSS:
+				return comparison < 0, nil
+			case token.LEQ:
+				return comparison <= 0, nil
+			case token.GTR:
+				return comparison > 0, nil
+			default:
+				return comparison >= 0, nil
+			}
 		}
 	}
 	return false, fmt.Errorf("unsupported Jenkins expression")
+}
+
+// jenkinsEqual keeps numeric values numeric and never coerces strings to numbers.
+func jenkinsEqual(left, right interface{}) (bool, error) {
+	a, aNumber, err := jenkinsNumeric(left)
+	if err != nil {
+		return false, err
+	}
+	b, bNumber, err := jenkinsNumeric(right)
+	if err != nil {
+		return false, err
+	}
+	if aNumber || bNumber {
+		return aNumber && bNumber && a.Cmp(b) == 0, nil
+	}
+	return left == right, nil
+}
+
+func jenkinsNumeric(value interface{}) (*big.Rat, bool, error) {
+	var text string
+	switch v := value.(type) {
+	case json.Number:
+		text = string(v)
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		text = fmt.Sprint(v)
+	case float32:
+		text = strconv.FormatFloat(float64(v), 'g', -1, 32)
+	case float64:
+		text = strconv.FormatFloat(v, 'g', -1, 64)
+	default:
+		return nil, false, nil
+	}
+	if len(text) > 256 {
+		return nil, true, fmt.Errorf("Jenkins number is too large")
+	}
+	if index := strings.IndexAny(text, "eE"); index >= 0 {
+		exponent, err := strconv.Atoi(text[index+1:])
+		if err != nil || exponent < -1000 || exponent > 1000 {
+			return nil, true, fmt.Errorf("Jenkins number exponent is out of range")
+		}
+	}
+	number, ok := new(big.Rat).SetString(text)
+	if !ok {
+		return nil, true, fmt.Errorf("invalid Jenkins number")
+	}
+	return number, true, nil
+}
+
+func jenkinsCompare(left, right interface{}) (int, error) {
+	a, aNumber, err := jenkinsNumeric(left)
+	if err != nil {
+		return 0, err
+	}
+	b, bNumber, err := jenkinsNumeric(right)
+	if err != nil {
+		return 0, err
+	}
+	if aNumber && bNumber {
+		return a.Cmp(b), nil
+	}
+	if l, ok := left.(string); ok {
+		if r, ok := right.(string); ok {
+			// Java String.compareTo compares UTF-16 code units, including pairs
+			// for supplementary characters, rather than Unicode code points.
+			a, b := utf16.Encode([]rune(l)), utf16.Encode([]rune(r))
+			for i := 0; i < len(a) && i < len(b); i++ {
+				if a[i] < b[i] {
+					return -1, nil
+				}
+				if a[i] > b[i] {
+					return 1, nil
+				}
+			}
+			if len(a) < len(b) {
+				return -1, nil
+			}
+			if len(a) > len(b) {
+				return 1, nil
+			}
+			return 0, nil
+		}
+	}
+	return 0, fmt.Errorf("Jenkins values are not comparable")
 }
 
 // matchJenkinsBranch implements the default case-insensitive Ant-style path glob.

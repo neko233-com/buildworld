@@ -278,10 +278,11 @@ validates translated output. It does not create an intermediate JSON or Markdown
 pipeline.
 
 Jenkins `when` supports `allOf`, `anyOf`, `not`, branch and tag patterns,
-`buildingTag()`, environment equality and a side-effect-free expression subset.
+`buildingTag()`, environment equality, `equals`, and a side-effect-free expression subset.
 Branch and tag patterns support `GLOB`, `EQUALS` and `REGEXP` comparators; Go's
 regular-expression syntax is narrower than Java's. Expressions support `params`
-and `env`, boolean operators, equality and `toString().toBoolean()`; nonempty
+and `env`, `currentBuild.number`, boolean and ordered comparisons, equality and
+`toString().toBoolean()`; numeric parameters keep JSON precision, while nonempty
 strings are true under Groovy truth. Pipeline environment is visible to `when`;
 the stage's own environment applies after its condition succeeds. Tag conditions
 require a populated `TAG_NAME`.
@@ -291,6 +292,12 @@ unconditionally. `beforeAgent`, `beforeInput` and `beforeOptions` are not yet
 supported. Conditional Jenkins stages cannot be dispatched to remote workers.
 Re-import previously converted pipelines from the Jenkinsfile so conditions
 discarded by older versions are restored.
+
+Stage `options { timeout(...) }` supports positive integral seconds, minutes
+(the default), hours and days. Stage-level or step-level `input`, stage `post`,
+`parallel`, `matrix`, nested stages, unsupported options and specific stage
+agents fail validation rather than being ignored. With root `agent none`, each
+supported executable stage must use `agent any`.
 
 SCM build triggers resolve the selected branch and immutable commit before
 deriving parameter defaults and approval requirements. The same commit supplies

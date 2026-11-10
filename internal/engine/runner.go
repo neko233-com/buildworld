@@ -723,6 +723,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			conditionEnvironment[name] = value
 		}
 	}
+	conditionEnvironment[jenkinsBuildNumberContextKey] = strconv.Itoa(build.Number)
 
 	totalStages := len(cfg.Stages)
 	var failedSteps []string
@@ -738,13 +739,29 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			stageStatuses[stageKey] = StageStatusSkipped
 			continue
 		}
+		// Declarative stage options wrap the default when evaluation. Starting
+		// this deadline here also covers evaluating a supported condition.
+		stageCtx := ctx
+		cancelStage := func() {}
+		if stage.TimeoutSec > 0 {
+			stageCtx, cancelStage = context.WithTimeout(ctx, time.Duration(stage.TimeoutSec)*time.Second)
+		}
 		shouldRun, conditionErr := ShouldRunStageWithJenkinsContext(stage, stageStatuses, params, conditionEnvironment, branch)
+		if errors.Is(stageCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			cancelStage()
+			r.log(buildID, stage.Name, fmt.Sprintf("Stage timed out after %ds", stage.TimeoutSec))
+			r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
+			r.fail(buildID, start, fmt.Sprintf("stage %q timed out after %ds", stage.Name, stage.TimeoutSec), project)
+			return
+		}
 		if conditionErr != nil {
+			cancelStage()
 			r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 			r.fail(buildID, start, fmt.Sprintf("stage %q condition: %v", stage.Name, conditionErr), project)
 			return
 		}
 		if !shouldRun {
+			cancelStage()
 			r.log(buildID, stage.Name, "SKIPPED: dependency/if condition evaluated to false")
 			stageStatuses[stageKey] = StageStatusSkipped
 			continue
@@ -752,11 +769,6 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		r.log(buildID, stage.Name, fmt.Sprintf("=== Stage: %s ===", stage.Name))
 		r.broadcastStatus(buildID, "running", stage.Name, float64(i)/float64(totalStages))
 
-		stageCtx := ctx
-		cancelStage := func() {}
-		if stage.TimeoutSec > 0 {
-			stageCtx, cancelStage = context.WithTimeout(ctx, time.Duration(stage.TimeoutSec)*time.Second)
-		}
 		stageEnv := AppendPipelineEnvironment(env, stage.Environment)
 		stageBaseEnvLength := len(stageEnv)
 		stageFailed := false
@@ -1738,7 +1750,12 @@ func parseParams(jsonStr string) map[string]interface{} {
 		return nil
 	}
 	var m map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &m); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(jsonStr))
+	decoder.UseNumber()
+	if err := decoder.Decode(&m); err != nil {
+		return nil
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return nil
 	}
 	return m

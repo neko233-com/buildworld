@@ -148,7 +148,8 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 		return nil, fmt.Errorf("declarative Jenkinsfile must contain stages { ... }")
 	}
 	stageSource := pipelineSource[stagesBlock.start:stagesBlock.end]
-	stages, err := parseJenkinsStages(stageSource, &warnings)
+	rootAgent := directJenkinsAgent(pipelineMask)
+	stages, err := parseJenkinsStages(stageSource, rootAgent == "none", &warnings)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +204,9 @@ func convertScriptedJenkinsfile(request Request, source, mask string) (*Result, 
 	}
 	warnings := make([]Warning, 0)
 	nodeSource := source[node.start:node.end]
+	if containsJenkinsInputStep(nodeSource) {
+		return nil, fmt.Errorf("Jenkins input step is not supported; refusing to bypass approval")
+	}
 	parseScriptedEnvironment(nodeSource, config.Environment, &warnings)
 	stages, err := parseScriptedJenkinsStages(nodeSource, &warnings)
 	if err != nil {
@@ -535,6 +539,34 @@ func namedDirectBlock(source, mask, name string) (sourceRange, bool) {
 	return sourceRange{}, false
 }
 
+func directJenkinsAgent(mask string) string {
+	depth := 0
+	for cursor := 0; cursor < len(mask); cursor++ {
+		switch mask[cursor] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+		default:
+			if depth == 0 && strings.HasPrefix(mask[cursor:], "agent") && (cursor == 0 || !isIdentifierByte(mask[cursor-1])) && (cursor+5 == len(mask) || !isIdentifierByte(mask[cursor+5])) {
+				next := skipSpace(mask, cursor+5, len(mask))
+				if next >= len(mask) {
+					return "invalid"
+				}
+				if mask[next] == '{' {
+					return "specific"
+				}
+				index, word := nextIdentifier(mask, next)
+				if index == next && (word == "any" || word == "none") {
+					return word
+				}
+				return "invalid"
+			}
+		}
+	}
+	return ""
+}
+
 func parseJenkinsEnvironment(source string, environment map[string]string, warnings *[]Warning) {
 	matches := environmentAssignment.FindAllStringSubmatch(source, -1)
 	for _, match := range matches {
@@ -603,7 +635,114 @@ func parseJenkinsAgent(source, mask string, config *engine.BuildConfig, warnings
 	*warnings = appendWarning(*warnings, "agent_review_required", "The Jenkins agent declaration is more specific than agent any; map its image or workspace requirements to a distributed Worker.")
 }
 
-func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, error) {
+// parseJenkinsStageOptions preserves the supported timeout and rejects other
+// stage wrappers instead of executing a stage with silently discarded guards.
+func parseJenkinsStageOptions(source string) (int, error) {
+	mask := groovyCodeMask(source)
+	timeout := 0
+	for cursor := 0; cursor < len(mask); {
+		cursor = skipSpace(mask, cursor, len(mask))
+		if cursor == len(mask) {
+			break
+		}
+		if mask[cursor] == ';' {
+			cursor++
+			continue
+		}
+		index, word := nextIdentifier(mask, cursor)
+		if index != cursor || word != "timeout" || timeout != 0 {
+			return 0, fmt.Errorf("unsupported or duplicate stage option")
+		}
+		open := skipSpace(mask, index+len(word), len(mask))
+		if open >= len(mask) || mask[open] != '(' {
+			return 0, fmt.Errorf("stage timeout requires named arguments")
+		}
+		close, ok := matchingDelimiter(mask, open, '(', ')', len(mask))
+		if !ok {
+			return 0, fmt.Errorf("unterminated stage timeout")
+		}
+		values := make(map[string]string)
+		for _, part := range strings.Split(source[open+1:close], ",") {
+			name, value, found := strings.Cut(part, ":")
+			name, value = strings.TrimSpace(name), strings.TrimSpace(value)
+			if !found || (name != "time" && name != "unit") || value == "" {
+				return 0, fmt.Errorf("unsupported stage timeout argument")
+			}
+			if _, exists := values[name]; exists {
+				return 0, fmt.Errorf("duplicate stage timeout argument %s", name)
+			}
+			values[name] = value
+		}
+		value, err := strconv.ParseInt(values["time"], 10, 64)
+		if err != nil || value <= 0 || value > 2147483647 {
+			return 0, fmt.Errorf("stage timeout must be a positive integer")
+		}
+		unit := "MINUTES"
+		if raw, found := values["unit"]; found {
+			parsed, end, ok := parseGroovyString(raw, 0)
+			if !ok || end != len(raw) || strings.ContainsAny(parsed, "\\\r\n$") {
+				return 0, fmt.Errorf("stage timeout unit must be a literal")
+			}
+			unit = parsed
+		}
+		multiplier := map[string]int64{"SECONDS": 1, "MINUTES": 60, "HOURS": 3600, "DAYS": 86400}[unit]
+		if multiplier == 0 || value > 9223372036/multiplier || value > int64(int(^uint(0)>>1))/multiplier {
+			return 0, fmt.Errorf("unsupported or excessive stage timeout")
+		}
+		timeout = int(value * multiplier)
+		cursor = close + 1
+	}
+	return timeout, nil
+}
+
+func containsJenkinsInputStep(source string) bool {
+	mask := groovyCodeMask(source)
+	for cursor := 0; cursor < len(mask); {
+		index := findToken(mask, "input", cursor, len(mask))
+		if index < 0 {
+			return false
+		}
+		next := skipGroovyTrivia(source, index+len("input"))
+		if next < len(source) && (source[next] == '(' || source[next] == '\'' || source[next] == '"') {
+			return true
+		}
+		name, word := nextIdentifier(mask, next)
+		if name == next && word != "" {
+			after := skipSpace(mask, name+len(word), len(mask))
+			if after < len(mask) && mask[after] == ':' {
+				return true
+			}
+		}
+		cursor = index + len("input")
+	}
+	return false
+}
+
+func skipGroovyTrivia(source string, cursor int) int {
+	for cursor < len(source) {
+		cursor = skipSourceSpace(source, cursor, len(source))
+		if strings.HasPrefix(source[cursor:], "/*") {
+			end := strings.Index(source[cursor+2:], "*/")
+			if end < 0 {
+				return len(source)
+			}
+			cursor += end + 4
+			continue
+		}
+		if strings.HasPrefix(source[cursor:], "//") {
+			end := strings.IndexByte(source[cursor:], '\n')
+			if end < 0 {
+				return len(source)
+			}
+			cursor += end + 1
+			continue
+		}
+		return cursor
+	}
+	return cursor
+}
+
+func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) ([]engine.Stage, error) {
 	mask := groovyCodeMask(source)
 	stages := make([]engine.Stage, 0)
 	for position := 0; position < len(source); {
@@ -634,6 +773,29 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 		}
 		body := source[cursor+1 : closeBody]
 		bodyMask := mask[cursor+1 : closeBody]
+		stageAgent := directJenkinsAgent(bodyMask)
+		if stageAgent != "" && stageAgent != "any" {
+			return nil, fmt.Errorf("stage %q: this Jenkins agent cannot be represented by the local executor", stageName)
+		}
+		if rootAgentNone && stageAgent != "any" {
+			return nil, fmt.Errorf("stage %q: pipeline agent none requires a supported stage agent", stageName)
+		}
+		if _, found := namedDirectBlock(body, bodyMask, "input"); found {
+			return nil, fmt.Errorf("stage %q: Jenkins stage input is not supported; refusing to bypass approval", stageName)
+		}
+		for _, directive := range []string{"post", "parallel", "matrix", "stages"} {
+			if _, found := namedDirectBlock(body, bodyMask, directive); found {
+				return nil, fmt.Errorf("stage %q: Jenkins %s is not supported at stage scope", stageName, directive)
+			}
+		}
+		stageTimeout := 0
+		if options, found := namedDirectBlock(body, bodyMask, "options"); found {
+			var err error
+			stageTimeout, err = parseJenkinsStageOptions(body[options.start:options.end])
+			if err != nil {
+				return nil, fmt.Errorf("stage %q options: %w", stageName, err)
+			}
+		}
 		branches, whenExpression, whenErr := parseJenkinsWhen(body, bodyMask)
 		if whenErr != nil {
 			return nil, fmt.Errorf("stage %q when: %w", stageName, whenErr)
@@ -649,21 +811,24 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			continue
 		}
 		stepSource := body[stepsBlock.start:stepsBlock.end]
+		if containsJenkinsInputStep(stepSource) {
+			return nil, fmt.Errorf("stage %q: Jenkins input step is not supported; refusing to bypass approval", stageName)
+		}
 		if steps, stepWarnings, ok := translateJenkinsStageWatchSteps(stepSource, strings.TrimSpace(stageName)); ok {
 			for _, warning := range stepWarnings {
 				*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
 			}
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, Steps: steps})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: steps})
 			position = closeBody + 1
 			continue
 		}
 		if watch, ok := extractJenkinsServiceWatch(stepSource, strings.TrimSpace(stageName)); ok {
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, Steps: []engine.Step{watch}})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: []engine.Step{watch}})
 			position = closeBody + 1
 			continue
 		}
 		if command, ok := translateJenkinsPIDStopStage(stepSource); ok {
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, Steps: []engine.Step{{
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: []engine.Step{{
 				Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + command,
 			}}})
 			position = closeBody + 1
@@ -683,6 +848,7 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			Branches:    branches,
 			JenkinsWhen: whenExpression,
 			Environment: stageEnvironment,
+			TimeoutSec:  stageTimeout,
 			Steps: []engine.Step{{
 				Name:    strings.TrimSpace(stageName),
 				Type:    "shell",
@@ -827,6 +993,9 @@ func parseScriptedJenkinsStages(source string, warnings *[]Warning) ([]engine.St
 // HTTP connection, where low-speed safeguards cannot help. Bound migrated Git
 // sync stages independently instead of consuming the whole build timeout.
 func applyJenkinsGitStageTimeout(stage *engine.Stage) {
+	if stage.TimeoutSec > 0 {
+		return
+	}
 	for _, step := range stage.Steps {
 		if isPureJenkinsGitSyncCommand(step.Command) {
 			stage.TimeoutSec = jenkinsGitStageTimeout
@@ -1024,6 +1193,30 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 			}
 			conditions = append(conditions, "jenkinsEnvironment("+strconv.Quote(values["name"])+","+strconv.Quote(value)+")")
 			cursor = end
+		case "equals":
+			position := skipSourceSpace(source, after, len(source))
+			var values map[string]string
+			var end int
+			var err error
+			if position < len(mask) && mask[position] == '(' {
+				close, ok := matchingDelimiter(mask, position, '(', ')', len(mask))
+				if !ok {
+					return "", fmt.Errorf("unterminated equals arguments")
+				}
+				var tail int
+				values, tail, err = parseWhenNamedExpressions(source[position+1:close], mask[position+1:close], 0)
+				if err == nil && strings.TrimSpace(mask[position+1+tail:close]) != "" {
+					err = fmt.Errorf("unexpected equals argument")
+				}
+				end = close + 1
+			} else {
+				values, end, err = parseWhenNamedExpressions(source, mask, position)
+			}
+			if err != nil || len(values) != 2 || values["expected"] == "" || values["actual"] == "" {
+				return "", fmt.Errorf("equals requires supported expected and actual expressions")
+			}
+			conditions = append(conditions, "("+values["expected"]+") == ("+values["actual"]+")")
+			cursor = end
 		default:
 			return "", fmt.Errorf("unsupported condition %q", word)
 		}
@@ -1038,6 +1231,55 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 		return conditions[0], nil
 	}
 	return strings.Join(conditions, " "+operator+" "), nil
+}
+
+func parseWhenNamedExpressions(source, mask string, cursor int) (map[string]string, int, error) {
+	values := make(map[string]string)
+	for {
+		cursor = skipSourceSpace(source, cursor, len(source))
+		start := cursor
+		for cursor < len(source) && isIdentifierByte(source[cursor]) {
+			cursor++
+		}
+		name := source[start:cursor]
+		cursor = skipSourceSpace(source, cursor, len(source))
+		if name == "" || cursor >= len(source) || source[cursor] != ':' {
+			return nil, 0, fmt.Errorf("expected named expression")
+		}
+		cursor = skipSourceSpace(source, cursor+1, len(source))
+		start = cursor
+		depth := 0
+		for cursor < len(mask) {
+			c := mask[cursor]
+			if depth == 0 && (c == ',' || c == ';' || c == '\n' || c == '\r') {
+				break
+			}
+			if c == '(' {
+				depth++
+			} else if c == ')' {
+				depth--
+				if depth < 0 {
+					return nil, 0, fmt.Errorf("unbalanced expression")
+				}
+			}
+			cursor++
+		}
+		if depth != 0 {
+			return nil, 0, fmt.Errorf("unbalanced expression")
+		}
+		expression, ok := normalizeJenkinsWhenStrings(strings.TrimSpace(source[start:cursor]))
+		if !ok || expression == "" || engine.ValidateJenkinsWhen(expression) != nil {
+			return nil, 0, fmt.Errorf("unsupported named expression")
+		}
+		if _, exists := values[name]; exists {
+			return nil, 0, fmt.Errorf("duplicate named expression")
+		}
+		values[name] = expression
+		if cursor >= len(source) || source[cursor] != ',' {
+			return values, cursor, nil
+		}
+		cursor++
+	}
 }
 
 func makeWhenPattern(values map[string]string, kind, function string) (string, error) {

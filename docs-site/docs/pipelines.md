@@ -32,9 +32,11 @@ revision snapshot.
 
 Imported Jenkinsfiles support nested `allOf`, `anyOf`, and `not`, implicit
 AND between sibling conditions, literal `branch` and `tag` patterns with `GLOB`,
-`EQUALS`, or `REGEXP` comparators, `buildingTag()`, literal `environment` checks, and a
-side-effect-free expression subset. Expressions support `params` and `env`
-values, boolean operators, equality comparisons, and `toString().toBoolean()`.
+`EQUALS`, or `REGEXP` comparators, `buildingTag()`, literal `environment` checks,
+`equals` with supported expressions, and a side-effect-free expression subset.
+Expressions support `params`, `env`, `currentBuild.number`, boolean operators,
+equality and ordered comparisons, and `toString().toBoolean()`. Numeric
+parameters retain their JSON precision; strings are not coerced to numbers.
 Groovy truth applies: a nonempty string such as `"false"` is true unless it
 is explicitly converted. Branch GLOB matching is case-insensitive and follows
 Ant-style path segments. Pipeline environment is visible to `when`; a stage's
@@ -49,6 +51,12 @@ are rejected rather than silently running a guarded stage. REGEXP patterns
 must be accepted by Go's regular-expression engine, which supports a smaller
 syntax than Java's. Verify jobs using unsupported Jenkins plugins or features
 against Jenkins before migrating them.
+
+Stage `options { timeout(...) }` supports positive integral times in seconds,
+minutes (the default), hours or days. Stage input and input steps, stage-level
+`post`, `parallel`, `matrix`, nested stages, other stage options, and specific
+stage agents are not implemented and fail validation. With root `agent none`,
+each supported executable stage must explicitly use `agent any`.
 
 ## TypeScript pipeline
 
