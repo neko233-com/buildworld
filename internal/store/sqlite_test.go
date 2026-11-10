@@ -59,6 +59,86 @@ func TestConcurrentBuildNumberAllocationAndApprovalHold(t *testing.T) {
 	}
 }
 
+func TestConcurrentRetryAndPrunePreservesParent(t *testing.T) {
+	data, cleanup := newTestStore(t)
+	defer cleanup()
+	project, err := data.CreateProject("retry-prune-race", "", "", "git", "main", "{}", 0, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ {
+		parent, err := data.CreateNextBuildWithApproval(project.ID, "webhook", "refs/pull/42/head", "abc", `{"test":"value"}`, nil, nil, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := data.FinishBuild(parent.ID, "failed", 1); err != nil {
+			t.Fatal(err)
+		}
+		start := make(chan struct{})
+		type result struct {
+			build *Build
+			err   error
+		}
+		retries := make(chan result, 1)
+		pruned := make(chan error, 1)
+		go func() {
+			<-start
+			build, err := data.RetryBuildWithApproval(parent.ID, true)
+			retries <- result{build, err}
+		}()
+		go func() { <-start; pruned <- data.PruneCompletedBuilds(project.ID, 0) }()
+		close(start)
+		retry, pruneErr := <-retries, <-pruned
+		if pruneErr != nil {
+			t.Fatal(pruneErr)
+		}
+		if errors.Is(retry.err, sql.ErrNoRows) {
+			continue
+		}
+		if retry.err != nil {
+			t.Fatal(retry.err)
+		}
+		if retry.build == nil || retry.build.RetriedFrom == nil || *retry.build.RetriedFrom != parent.ID || retry.build.Status != "pending_approval" || retry.build.Branch != parent.Branch || retry.build.CommitSHA != parent.CommitSHA || retry.build.Parameters != parent.Parameters {
+			t.Fatalf("invalid retry: %+v parent: %+v", retry.build, parent)
+		}
+		if _, err := data.GetBuild(parent.ID); err != nil {
+			t.Fatalf("live retry lost parent: %v", err)
+		}
+	}
+}
+
+func TestPruneRollsBackRelatedRecordsOnFailure(t *testing.T) {
+	data, cleanup := newTestStore(t)
+	defer cleanup()
+	project, err := data.CreateProject("prune-rollback", "", "", "git", "main", "{}", 0, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build, err := data.CreateBuild(project.ID, 1, "manual", "main", "sha", "{}", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkout := JenkinsSCMCheckout{BuildID: build.ID, ProjectID: project.ID, BuildNumber: 1, RepositoryHash: "repo", Branch: "main", Revision: "sha", HistoryKnown: true, ChangesJSON: `[]`}
+	if err := data.SaveJenkinsSCMCheckout(checkout); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.FinishBuild(build.ID, "success", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.db.Exec(`CREATE TRIGGER reject_build_deletion BEFORE DELETE ON builds BEGIN SELECT RAISE(ABORT, 'fixture failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.PruneCompletedBuilds(project.ID, 0); err == nil {
+		t.Fatal("expected deletion failure")
+	}
+	if _, err := data.GetBuild(build.ID); err != nil {
+		t.Fatalf("build lost after rollback: %v", err)
+	}
+	if record, err := data.JenkinsSCMCheckoutForBuild(build.ID); err != nil || record == nil {
+		t.Fatalf("checkout lost after rollback: %+v, %v", record, err)
+	}
+}
+
 func newTestStore(t *testing.T) (*Store, func()) {
 	t.Helper()
 	tmpFile, err := os.CreateTemp("", "test-*.db")

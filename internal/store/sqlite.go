@@ -921,49 +921,61 @@ func (s *Store) PruneCompletedBuilds(projectID int64, retain int) error {
 	if retain < 0 {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT id FROM builds
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT id FROM builds
 		WHERE project_id = ? AND status IN ('success', 'failed', 'cancelled') AND pinned = 0
 		AND id NOT IN (SELECT retried_from FROM builds WHERE retried_from IS NOT NULL)
 		ORDER BY COALESCE(finished_at, started_at) DESC, id DESC`, projectID)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 	var ids []int64
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
+			rows.Close()
 			return err
 		}
 		ids = append(ids, id)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
 	if len(ids) <= retain {
-		return rows.Err()
+		return tx.Commit()
 	}
 	for _, id := range ids[retain:] {
-		if _, err := s.db.Exec("DELETE FROM jenkins_scm_checkouts WHERE build_id = ?", id); err != nil {
+		if _, err := tx.Exec("DELETE FROM jenkins_scm_checkouts WHERE build_id = ?", id); err != nil {
 			return err
 		}
-		if _, err := s.db.Exec("DELETE FROM notification_events WHERE build_id = ?", id); err != nil {
+		if _, err := tx.Exec("DELETE FROM notification_events WHERE build_id = ?", id); err != nil {
 			return err
 		}
-		if _, err := s.db.Exec("DELETE FROM artifacts WHERE build_id = ?", id); err != nil {
+		if _, err := tx.Exec("DELETE FROM artifacts WHERE build_id = ?", id); err != nil {
 			return err
 		}
-		if _, err := s.db.Exec("DELETE FROM build_queue_items WHERE build_id = ?", id); err != nil {
+		if _, err := tx.Exec("DELETE FROM build_queue_items WHERE build_id = ?", id); err != nil {
 			return err
 		}
-		if _, err := s.db.Exec("DELETE FROM test_results WHERE build_id = ?", id); err != nil {
+		if _, err := tx.Exec("DELETE FROM test_results WHERE build_id = ?", id); err != nil {
 			return err
 		}
-		if _, err := s.db.Exec("DELETE FROM build_approvals WHERE build_id = ?", id); err != nil {
+		if _, err := tx.Exec("DELETE FROM build_approvals WHERE build_id = ?", id); err != nil {
 			return err
 		}
-		if _, err := s.db.Exec("DELETE FROM builds WHERE id = ?", id); err != nil {
+		if _, err := tx.Exec("DELETE FROM builds WHERE id = ?", id); err != nil {
 			return err
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) ListPendingBuilds() ([]*Build, error) {
@@ -1188,12 +1200,33 @@ func (s *Store) RetryBuild(buildID int64) (*Build, error) {
 
 // RetryBuildWithApproval preserves the earlier source identity and atomically holds approval work.
 func (s *Store) RetryBuildWithApproval(buildID int64, approvalRequired bool) (*Build, error) {
-	old, err := s.GetBuild(buildID)
+	status := "pending"
+	if approvalRequired {
+		status = "pending_approval"
+	}
+	// The source lookup and insertion must be one statement: retention may
+	// otherwise remove the parent after it was read but before the retry exists.
+	res, err := s.db.Exec(`INSERT INTO builds
+		(project_id, number, status, trigger, branch, commit_sha, parameters, retried_from, approval_required)
+		SELECT parent.project_id,
+			(SELECT COALESCE(MAX(number), 0) + 1 FROM builds WHERE project_id = parent.project_id),
+			?, 'retry', parent.branch, parent.commit_sha, parent.parameters, parent.id, ?
+		FROM builds AS parent WHERE parent.id = ?`, status, approvalRequired, buildID)
 	if err != nil {
 		return nil, err
 	}
-	retriedFrom := buildID
-	return s.CreateNextBuildWithApproval(old.ProjectID, "retry", old.Branch, old.CommitSHA, old.Parameters, nil, &retriedFrom, approvalRequired)
+	count, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if count != 1 {
+		return nil, sql.ErrNoRows
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return s.GetBuild(id)
 }
 
 func (s *Store) PinBuild(buildID int64, pinned bool) error {
