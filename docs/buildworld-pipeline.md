@@ -292,6 +292,10 @@ the pinned commit, with annotated tag objects verified and peeled. Inline jobs
 retain their existing workspace setup. Other tag conditions require a populated
 `TAG_NAME` in the build environment.
 
+BuildWorld's explicit `::buildworld:set NAME=value` output markers update the
+environment seen by later stages and their `when` conditions. Stage-local
+environment declarations do not leak into later conditions.
+
 `changeRequest()` evaluates the existing `CHANGE_ID` and related `CHANGE_*`
 environment values, including named filters and `EQUALS`, `GLOB` or `REGEXP`
 comparators. No pull-request webhook or automatic change-request metadata is

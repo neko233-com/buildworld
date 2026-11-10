@@ -865,7 +865,15 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			stageEnv = append(stageEnv, outputs...)
 		}
 		cancelStage()
-		env = append(env, stageEnv[stageBaseEnvLength:]...)
+		stageOutputs := stageEnv[stageBaseEnvLength:]
+		env = append(env, stageOutputs...)
+		// Output markers are pipeline-scoped. Stage environment is not, so
+		// only promote the explicit outputs into later Jenkins conditions.
+		for _, entry := range stageOutputs {
+			if name, value, ok := strings.Cut(entry, "="); ok {
+				conditionEnvironment[name] = value
+			}
+		}
 		if stageFailed {
 			stageStatuses[stageKey] = StageStatusFailed
 			r.log(buildID, stage.Name, fmt.Sprintf("=== Stage failed: %s ===", stage.Name))
