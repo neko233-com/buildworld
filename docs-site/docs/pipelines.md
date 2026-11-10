@@ -16,14 +16,17 @@ promises, Node.js APIs, file access, and network access) is rejected.
 ## Jenkins `when` conditions
 
 Imported Jenkinsfiles support nested `allOf`, `anyOf`, and `not`, implicit
-AND between sibling conditions, literal `branch` patterns with `GLOB`,
-`EQUALS`, or `REGEXP` comparators, literal `environment` checks, and a
+AND between sibling conditions, literal `branch` and `tag` patterns with `GLOB`,
+`EQUALS`, or `REGEXP` comparators, `buildingTag()`, literal `environment` checks, and a
 side-effect-free expression subset. Expressions support `params` and `env`
 values, boolean operators, equality comparisons, and `toString().toBoolean()`.
 Groovy truth applies: a nonempty string such as `"false"` is true unless it
 is explicitly converted. Branch GLOB matching is case-insensitive and follows
 Ant-style path segments. Pipeline environment is visible to `when`; a stage's
 own environment is applied to its steps after its `when` succeeds.
+Tag conditions use `TAG_NAME` from the build environment; an absent or empty
+value is not a tag build. Ensure the trigger supplies this value when migrating
+a tag job.
 
 This is not an arbitrary Groovy interpreter. Unsupported expressions,
 declarative conditions, and `beforeAgent`, `beforeInput`, or `beforeOptions`

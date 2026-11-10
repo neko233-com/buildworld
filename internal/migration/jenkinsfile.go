@@ -932,7 +932,22 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 			}
 			conditions = append(conditions, "("+condition+")")
 			cursor = end + 1
-		case "branch":
+		case "buildingTag":
+			position := skipSourceSpace(source, after, len(source))
+			if position < len(source) && source[position] == '(' {
+				end, ok := matchingDelimiter(mask, position, '(', ')', len(mask))
+				if !ok || strings.TrimSpace(source[position+1:end]) != "" {
+					return "", fmt.Errorf("buildingTag does not accept arguments")
+				}
+				position = end + 1
+			}
+			conditions = append(conditions, "jenkinsBuildingTag()")
+			cursor = position
+		case "branch", "tag":
+			function := "jenkinsBranch"
+			if word == "tag" {
+				function = "jenkinsTag"
+			}
 			position := skipSourceSpace(source, after, len(source))
 			if position < len(source) && source[position] == '(' {
 				end, ok := matchingDelimiter(mask, position, '(', ')', len(mask))
@@ -943,16 +958,16 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 				start := skipSourceSpace(inner, 0, len(inner))
 				if start < len(inner) && (inner[start] == '\'' || inner[start] == '"') {
 					value, tail, ok := parseGroovyString(inner, start)
-					if !ok || value == "" || strings.TrimSpace(inner[tail:]) != "" || strings.ContainsAny(inner[start+1:tail-1], "\\\r\n$") {
-						return "", fmt.Errorf("branch requires a literal pattern")
+					if !ok || (word == "branch" && value == "") || strings.TrimSpace(inner[tail:]) != "" || strings.ContainsAny(inner[start+1:tail-1], "\\\r\n$") {
+						return "", fmt.Errorf("%s requires a literal pattern", word)
 					}
-					conditions = append(conditions, "jenkinsBranch("+strconv.Quote(value)+")")
+					conditions = append(conditions, function+"("+strconv.Quote(value)+")")
 				} else {
 					values, tail, err := parseWhenNamedStrings(inner, start)
 					if err != nil || strings.TrimSpace(inner[tail:]) != "" {
 						return "", fmt.Errorf("invalid branch arguments")
 					}
-					condition, err := makeWhenBranch(values)
+					condition, err := makeWhenPattern(values, word, function)
 					if err != nil {
 						return "", err
 					}
@@ -966,7 +981,7 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 				if err != nil {
 					return "", err
 				}
-				condition, err := makeWhenBranch(values)
+				condition, err := makeWhenPattern(values, word, function)
 				if err != nil {
 					return "", err
 				}
@@ -975,10 +990,10 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 				continue
 			}
 			value, end, ok := parseGroovyString(source, position)
-			if !ok || value == "" || strings.ContainsAny(source[position+1:end-1], "\\\r\n$") {
-				return "", fmt.Errorf("branch requires a literal pattern")
+			if !ok || (word == "branch" && value == "") || strings.ContainsAny(source[position+1:end-1], "\\\r\n$") {
+				return "", fmt.Errorf("%s requires a literal pattern", word)
 			}
-			conditions = append(conditions, "jenkinsBranch("+strconv.Quote(value)+")")
+			conditions = append(conditions, function+"("+strconv.Quote(value)+")")
 			cursor = end
 		case "environment":
 			position := skipSourceSpace(source, after, len(source))
@@ -1025,21 +1040,21 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 	return strings.Join(conditions, " "+operator+" "), nil
 }
 
-func makeWhenBranch(values map[string]string) (string, error) {
+func makeWhenPattern(values map[string]string, kind, function string) (string, error) {
 	pattern, exists := values["pattern"]
-	if !exists || pattern == "" || len(values) > 2 {
-		return "", fmt.Errorf("branch requires a literal pattern")
+	if !exists || (kind == "branch" && pattern == "") || len(values) > 2 {
+		return "", fmt.Errorf("%s requires a literal pattern", kind)
 	}
 	for name := range values {
 		if name != "pattern" && name != "comparator" {
-			return "", fmt.Errorf("unsupported branch argument %q", name)
+			return "", fmt.Errorf("unsupported %s argument %q", kind, name)
 		}
 	}
 	comparator := values["comparator"]
 	if comparator == "" {
 		comparator = "GLOB"
 	}
-	return "jenkinsBranch(" + strconv.Quote(pattern) + "," + strconv.Quote(comparator) + ")", nil
+	return function + "(" + strconv.Quote(pattern) + "," + strconv.Quote(comparator) + ")", nil
 }
 
 func parseWhenNamedStrings(source string, cursor int) (map[string]string, int, error) {

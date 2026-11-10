@@ -171,6 +171,33 @@ func TestJenkinsWhenParenthesizedEnvironment(t *testing.T) {
 	}
 }
 
+func TestJenkinsWhenTagConditions(t *testing.T) {
+	for _, tc := range []struct {
+		condition, tag string
+		want           bool
+	}{
+		{`buildingTag()`, "v1.2", true},
+		{`buildingTag()`, "", false},
+		{`tag ''`, "v1.2", true},
+		{`tag ''`, "", false},
+		{`tag 'release-*'`, "RELEASE-1", true},
+		{`tag(pattern: 'v[0-9]+', comparator: 'REGEXP')`, "v12", true},
+		{`tag pattern: 'v1', comparator: 'EQUALS'`, "V1", false},
+		{`allOf { buildingTag(); tag 'release-*' }`, "release-1", true},
+		{`not { buildingTag() }`, "", true},
+	} {
+		source := fmt.Sprintf(`pipeline { agent any stages { stage('test') { when { %s } steps { sh 'echo test' } } } }`, tc.condition)
+		config, err := engine.ParseJenkinsfileConfig(source, "test")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.condition, err)
+		}
+		got, err := engine.ShouldRunStageWithJenkinsContext(config.Stages[0], nil, nil, map[string]string{"TAG_NAME": tc.tag}, "main")
+		if err != nil || got != tc.want {
+			t.Fatalf("%+v: got %v: %v", tc, got, err)
+		}
+	}
+}
+
 func TestJenkinsWhenRunsThroughRealLocalRunner(t *testing.T) {
 	sh, err := exec.LookPath("sh")
 	if err != nil {
@@ -185,8 +212,12 @@ func TestJenkinsWhenRunsThroughRealLocalRunner(t *testing.T) {
 	defer db.Close()
 	source := `pipeline { agent any
 parameters { booleanParam(name: 'ENTRY_ONLY', defaultValue: false) }
-environment { DEPLOY_TO = 'production' }
+environment {
+DEPLOY_TO = 'production'
+TAG_NAME = 'release-1'
+}
 stages { stage('guarded') { environment { DEPLOY_TO = 'stage' } when { allOf { branch 'main'; environment name: 'DEPLOY_TO', value: 'production'; expression { !params.ENTRY_ONLY } } } steps { sh 'test "$DEPLOY_TO" = stage; echo guarded-command-executed' } }
+stage('tagged') { when { allOf { buildingTag(); tag 'release-*' } } steps { sh 'echo tag-command-executed' } }
 stage('always') { steps { sh 'echo always-command-executed' } } } }`
 	project, err := db.CreateProject("jenkins-when", "", "", "git", "main", source, 0, nil, nil)
 	if err != nil {
@@ -224,6 +255,9 @@ stage('always') { steps { sh 'echo always-command-executed' } } } }`
 		}
 		if !strings.Contains(build.Log, "always-command-executed") {
 			t.Fatalf("unconditional stage missing: %s", build.Log)
+		}
+		if !strings.Contains(build.Log, "tag-command-executed") {
+			t.Fatalf("tag stage missing: %s", build.Log)
 		}
 	}
 }

@@ -39,12 +39,15 @@ func validateJenkinsExpr(expr ast.Expr) error {
 			return nil
 		}
 	case *ast.CallExpr:
+		if ident, ok := node.Fun.(*ast.Ident); ok && ident.Name == "jenkinsBuildingTag" && len(node.Args) == 0 {
+			return nil
+		}
 		if len(node.Args) == 0 {
 			if selector, ok := node.Fun.(*ast.SelectorExpr); ok && (selector.Sel.Name == "toString" || selector.Sel.Name == "toBoolean") {
 				return validateJenkinsExpr(selector.X)
 			}
 		}
-		if ident, ok := node.Fun.(*ast.Ident); ok && ((ident.Name == "jenkinsBranch" && (len(node.Args) == 1 || len(node.Args) == 2)) || (ident.Name == "jenkinsEnvironment" && len(node.Args) == 2)) {
+		if ident, ok := node.Fun.(*ast.Ident); ok && (((ident.Name == "jenkinsBranch" || ident.Name == "jenkinsTag") && (len(node.Args) == 1 || len(node.Args) == 2)) || (ident.Name == "jenkinsEnvironment" && len(node.Args) == 2)) {
 			for _, arg := range node.Args {
 				if literal, ok := arg.(*ast.BasicLit); !ok || literal.Kind != token.STRING {
 					return fmt.Errorf("Jenkins condition arguments must be literal strings")
@@ -134,20 +137,33 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 		return nil, fmt.Errorf("unsupported Jenkins parameter %q type %T", node.Sel.Name, v)
 	case *ast.CallExpr:
 		if ident, ok := node.Fun.(*ast.Ident); ok {
+			if ident.Name == "jenkinsBuildingTag" {
+				return environment["TAG_NAME"] != "", nil
+			}
 			first, _ := strconv.Unquote(node.Args[0].(*ast.BasicLit).Value)
 			switch ident.Name {
-			case "jenkinsBranch":
+			case "jenkinsBranch", "jenkinsTag":
+				actual := branch
+				if ident.Name == "jenkinsTag" {
+					actual = environment["TAG_NAME"]
+					if actual == "" {
+						return false, nil
+					}
+					if first == "" {
+						return true, nil
+					}
+				}
 				comparator := "GLOB"
 				if len(node.Args) == 2 {
 					comparator, _ = strconv.Unquote(node.Args[1].(*ast.BasicLit).Value)
 				}
 				switch strings.ToUpper(comparator) {
 				case "EQUALS":
-					return first == branch, nil
+					return first == actual, nil
 				case "REGEXP":
-					return regexp.MatchString("^(?:"+first+")$", branch)
+					return regexp.MatchString("^(?:"+first+")$", actual)
 				default:
-					return matchJenkinsBranch(first, branch)
+					return matchJenkinsBranch(first, actual)
 				}
 			case "jenkinsEnvironment":
 				second, _ := strconv.Unquote(node.Args[1].(*ast.BasicLit).Value)
