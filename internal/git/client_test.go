@@ -202,7 +202,14 @@ func TestGitPullNonRepo(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	err = client.Pull(tmpDir)
+	// BuildWorld places TMPDIR inside the checked-out workspace. Bound Git's
+	// discovery so this negative test cannot pull the parent repository.
+	t.Setenv("GIT_CEILING_DIRECTORIES", tmpDir)
+	nonRepo := filepath.Join(tmpDir, "not-a-repository")
+	if err := os.Mkdir(nonRepo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err = client.Pull(nonRepo)
 	if err == nil {
 		t.Fatal("Pull() on non-repo directory expected error, got nil")
 	}
