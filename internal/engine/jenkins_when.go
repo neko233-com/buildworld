@@ -225,6 +225,8 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 					if first == "" {
 						return true, nil
 					}
+				} else if actual == "" || first == "" {
+					return actual == "" && first == "", nil
 				}
 				comparator := "GLOB"
 				if len(node.Args) == 2 {

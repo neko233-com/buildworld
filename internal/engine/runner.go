@@ -757,7 +757,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		}
 		jenkinsBranch := conditionEnvironment["BRANCH_NAME"]
 		if jenkinsBranch == "" {
-			jenkinsBranch = branch
+			jenkinsBranch = conditionEnvironment["GIT_LOCAL_BRANCH"]
 		}
 		shouldRun, conditionErr := ShouldRunStageWithJenkinsContext(stage, stageStatuses, params, conditionEnvironment, jenkinsBranch)
 		if errors.Is(stageCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {

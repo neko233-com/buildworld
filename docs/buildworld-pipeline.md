@@ -284,7 +284,8 @@ regular-expression syntax is narrower than Java's. Expressions support `params`
 and `env`, `currentBuild.number`, boolean and ordered comparisons, equality and
 `toString().toBoolean()`; numeric parameters keep JSON precision, while nonempty
 strings are true under Groovy truth. Pipeline environment is visible to `when`;
-the stage's own environment applies after its condition succeeds. For tag
+the stage's own environment applies after its condition succeeds. `branch`
+uses `BRANCH_NAME`, falling back to `GIT_LOCAL_BRANCH` when it is empty. For tag
 pushes and explicitly selected `refs/tags/...` refs on a configured repository,
 the short tag name is exposed as `TAG_NAME` and `BRANCH_NAME`; `GIT_COMMIT` is
 the pinned commit, with annotated tag objects verified and peeled. Inline jobs

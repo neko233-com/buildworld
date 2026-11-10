@@ -146,6 +146,10 @@ func TestJenkinsWhenBranchComparators(t *testing.T) {
 		{`branch 'release/**'`, "release/a/b", true},
 		{`branch('main')`, "MAIN", true},
 		{`branch(pattern: 'Main', comparator: 'EQUALS')`, "main", false},
+		{`branch ''`, "", true},
+		{`branch(pattern: '', comparator: 'EQUALS')`, "", true},
+		{`branch ''`, "main", false},
+		{`branch '*'`, "", false},
 	} {
 		source := fmt.Sprintf(`pipeline { agent any stages { stage('test') { when { %s } steps { sh 'echo test' } } } }`, tc.condition)
 		config, err := engine.ParseJenkinsfileConfig(source, "test")
@@ -259,6 +263,64 @@ stage('always') { steps { sh 'echo always-command-executed' } } } }`
 		if !strings.Contains(build.Log, "tag-command-executed") {
 			t.Fatalf("tag stage missing: %s", build.Log)
 		}
+	}
+}
+
+func TestJenkinsBranchUsesLocalBranchWhenBranchNameEmpty(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("POSIX shell is unavailable")
+	}
+	t.Setenv("PATH", filepath.Dir(sh)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, tc := range []struct {
+		name, localBranch      string
+		wantRelease, wantEmpty bool
+	}{
+		{"local", "release/v1", true, false}, {"empty", "", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			db, err := store.New(filepath.Join(root, "buildworld.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			source := fmt.Sprintf(`pipeline { agent any
+environment {
+BRANCH_NAME = ''
+GIT_LOCAL_BRANCH = '%s'
+}
+stages {
+stage('release') { when { branch 'release/**' } steps { sh 'echo local-branch-executed' } }
+stage('main') { when { branch 'main' } steps { sh 'echo build-branch-incorrect' } }
+stage('empty') { when { branch '' } steps { sh 'echo empty-branch-executed' } }
+} }`, tc.localBranch)
+			project, err := db.CreateProject("jenkins-branch", "", "", "git", "main", source, 0, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			build, err := db.CreateBuild(project.ID, 1, "manual", "main", "", "{}", nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner := engine.NewBuildRunner(db, nil, filepath.Join(root, "workspaces"), nil)
+			defer runner.Shutdown(context.Background())
+			runner.Run(build.ID)
+			deadline := time.Now().Add(20 * time.Second)
+			for time.Now().Before(deadline) {
+				build, err = db.GetBuild(build.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if build.Status == "success" || build.Status == "failed" {
+					break
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			if build.Status != "success" || strings.Contains(build.Log, "build-branch-incorrect") || strings.Contains(build.Log, "local-branch-executed") != tc.wantRelease || strings.Contains(build.Log, "empty-branch-executed") != tc.wantEmpty {
+				t.Fatalf("branch=%q status=%s log=%s", tc.localBranch, build.Status, build.Log)
+			}
+		})
 	}
 }
 

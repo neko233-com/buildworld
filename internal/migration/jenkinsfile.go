@@ -1127,7 +1127,7 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 				start := skipSourceSpace(inner, 0, len(inner))
 				if start < len(inner) && (inner[start] == '\'' || inner[start] == '"') {
 					value, tail, ok := parseWhenLiteral(inner, start)
-					if !ok || (word == "branch" && value == "") || strings.TrimSpace(inner[tail:]) != "" {
+					if !ok || strings.TrimSpace(inner[tail:]) != "" {
 						return "", fmt.Errorf("%s requires a literal pattern", word)
 					}
 					conditions = append(conditions, function+"("+strconv.Quote(value)+")")
@@ -1159,7 +1159,7 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 				continue
 			}
 			value, end, ok := parseWhenLiteral(source, position)
-			if !ok || (word == "branch" && value == "") {
+			if !ok {
 				return "", fmt.Errorf("%s requires a literal pattern", word)
 			}
 			conditions = append(conditions, function+"("+strconv.Quote(value)+")")
@@ -1347,7 +1347,7 @@ func parseWhenNamedExpressions(source, mask string, cursor int) (map[string]stri
 
 func makeWhenPattern(values map[string]string, kind, function string) (string, error) {
 	pattern, exists := values["pattern"]
-	if !exists || (kind == "branch" && pattern == "") || len(values) > 2 {
+	if !exists || len(values) > 2 {
 		return "", fmt.Errorf("%s requires a literal pattern", kind)
 	}
 	for name := range values {
