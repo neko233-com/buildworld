@@ -14,10 +14,16 @@ does not publish GitHub Pages. Explicit local preview builds remain available.
 ## Prerequisites
 
 - Node.js 24 and npm;
-- Git and PowerShell 7 (`pwsh`);
+- Git, PowerShell 7 (`pwsh`), and GNU tar (`gtar` or `tar`);
 - GitHub CLI authenticated with `gh auth login`;
 - maintainer access to `neko233-com/buildworld`;
 - all required local verification and production checks completed.
+
+The release tools run on Windows, macOS, and Linux. The isolated runtime gate
+builds a smoke-only server with a temporary loopback port, configuration and
+state; it never stops an existing service. Normal release binaries continue to
+use port 8080. Other target platforms need their own runtime acceptance before
+production deployment.
 
 Documentation is public. Keep secrets, credentials, tokens, and private
 hostnames out of source text and screenshots.

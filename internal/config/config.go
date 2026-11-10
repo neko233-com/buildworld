@@ -63,7 +63,7 @@ type LocalWorkerConfig struct {
 // lifecycle commands on one stable endpoint regardless of persisted settings.
 func (c *Config) EnforceControlPlanePort() {
 	if c != nil {
-		c.Server.Port = ControlPlanePort
+		c.Server.Port = effectiveControlPlanePort()
 	}
 }
 

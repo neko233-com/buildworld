@@ -6,6 +6,7 @@ release/
 artifacts/
 /build/
 /.build/
+/.buildworld/tmp/
 web/dist/
 web/dist-ssr/
 

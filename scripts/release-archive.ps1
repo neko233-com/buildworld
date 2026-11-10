@@ -4,7 +4,7 @@ function Resolve-ReleaseGnuTar {
     $candidates = @(
         (Join-Path $gitRoot 'usr/bin/tar.exe'),
         (Join-Path $gitRoot 'runtime/usr/bin/tar.exe')
-    ) + @(Get-Command tar -All -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })
+    ) + @(Get-Command gtar, tar -All -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })
     foreach ($candidate in $candidates | Select-Object -Unique) {
         if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
         $version = @(& $candidate --version 2>$null)

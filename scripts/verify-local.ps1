@@ -106,7 +106,8 @@ try {
     }
 
     Invoke-Checked 'Pipeline SDK runtime tests' { node --test sdk/pipeline/index.test.mjs }
-    $tsc = Join-Path $repoRoot 'web\node_modules\.bin\tsc.cmd'
+    $tscName = if ($IsWindows) { 'tsc.cmd' } else { 'tsc' }
+    $tsc = Join-Path (Join-Path $repoRoot 'web/node_modules/.bin') $tscName
     if (-not (Test-Path -LiteralPath $tsc -PathType Leaf)) {
         throw "TypeScript compiler not found after npm ci: $tsc"
     }

@@ -6,12 +6,12 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-if (-not $IsWindows) { throw 'This local release smoke gate currently requires the Windows packaging host.' }
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $smokeRoot = Join-Path $repoRoot ('.build/runtime-smoke-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $smokeRoot -Force | Out-Null
-$server = Join-Path $smokeRoot 'buildworld-server.exe'
-$cli = Join-Path $smokeRoot 'buildworld.exe'
+$suffix = if ($IsWindows) { '.exe' } else { '' }
+$server = Join-Path $smokeRoot "buildworld-server$suffix"
+$cli = Join-Path $smokeRoot "buildworld$suffix"
 $ldflags = "-s -w -X github.com/neko233-com/buildworld/internal/buildinfo.Version=$Version"
 $child = $null
 $previousCGO = [Environment]::GetEnvironmentVariable('CGO_ENABLED', 'Process')
@@ -19,7 +19,7 @@ try {
     $env:CGO_ENABLED = '0'
     Push-Location $repoRoot
     try {
-        & go build -trimpath -buildvcs=false -ldflags $ldflags -o $server ./cmd/server
+        & go build -tags buildworld_smoke -trimpath -buildvcs=false -ldflags $ldflags -o $server ./cmd/server
         if ($LASTEXITCODE -ne 0) { throw 'Smoke server compilation failed.' }
         & go build -trimpath -buildvcs=false -ldflags $ldflags -o $cli ./cmd/cli
         if ($LASTEXITCODE -ne 0) { throw 'Smoke CLI compilation failed.' }
@@ -27,15 +27,15 @@ try {
     $cliVersion = (& $cli version).Trim()
     if ($LASTEXITCODE -ne 0 -or $cliVersion -ne "buildworld $Version") { throw 'CLI release version mismatch.' }
 
-    # Reserve only the isolated loopback address. Never stop an existing service.
-    $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Parse('127.0.0.2'), 8080)
-    try { $probe.Start() } finally { $probe.Stop() }
+    # Reserve an isolated loopback port. Never stop an existing service.
+    $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+    try { $probe.Start(); $port = $probe.LocalEndpoint.Port } finally { $probe.Stop() }
     $configPath = Join-Path $smokeRoot 'config.yaml'
     $yamlRoot = $smokeRoot.Replace('\', '/')
     $config = @"
 server:
-  host: 127.0.0.2
-  port: 8080
+  host: 127.0.0.1
+  port: $port
 database:
   path: "$yamlRoot/data/buildworld.db"
 plugins:
@@ -48,11 +48,22 @@ workers:
     max_concurrent_builds: 1
 "@
     [IO.File]::WriteAllText($configPath, $config, [Text.UTF8Encoding]::new($false))
-    # APPDATA isolates server.pid and all CLI state from the developer's service.
-    $child = Start-Process -FilePath $server -ArgumentList @('-config', ('"' + $configPath + '"')) -WorkingDirectory $repoRoot `
-        -WindowStyle Hidden -PassThru -Environment @{ APPDATA = (Join-Path $smokeRoot 'state') } `
-        -RedirectStandardOutput (Join-Path $smokeRoot 'stdout.log') -RedirectStandardError (Join-Path $smokeRoot 'stderr.log')
-    $base = 'http://127.0.0.2:8080'
+    # The child receives a private OS configuration root, including server.pid.
+    $stateRoot = Join-Path $smokeRoot 'state'
+    New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
+    $childEnvironment = if ($IsWindows) { @{ APPDATA = $stateRoot; BUILDWORLD_SMOKE_PORT = "$port" } } else { @{ HOME = $stateRoot; XDG_CONFIG_HOME = $stateRoot; BUILDWORLD_SMOKE_PORT = "$port" } }
+    $processOptions = @{
+        FilePath = $server
+        ArgumentList = @('-config', ('"' + $configPath + '"'))
+        WorkingDirectory = $repoRoot
+        PassThru = $true
+        Environment = $childEnvironment
+        RedirectStandardOutput = (Join-Path $smokeRoot 'stdout.log')
+        RedirectStandardError = (Join-Path $smokeRoot 'stderr.log')
+    }
+    if ($IsWindows) { $processOptions.WindowStyle = 'Hidden' }
+    $child = Start-Process @processOptions
+    $base = "http://127.0.0.1:$port"
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
     $ready = $false
     do {
