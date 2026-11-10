@@ -52,6 +52,7 @@ type Stage struct {
 	DependsOn        []string          `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
 	Branches         []string          `json:"branches,omitempty" yaml:"branches,omitempty"`
 	If               string            `json:"if,omitempty" yaml:"if,omitempty"`
+	JenkinsWhen      string            `json:"jenkins_when,omitempty" yaml:"jenkins_when,omitempty"`
 	Environment      map[string]string `json:"environment,omitempty" yaml:"env,omitempty"`
 	WorkingDirectory string            `json:"working_directory,omitempty" yaml:"working-directory,omitempty"`
 	TimeoutSec       int               `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`

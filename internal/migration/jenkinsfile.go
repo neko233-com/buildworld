@@ -609,9 +609,9 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 		}
 		body := source[cursor+1 : closeBody]
 		bodyMask := mask[cursor+1 : closeBody]
-		branches, whenWarnings := parseJenkinsWhen(body, bodyMask)
-		for _, warning := range whenWarnings {
-			*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
+		branches, whenExpression, whenErr := parseJenkinsWhen(body, bodyMask)
+		if whenErr != nil {
+			return nil, fmt.Errorf("stage %q when: %w", stageName, whenErr)
 		}
 		stepsBlock, found := namedBlock(body, bodyMask, "steps", 0, len(body))
 		if !found {
@@ -624,17 +624,17 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			for _, warning := range stepWarnings {
 				*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
 			}
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, Steps: steps})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Steps: steps})
 			position = closeBody + 1
 			continue
 		}
 		if watch, ok := extractJenkinsServiceWatch(stepSource, strings.TrimSpace(stageName)); ok {
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, Steps: []engine.Step{watch}})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Steps: []engine.Step{watch}})
 			position = closeBody + 1
 			continue
 		}
 		if command, ok := translateJenkinsPIDStopStage(stepSource); ok {
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, Steps: []engine.Step{{
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Steps: []engine.Step{{
 				Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + command,
 			}}})
 			position = closeBody + 1
@@ -650,8 +650,9 @@ func parseJenkinsStages(source string, warnings *[]Warning) ([]engine.Stage, err
 			continue
 		}
 		stage := engine.Stage{
-			Name:     strings.TrimSpace(stageName),
-			Branches: branches,
+			Name:        strings.TrimSpace(stageName),
+			Branches:    branches,
+			JenkinsWhen: whenExpression,
 			Steps: []engine.Step{{
 				Name:    strings.TrimSpace(stageName),
 				Type:    "shell",
@@ -822,31 +823,44 @@ func isPureJenkinsGitSyncCommand(command string) bool {
 	return foundSync
 }
 
-func parseJenkinsWhen(source, mask string) ([]string, []Warning) {
+func parseJenkinsWhen(source, mask string) ([]string, string, error) {
 	block, found := namedBlock(source, mask, "when", 0, len(source))
 	if !found {
-		return nil, nil
+		if findToken(mask, "when", 0, len(mask)) >= 0 {
+			return nil, "", fmt.Errorf("malformed when block")
+		}
+		return nil, "", nil
 	}
 	body := source[block.start:block.end]
 	bodyMask := mask[block.start:block.end]
-	branches := make([]string, 0)
-	for position := 0; position < len(bodyMask); {
-		index := findToken(bodyMask, "branch", position, len(bodyMask))
-		if index < 0 {
-			break
-		}
-		value, end, ok := parseGroovyString(body, skipSourceSpace(body, index+len("branch"), len(body)))
-		if ok && strings.TrimSpace(value) != "" {
-			branches = append(branches, strings.TrimSpace(value))
-			position = end
-			continue
-		}
-		position = index + len("branch")
+	if findToken(mask, "when", block.end+1, len(mask)) >= 0 {
+		return nil, "", fmt.Errorf("multiple when blocks are unsupported")
 	}
-	if len(branches) > 0 {
-		return branches, nil
+	start := skipSpace(bodyMask, 0, len(bodyMask))
+	if start < len(bodyMask) && findToken(bodyMask, "branch", start, len(bodyMask)) == start {
+		value, end, ok := parseGroovyString(body, skipSourceSpace(body, start+len("branch"), len(body)))
+		if ok && value != "" && !strings.ContainsAny(value, "*?[]") && strings.TrimSpace(bodyMask[end:]) == "" {
+			return []string{value}, "", nil
+		}
 	}
-	return nil, []Warning{{Code: "when_review_required", Message: "Jenkins when condition could not be converted. Configure an equivalent BuildWorld branch or approval policy before enabling this stage."}}
+	if start < len(bodyMask) && findToken(bodyMask, "expression", start, len(bodyMask)) == start {
+		open := skipSpace(bodyMask, start+len("expression"), len(bodyMask))
+		if open < len(bodyMask) && bodyMask[open] == '{' {
+			end, ok := matchingDelimiter(bodyMask, open, '{', '}', len(bodyMask))
+			if ok && strings.TrimSpace(bodyMask[end+1:]) == "" {
+				expression := strings.TrimSpace(body[open+1 : end])
+				if strings.HasPrefix(expression, "return ") {
+					expression = strings.TrimSpace(strings.TrimPrefix(expression, "return "))
+				}
+				if expression != "" {
+					if err := engine.ValidateJenkinsWhen(expression); err == nil {
+						return nil, expression, nil
+					}
+				}
+			}
+		}
+	}
+	return nil, "", fmt.Errorf("unsupported Jenkins when condition; refusing to run the stage unconditionally")
 }
 
 func translateJenkinsShell(source string) (string, []Warning) {

@@ -1,3 +1,18 @@
+function Resolve-ReleaseGnuTar {
+    $gitPath = (Get-Command git -ErrorAction Stop).Source
+    $gitRoot = Split-Path -Parent (Split-Path -Parent $gitPath)
+    $candidates = @(
+        (Join-Path $gitRoot 'usr/bin/tar.exe'),
+        (Join-Path $gitRoot 'runtime/usr/bin/tar.exe')
+    ) + @(Get-Command tar -All -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+        $version = @(& $candidate --version 2>$null)
+        if ($LASTEXITCODE -eq 0 -and ($version -join ' ') -match 'GNU tar') { return $candidate }
+    }
+    throw 'GNU tar is required to preserve Unix release executable modes.'
+}
+
 function Assert-GzipMatchesTar {
     param([string]$Archive, [string]$TarPath)
     $stream = $null

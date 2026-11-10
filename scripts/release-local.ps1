@@ -24,9 +24,7 @@ $output = [IO.Path]::GetFullPath((Join-Path $releaseRoot $Version))
 $stagingOutput = [IO.Path]::GetFullPath((Join-Path $releaseRoot ('.staging-' + $Version + '-' + [guid]::NewGuid().ToString('N'))))
 $webRoot = Join-Path $repoRoot 'web'
 $partSizeBytes = 900KB
-$gitExecutable = (Get-Command git -ErrorAction Stop).Source
-$gitRoot = Split-Path -Parent (Split-Path -Parent $gitExecutable)
-$gnuTar = Join-Path $gitRoot 'usr\bin\tar.exe'
+$gnuTar = Resolve-ReleaseGnuTar
 $targets = @(
     @{ Os = 'windows'; Arch = 'amd64'; Archive = 'zip' },
     @{ Os = 'windows'; Arch = 'arm64'; Archive = 'zip' },

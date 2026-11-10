@@ -8,6 +8,14 @@ All notable BuildWorld changes are recorded here. The project follows
 
 No unreleased changes.
 
+## [1.16.25] - 2026-11-10
+
+### Fixed
+
+- Preserve supported Jenkins boolean `when` expressions and reject unsupported
+  conditions instead of silently running gated stages.
+- Find GNU tar in current Git for Windows layouts for release packaging.
+
 ## [1.16.24] - 2026-10-18
 
 ### Added

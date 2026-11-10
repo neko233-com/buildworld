@@ -1,7 +1,6 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../release-archive.ps1')
-$gitPath = (Get-Command git -ErrorAction Stop).Source
-$tar = Join-Path (Split-Path -Parent (Split-Path -Parent $gitPath)) 'usr/bin/tar.exe'
+$tar = Resolve-ReleaseGnuTar
 $fixture = Join-Path $PSScriptRoot ('../../.build/archive-regression-' + [guid]::NewGuid().ToString('N'))
 $fixture = [IO.Path]::GetFullPath($fixture)
 $stage = Join-Path $fixture 'stage'

@@ -34,6 +34,12 @@ func ValidatePipelineSemantics(config *BuildConfig) error {
 	automaticLongRunning := false
 	for stageIndex := range config.Stages {
 		stage := &config.Stages[stageIndex]
+		if err := ValidateJenkinsWhen(stage.JenkinsWhen); err != nil {
+			return fmt.Errorf("stage %q when: %w", stage.Name, err)
+		}
+		if stage.JenkinsWhen != "" && len(config.AgentRequirements) > 0 {
+			return fmt.Errorf("stage %q when: remote worker execution cannot safely evaluate Jenkins conditions", stage.Name)
+		}
 		if err := ValidatePipelineCondition(stage.If); err != nil {
 			return fmt.Errorf("stage %q if: %w", stage.Name, err)
 		}
@@ -47,7 +53,7 @@ func ValidatePipelineSemantics(config *BuildConfig) error {
 				// shell command and cancellation contract instead of translating
 				// it to a watcher that can signal the deployed service.
 				if stageIndex == len(config.Stages)-1 && stepIndex == len(stage.Steps)-1 &&
-					strings.TrimSpace(stage.If) == "" && len(stage.Branches) == 0 && strings.TrimSpace(step.If) == "" &&
+					strings.TrimSpace(stage.If) == "" && stage.JenkinsWhen == "" && len(stage.Branches) == 0 && strings.TrimSpace(step.If) == "" &&
 					isGoGameMonitorStep(*step) {
 					automaticLongRunning = true
 				}
@@ -66,6 +72,7 @@ func ValidatePipelineSemantics(config *BuildConfig) error {
 			// timeout in that case so some earlier command cannot run forever
 			// merely because an observer happened to be present in the source.
 			if strings.TrimSpace(stage.If) == "" &&
+				stage.JenkinsWhen == "" &&
 				len(stage.Branches) == 0 &&
 				strings.TrimSpace(step.If) == "" {
 				automaticLongRunning = true
@@ -404,6 +411,24 @@ func StageKey(stage Stage) string {
 
 // ShouldRunStage applies dependency status and the stage's safe condition.
 func ShouldRunStage(stage Stage, statuses map[string]string) (bool, error) {
+	if stage.JenkinsWhen != "" {
+		return false, fmt.Errorf("stage %q requires Jenkins parameter evaluation", StageKey(stage))
+	}
+	return shouldRunStageDependencies(stage, statuses)
+}
+
+// ShouldRunStageWithParameters evaluates a Jenkins condition and dependencies.
+func ShouldRunStageWithParameters(stage Stage, statuses map[string]string, params map[string]interface{}) (bool, error) {
+	if stage.JenkinsWhen != "" {
+		matched, err := EvaluateJenkinsWhen(stage.JenkinsWhen, params)
+		if err != nil || !matched {
+			return false, err
+		}
+	}
+	return shouldRunStageDependencies(stage, statuses)
+}
+
+func shouldRunStageDependencies(stage Stage, statuses map[string]string) (bool, error) {
 	state := ConditionContext{Success: true}
 	for _, dependency := range stage.DependsOn {
 		status, exists := statuses[dependency]

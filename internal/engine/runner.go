@@ -715,7 +715,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			stageStatuses[stageKey] = StageStatusSkipped
 			continue
 		}
-		shouldRun, conditionErr := ShouldRunStage(stage, stageStatuses)
+		shouldRun, conditionErr := ShouldRunStageWithParameters(stage, stageStatuses, params)
 		if conditionErr != nil {
 			r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 			r.fail(buildID, start, fmt.Sprintf("stage %q condition: %v", stage.Name, conditionErr), project)

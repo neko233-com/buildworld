@@ -277,6 +277,16 @@ Jenkins import translates Jenkinsfiles directly to restricted TypeScript, then
 validates translated output. It does not create an intermediate JSON or Markdown
 pipeline.
 
+Jenkins `when` currently supports a case-sensitive exact branch name without wildcards and
+boolean expressions such as `expression { !params.ENTRY_ONLY }`, including
+parentheses, `!`, `&&`, `||`, and boolean equality. Referenced parameters must
+be supplied as booleans. Other `when` forms, Groovy expressions, and wildcard
+branches are rejected during conversion instead of running unconditionally.
+This is a restricted subset, not a general Groovy interpreter. Pipelines with
+these expressions cannot be dispatched to remote workers. Re-import previously
+converted pipelines from the Jenkinsfile so that conditions discarded by older
+versions are restored.
+
 Complete helper reference is served by a running instance at
 `/script-api.html`. Public documentation continues at
 `docs-site/docs/pipelines.md` and `docs-site/docs/typescript-pipelines.md`.
