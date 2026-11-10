@@ -59,4 +59,41 @@ func TestJenkinsAntGlobConditionIntegration(t *testing.T) {
 			t.Errorf("%s: got %v, want %v (err=%v)", tc.condition, got, tc.want, err)
 		}
 	}
+	got, err := EvaluateJenkinsWhenContext(`jenkinsChangeRequest("EQUALS","CHANGE_BRANCH","\u00a0")`, nil, map[string]string{"CHANGE_ID": "1", "CHANGE_BRANCH": "\u00a0"}, "")
+	if err != nil || !got {
+		t.Errorf("changeRequest must not treat non-breaking space as blank: got %v (err=%v)", got, err)
+	}
+}
+
+// Jenkins Comparator normalizes Java-blank actual values, including changeset paths.
+func TestJenkinsComparatorBlankActualValues(t *testing.T) {
+	for _, tc := range []struct {
+		comparator, pattern, actual string
+		want                        bool
+	}{
+		{"EQUALS", " ", " ", false},
+		{"EQUALS", "", " ", true},
+		{"REGEXP", " *", " ", true},
+		{"GLOB", "*", " ", false},
+		{"GLOB", "**", " ", true},
+		{"EQUALS", "\u00a0", "\u00a0", true},
+		{"EQUALS", "", "\u0085", false},
+		{"EQUALS", "", "\u001c", true},
+		{"EQUALS", "", "\u2007", false},
+		{"EQUALS", "", "\u2008", true},
+	} {
+		got, err := compareJenkinsString(tc.pattern, tc.actual, tc.comparator, "GLOB")
+		if err != nil || got != tc.want {
+			t.Errorf("%s pattern %q actual %q: got %v, want %v (err=%v)", tc.comparator, tc.pattern, tc.actual, got, tc.want, err)
+		}
+	}
+	for _, tc := range []struct {
+		pattern, comparator string
+		want                bool
+	}{{"*", "GLOB", false}, {" ", "EQUALS", false}, {"", "EQUALS", true}} {
+		got, err := jenkinsMatchesChangeSet(tc.pattern, tc.comparator, false, []jenkinsSCMChange{{Paths: []string{" "}}})
+		if err != nil || got != tc.want {
+			t.Errorf("changeset %s pattern %q: got %v, want %v (err=%v)", tc.comparator, tc.pattern, got, tc.want, err)
+		}
+	}
 }

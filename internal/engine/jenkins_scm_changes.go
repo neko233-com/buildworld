@@ -174,6 +174,7 @@ func jenkinsMatchesChangeSet(pattern, comparator string, caseSensitive bool, cha
 	var expression *regexp.Regexp
 	for _, change := range changes {
 		for _, path := range change.Paths {
+			path = jenkinsDefaultIfBlank(path)
 			var matched bool
 			var err error
 			switch comparator {

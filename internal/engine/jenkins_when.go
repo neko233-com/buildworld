@@ -368,9 +368,6 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 						continue
 					}
 					actual := environment[field]
-					if strings.TrimSpace(actual) == "" {
-						actual = ""
-					}
 					matched, err := compareJenkinsString(pattern, actual, comparator, "EQUALS")
 					if err != nil || !matched {
 						return matched, err
@@ -523,6 +520,7 @@ func jenkinsChangeRequestField(field string) bool {
 }
 
 func compareJenkinsString(pattern, actual, comparator, fallback string) (bool, error) {
+	actual = jenkinsDefaultIfBlank(actual)
 	comparator = strings.ToUpper(comparator)
 	if comparator != "EQUALS" && comparator != "REGEXP" && comparator != "GLOB" {
 		comparator = fallback
@@ -535,6 +533,20 @@ func compareJenkinsString(pattern, actual, comparator, fallback string) (bool, e
 	default:
 		return matchJenkinsBranch(pattern, actual)
 	}
+}
+
+// Jenkins' Apache StringUtils.defaultIfBlank uses Java Character.isWhitespace,
+// which includes information separators but excludes non-breaking spaces.
+func jenkinsDefaultIfBlank(value string) string {
+	for _, r := range value {
+		if r >= '\u001c' && r <= '\u001f' {
+			continue
+		}
+		if !unicode.IsSpace(r) || r == '\u0085' || r == '\u00a0' || r == '\u2007' || r == '\u202f' {
+			return value
+		}
+	}
+	return ""
 }
 
 // jenkinsEqual keeps numeric values numeric and never coerces strings to numbers.
