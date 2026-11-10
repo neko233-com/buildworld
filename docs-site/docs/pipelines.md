@@ -13,6 +13,13 @@ The TypeScript file is parsed as data by an AST allowlist. It is not executed as
 JavaScript. Dynamic code (`eval`, `Function`, functions, loops, timers,
 promises, Node.js APIs, file access, and network access) is rejected.
 
+For a pipeline sourced from SCM, each build resolves its selected branch or
+requested commit to an immutable Git commit before execution. The pipeline
+definition and workspace are checked out at that same commit, recorded on the
+build and exposed as `GIT_COMMIT`. A build recovered after a controller restart
+uses the recorded commit even if the branch has advanced. If the commit is no
+longer available, the build fails instead of executing a different revision.
+
 ## Jenkins `when` conditions
 
 Imported Jenkinsfiles support nested `allOf`, `anyOf`, and `not`, implicit

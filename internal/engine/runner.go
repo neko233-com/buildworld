@@ -584,7 +584,19 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		}
 	}
 
-	cfg, err := r.loadBuildConfig(ctx, project)
+	source, revision, err := ResolveBuildPipelineSource(ctx, project, build)
+	if err != nil {
+		r.fail(buildID, start, fmt.Sprintf("pipeline source: %v", err), project)
+		return
+	}
+	if revision != "" {
+		if err := r.store.UpdateBuildCommitSHA(buildID, revision); err != nil {
+			r.fail(buildID, start, "cannot persist immutable SCM revision", project)
+			return
+		}
+		build.CommitSHA = revision
+	}
+	cfg, err := r.parseBuildConfig(project, source)
 	if err != nil {
 		r.fail(buildID, start, fmt.Sprintf("invalid pipeline config: %v", err), project)
 		return
@@ -633,7 +645,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			return
 		}
 		r.clearRemoteWaiting(buildID)
-		r.runRemote(ctx, build, project, cfg, worker, start)
+		r.runRemote(ctx, build, project, cfg, source, worker, start)
 		return
 	}
 
@@ -675,8 +687,12 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			r.fail(buildID, start, fmt.Sprintf("SCM checkout: git clone: %v", err), project)
 			return
 		}
-		if branch != "" {
-			if err := r.gitClient.CheckoutContext(ctx, workspace, branch); err != nil {
+		checkout := build.CommitSHA
+		if checkout == "" {
+			checkout = branch
+		}
+		if checkout != "" {
+			if err := r.gitClient.CheckoutContext(ctx, workspace, checkout); err != nil {
 				r.fail(buildID, start, fmt.Sprintf("SCM checkout: git checkout: %v", err), project)
 				return
 			}
@@ -1042,6 +1058,10 @@ func (r *BuildRunner) loadBuildConfig(ctx context.Context, project *store.Projec
 	if err != nil {
 		return nil, err
 	}
+	return r.parseBuildConfig(project, source)
+}
+
+func (r *BuildRunner) parseBuildConfig(project *store.Project, source string) (*BuildConfig, error) {
 	cfg, err := ParsePipelineConfig(source)
 	if err != nil {
 		return nil, err
@@ -1152,7 +1172,7 @@ func (r *BuildRunner) clearRemoteWaiting(buildID int64) {
 	r.remoteWaitMu.Unlock()
 }
 
-func (r *BuildRunner) runRemote(ctx context.Context, build *store.Build, project *store.Project, cfg *BuildConfig, worker *store.Worker, start time.Time) {
+func (r *BuildRunner) runRemote(ctx context.Context, build *store.Build, project *store.Project, cfg *BuildConfig, source string, worker *store.Worker, start time.Time) {
 	defer r.store.ReleaseWorker(worker.ID)
 	if r.workerDispatchToken == "" {
 		r.fail(build.ID, start, "remote worker dispatch requires workers.enrollment_token", project)
@@ -1181,12 +1201,7 @@ func (r *BuildRunner) runRemote(ctx context.Context, build *store.Build, project
 		}
 	}
 	dispatchCtx := bytemsg.WithDispatchCredential(ctx, r.workerDispatchToken)
-	pipelineConfig, err := ResolveProjectPipelineSource(ctx, project)
-	if err != nil {
-		r.fail(build.ID, start, fmt.Sprintf("resolve pipeline source: %v", err), project)
-		return
-	}
-	stream, err := pb.NewWorkerServiceClient(conn).ExecuteBuild(dispatchCtx, &pb.BuildRequest{BuildId: fmt.Sprintf("%d", build.ID), ProjectName: project.Name, RepoUrl: project.RepoURL, Branch: build.Branch, CommitSha: build.CommitSHA, PipelineConfig: pipelineConfig, Environment: env, Protocol: bytemsg.NewProtocolInfo(), Plugins: pluginRefs})
+	stream, err := pb.NewWorkerServiceClient(conn).ExecuteBuild(dispatchCtx, &pb.BuildRequest{BuildId: fmt.Sprintf("%d", build.ID), ProjectName: project.Name, RepoUrl: project.RepoURL, Branch: build.Branch, CommitSha: build.CommitSHA, PipelineConfig: source, Environment: env, Protocol: bytemsg.NewProtocolInfo(), Plugins: pluginRefs})
 	if err != nil {
 		r.fail(build.ID, start, fmt.Sprintf("remote worker start: %v", err), project)
 		return
@@ -1549,6 +1564,9 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 	// value retains Jenkins' normal override behaviour.
 	buildNumber := strconv.Itoa(build.Number)
 	branchName := build.Branch
+	if branchName == "" && strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm") {
+		branchName = strings.TrimSpace(project.PipelineSCMBranch)
+	}
 	if branchName == "" {
 		branchName = project.DefaultBranch
 	}
@@ -1560,6 +1578,7 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 		"JOB_NAME":           project.Name,
 		"JOB_BASE_NAME":      project.Name,
 		"BRANCH_NAME":        branchName,
+		"GIT_COMMIT":         build.CommitSHA,
 	}
 	for k, v := range cfg.Environment {
 		envMap[k] = v

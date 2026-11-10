@@ -151,6 +151,7 @@ func ParsePipelineConfigWithFormat(format PipelineFormat, source, name string) (
 type SCMPipelineSource struct {
 	RepoURL    string
 	Branch     string
+	Revision   string
 	Path       string
 	Format     PipelineFormat
 	VCSRootID  *int64
@@ -166,6 +167,11 @@ type SCMFetcher interface {
 	FetchSCMPipeline(ctx context.Context, src SCMPipelineSource) (content string, format PipelineFormat, err error)
 }
 
+// SCMRevisionFetcher resolves the definition and immutable Git revision together.
+type SCMRevisionFetcher interface {
+	FetchSCMPipelineWithRevision(ctx context.Context, src SCMPipelineSource) (content string, format PipelineFormat, revision string, err error)
+}
+
 // DefaultSCMFetcher resolves SCM pipeline sources. The server overrides this
 // with a store-aware implementation that attaches credentials from the project
 // VCS root. Until then, anonymous clones are used.
@@ -175,6 +181,43 @@ type anonymousSCMFetcher struct{}
 
 func (anonymousSCMFetcher) FetchSCMPipeline(ctx context.Context, src SCMPipelineSource) (string, PipelineFormat, error) {
 	return FetchSCMPipeline(ctx, src)
+}
+
+func (anonymousSCMFetcher) FetchSCMPipelineWithRevision(ctx context.Context, src SCMPipelineSource) (string, PipelineFormat, string, error) {
+	return FetchSCMPipelineWithRevision(ctx, src)
+}
+
+// ResolveBuildPipelineSource pins SCM definitions to the build's immutable Git revision.
+func ResolveBuildPipelineSource(ctx context.Context, project *store.Project, build *store.Build) (string, string, error) {
+	if !strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm") {
+		return project.Config, "", nil
+	}
+	fetcher, ok := DefaultSCMFetcher.(SCMRevisionFetcher)
+	if !ok {
+		return "", "", errors.New("SCM fetcher cannot resolve an immutable pipeline revision")
+	}
+	branch := strings.TrimSpace(build.Branch)
+	if branch == "" {
+		branch = strings.TrimSpace(project.PipelineSCMBranch)
+	}
+	if branch == "" {
+		branch = strings.TrimSpace(project.DefaultBranch)
+	}
+	src := SCMPipelineSource{RepoURL: project.PipelineSCMRepo, Branch: branch, Revision: build.CommitSHA,
+		Path: project.PipelineSCMPath, Format: NormalizeFormat(project.PipelineFormat), VCSRootID: project.VCSRootID}
+	fetchCtx, cancel := context.WithTimeout(ctx, scmPipelineFetchTimeout)
+	defer cancel()
+	content, _, revision, err := fetcher.FetchSCMPipelineWithRevision(fetchCtx, src)
+	if err != nil {
+		return "", "", fmt.Errorf("fetch immutable SCM pipeline: %w", err)
+	}
+	if !validSCMRevision(revision) || (len(revision) != 40 && len(revision) != 64) {
+		return "", "", errors.New("SCM fetcher returned an invalid immutable revision")
+	}
+	if src.Revision != "" && !strings.HasPrefix(strings.ToLower(revision), strings.ToLower(src.Revision)) {
+		return "", "", errors.New("SCM pipeline revision does not match the requested commit")
+	}
+	return content, revision, nil
 }
 
 // ResolveProjectPipelineSource returns the raw pipeline definition text for a
@@ -229,23 +272,45 @@ func ResolveProjectBuildConfig(ctx context.Context, project *store.Project) (*Bu
 	return ParsePipelineConfigWithFormat(format, source, project.Name)
 }
 
-// FetchSCMPipeline clones the repository at the configured branch and returns
-// the pipeline file content with its detected format. The clone is created in
-// a temporary directory that is always removed.
+// FetchSCMPipeline returns a pipeline file from an isolated Git checkout.
 func FetchSCMPipeline(ctx context.Context, src SCMPipelineSource) (string, PipelineFormat, error) {
+	content, format, _, err := FetchSCMPipelineWithRevision(ctx, src)
+	return content, format, err
+}
+
+func validSCMRevision(revision string) bool {
+	if len(revision) < 7 || len(revision) > 64 {
+		return false
+	}
+	for _, c := range revision {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// FetchSCMPipelineWithRevision returns the definition and the exact checked-out commit.
+func FetchSCMPipelineWithRevision(ctx context.Context, src SCMPipelineSource) (string, PipelineFormat, string, error) {
 	if strings.TrimSpace(src.RepoURL) == "" {
-		return "", "", fmt.Errorf("SCM pipeline source requires a repository URL")
+		return "", "", "", fmt.Errorf("SCM pipeline source requires a repository URL")
 	}
 	if strings.TrimSpace(src.Path) == "" {
-		return "", "", fmt.Errorf("SCM pipeline source requires a file path")
+		return "", "", "", fmt.Errorf("SCM pipeline source requires a file path")
+	}
+	if src.Revision != "" && !validSCMRevision(src.Revision) {
+		return "", "", "", fmt.Errorf("SCM commit must be a hexadecimal Git object ID")
 	}
 	branch := strings.TrimSpace(src.Branch)
 	if branch == "" {
 		branch = "main"
 	}
+	if strings.HasPrefix(branch, "-") || strings.ContainsAny(branch, "\r\n\x00") {
+		return "", "", "", fmt.Errorf("invalid SCM branch")
+	}
 	dest, err := os.MkdirTemp("", "buildworld-scm-pipeline-*")
 	if err != nil {
-		return "", "", fmt.Errorf("create SCM temp dir: %w", err)
+		return "", "", "", fmt.Errorf("create SCM temp dir: %w", err)
 	}
 	defer os.RemoveAll(dest)
 
@@ -257,20 +322,58 @@ func FetchSCMPipeline(ctx context.Context, src SCMPipelineSource) (string, Pipel
 	client := git.NewClient()
 	if src.CredSSHKey != "" {
 		if err := client.CloneWithSSHContext(ctx, cloneURL, dest, src.CredUser, src.CredSSHKey); err != nil {
-			return "", "", err
+			return "", "", "", err
 		}
 	} else {
-		cmd := processtree.CommandContext(ctx, "git", "clone", "--branch", branch, "--depth", "1", cloneURL, dest)
+		args := []string{"clone"}
+		if src.Revision == "" {
+			args = append(args, "--branch", branch, "--depth", "1")
+		}
+		args = append(args, "--", cloneURL, dest)
+		cmd := processtree.CommandContext(ctx, "git", args...)
 		cmd.Env = git.NonInteractiveEnvironment(cmd.Environ())
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return "", "", fmt.Errorf("git clone failed: %w, output: %s", err, out)
+			return "", "", "", fmt.Errorf("git clone failed: %w, output: %s", err, out)
 		}
 	}
+	if src.Revision != "" || src.CredSSHKey != "" {
+		ref := branch
+		if src.Revision != "" {
+			ref = src.Revision
+		}
+		cmd := processtree.CommandContext(ctx, "git", "-C", dest, "checkout", "--detach", ref)
+		cmd.Env = git.NonInteractiveEnvironment(cmd.Environ())
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return "", "", "", fmt.Errorf("git checkout failed: %w, output: %s", err, out)
+		}
+	}
+	revCmd := processtree.CommandContext(ctx, "git", "-C", dest, "rev-parse", "--verify", "HEAD^{commit}")
+	revCmd.Env = git.NonInteractiveEnvironment(revCmd.Environ())
+	rev, err := revCmd.CombinedOutput()
+	revision := strings.TrimSpace(string(rev))
+	if err != nil || (len(revision) != 40 && len(revision) != 64) || !validSCMRevision(revision) {
+		return "", "", "", fmt.Errorf("cannot resolve SCM pipeline commit")
+	}
 
-	filePath := filepath.Join(dest, filepath.Clean(src.Path))
+	cleanPath := filepath.Clean(src.Path)
+	if filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
+		return "", "", "", fmt.Errorf("SCM pipeline path escapes the repository")
+	}
+	filePath, err := filepath.EvalSymlinks(filepath.Join(dest, cleanPath))
+	if err != nil {
+		return "", "", "", fmt.Errorf("resolve SCM pipeline file: %w", err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(dest)
+	if err != nil {
+		return "", "", "", fmt.Errorf("resolve SCM checkout: %w", err)
+	}
+	relative, err := filepath.Rel(resolvedRoot, filePath)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", "", "", fmt.Errorf("SCM pipeline path escapes the repository")
+	}
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return "", "", fmt.Errorf("read SCM pipeline file %q: %w", src.Path, err)
+		return "", "", "", fmt.Errorf("read SCM pipeline file %q: %w", src.Path, err)
 	}
 	content := string(data)
 
@@ -283,7 +386,7 @@ func FetchSCMPipeline(ctx context.Context, src SCMPipelineSource) (string, Pipel
 			format = FormatJenkinsfile
 		}
 	}
-	return content, format, nil
+	return content, format, revision, nil
 }
 
 // detectFormatByPath infers the pipeline format from the file extension, used
