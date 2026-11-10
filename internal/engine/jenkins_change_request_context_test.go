@@ -28,3 +28,22 @@ func TestJenkinsChangeRequestContextPreservesAndValidatesMetadata(t *testing.T) 
 		}
 	}
 }
+
+func TestJenkinsTriggerUserIsReservedAndNotAUserParameter(t *testing.T) {
+	encoded, err := AttachJenkinsTriggerUser(`{"COUNT":9007199254740993}`, "alice")
+	if err != nil || readJenkinsTriggerUser(encoded) != "alice" || !strings.Contains(encoded, "9007199254740993") {
+		t.Fatalf("encoded=%q err=%v", encoded, err)
+	}
+	if _, err := AttachJenkinsTriggerUser(encoded, "mallory"); err == nil {
+		t.Fatal("internal user overwritten")
+	}
+	if _, err := ResolveBuildParameters([]BuildParameter{{Name: jenkinsTriggerUserContextKey, Type: "string"}}, nil); err == nil {
+		t.Fatal("reserved user parameter was declared")
+	}
+	if _, err := ResolveBuildParameters([]BuildParameter{{Name: jenkinsChangeRequestContextKey, Type: "string"}}, nil); err == nil {
+		t.Fatal("reserved PR parameter was declared")
+	}
+	if _, exists := parseParams(encoded)[jenkinsTriggerUserContextKey]; exists {
+		t.Fatal("internal user leaked to pipeline parameters")
+	}
+}

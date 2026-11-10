@@ -62,6 +62,17 @@ func parseIDInt64(r *http.Request) (int64, error) {
 
 func userIDOf(r *http.Request) int64 { return auth.UserIDFromContext(r.Context()) }
 
+func (h *handlers) attachBuildTriggerUser(parameters string, userID int64) (string, error) {
+	if userID <= 0 {
+		return parameters, nil
+	}
+	user, err := h.d.Store.GetUser(userID)
+	if err != nil {
+		return "", fmt.Errorf("trigger user unavailable: %w", err)
+	}
+	return engine.AttachJenkinsTriggerUser(parameters, user.Username)
+}
+
 // ---------------------------------------------------------------------------
 // health & version
 // ---------------------------------------------------------------------------
@@ -827,6 +838,7 @@ func redactBuildParameters(build *store.Build, secretNames map[string]struct{}, 
 		redacted.Parameters = ""
 		return &redacted
 	}
+	engine.PublicBuildParameters(parameters)
 	for name := range parameters {
 		if _, secret := secretNames[name]; redactAll || secret || looksLikeSecretParameter(name) {
 			parameters[name] = "********"
@@ -1020,6 +1032,11 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	paramsJSON, err = h.attachBuildTriggerUser(paramsJSON, userIDOf(r))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "cannot identify build trigger user")
+		return
+	}
 	build, err := h.d.Store.CreateNextBuildWithApproval(project.ID, "manual", branch, revision, paramsJSON, nil, nil, hold)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -3229,6 +3246,11 @@ func (h *handlers) httpTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	hold, err := h.approvalHold(config)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	paramsJSON, err = h.attachBuildTriggerUser(paramsJSON, principal.UserID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "cannot identify build trigger user")
 		return
 	}
 	build, err := h.d.Store.CreateNextBuildWithApproval(project.ID, "api", branch, revision, paramsJSON, nil, nil, hold)

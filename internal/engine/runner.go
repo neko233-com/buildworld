@@ -733,6 +733,10 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		}
 	}
 	conditionEnvironment[jenkinsBuildNumberContextKey] = strconv.Itoa(build.Number)
+	conditionEnvironment[jenkinsTriggerTypeContextKey] = build.Trigger
+	if build.Trigger == "manual" || build.Trigger == "api" {
+		conditionEnvironment[jenkinsTriggerActorContextKey] = readJenkinsTriggerUser(build.Parameters)
+	}
 
 	totalStages := len(cfg.Stages)
 	var failedSteps []string

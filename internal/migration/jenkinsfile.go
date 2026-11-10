@@ -1236,6 +1236,54 @@ func parseJenkinsWhenChildren(source, mask, operator string, flags *jenkinsWhenF
 			}
 			conditions = append(conditions, "jenkinsBuildingTag()")
 			cursor = position
+		case "triggeredBy":
+			position := skipSourceSpace(source, after, len(source))
+			args := source[position:]
+			end := position
+			parenthesized := position < len(source) && source[position] == '('
+			if parenthesized {
+				close, ok := matchingDelimiter(mask, position, '(', ')', len(mask))
+				if !ok {
+					return "", fmt.Errorf("unterminated triggeredBy arguments")
+				}
+				args, end = source[position+1:close], close+1
+			}
+			start := skipSourceSpace(args, 0, len(args))
+			cause, detail, hasDetail := "", "", false
+			var tail int
+			if start < len(args) && (args[start] == '\'' || args[start] == '"') {
+				var ok bool
+				cause, tail, ok = parseWhenLiteral(args, start)
+				if !ok {
+					return "", fmt.Errorf("triggeredBy requires a literal cause")
+				}
+			} else {
+				values, next, err := parseWhenNamedStrings(args, start)
+				if err != nil {
+					return "", fmt.Errorf("invalid triggeredBy arguments")
+				}
+				tail, cause = next, values["cause"]
+				detail, hasDetail = values["detail"]
+				for key := range values {
+					if key != "cause" && key != "detail" {
+						return "", fmt.Errorf("unsupported triggeredBy argument %q", key)
+					}
+				}
+			}
+			switch cause {
+			case "TimerTrigger", "TimerTriggerCause", "SCMTrigger", "SCMTriggerCause", "UserIdCause", "BuildUpstreamCause":
+			default:
+				return "", fmt.Errorf("unsupported triggeredBy cause %q", cause)
+			}
+			if parenthesized {
+				if strings.TrimSpace(args[tail:]) != "" {
+					return "", fmt.Errorf("unexpected triggeredBy argument")
+				}
+			} else {
+				end += tail
+			}
+			conditions = append(conditions, "jenkinsTriggeredBy("+strconv.Quote(cause)+","+strconv.Quote(detail)+","+strconv.Quote(strconv.FormatBool(hasDetail))+")")
+			cursor = end
 		case "branch", "tag":
 			function := "jenkinsBranch"
 			if word == "tag" {

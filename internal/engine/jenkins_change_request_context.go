@@ -10,6 +10,7 @@ import (
 
 // A NUL-containing name cannot be exposed as a process environment variable.
 const jenkinsChangeRequestContextKey = "\x00buildworld.changeRequest"
+const jenkinsTriggerUserContextKey = "\x00buildworld.triggerUser"
 
 // JenkinsChangeRequestContext is the authenticated, pinned webhook metadata.
 type JenkinsChangeRequestContext struct {
@@ -65,6 +66,39 @@ func readJenkinsChangeRequestContext(parameters, expectedID string) *JenkinsChan
 // PublicBuildParameters removes internal webhook metadata before user parameter validation.
 func PublicBuildParameters(parameters map[string]interface{}) {
 	delete(parameters, jenkinsChangeRequestContextKey)
+	delete(parameters, jenkinsTriggerUserContextKey)
+}
+
+// AttachJenkinsTriggerUser records the authenticated user at build creation.
+func AttachJenkinsTriggerUser(parameters, username string) (string, error) {
+	if username == "" || len(username) > 2048 || strings.ContainsRune(username, '\x00') {
+		return "", fmt.Errorf("invalid trigger user")
+	}
+	fields := make(map[string]json.RawMessage)
+	if parameters != "" {
+		if err := json.Unmarshal([]byte(parameters), &fields); err != nil || fields == nil {
+			return "", fmt.Errorf("invalid trigger parameters")
+		}
+	}
+	if _, exists := fields[jenkinsTriggerUserContextKey]; exists {
+		return "", fmt.Errorf("reserved trigger context already exists")
+	}
+	encoded, err := json.Marshal(username)
+	if err != nil {
+		return "", err
+	}
+	fields[jenkinsTriggerUserContextKey] = encoded
+	result, err := json.Marshal(fields)
+	return string(result), err
+}
+
+func readJenkinsTriggerUser(parameters string) string {
+	var fields map[string]json.RawMessage
+	var username string
+	if json.Unmarshal([]byte(parameters), &fields) != nil || json.Unmarshal(fields[jenkinsTriggerUserContextKey], &username) != nil {
+		return ""
+	}
+	return username
 }
 
 func (r *BuildRunner) changeRequestWebhookOrigin(build *store.Build) (bool, error) {

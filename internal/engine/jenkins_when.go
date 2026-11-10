@@ -18,6 +18,8 @@ import (
 const jenkinsBuildNumberContextKey = "\x00buildworld.currentBuild.number"
 const jenkinsSCMChangesContextKey = "\x00buildworld.currentBuild.scmChanges"
 const jenkinsSCMHistoryUnknownContextKey = "\x00buildworld.currentBuild.scmHistoryUnknown"
+const jenkinsTriggerTypeContextKey = "\x00buildworld.currentBuild.trigger"
+const jenkinsTriggerActorContextKey = "\x00buildworld.currentBuild.triggerActor"
 
 // ValidateJenkinsWhen accepts only the supported, side-effect-free boolean subset.
 func ValidateJenkinsWhen(condition string) error {
@@ -51,6 +53,29 @@ func validateJenkinsExpr(expr ast.Expr) error {
 			return nil
 		}
 	case *ast.CallExpr:
+		if ident, ok := node.Fun.(*ast.Ident); ok && ident.Name == "jenkinsTriggeredBy" && len(node.Args) == 3 {
+			values := make([]string, 3)
+			for i, arg := range node.Args {
+				literal, ok := arg.(*ast.BasicLit)
+				if !ok || literal.Kind != token.STRING {
+					return fmt.Errorf("triggeredBy arguments must be literal strings")
+				}
+				value, err := strconv.Unquote(literal.Value)
+				if err != nil {
+					return err
+				}
+				values[i] = value
+			}
+			switch values[0] {
+			case "TimerTrigger", "TimerTriggerCause", "SCMTrigger", "SCMTriggerCause", "UserIdCause", "BuildUpstreamCause":
+			default:
+				return fmt.Errorf("unsupported triggeredBy cause")
+			}
+			if values[2] != "true" && values[2] != "false" {
+				return fmt.Errorf("invalid triggeredBy detail")
+			}
+			return nil
+		}
 		if ident, ok := node.Fun.(*ast.Ident); ok && ident.Name == "jenkinsBuildingTag" && len(node.Args) == 0 {
 			return nil
 		}
@@ -211,6 +236,36 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 		return nil, fmt.Errorf("unsupported Jenkins parameter %q type %T", node.Sel.Name, v)
 	case *ast.CallExpr:
 		if ident, ok := node.Fun.(*ast.Ident); ok {
+			if ident.Name == "jenkinsTriggeredBy" {
+				cause, _ := strconv.Unquote(node.Args[0].(*ast.BasicLit).Value)
+				detail, _ := strconv.Unquote(node.Args[1].(*ast.BasicLit).Value)
+				hasDetail, _ := strconv.Unquote(node.Args[2].(*ast.BasicLit).Value)
+				trigger := environment[jenkinsTriggerTypeContextKey]
+				actual := ""
+				switch trigger {
+				case "schedule":
+					actual = "TimerTriggerCause"
+				case "vcs":
+					actual = "SCMTriggerCause"
+				case "finish":
+					actual = "BuildUpstreamCause"
+				case "manual", "api":
+					actual = "UserIdCause"
+				default:
+					return nil, fmt.Errorf("Jenkins trigger cause is unavailable for %q", trigger)
+				}
+				if !strings.Contains(strings.ToLower(actual), strings.ToLower(cause)) {
+					return false, nil
+				}
+				if actual == "UserIdCause" && hasDetail == "true" {
+					user := environment[jenkinsTriggerActorContextKey]
+					if user == "" {
+						return nil, fmt.Errorf("authenticated trigger user is unavailable")
+					}
+					return user == detail, nil
+				}
+				return true, nil
+			}
 			if ident.Name == "jenkinsBuildingTag" {
 				return environment["TAG_NAME"] != "", nil
 			}

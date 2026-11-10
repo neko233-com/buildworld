@@ -357,6 +357,12 @@ condition before starting a stage timeout. Stage input and specific stage
 agents remain unsupported, so their distinct lifecycle behavior is not available.
 Early evaluation with root `agent none` is rejected because per-stage agent
 allocation is not modeled.
+`triggeredBy` supports literal `UserIdCause`, `TimerTrigger`, `SCMTrigger` and
+`BuildUpstreamCause` for authenticated manual/API, scheduled, SCM polling and
+upstream builds respectively. User detail uses the authenticated username saved
+at creation. A historical user build without saved identity fails when detail
+is requested. Retry, webhook and other sources fail the condition evaluation
+instead of guessing a Jenkins cause; other cause patterns remain unsupported.
 Conditional Jenkins stages cannot be dispatched to remote workers.
 Re-import previously converted pipelines from the Jenkinsfile so conditions
 discarded by older versions are restored.

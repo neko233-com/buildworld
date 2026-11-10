@@ -93,6 +93,9 @@ func ResolveBuildParameters(parameters []BuildParameter, supplied map[string]int
 		if name == "" {
 			return nil, fmt.Errorf("build parameter name cannot be empty")
 		}
+		if strings.ContainsRune(name, '\x00') {
+			return nil, fmt.Errorf("build parameter name contains a reserved character")
+		}
 		if _, exists := seen[name]; exists {
 			return nil, fmt.Errorf("build parameter %s is declared more than once", name)
 		}
