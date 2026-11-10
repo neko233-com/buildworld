@@ -318,6 +318,10 @@ Literal `deleteDir()` and `checkout scm` at the start of a stage execute in
 order against the per-build workspace; `checkout scm` requires an SCM-sourced
 Jenkinsfile and checks out its already-pinned commit. `skipDefaultCheckout()`
 and its literal boolean argument control the initial automatic checkout.
+Checkout can reuse the configured repository or initialize a nonempty build
+workspace. It restores tracked files to the pinned revision and preserves
+unrelated untracked files; a foreign repository or external `.git` directory
+is rejected instead of being modified.
 Workspace operations in other positions or nested Groovy blocks require manual
 conversion and are not silently treated as successful.
 

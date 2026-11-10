@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -35,6 +36,82 @@ func (c *Client) CloneContext(ctx context.Context, url, dest string) error {
 		return fmt.Errorf("git clone failed: %w, output: %s", err, output)
 	}
 	return nil
+}
+
+// PrepareExistingWorkspaceContext initializes a nonempty workspace or verifies
+// that its existing repository is rooted there and points at the expected SCM.
+func (c *Client) PrepareExistingWorkspaceContext(ctx context.Context, repoPath, url, revision string) error {
+	gitPath := filepath.Join(repoPath, ".git")
+	info, err := os.Lstat(gitPath)
+	if os.IsNotExist(err) {
+		format := "sha1"
+		if len(revision) == 64 {
+			format = "sha256"
+		}
+		for _, args := range [][]string{
+			{"init", "--object-format=" + format},
+			{"config", "--local", "--", "remote.origin.url", url},
+			{"config", "--local", "--add", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"},
+			{"fetch", "--tags", "origin"},
+		} {
+			if _, err := workspaceGitCommand(ctx, repoPath, args...); err != nil {
+				return fmt.Errorf("initialize SCM workspace: %w", err)
+			}
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("SCM workspace .git must be a directory")
+	}
+	top, err := workspaceGitCommand(ctx, repoPath, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return fmt.Errorf("resolve SCM workspace: %w", err)
+	}
+	workspaceInfo, err := os.Stat(repoPath)
+	if err != nil {
+		return err
+	}
+	topInfo, err := os.Stat(strings.TrimSpace(top))
+	if err != nil || !os.SameFile(workspaceInfo, topInfo) {
+		return fmt.Errorf("SCM repository must be rooted in the build workspace")
+	}
+	origin, err := workspaceGitCommand(ctx, repoPath, "config", "--local", "--get", "remote.origin.url")
+	if err != nil || strings.TrimSpace(origin) != url {
+		return fmt.Errorf("SCM workspace origin differs from the configured repository")
+	}
+	return nil
+}
+
+func workspaceGitCommand(ctx context.Context, repoPath string, args ...string) (string, error) {
+	commandArgs := append([]string{"-C", repoPath}, args...)
+	cmd := processtree.CommandContext(ctx, "git", commandArgs...)
+	cmd.Env = NonInteractiveEnvironment(cmd.Environ())
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", args[0], err, output)
+	}
+	return string(output), nil
+}
+
+// ForceCheckoutRevisionContext restores tracked files to the selected SCM
+// revision while retaining unrelated untracked workspace files.
+func (c *Client) ForceCheckoutRevisionContext(ctx context.Context, repoPath, branch, revision string) error {
+	if revision == "" || strings.HasPrefix(revision, "-") {
+		return fmt.Errorf("revision is required")
+	}
+	if strings.HasPrefix(branch, "refs/tags/") {
+		_, err := workspaceGitCommand(ctx, repoPath, "checkout", "--force", "--detach", revision, "--")
+		return err
+	}
+	branch = strings.TrimPrefix(branch, "refs/heads/")
+	if branch == "" || strings.HasPrefix(branch, "-") {
+		return fmt.Errorf("branch is required")
+	}
+	_, err := workspaceGitCommand(ctx, repoPath, "checkout", "--force", "-B", branch, revision, "--")
+	return err
 }
 
 func (c *Client) CloneWithSSH(url, dest, username, password string) error {

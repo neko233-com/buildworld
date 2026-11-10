@@ -1,12 +1,51 @@
 package git
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
+
+func TestPrepareExistingWorkspaceRejectsForeignRepository(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not available")
+	}
+	root := t.TempDir()
+	cmd := exec.Command("git", "init", root)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	cmd = exec.Command("git", "-C", root, "remote", "add", "origin", "https://example.invalid/other.git")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v: %s", err, output)
+	}
+	marker := filepath.Join(root, "keep.txt")
+	if err := os.WriteFile(marker, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := NewClient().PrepareExistingWorkspaceContext(context.Background(), root, "https://example.invalid/expected.git", strings.Repeat("a", 40))
+	if err == nil || !strings.Contains(err.Error(), "origin differs") {
+		t.Fatalf("foreign SCM repository accepted: %v", err)
+	}
+	if content, err := os.ReadFile(marker); err != nil || string(content) != "keep" {
+		t.Fatalf("workspace changed: content=%q err=%v", content, err)
+	}
+}
+
+func TestPrepareExistingWorkspaceRejectsGitFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: ../outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := NewClient().PrepareExistingWorkspaceContext(context.Background(), root, "expected", strings.Repeat("a", 40))
+	if err == nil || !strings.Contains(err.Error(), ".git must be a directory") {
+		t.Fatalf("external Git directory accepted: %v", err)
+	}
+}
 
 func TestGitClient(t *testing.T) {
 	client := NewClient()

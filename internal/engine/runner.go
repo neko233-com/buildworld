@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1411,6 +1412,12 @@ func (r *BuildRunner) checkoutJenkinsSCM(ctx context.Context, workspace string, 
 	if repository == "" || revision == "" {
 		return fmt.Errorf("SCM repository and pinned revision are required")
 	}
+	if len(revision) != 40 && len(revision) != 64 {
+		return fmt.Errorf("SCM revision must be a full Git object ID")
+	}
+	if _, err := hex.DecodeString(revision); err != nil {
+		return fmt.Errorf("SCM revision must be a full Git object ID")
+	}
 	branch := strings.TrimSpace(build.Branch)
 	if branch == "" {
 		branch = strings.TrimSpace(project.PipelineSCMBranch)
@@ -1422,13 +1429,18 @@ func (r *BuildRunner) checkoutJenkinsSCM(ctx context.Context, workspace string, 
 		return fmt.Errorf("SCM branch or tag is required")
 	}
 	r.log(build.ID, "SCM Checkout", fmt.Sprintf("Checking out Jenkins SCM repository %s (branch=%s)", repository, branch))
-	if err := r.gitClient.CloneContext(ctx, repository, workspace); err != nil {
-		return fmt.Errorf("git clone: %w", err)
+	entries, err := os.ReadDir(workspace)
+	if err != nil {
+		return fmt.Errorf("read SCM workspace: %w", err)
 	}
-	if strings.HasPrefix(branch, "refs/tags/") {
-		return r.gitClient.CheckoutDetachedAtRevisionContext(ctx, workspace, revision)
+	if len(entries) == 0 {
+		if err := r.gitClient.CloneContext(ctx, repository, workspace); err != nil {
+			return fmt.Errorf("git clone: %w", err)
+		}
+	} else if err := r.gitClient.PrepareExistingWorkspaceContext(ctx, workspace, repository, revision); err != nil {
+		return fmt.Errorf("prepare SCM workspace: %w", err)
 	}
-	return r.gitClient.CheckoutBranchAtRevisionContext(ctx, workspace, branch, revision)
+	return r.gitClient.ForceCheckoutRevisionContext(ctx, workspace, branch, revision)
 }
 
 func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}, stage string, onOutput func(string)) error {
