@@ -158,6 +158,23 @@ restore_previous() {
     else
       run_cli "$install_dir/buildworld" start >/dev/null 2>&1 || rollback_failed=1
     fi
+    # A successful start command does not prove that the restored server can
+    # open the current database or remain healthy after an upgrade migration.
+    attempt=0
+    restored_healthy=0
+    while [ "$rollback_failed" = "0" ] && [ "$attempt" -lt 30 ]; do
+      health="$(curl -fsS --max-time 2 http://127.0.0.1:8080/api/health 2>/dev/null || true)"
+      running_version="$(curl -fsS --max-time 2 http://127.0.0.1:8080/api/version 2>/dev/null || true)"
+      if printf '%s' "$current_version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$' &&
+         printf '%s' "$running_version" | grep -Fq "\"version\":\"$current_version\"" &&
+         printf '%s' "$health" | grep -q '"status":"ok"'; then
+        restored_healthy=1
+        break
+      fi
+      attempt=$((attempt + 1))
+      sleep 1
+    done
+    [ "$restored_healthy" = "1" ] || rollback_failed=1
   fi
   return "$rollback_failed"
 }
