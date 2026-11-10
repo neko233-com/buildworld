@@ -7,11 +7,39 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestManagerRejectsUncontrolledSupervisorBeforeStartingUpdate(t *testing.T) {
+	root := t.TempDir()
+	install := filepath.Join(root, "install")
+	if err := os.MkdirAll(install, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(install, "apply-update.sh")
+	if err := os.WriteFile(helper, []byte("helper"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	launched := false
+	manager, err := NewManager(Options{InstallDir: install, StateDir: filepath.Join(root, "state"), ScriptPath: helper,
+		Launch: func(string, []string, string) error { launched = true; return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := errors.New("system LaunchDaemon requires administrator migration")
+	manager.checkSupervisor = func(context.Context) error { return blocked }
+	_, err = manager.Start(context.Background(), Request{Version: "1.2.3", SHA256: strings.Repeat("a", 64), Bundle: bytes.NewReader([]byte("unused"))})
+	if !errors.Is(err, blocked) || launched {
+		t.Fatalf("error=%v launched=%t", err, launched)
+	}
+	if _, err := os.Stat(manager.lockPath()); !os.IsNotExist(err) {
+		t.Fatalf("update lock should not be created: %v", err)
+	}
+}
 
 func TestManagerStagesVerifiedBundleAndLocksConcurrentUpdate(t *testing.T) {
 	root := t.TempDir()

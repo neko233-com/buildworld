@@ -22,6 +22,14 @@ type fakeUpdateService struct {
 	status  systemupdate.Status
 }
 
+func TestUnsupportedUpdateSupervisorHasActionableConflict(t *testing.T) {
+	response := httptest.NewRecorder()
+	writeUpdateStartError(response, systemupdate.ErrUnsupportedSupervisor)
+	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte("unsupported_update_supervisor")) || !bytes.Contains(response.Body.Bytes(), []byte("LaunchDaemon")) {
+		t.Fatalf("response = %d %s", response.Code, response.Body.String())
+	}
+}
+
 type fakeUpdateCatalog struct {
 	release   systemupdate.ReleaseInfo
 	bundle    systemupdate.Bundle

@@ -24,10 +24,11 @@ import (
 const MaxBundleBytes int64 = 512 << 20
 
 var (
-	ErrUpdateInProgress  = errors.New("system update is already in progress")
-	ErrAutomaticDisabled = errors.New("automatic system updates are disabled; an administrator must start the update")
-	versionPattern       = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-	checksumPattern      = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
+	ErrUpdateInProgress      = errors.New("system update is already in progress")
+	ErrAutomaticDisabled     = errors.New("automatic system updates are disabled; an administrator must start the update")
+	ErrUnsupportedSupervisor = errors.New("BuildWorld is managed by an unsupported system LaunchDaemon; an administrator must migrate it to the supported per-user LaunchAgent before updating")
+	versionPattern           = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	checksumPattern          = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 )
 
 type Request struct {
@@ -62,14 +63,15 @@ type Options struct {
 }
 
 type Manager struct {
-	currentVersion string
-	configPath     string
-	installDir     string
-	stateDir       string
-	scriptPath     string
-	launch         func(script string, args []string, logPath string) error
-	now            func() time.Time
-	mu             sync.Mutex
+	currentVersion  string
+	configPath      string
+	installDir      string
+	stateDir        string
+	scriptPath      string
+	launch          func(script string, args []string, logPath string) error
+	checkSupervisor func(context.Context) error
+	now             func() time.Time
+	mu              sync.Mutex
 }
 
 func NewManager(options Options) (*Manager, error) {
@@ -106,13 +108,14 @@ func NewManager(options Options) (*Manager, error) {
 		return nil, fmt.Errorf("create update state directory: %w", err)
 	}
 	return &Manager{
-		currentVersion: options.CurrentVersion,
-		configPath:     options.ConfigPath,
-		installDir:     filepath.Clean(options.InstallDir),
-		stateDir:       filepath.Clean(options.StateDir),
-		scriptPath:     filepath.Clean(options.ScriptPath),
-		launch:         options.Launch,
-		now:            options.Now,
+		currentVersion:  options.CurrentVersion,
+		configPath:      options.ConfigPath,
+		installDir:      filepath.Clean(options.InstallDir),
+		stateDir:        filepath.Clean(options.StateDir),
+		scriptPath:      filepath.Clean(options.ScriptPath),
+		launch:          options.Launch,
+		checkSupervisor: checkUpdateSupervisor,
+		now:             options.Now,
 	}, nil
 }
 
@@ -153,6 +156,9 @@ func (m *Manager) Start(ctx context.Context, request Request) (Status, error) {
 	}
 	if _, err := os.Stat(m.scriptPath); err != nil {
 		return Status{}, fmt.Errorf("trusted update helper is unavailable: %w", err)
+	}
+	if err := m.checkSupervisor(ctx); err != nil {
+		return Status{}, err
 	}
 	if err := m.acquireLock(); err != nil {
 		return Status{}, err

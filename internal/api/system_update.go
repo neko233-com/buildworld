@@ -144,6 +144,8 @@ func writeUpdateStartError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, systemupdate.ErrUpdateInProgress):
 		writeCodedErr(w, http.StatusConflict, "update_in_progress", err.Error())
+	case errors.Is(err, systemupdate.ErrUnsupportedSupervisor):
+		writeCodedErr(w, http.StatusConflict, "unsupported_update_supervisor", err.Error())
 	case strings.Contains(err.Error(), "checksum"), strings.Contains(err.Error(), "bundle"), strings.Contains(err.Error(), "version"):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	default:

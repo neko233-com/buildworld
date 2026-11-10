@@ -166,6 +166,23 @@ func TestUpdateControllerResumesSubmittedOperation(t *testing.T) {
 	}
 }
 
+func TestSubmitBundleReportsUnsupportedSupervisor(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"code":"unsupported_update_supervisor"}`)
+	}))
+	defer server.Close()
+	bundle := filepath.Join(t.TempDir(), "bundle")
+	if err := os.WriteFile(bundle, []byte("bundle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := submitBundle(context.Background(), server.Client(), server.URL, "test-token", bundle, &record{Version: "1.2.3"})
+	if err == nil || !strings.Contains(err.Error(), "LaunchDaemon") {
+		t.Fatalf("rejection error = %v", err)
+	}
+}
+
 func TestSelfReleaseRejectsNonLoopbackEndpoints(t *testing.T) {
 	for _, endpoint := range []string{"http://192.168.1.2:8080", "https://127.0.0.1", "http://example.com", "http://user@localhost", "http://localhost/path"} {
 		if _, err := localEndpoint(endpoint); err == nil {

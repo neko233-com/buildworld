@@ -144,7 +144,16 @@ restore_previous() {
     fi
   fi
   if [ "$pause_attempted" = "1" ] && [ "$was_running" = "1" ]; then
-    if [ "$had_autostart" = "1" ]; then
+    # A failed pause may leave the original server running under an external
+    # supervisor. Do not start a second server or report a false repair need.
+    current_version="$(run_cli "$install_dir/buildworld" version 2>/dev/null | awk '{print $NF}')"
+    running_version="$(curl -fsS --max-time 2 http://127.0.0.1:8080/api/version 2>/dev/null || true)"
+    health="$(curl -fsS --max-time 2 http://127.0.0.1:8080/api/health 2>/dev/null || true)"
+    if [ "$activated" = "0" ] && printf '%s' "$current_version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$' &&
+       printf '%s' "$running_version" | grep -Fq "\"version\":\"$current_version\"" &&
+       printf '%s' "$health" | grep -q '"status":"ok"'; then
+      :
+    elif [ "$had_autostart" = "1" ]; then
       run_cli "$install_dir/buildworld" enable-autostart >/dev/null 2>&1 || rollback_failed=1
     else
       run_cli "$install_dir/buildworld" start >/dev/null 2>&1 || rollback_failed=1

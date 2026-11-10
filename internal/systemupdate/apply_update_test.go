@@ -26,6 +26,7 @@ func TestUpdateHelperPreservesSnapshots(t *testing.T) {
 		{"success", "", "succeeded", "new", "current", "older", false},
 		{"new start fails", "new-start", "rolled_back", "current", "", "older", false},
 		{"pause fails", "pause", "rolled_back", "current", "older", "", false},
+		{"pause fails but supervisor keeps old server healthy", "pause-start", "rolled_back", "current", "older", "", false},
 		{"snapshot collision", "", "failed", "current", "older", "existing", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -45,7 +46,7 @@ func TestUpdateHelperPreservesSnapshots(t *testing.T) {
 			writeTestFile(t, filepath.Join(previous, "marker"), "older", 0o600)
 			writeTestFile(t, filepath.Join(install, "buildworld"), updateTestCLI("current"), 0o700)
 			writeTestFile(t, filepath.Join(bin, "buildworld"), "#!/bin/sh\nexit 0\n", 0o700)
-			writeTestFile(t, filepath.Join(bin, "curl"), "#!/bin/sh\ncase \"$*\" in */api/health*) echo '{\"status\":\"ok\"}';; *) echo '{\"version\":\"v1.2.3\"}';; esac\n", 0o700)
+			writeTestFile(t, filepath.Join(bin, "curl"), "#!/bin/sh\ncase \"$*\" in */api/health*) echo '{\"status\":\"ok\"}';; *) if [ \"$UPDATE_TEST_FAILURE\" = pause-start ]; then echo '{\"version\":\"v1.0.0\"}'; else echo '{\"version\":\"v1.2.3\"}'; fi;; esac\n", 0o700)
 			if tc.collision {
 				if err := os.Mkdir(snapshot, 0o700); err != nil {
 					t.Fatal(err)
@@ -93,7 +94,7 @@ func writeTestFile(t *testing.T, path, content string, mode os.FileMode) {
 }
 
 func updateTestCLI(role string) string {
-	return "#!/bin/sh\ncase \"$1\" in\nstatus) echo 'is running';;\npause) [ \"$UPDATE_TEST_FAILURE\" != pause ] || exit 1;;\nstart) [ \"$UPDATE_TEST_FAILURE\" != new-start ] || [ " + role + " != new ] || exit 1;;\nesac\nexit 0\n"
+	return "#!/bin/sh\ncase \"$1\" in\nstatus) echo 'is running';;\nversion) echo 'buildworld v1.0.0';;\npause) [ \"$UPDATE_TEST_FAILURE\" != pause ] && [ \"$UPDATE_TEST_FAILURE\" != pause-start ] || exit 1;;\nstart) [ \"$UPDATE_TEST_FAILURE\" != pause-start ] || exit 1; [ \"$UPDATE_TEST_FAILURE\" != new-start ] || [ " + role + " != new ] || exit 1;;\nesac\nexit 0\n"
 }
 
 func updateTestBundle(t *testing.T) []byte {
