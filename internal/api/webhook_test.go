@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -158,6 +159,182 @@ func TestWebhookPinsParametersConditionsAndWorkspaceToPushedRevision(t *testing.
 	}
 	if build.Status != "success" || build.CommitSHA != first || !strings.Contains(build.Log, "verified-first") || strings.Contains(build.Log, "verified-second") {
 		t.Fatalf("wrong executable build: %+v", build)
+	}
+}
+
+func TestTagWebhookRunsPinnedJenkinsConditionsAfterTagMoves(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is unavailable")
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("POSIX shell is unavailable")
+	}
+	t.Setenv("PATH", filepath.Dir(sh)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "--initial-branch=main", repo)
+	git("-C", repo, "config", "user.email", "test@example.invalid")
+	git("-C", repo, "config", "user.name", "BuildWorld Test")
+	source := `pipeline { agent any stages {
+stage('tagged') { when { allOf { buildingTag(); tag 'release-*'; branch 'release-*' } } steps { sh 'test "$TAG_NAME" = "$BRANCH_NAME"; test "$GIT_COMMIT" = "$(git rev-parse HEAD)"; test -z "$(git symbolic-ref -q HEAD || true)"; test "$(cat marker)" = old; echo tag-condition-ran' } }
+stage('wrong') { when { tag 'other-*' } steps { sh 'echo wrong-tag-ran' } }
+} }`
+	if err := os.WriteFile(filepath.Join(repo, "Jenkinsfile"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "marker"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("-C", repo, "add", "Jenkinsfile", "marker")
+	git("-C", repo, "commit", "-m", "tagged")
+	commit := git("-C", repo, "rev-parse", "HEAD")
+	git("-C", repo, "tag", "release-light")
+	git("-C", repo, "tag", "-a", "release-annotated", "-m", "annotated")
+	git("-C", repo, "tag", "-a", "release-gitlab", "-m", "annotated")
+	annotatedObject := git("-C", repo, "rev-parse", "refs/tags/release-annotated")
+	if annotatedObject == commit {
+		t.Fatal("annotated tag fixture did not create a separate tag object")
+	}
+	if err := os.WriteFile(filepath.Join(repo, "marker"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("-C", repo, "add", "marker")
+	git("-C", repo, "commit", "-m", "advance main")
+	// A branch with the same short name must never replace the requested tag.
+	git("-C", repo, "branch", "release-annotated", "HEAD")
+	data, err := store.New(filepath.Join(root, "buildworld.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	project, err := data.CreateProject("tagged", "", "", "git", "main", "", 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := data.SetProjectPipelineSource(project.ID, "jenkinsfile", "scm", repo, "main", "Jenkinsfile"); err != nil {
+		t.Fatal(err)
+	}
+	h := &handlers{d: Deps{Store: data}}
+	loadedProject, err := data.GetProject(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := h.prepareProjectBuild(context.Background(), loadedProject, "main", annotatedObject, nil); err == nil {
+		t.Fatal("branch build accepted a tag object in place of a commit")
+	}
+	treeObject := git("-C", repo, "rev-parse", "HEAD^{tree}")
+	if _, _, _, err := h.prepareProjectBuild(context.Background(), loadedProject, "refs/tags/release-invalid", treeObject, nil); err == nil {
+		t.Fatal("tag build accepted a tree object in place of a commit")
+	}
+	_, selected, _, err := h.prepareProjectBuild(context.Background(), loadedProject, "refs/tags/release-annotated", "", nil)
+	if err != nil || selected != commit {
+		t.Fatalf("manual tag resolved %s, want %s: %v", selected, commit, err)
+	}
+	router := NewRouter(Deps{Cfg: &config.Config{Automation: config.AutomationConfig{GitHubWebhookSecret: "tag-test-secret"}}, Store: data})
+	for _, tc := range []struct{ tag, object, provider string }{
+		{"release-light", commit, "github"},
+		{"release-annotated", annotatedObject, "gitea"},
+		{"release-gitlab", commit, "gitlab"},
+	} {
+		payload := webhook.WebhookPayload{Ref: "refs/tags/" + tc.tag, After: tc.object}
+		if tc.provider == "gitlab" {
+			payload.Project.GitHTTPURL = repo
+		} else {
+			payload.Repository.CloneURL = repo
+		}
+		body, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/webhooks/"+tc.provider, bytes.NewReader(body))
+		switch tc.provider {
+		case "github":
+			request.Header.Set("X-Hub-Signature-256", "sha256="+webhookSignature("tag-test-secret", body))
+		case "gitea":
+			request.Header.Set("X-Gitea-Signature", webhookSignature("tag-test-secret", body))
+		case "gitlab":
+			request.Header.Set("X-Gitlab-Token", "tag-test-secret")
+		}
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("tag %s through %s: status=%d body=%s", tc.tag, tc.provider, response.Code, response.Body.String())
+		}
+	}
+	inlineData, err := store.New(filepath.Join(root, "inline-buildworld.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inlineData.Close()
+	inlineSource := fmt.Sprintf(`pipeline { agent any stages { stage('inline') { when { tag 'release-*' } steps { sh 'test "$TAG_NAME" = release-annotated; test "$GIT_COMMIT" = %s; echo inline-tag-ran' } } } }`, commit)
+	inlineProject, err := inlineData.CreateProject("inline-tag", "", repo, "git", "main", inlineSource, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inlinePayload := webhook.WebhookPayload{Ref: "refs/tags/release-annotated", After: annotatedObject}
+	inlinePayload.Repository.CloneURL = repo
+	if err := (&handlers{d: Deps{Store: inlineData}}).triggerBuildByWebhook(inlinePayload); err != nil {
+		t.Fatal(err)
+	}
+	inlineBuilds, err := inlineData.ListBuildsByProject(inlineProject.ID)
+	if err != nil || len(inlineBuilds) != 1 || inlineBuilds[0].CommitSHA != commit {
+		t.Fatalf("inline tag metadata=%+v error=%v", inlineBuilds, err)
+	}
+	git("-C", repo, "tag", "-f", "release-light", "HEAD")
+	git("-C", repo, "tag", "-f", "release-annotated", "HEAD")
+	git("-C", repo, "tag", "-f", "release-gitlab", "HEAD")
+	builds, err := data.ListBuildsByProject(project.ID)
+	if err != nil || len(builds) != 3 {
+		t.Fatalf("builds=%+v error=%v", builds, err)
+	}
+	runner := engine.NewBuildRunner(data, nil, filepath.Join(root, "workspaces"), nil)
+	defer runner.Shutdown(context.Background())
+	for _, build := range builds {
+		if build.CommitSHA != commit || !strings.HasPrefix(build.Branch, "refs/tags/release-") {
+			t.Fatalf("lost tag identity: %+v", build)
+		}
+		runner.Run(build.ID)
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			build, err = data.GetBuild(build.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if build.Status == "success" || build.Status == "failed" {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if build.Status != "success" || build.CommitSHA != commit || !strings.Contains(build.Log, "tag-condition-ran") || strings.Contains(build.Log, "wrong-tag-ran") {
+			t.Fatalf("tag build failed: status=%s commit=%s log=%s", build.Status, build.CommitSHA, build.Log)
+		}
+	}
+	inlineRunner := engine.NewBuildRunner(inlineData, nil, filepath.Join(root, "inline-workspaces"), nil)
+	defer inlineRunner.Shutdown(context.Background())
+	inlineBuild := inlineBuilds[0]
+	inlineRunner.Run(inlineBuild.ID)
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		inlineBuild, err = inlineData.GetBuild(inlineBuild.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if inlineBuild.Status == "success" || inlineBuild.Status == "failed" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if inlineBuild.Status != "success" || inlineBuild.CommitSHA != commit || !strings.Contains(inlineBuild.Log, "inline-tag-ran") {
+		t.Fatalf("inline tag build: status=%s commit=%s log=%s", inlineBuild.Status, inlineBuild.CommitSHA, inlineBuild.Log)
 	}
 }
 

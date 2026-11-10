@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -16,9 +17,16 @@ type WebhookPayload struct {
 	Ref        string `json:"ref"`
 	After      string `json:"after"`
 	Repository struct {
-		FullName string `json:"full_name"`
-		CloneURL string `json:"clone_url"`
+		FullName   string `json:"full_name"`
+		CloneURL   string `json:"clone_url"`
+		GitHTTPURL string `json:"git_http_url"`
+		GitSSHURL  string `json:"git_ssh_url"`
 	} `json:"repository"`
+	Project struct {
+		PathWithNamespace string `json:"path_with_namespace"`
+		GitHTTPURL        string `json:"git_http_url"`
+		GitSSHURL         string `json:"git_ssh_url"`
+	} `json:"project"`
 	HeadCommit struct {
 		ID      string `json:"id"`
 		Message string `json:"message"`
@@ -26,6 +34,42 @@ type WebhookPayload struct {
 	Sender struct {
 		Login string `json:"login"`
 	} `json:"sender"`
+}
+
+// MatchesRepository accepts the clone identities emitted by supported push providers.
+func MatchesRepository(repository string, payload WebhookPayload) bool {
+	if repository == "" {
+		return false
+	}
+	configured := []string{repository}
+	if outer, err := url.Parse(repository); err == nil && (outer.Scheme == "https" || outer.Scheme == "http") {
+		// Some Git mirrors use https://mirror/https://origin/path. Match the
+		// explicit embedded origin as well as the configured mirror URL.
+		inner := strings.TrimPrefix(outer.EscapedPath(), "/")
+		if parsed, err := url.Parse(inner); err == nil && (parsed.Scheme == "https" || parsed.Scheme == "http") && parsed.Host != "" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" {
+			configured = append(configured, inner)
+		}
+	}
+	for _, candidate := range []string{payload.Repository.CloneURL, payload.Repository.FullName, payload.Repository.GitHTTPURL, payload.Repository.GitSSHURL, payload.Project.GitHTTPURL, payload.Project.GitSSHURL, payload.Project.PathWithNamespace} {
+		if candidate == "" {
+			continue
+		}
+		for _, value := range configured {
+			if repositoryIdentity(value) == repositoryIdentity(candidate) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func repositoryIdentity(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return raw
+	}
+	path := strings.TrimSuffix(strings.TrimSuffix(parsed.EscapedPath(), "/"), ".git")
+	return strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host) + path
 }
 
 type WebhookHandler struct {

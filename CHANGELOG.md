@@ -20,6 +20,9 @@ All notable BuildWorld changes are recorded here. The project follows
 - Preserve declarative stage timeouts, evaluate Jenkins `equals` and numeric
   comparisons without losing integer precision, and reject unsupported stage
   approval, agent, post and nested execution rather than silently bypassing them.
+- Carry configured-repository tag refs through signed GitHub, Gitea and GitLab push webhooks,
+  verify and peel annotated tag objects, and expose their pinned commit and
+  tag name consistently across stage conditions and restart recovery.
 
 ## [1.16.27] - 2026-11-11
 

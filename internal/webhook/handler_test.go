@@ -178,8 +178,10 @@ func TestParsePushEvent(t *testing.T) {
 	payload := WebhookPayload{
 		Ref: "refs/heads/main",
 		Repository: struct {
-			FullName string `json:"full_name"`
-			CloneURL string `json:"clone_url"`
+			FullName   string `json:"full_name"`
+			CloneURL   string `json:"clone_url"`
+			GitHTTPURL string `json:"git_http_url"`
+			GitSSHURL  string `json:"git_ssh_url"`
 		}{
 			FullName: "user/repo",
 			CloneURL: "https://github.com/user/repo.git",
@@ -226,5 +228,27 @@ func TestParsePushEventUsesAuthoritativeAfterAndIgnoresDeletion(t *testing.T) {
 	}
 	if !ValidCommitID("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef") {
 		t.Fatal("rejected SHA-256 commit")
+	}
+}
+
+func TestMatchesRepositorySupportsGitLabAndExplicitMirrorOrigin(t *testing.T) {
+	var payload WebhookPayload
+	payload.Project.GitHTTPURL = "https://git.example/owner/repo.git"
+	if !MatchesRepository("https://git.example/owner/repo", payload) {
+		t.Fatal("GitLab project HTTP clone URL did not match")
+	}
+	payload = WebhookPayload{}
+	payload.Repository.CloneURL = "https://github.com/org/repo.git"
+	if !MatchesRepository("https://mirror.example/https://github.com/org/repo.git", payload) {
+		t.Fatal("configured mirror did not match its explicit origin")
+	}
+	for _, repository := range []string{
+		"https://mirror.example/https://github.com/other/repo.git",
+		"https://github.com/org%2Frepo.git",
+		"https://other.example/org/repo.git",
+	} {
+		if MatchesRepository(repository, payload) {
+			t.Fatalf("matched different repository %q", repository)
+		}
 	}
 }

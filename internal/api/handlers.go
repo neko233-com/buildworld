@@ -1668,7 +1668,7 @@ func (h *handlers) triggerBuildByWebhook(payload webhook.WebhookPayload) error {
 		if repository == "" {
 			continue
 		}
-		if repository == payload.Repository.CloneURL || repository == payload.Repository.FullName {
+		if webhook.MatchesRepository(repository, payload) {
 			branch, commit, _ := webhook.ParsePushEvent(payload)
 			if branch == "" {
 				return nil

@@ -41,9 +41,15 @@ Groovy truth applies: a nonempty string such as `"false"` is true unless it
 is explicitly converted. Branch GLOB matching is case-insensitive and follows
 Ant-style path segments. Pipeline environment is visible to `when`; a stage's
 own environment is applied to its steps after its `when` succeeds.
-Tag conditions use `TAG_NAME` from the build environment; an absent or empty
-value is not a tag build. Ensure the trigger supplies this value when migrating
-a tag job.
+For tag pushes or an explicitly selected `refs/tags/...` ref on a configured
+repository, BuildWorld sets `TAG_NAME` and `BRANCH_NAME` to the short tag name
+and `GIT_COMMIT` to the resolved commit. Annotated tag objects are verified and
+peeled to their target commits, including for inline pipelines. SCM-sourced
+pipeline checkouts are detached and stay pinned across retries and controller
+recovery even if the tag moves. Inline pipelines retain their existing
+workspace setup and must explicitly arrange any checkout they need. Tag
+conditions use `TAG_NAME` from the build environment; an absent or empty value
+is not a tag build.
 
 This is not an arbitrary Groovy interpreter. Unsupported expressions,
 declarative conditions, and `beforeAgent`, `beforeInput`, or `beforeOptions`

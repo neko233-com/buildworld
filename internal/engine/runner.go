@@ -688,7 +688,13 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			return
 		}
 		if build.CommitSHA != "" && branch != "" {
-			if err := r.gitClient.CheckoutBranchAtRevisionContext(ctx, workspace, branch, build.CommitSHA); err != nil {
+			var err error
+			if strings.HasPrefix(branch, "refs/tags/") {
+				err = r.gitClient.CheckoutDetachedAtRevisionContext(ctx, workspace, build.CommitSHA)
+			} else {
+				err = r.gitClient.CheckoutBranchAtRevisionContext(ctx, workspace, branch, build.CommitSHA)
+			}
+			if err != nil {
 				r.fail(buildID, start, fmt.Sprintf("SCM checkout: git checkout: %v", err), project)
 				return
 			}
@@ -746,7 +752,11 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		if stage.TimeoutSec > 0 {
 			stageCtx, cancelStage = context.WithTimeout(ctx, time.Duration(stage.TimeoutSec)*time.Second)
 		}
-		shouldRun, conditionErr := ShouldRunStageWithJenkinsContext(stage, stageStatuses, params, conditionEnvironment, branch)
+		jenkinsBranch := conditionEnvironment["BRANCH_NAME"]
+		if jenkinsBranch == "" {
+			jenkinsBranch = branch
+		}
+		shouldRun, conditionErr := ShouldRunStageWithJenkinsContext(stage, stageStatuses, params, conditionEnvironment, jenkinsBranch)
 		if errors.Is(stageCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 			cancelStage()
 			r.log(buildID, stage.Name, fmt.Sprintf("Stage timed out after %ds", stage.TimeoutSec))
@@ -1598,6 +1608,11 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 	if branchName == "" {
 		branchName = project.DefaultBranch
 	}
+	tagName := ""
+	if strings.HasPrefix(branchName, "refs/tags/") {
+		tagName = strings.TrimPrefix(branchName, "refs/tags/")
+		branchName = tagName
+	}
 	envMap := map[string]string{
 		"BUILD_NUMBER":       buildNumber,
 		"BUILD_ID":           buildNumber,
@@ -1607,6 +1622,9 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 		"JOB_BASE_NAME":      project.Name,
 		"BRANCH_NAME":        branchName,
 		"GIT_COMMIT":         build.CommitSHA,
+	}
+	if tagName != "" {
+		envMap["TAG_NAME"] = tagName
 	}
 	for k, v := range cfg.Environment {
 		envMap[k] = v

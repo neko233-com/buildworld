@@ -158,6 +158,15 @@ func TestSCMPipelinePinsDefinitionAndWorkspaceAcrossAdvanceAndRestart(t *testing
 }
 
 func TestSCMPipelineRestartUsesRecordedCommit(t *testing.T) {
+	testSCMPipelineRestartUsesRecordedCommit(t, "main")
+}
+
+func TestSCMTagPipelineRestartUsesRecordedCommit(t *testing.T) {
+	testSCMPipelineRestartUsesRecordedCommit(t, "refs/tags/release-restart")
+}
+
+func testSCMPipelineRestartUsesRecordedCommit(t *testing.T, ref string) {
+	t.Helper()
 	sh, err := exec.LookPath("sh")
 	if err != nil {
 		t.Skip("POSIX shell is unavailable")
@@ -169,15 +178,21 @@ func TestSCMPipelineRestartUsesRecordedCommit(t *testing.T) {
 	runJenkinsMigrationGit(t, "-C", repository, "config", "user.email", "test@example.invalid")
 	runJenkinsMigrationGit(t, "-C", repository, "config", "user.name", "BuildWorld Test")
 	checkpoint := filepath.ToSlash(filepath.Join(root, "checkpoint"))
-	source := fmt.Sprintf(`pipeline { agent any stages { stage('verify') { steps { sh '''
+	when, tagCheck := "", ""
+	if strings.HasPrefix(ref, "refs/tags/") {
+		when = `when { allOf { buildingTag(); tag 'release-*' } }`
+		tagCheck = `test "$TAG_NAME" = release-restart`
+	}
+	source := fmt.Sprintf(`pipeline { agent any stages { stage('verify') { %s steps { sh '''
 set -eu
 if [ ! -f '%s' ]; then
   touch '%s'
   while :; do sleep 1; done
 fi
 test "$(cat marker)" = first
+%s
 echo recovered-first
-''' } } } }`, checkpoint, checkpoint)
+''' } } } }`, when, checkpoint, checkpoint, tagCheck)
 	if err := os.WriteFile(filepath.Join(repository, "marker"), []byte("first"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -187,6 +202,9 @@ echo recovered-first
 	runJenkinsMigrationGit(t, "-C", repository, "add", "marker", "Jenkinsfile")
 	runJenkinsMigrationGit(t, "-C", repository, "commit", "-m", "initial")
 	runJenkinsMigrationGit(t, "-C", repository, "branch", "-M", "main")
+	if strings.HasPrefix(ref, "refs/tags/") {
+		runJenkinsMigrationGit(t, "-C", repository, "tag", "-a", "release-restart", "-m", "annotated")
+	}
 	database, err := store.New(filepath.Join(root, "buildworld.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +217,7 @@ echo recovered-first
 	if err := database.SetProjectPipelineSource(project.ID, "jenkinsfile", "scm", repository, "main", "Jenkinsfile"); err != nil {
 		t.Fatal(err)
 	}
-	build, err := database.CreateBuild(project.ID, 1, "manual", "main", "", "", nil, nil)
+	build, err := database.CreateBuild(project.ID, 1, "manual", ref, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,6 +249,9 @@ echo recovered-first
 	}
 	runJenkinsMigrationGit(t, "-C", repository, "add", "marker", "Jenkinsfile")
 	runJenkinsMigrationGit(t, "-C", repository, "commit", "-m", "advance")
+	if strings.HasPrefix(ref, "refs/tags/") {
+		runJenkinsMigrationGit(t, "-C", repository, "tag", "-f", "release-restart", "HEAD")
+	}
 	restarted := engine.NewBuildRunner(database, nil, filepath.Join(root, "workspaces"), nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

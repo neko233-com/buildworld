@@ -104,6 +104,19 @@ func (c *Client) CheckoutBranchAtRevisionContext(ctx context.Context, repoPath, 
 	return nil
 }
 
+// CheckoutDetachedAtRevisionContext checks out a tag build's pinned commit.
+func (c *Client) CheckoutDetachedAtRevisionContext(ctx context.Context, repoPath, revision string) error {
+	if revision == "" || strings.HasPrefix(revision, "-") {
+		return fmt.Errorf("revision is required")
+	}
+	cmd := processtree.CommandContext(ctx, "git", "-C", repoPath, "checkout", "--detach", revision, "--")
+	cmd.Env = NonInteractiveEnvironment(cmd.Environ())
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout pinned tag failed: %w, output: %s", err, output)
+	}
+	return nil
+}
+
 // NonInteractiveEnvironment keeps CI Git commands from waiting forever for a
 // terminal/keychain prompt and aborts an HTTP transfer that makes no progress.
 // Safety values replace inherited values so server launch environment cannot

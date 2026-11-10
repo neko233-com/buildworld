@@ -284,8 +284,12 @@ regular-expression syntax is narrower than Java's. Expressions support `params`
 and `env`, `currentBuild.number`, boolean and ordered comparisons, equality and
 `toString().toBoolean()`; numeric parameters keep JSON precision, while nonempty
 strings are true under Groovy truth. Pipeline environment is visible to `when`;
-the stage's own environment applies after its condition succeeds. Tag conditions
-require a populated `TAG_NAME`.
+the stage's own environment applies after its condition succeeds. For tag
+pushes and explicitly selected `refs/tags/...` refs on a configured repository,
+the short tag name is exposed as `TAG_NAME` and `BRANCH_NAME`; `GIT_COMMIT` is
+the pinned commit, with annotated tag objects verified and peeled. Inline jobs
+retain their existing workspace setup. Other tag conditions require a populated
+`TAG_NAME` in the build environment.
 
 Unsupported conditions and arbitrary Groovy are rejected rather than executed
 unconditionally. `beforeAgent`, `beforeInput` and `beforeOptions` are not yet
