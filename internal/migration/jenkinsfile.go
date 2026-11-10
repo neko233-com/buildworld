@@ -852,8 +852,9 @@ func parseJenkinsWhen(source, mask string) ([]string, string, error) {
 				if strings.HasPrefix(expression, "return ") {
 					expression = strings.TrimSpace(strings.TrimPrefix(expression, "return "))
 				}
+				expression, ok = normalizeJenkinsWhenStrings(expression)
 				if expression != "" {
-					if err := engine.ValidateJenkinsWhen(expression); err == nil {
+					if err := engine.ValidateJenkinsWhen(expression); ok && err == nil {
 						return nil, expression, nil
 					}
 				}
@@ -861,6 +862,26 @@ func parseJenkinsWhen(source, mask string) ([]string, string, error) {
 		}
 	}
 	return nil, "", fmt.Errorf("unsupported Jenkins when condition; refusing to run the stage unconditionally")
+}
+
+// normalizeJenkinsWhenStrings translates simple literal strings without accepting GStrings or escape semantics.
+func normalizeJenkinsWhenStrings(expression string) (string, bool) {
+	var result strings.Builder
+	for i := 0; i < len(expression); {
+		if expression[i] != '\'' && expression[i] != '"' {
+			result.WriteByte(expression[i])
+			i++
+			continue
+		}
+		quote := expression[i]
+		value, end, ok := parseGroovyString(expression, i)
+		if !ok || strings.ContainsAny(expression[i+1:end-1], "\\\r\n") || (quote == '"' && strings.Contains(value, "$")) {
+			return "", false
+		}
+		result.WriteString(strconv.Quote(value))
+		i = end
+	}
+	return result.String(), true
 }
 
 func translateJenkinsShell(source string) (string, []Warning) {

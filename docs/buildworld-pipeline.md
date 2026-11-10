@@ -279,8 +279,8 @@ pipeline.
 
 Jenkins `when` currently supports a case-sensitive exact branch name without wildcards and
 boolean expressions such as `expression { !params.ENTRY_ONLY }`, including
-parentheses, `!`, `&&`, `||`, and boolean equality. Referenced parameters must
-be supplied as booleans. Other `when` forms, Groovy expressions, and wildcard
+parentheses, `!`, `&&`, `||`, and equality between boolean or string values.
+Other `when` forms, Groovy expressions, and wildcard
 branches are rejected during conversion instead of running unconditionally.
 This is a restricted subset, not a general Groovy interpreter. Pipelines with
 these expressions cannot be dispatched to remote workers. Re-import previously

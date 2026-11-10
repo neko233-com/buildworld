@@ -40,11 +40,31 @@ stages { stage('deploy') { when { expression { !params.ENTRY_ONLY } } steps { sh
 	}
 }
 
+func TestJenkinsWhenSDKReleaseStringChoice(t *testing.T) {
+	source := `pipeline { agent any stages { stage('verify') { when { expression { return !params.SYNC_PLATFORM_APP_IDS && !params.SYNC_SHARED_DEPENDENCIES && params.RELEASE_ACTION == 'publish-latest' } } steps { sh 'echo verify' } } } }`
+	config, err := engine.ParseJenkinsfileConfig(source, "sdk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		action string
+		sync   bool
+		want   bool
+	}{{"publish-latest", false, true}, {"restart-version", false, false}, {"publish-latest", true, false}} {
+		params := map[string]interface{}{"RELEASE_ACTION": test.action, "SYNC_PLATFORM_APP_IDS": test.sync, "SYNC_SHARED_DEPENDENCIES": false}
+		got, err := engine.ShouldRunStageWithParameters(config.Stages[0], nil, params)
+		if err != nil || got != test.want {
+			t.Fatalf("%+v got %v error %v", test, got, err)
+		}
+	}
+}
+
 func TestJenkinsWhenUnsupportedNeverBecomesUnconditional(t *testing.T) {
 	for _, condition := range []string{
 		`not { branch 'main' }`, `allOf { branch 'main'; expression { !params.ENTRY_ONLY } }`,
 		`branch 'main'; branch 'release'`, `branch 'release/*'`, `expression { dangerous() }`,
 		`expression { params.ENTRY_ONLY }; branch 'main'`, `environment name: 'ENV', value: 'prod'`,
+		`expression { params.ACTION == "${params.ACTION}" }`,
 	} {
 		t.Run(condition, func(t *testing.T) {
 			source := fmt.Sprintf(`pipeline { agent any stages { stage('deploy') { when { %s } steps { sh 'echo deploy' } } } }`, condition)

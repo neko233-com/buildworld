@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strconv"
 	"strings"
 )
 
@@ -26,6 +27,10 @@ func validateJenkinsExpr(expr ast.Expr) error {
 		return validateJenkinsExpr(node.X)
 	case *ast.Ident:
 		if node.Name == "true" || node.Name == "false" {
+			return nil
+		}
+	case *ast.BasicLit:
+		if node.Kind == token.STRING {
 			return nil
 		}
 	case *ast.SelectorExpr:
@@ -56,38 +61,61 @@ func EvaluateJenkinsWhen(condition string, params map[string]interface{}) (bool,
 	if err != nil {
 		return false, err
 	}
-	return evalJenkinsExpr(expr, params)
+	value, err := evalJenkinsExpr(expr, params)
+	if err != nil {
+		return false, err
+	}
+	result, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("Jenkins when expression must evaluate to boolean")
+	}
+	return result, nil
 }
 
-func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}) (bool, error) {
+func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}) (interface{}, error) {
 	switch node := expr.(type) {
 	case *ast.ParenExpr:
 		return evalJenkinsExpr(node.X, params)
 	case *ast.Ident:
 		return node.Name == "true", nil
+	case *ast.BasicLit:
+		return strconv.Unquote(node.Value)
 	case *ast.SelectorExpr:
 		v, found := params[node.Sel.Name]
 		if !found {
 			return false, fmt.Errorf("Jenkins parameter %q is missing", node.Sel.Name)
 		}
-		b, ok := v.(bool)
-		if !ok {
-			return false, fmt.Errorf("Jenkins parameter %q must be boolean", node.Sel.Name)
+		switch v.(type) {
+		case bool, string:
+			return v, nil
 		}
-		return b, nil
+		return nil, fmt.Errorf("Jenkins parameter %q must be boolean or string", node.Sel.Name)
 	case *ast.UnaryExpr:
 		v, err := evalJenkinsExpr(node.X, params)
-		return !v, err
+		if err != nil {
+			return nil, err
+		}
+		b, ok := v.(bool)
+		if !ok {
+			return nil, fmt.Errorf("Jenkins ! operand must be boolean")
+		}
+		return !b, nil
 	case *ast.BinaryExpr:
 		left, err := evalJenkinsExpr(node.X, params)
 		if err != nil {
 			return false, err
 		}
-		if node.Op == token.LAND && !left {
-			return false, nil
-		}
-		if node.Op == token.LOR && left {
-			return true, nil
+		if node.Op == token.LAND || node.Op == token.LOR {
+			b, ok := left.(bool)
+			if !ok {
+				return nil, fmt.Errorf("Jenkins logical operand must be boolean")
+			}
+			if node.Op == token.LAND && !b {
+				return false, nil
+			}
+			if node.Op == token.LOR && b {
+				return true, nil
+			}
 		}
 		right, err := evalJenkinsExpr(node.Y, params)
 		if err != nil {
@@ -95,9 +123,17 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}) (bool, error)
 		}
 		switch node.Op {
 		case token.LAND:
-			return left && right, nil
+			b, ok := right.(bool)
+			if !ok {
+				return nil, fmt.Errorf("Jenkins logical operand must be boolean")
+			}
+			return b, nil
 		case token.LOR:
-			return left || right, nil
+			b, ok := right.(bool)
+			if !ok {
+				return nil, fmt.Errorf("Jenkins logical operand must be boolean")
+			}
+			return b, nil
 		case token.EQL:
 			return left == right, nil
 		case token.NEQ:

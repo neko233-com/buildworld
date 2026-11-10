@@ -1606,8 +1606,12 @@ func (h *handlers) triggerBuildByWebhook(payload webhook.WebhookPayload) error {
 		}
 		if p.RepoURL == payload.Repository.CloneURL || p.RepoURL == payload.Repository.FullName {
 			branch, commit, _ := webhook.ParsePushEvent(payload)
+			parameters, err := h.resolveProjectBuildParameters(p, nil)
+			if err != nil {
+				return fmt.Errorf("resolve webhook build parameters: %w", err)
+			}
 			num, _ := h.d.Store.NextBuildNumber(p.ID)
-			build, err := h.d.Store.CreateBuild(p.ID, num, "webhook", branch, commit, "", nil, nil)
+			build, err := h.d.Store.CreateBuild(p.ID, num, "webhook", branch, commit, parameters, nil, nil)
 			if err != nil {
 				return err
 			}

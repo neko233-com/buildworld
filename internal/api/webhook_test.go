@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -57,6 +58,42 @@ func TestWebhookPushCreatesMatchedProjectBuild(t *testing.T) {
 	build := builds[0]
 	if build.Trigger != "webhook" || build.Branch != "release" || build.CommitSHA != "0123456" {
 		t.Fatalf("build = %+v, want normal webhook metadata", build)
+	}
+}
+
+func TestWebhookBuildUsesDeclaredParameterDefaults(t *testing.T) {
+	database, err := store.New(filepath.Join(t.TempDir(), "webhook.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	source := `parameters:
+  - {name: ENTRY_ONLY, type: boolean, default: true}
+jobs:
+  test:
+    steps:
+      - {name: ok, run: echo ok}
+`
+	project, err := database.CreateProject("defaults", "", "https://example.invalid/repo", "git", "main", source, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := webhook.WebhookPayload{Ref: "refs/heads/main"}
+	payload.Repository.CloneURL = project.RepoURL
+	h := &handlers{d: Deps{Store: database}}
+	if err := h.triggerBuildByWebhook(payload); err != nil {
+		t.Fatal(err)
+	}
+	builds, err := database.ListBuildsByProject(project.ID)
+	if err != nil || len(builds) != 1 {
+		t.Fatalf("builds=%v err=%v", builds, err)
+	}
+	var params map[string]interface{}
+	if err := json.Unmarshal([]byte(builds[0].Parameters), &params); err != nil {
+		t.Fatal(err)
+	}
+	if params["ENTRY_ONLY"] != true {
+		t.Fatalf("defaults: %#v", params)
 	}
 }
 
