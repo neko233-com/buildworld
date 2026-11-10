@@ -20,6 +20,32 @@ const jenkinsSCMChangesContextKey = "\x00buildworld.currentBuild.scmChanges"
 const jenkinsSCMHistoryUnknownContextKey = "\x00buildworld.currentBuild.scmHistoryUnknown"
 const jenkinsTriggerTypeContextKey = "\x00buildworld.currentBuild.trigger"
 const jenkinsTriggerActorContextKey = "\x00buildworld.currentBuild.triggerActor"
+const jenkinsRetryCausesContextKey = "\x00buildworld.currentBuild.retryCauses"
+
+func pipelineUsesJenkinsTrigger(config *BuildConfig) bool {
+	for _, stage := range config.Stages {
+		expr, err := parser.ParseExpr(stage.JenkinsWhen)
+		if err != nil {
+			continue
+		}
+		found := false
+		ast.Inspect(expr, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "jenkinsTriggeredBy" {
+				found = true
+				return false
+			}
+			return true
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
 
 // ValidateJenkinsWhen accepts only the supported, side-effect-free boolean subset.
 func ValidateJenkinsWhen(condition string) error {
@@ -67,7 +93,7 @@ func validateJenkinsExpr(expr ast.Expr) error {
 				values[i] = value
 			}
 			switch values[0] {
-			case "TimerTrigger", "TimerTriggerCause", "SCMTrigger", "SCMTriggerCause", "UserIdCause", "BuildUpstreamCause":
+			case "TimerTrigger", "TimerTriggerCause", "SCMTrigger", "SCMTriggerCause", "UserIdCause", "BuildUpstreamCause", "RebuildCause":
 			default:
 				return fmt.Errorf("unsupported triggeredBy cause")
 			}
@@ -241,6 +267,30 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 				detail, _ := strconv.Unquote(node.Args[1].(*ast.BasicLit).Value)
 				hasDetail, _ := strconv.Unquote(node.Args[2].(*ast.BasicLit).Value)
 				trigger := environment[jenkinsTriggerTypeContextKey]
+				if trigger == "retry" {
+					var result jenkinsRetryCauses
+					if json.Unmarshal([]byte(environment[jenkinsRetryCausesContextKey]), &result) != nil {
+						return nil, fmt.Errorf("Jenkins retry cause is unavailable")
+					}
+					for _, candidate := range result.Causes {
+						if !strings.Contains(strings.ToLower(candidate.Class), strings.ToLower(cause)) {
+							continue
+						}
+						if candidate.Class == "UserIdCause" && hasDetail == "true" {
+							if candidate.User == "" {
+								return nil, fmt.Errorf("authenticated retry user is unavailable")
+							}
+							if candidate.User != detail {
+								continue
+							}
+						}
+						return true, nil
+					}
+					if result.UnknownNonUser && !(result.HasManualRetry && cause == "UserIdCause") {
+						return nil, fmt.Errorf("original Jenkins trigger cause is unavailable")
+					}
+					return false, nil
+				}
 				actual := ""
 				switch trigger {
 				case "schedule":

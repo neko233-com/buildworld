@@ -84,3 +84,44 @@ func TestJenkinsTriggeredByRejectsUnsupportedArguments(t *testing.T) {
 		}
 	}
 }
+
+func TestAutomaticRetryPreservesTimerCondition(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("POSIX shell is unavailable")
+	}
+	t.Setenv("PATH", filepath.Dir(sh)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	db, err := store.New(filepath.Join(t.TempDir(), "retry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	source := `pipeline { agent any stages { stage('timer') { when { triggeredBy 'TimerTrigger' } steps { sh 'echo TIMER_RETRY_EXECUTED; exit 1' } } } }`
+	project, err := db.CreateProject("timer-retry", "", "", "git", "main", source, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build, err := db.CreateBuild(project.ID, 1, "schedule", "main", "", `{}`, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := engine.NewBuildRunner(db, nil, filepath.Join(t.TempDir(), "workspaces"), nil)
+	defer runner.Shutdown(context.Background())
+	if err := runner.ConfigureExecutionPolicy(engine.ExecutionPolicy{DefaultTimeoutSec: 10, MaxConcurrentBuilds: 1, MaxConcurrentLocalBuilds: 1, RetryLimit: 1, FailFast: true}); err != nil {
+		t.Fatal(err)
+	}
+	runner.Run(build.ID)
+	var builds []*store.Build
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		builds, err = db.ListBuildsByProject(project.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(builds) == 2 && builds[0].Status == "failed" && builds[1].Status == "failed" {
+			break
+		}
+	}
+	if len(builds) != 2 || builds[0].Status != "failed" || builds[1].Status != "failed" || !strings.Contains(builds[0].Log, "TIMER_RETRY_EXECUTED") || !strings.Contains(builds[1].Log, "TIMER_RETRY_EXECUTED") {
+		t.Fatalf("builds=%+v", builds)
+	}
+}

@@ -2168,7 +2168,21 @@ func (h *handlers) retryBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	newBuild, err := h.d.Store.RetryBuildWithApproval(id, hold)
+	username := ""
+	if userIDOf(r) > 0 {
+		user, userErr := h.d.Store.GetUser(userIDOf(r))
+		if userErr != nil {
+			writeErr(w, http.StatusUnauthorized, "authenticated user no longer exists")
+			return
+		}
+		username = user.Username
+	}
+	retryParameters, err := engine.AttachJenkinsRetryContext(previous.Parameters, "manual", username)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "cannot preserve retry context")
+		return
+	}
+	newBuild, err := h.d.Store.RetryBuildWithApprovalAndParameters(previous, hold, retryParameters)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

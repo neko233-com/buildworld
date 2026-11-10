@@ -1200,18 +1200,37 @@ func (s *Store) RetryBuild(buildID int64) (*Build, error) {
 
 // RetryBuildWithApproval preserves the earlier source identity and atomically holds approval work.
 func (s *Store) RetryBuildWithApproval(buildID int64, approvalRequired bool) (*Build, error) {
+	return s.retryBuildWithApproval(buildID, approvalRequired, nil, nil)
+}
+
+// RetryBuildWithApprovalAndParameters atomically checks the source identity and
+// parameters used to derive retry metadata and approval policy.
+func (s *Store) RetryBuildWithApprovalAndParameters(expected *Build, approvalRequired bool, replacement string) (*Build, error) {
+	if expected == nil {
+		return nil, fmt.Errorf("retry parent is required")
+	}
+	return s.retryBuildWithApproval(expected.ID, approvalRequired, expected, &replacement)
+}
+
+func (s *Store) retryBuildWithApproval(buildID int64, approvalRequired bool, expected *Build, replacement *string) (*Build, error) {
 	status := "pending"
 	if approvalRequired {
 		status = "pending_approval"
 	}
 	// The source lookup and insertion must be one statement: retention may
 	// otherwise remove the parent after it was read but before the retry exists.
-	res, err := s.db.Exec(`INSERT INTO builds
+	query := `INSERT INTO builds
 		(project_id, number, status, trigger, branch, commit_sha, parameters, retried_from, approval_required)
 		SELECT parent.project_id,
 			(SELECT COALESCE(MAX(number), 0) + 1 FROM builds WHERE project_id = parent.project_id),
-			?, 'retry', parent.branch, parent.commit_sha, parent.parameters, parent.id, ?
-		FROM builds AS parent WHERE parent.id = ?`, status, approvalRequired, buildID)
+			?, 'retry', parent.branch, parent.commit_sha, COALESCE(?, parent.parameters), parent.id, ?
+		FROM builds AS parent WHERE parent.id = ?`
+	args := []interface{}{status, replacement, approvalRequired, buildID}
+	if expected != nil {
+		query += ` AND parent.project_id = ? AND COALESCE(parent.branch, '') = ? AND COALESCE(parent.commit_sha, '') = ? AND COALESCE(parent.parameters, '') = ?`
+		args = append(args, expected.ProjectID, expected.Branch, expected.CommitSHA, expected.Parameters)
+	}
+	res, err := s.db.Exec(query, args...)
 	if err != nil {
 		return nil, err
 	}

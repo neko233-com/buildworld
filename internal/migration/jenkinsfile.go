@@ -1271,7 +1271,7 @@ func parseJenkinsWhenChildren(source, mask, operator string, flags *jenkinsWhenF
 				}
 			}
 			switch cause {
-			case "TimerTrigger", "TimerTriggerCause", "SCMTrigger", "SCMTriggerCause", "UserIdCause", "BuildUpstreamCause":
+			case "TimerTrigger", "TimerTriggerCause", "SCMTrigger", "SCMTriggerCause", "UserIdCause", "BuildUpstreamCause", "RebuildCause":
 			default:
 				return "", fmt.Errorf("unsupported triggeredBy cause %q", cause)
 			}

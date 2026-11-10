@@ -736,6 +736,12 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	conditionEnvironment[jenkinsTriggerTypeContextKey] = build.Trigger
 	if build.Trigger == "manual" || build.Trigger == "api" {
 		conditionEnvironment[jenkinsTriggerActorContextKey] = readJenkinsTriggerUser(build.Parameters)
+	} else if build.Trigger == "retry" && pipelineUsesJenkinsTrigger(cfg) {
+		if causes, causeErr := r.resolveJenkinsRetryCauses(build); causeErr == nil {
+			if encoded, encodeErr := json.Marshal(causes); encodeErr == nil {
+				conditionEnvironment[jenkinsRetryCausesContextKey] = string(encoded)
+			}
+		}
 	}
 
 	totalStages := len(cfg.Stages)
@@ -2123,7 +2129,12 @@ func (r *BuildRunner) scheduleAutomaticRetry(buildID int64) {
 		}
 		requesterID = previousApproval.UserID
 	}
-	retry, err := r.store.RetryBuildWithApproval(buildID, requiresApproval)
+	retryParameters, err := AttachJenkinsRetryContext(original.Parameters, "automatic", "")
+	if err != nil {
+		r.log(buildID, "", "Automatic retry skipped: cannot preserve retry context")
+		return
+	}
+	retry, err := r.store.RetryBuildWithApprovalAndParameters(original, requiresApproval, retryParameters)
 	if err != nil {
 		r.log(buildID, "", fmt.Sprintf("Automatic retry could not be scheduled: %v", err))
 		return

@@ -361,8 +361,11 @@ allocation is not modeled.
 `BuildUpstreamCause` for authenticated manual/API, scheduled, SCM polling and
 upstream builds respectively. User detail uses the authenticated username saved
 at creation. A historical user build without saved identity fails when detail
-is requested. Retry, webhook and other sources fail the condition evaluation
-instead of guessing a Jenkins cause; other cause patterns remain unsupported.
+is requested. An authenticated manual rebuild also exposes `RebuildCause` and
+its new user, preserving known non-user causes; automatic retries retain the
+previous causes. Legacy retries without recorded provenance and webhook causes
+that cannot be identified fail condition evaluation instead of guessing. Other
+cause patterns remain unsupported.
 Conditional Jenkins stages cannot be dispatched to remote workers.
 Re-import previously converted pipelines from the Jenkinsfile so conditions
 discarded by older versions are restored.
