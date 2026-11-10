@@ -221,6 +221,8 @@ func (r *BuildRunner) resolveJenkinsRetryCauses(build *store.Build) (jenkinsRetr
 		result.Causes = append(result.Causes, jenkinsTriggerCause{Class: "SCMTriggerCause"})
 	case "finish":
 		result.Causes = append(result.Causes, jenkinsTriggerCause{Class: "BuildUpstreamCause"})
+	case "http":
+		result.Causes = append(result.Causes, jenkinsTriggerCause{Class: "RemoteCause"})
 	case "manual", "api":
 		if !result.HasManualRetry {
 			result.Causes = append(result.Causes, jenkinsTriggerCause{Class: "UserIdCause", User: readJenkinsTriggerUser(root.Parameters)})

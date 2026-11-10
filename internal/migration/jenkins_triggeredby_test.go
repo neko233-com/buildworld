@@ -29,9 +29,16 @@ func TestJenkinsTriggeredByRunsWithStoredCause(t *testing.T) {
 		{"manual", `triggeredBy(cause: 'UserIdCause', detail: 'bob')`, "alice", false, false},
 		{"manual", `triggeredBy cause: 'UserIdCause', detail: 'alice'`, "", false, true},
 		{"manual", `triggeredBy 'UserIdCause'`, "", true, false},
+		{"manual", `triggeredBy cause: 'useridcause', detail: 'bob'`, "alice", true, false},
+		{"manual", `triggeredBy cause: 'User', detail: 'bob'`, "alice", true, false},
+		{"manual", `triggeredBy 'IdCause'`, "alice", false, false},
 		{"schedule", `triggeredBy 'TimerTrigger'`, "", true, false},
+		{"schedule", `triggeredBy 'timer'`, "", true, false},
+		{"schedule", `triggeredBy 'Trigger'`, "", false, false},
+		{"schedule", `triggeredBy 'UnknownCause'`, "", false, false},
 		{"vcs", `triggeredBy('SCMTrigger')`, "", true, false},
 		{"finish", `triggeredBy 'BuildUpstreamCause'`, "", true, false},
+		{"http", `triggeredBy 'RemoteCause'`, "", true, false},
 		{"schedule", `triggeredBy 'SCMTrigger'`, "", false, false},
 		{"retry", `triggeredBy 'UserIdCause'`, "alice", false, true},
 	} {
@@ -77,7 +84,7 @@ func TestJenkinsTriggeredByRunsWithStoredCause(t *testing.T) {
 }
 
 func TestJenkinsTriggeredByRejectsUnsupportedArguments(t *testing.T) {
-	for _, condition := range []string{`triggeredBy 'UnknownCause'`, `triggeredBy cause: 'UserIdCause', surprise: 'x'`, `triggeredBy params.CAUSE`, `triggeredBy(cause: 'UserIdCause', cause: 'TimerTrigger')`} {
+	for _, condition := range []string{`triggeredBy 'Timer.*'`, `triggeredBy ''`, `triggeredBy cause: 'UserIdCause', surprise: 'x'`, `triggeredBy params.CAUSE`, `triggeredBy(cause: 'UserIdCause', cause: 'TimerTrigger')`} {
 		source := fmt.Sprintf(`pipeline { agent any stages { stage('guard') { when { %s } steps { sh 'echo ok' } } } }`, condition)
 		if _, err := engine.ParseJenkinsfileConfig(source, "trigger"); err == nil {
 			t.Fatalf("accepted %s", condition)

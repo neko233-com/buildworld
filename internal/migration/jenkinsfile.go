@@ -1270,11 +1270,6 @@ func parseJenkinsWhenChildren(source, mask, operator string, flags *jenkinsWhenF
 					}
 				}
 			}
-			switch cause {
-			case "TimerTrigger", "TimerTriggerCause", "SCMTrigger", "SCMTriggerCause", "UserIdCause", "BuildUpstreamCause", "RebuildCause":
-			default:
-				return "", fmt.Errorf("unsupported triggeredBy cause %q", cause)
-			}
 			if parenthesized {
 				if strings.TrimSpace(args[tail:]) != "" {
 					return "", fmt.Errorf("unexpected triggeredBy argument")

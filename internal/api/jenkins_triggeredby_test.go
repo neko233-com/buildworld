@@ -161,3 +161,49 @@ stage('rebuild') { when { triggeredBy 'RebuildCause' } steps { sh 'echo REBUILD_
 		t.Fatalf("retry: %+v", retry)
 	}
 }
+
+func TestProjectHTTPTriggerRunsRemoteCauseCondition(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("POSIX shell unavailable")
+	}
+	t.Setenv("PATH", filepath.Dir(sh)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	database, err := store.New(filepath.Join(t.TempDir(), "remote.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	source := `pipeline { agent any stages { stage('remote') { when { triggeredBy 'Remote' } steps { sh 'echo HTTP_CAUSE_OK' } } } }`
+	project, err := database.CreateProject("remote-cause", "", "", "git", "main", source, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetProjectHTTPTrigger(project.ID, true, "fixture-http-token"); err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(Deps{Cfg: &config.Config{}, Store: database, JWT: auth.NewJWT("remote-cause-test")})
+	response := apiTokenRequest(router, http.MethodPost, fmt.Sprintf("/api/trigger/projects/%d/fixture-http-token", project.ID), "", `{}`)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var build store.Build
+	if err := json.Unmarshal(response.Body.Bytes(), &build); err != nil {
+		t.Fatal(err)
+	}
+	runner := engine.NewBuildRunner(database, nil, filepath.Join(t.TempDir(), "workspaces"), nil)
+	defer runner.Shutdown(context.Background())
+	runner.Run(build.ID)
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		current, err := database.GetBuild(build.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current.Status == "success" || current.Status == "failed" {
+			if current.Status != "success" || !strings.Contains(current.Log, "HTTP_CAUSE_OK") {
+				t.Fatalf("status=%s log=%s", current.Status, current.Log)
+			}
+			return
+		}
+	}
+	t.Fatal("build did not finish")
+}

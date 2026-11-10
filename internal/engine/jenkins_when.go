@@ -47,6 +47,24 @@ func pipelineUsesJenkinsTrigger(config *BuildConfig) bool {
 	return false
 }
 
+// jenkinsCauseLiteral limits patterns to the Java-regex-compatible literal
+// subset; unsupported regular expressions must not silently change a guard.
+func jenkinsCauseLiteral(cause string) bool {
+	if len(cause) == 0 || len(cause) > 256 {
+		return false
+	}
+	for _, char := range cause {
+		if !(char >= 'a' && char <= 'z') && !(char >= 'A' && char <= 'Z') && !(char >= '0' && char <= '9') && char != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func jenkinsCauseMatches(actual, cause string) bool {
+	return strings.HasPrefix(strings.ToLower(actual), strings.ToLower(cause))
+}
+
 // ValidateJenkinsWhen accepts only the supported, side-effect-free boolean subset.
 func ValidateJenkinsWhen(condition string) error {
 	if strings.TrimSpace(condition) == "" {
@@ -92,9 +110,7 @@ func validateJenkinsExpr(expr ast.Expr) error {
 				}
 				values[i] = value
 			}
-			switch values[0] {
-			case "TimerTrigger", "TimerTriggerCause", "SCMTrigger", "SCMTriggerCause", "UserIdCause", "BuildUpstreamCause", "RebuildCause":
-			default:
+			if !jenkinsCauseLiteral(values[0]) {
 				return fmt.Errorf("unsupported triggeredBy cause")
 			}
 			if values[2] != "true" && values[2] != "false" {
@@ -273,10 +289,10 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 						return nil, fmt.Errorf("Jenkins retry cause is unavailable")
 					}
 					for _, candidate := range result.Causes {
-						if !strings.Contains(strings.ToLower(candidate.Class), strings.ToLower(cause)) {
+						if !jenkinsCauseMatches(candidate.Class, cause) {
 							continue
 						}
-						if candidate.Class == "UserIdCause" && hasDetail == "true" {
+						if candidate.Class == "UserIdCause" && cause == "UserIdCause" && hasDetail == "true" {
 							if candidate.User == "" {
 								return nil, fmt.Errorf("authenticated retry user is unavailable")
 							}
@@ -299,15 +315,17 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 					actual = "SCMTriggerCause"
 				case "finish":
 					actual = "BuildUpstreamCause"
+				case "http":
+					actual = "RemoteCause"
 				case "manual", "api":
 					actual = "UserIdCause"
 				default:
 					return nil, fmt.Errorf("Jenkins trigger cause is unavailable for %q", trigger)
 				}
-				if !strings.Contains(strings.ToLower(actual), strings.ToLower(cause)) {
+				if !jenkinsCauseMatches(actual, cause) {
 					return false, nil
 				}
-				if actual == "UserIdCause" && hasDetail == "true" {
+				if actual == "UserIdCause" && cause == "UserIdCause" && hasDetail == "true" {
 					user := environment[jenkinsTriggerActorContextKey]
 					if user == "" {
 						return nil, fmt.Errorf("authenticated trigger user is unavailable")

@@ -100,6 +100,36 @@ func TestPipelineUsesJenkinsTriggerOnlyForCalls(t *testing.T) {
 	}
 }
 
+func TestRemoteCauseSurvivesAutomaticRetry(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "remote-retry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	project, err := db.CreateProject("remote-retry", "", "", "git", "main", "", 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := db.CreateBuild(project.ID, 1, "http", "main", "abc", `{}`, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, err := AttachJenkinsRetryContext(root.Parameters, "automatic", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry, err := db.RetryBuildWithApprovalAndParameters(root, false, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := NewBuildRunner(db, nil, t.TempDir(), nil)
+	defer runner.Shutdown(context.Background())
+	causes, err := runner.resolveJenkinsRetryCauses(retry)
+	if err != nil || causes.UnknownNonUser || len(causes.Causes) != 1 || causes.Causes[0].Class != "RemoteCause" {
+		t.Fatalf("causes=%+v err=%v", causes, err)
+	}
+}
+
 func TestJenkinsPRRetryKeepsVerifiedMetadataAndKnownRebuildCause(t *testing.T) {
 	db, err := store.New(filepath.Join(t.TempDir(), "pr-retry.db"))
 	if err != nil {
@@ -148,6 +178,8 @@ func TestJenkinsPRRetryKeepsVerifiedMetadataAndKnownRebuildCause(t *testing.T) {
 	}{
 		{`jenkinsTriggeredBy("UserIdCause","bob","true")`, true, false},
 		{`jenkinsTriggeredBy("UserIdCause","alice","true")`, false, false},
+		{`jenkinsTriggeredBy("useridcause","alice","true")`, true, false},
+		{`jenkinsTriggeredBy("buildCause","","false")`, false, true},
 		{`jenkinsTriggeredBy("RebuildCause","","false")`, true, false},
 		{`jenkinsTriggeredBy("TimerTrigger","","false")`, false, true},
 	} {
