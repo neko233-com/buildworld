@@ -35,9 +35,6 @@ func parseWhenLiteral(source string, start int) (string, int, bool) {
 		case '\\', '\'', '"':
 			value.WriteByte(source[pos])
 		case '$':
-			if quote != '"' {
-				return "", start, false
-			}
 			value.WriteByte('$')
 		case 'b':
 			value.WriteByte('\b')
@@ -47,8 +44,6 @@ func parseWhenLiteral(source string, start int) (string, int, bool) {
 			value.WriteByte('\n')
 		case 'r':
 			value.WriteByte('\r')
-		case 's':
-			value.WriteByte(' ')
 		case 't':
 			value.WriteByte('\t')
 		case 'u':

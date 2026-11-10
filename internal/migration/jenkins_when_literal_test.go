@@ -22,6 +22,7 @@ func TestJenkinsWhenGroovyLiteralEscapes(t *testing.T) {
 		{`branch 'feature/\uD83D\uDE80'`, "feature/🚀", nil, nil, true},
 		{`environment name: 'GREETING', value: 'it\'s ok'`, "main", map[string]string{"GREETING": "it's ok"}, nil, true},
 		{`environment(name: 'PRICE', value: '$5')`, "main", map[string]string{"PRICE": "$5"}, nil, true},
+		{`environment(name: 'PRICE', value: '\$5')`, "main", map[string]string{"PRICE": "$5"}, nil, true},
 		{`environment(name: 'PRICE', value: "\$5")`, "main", map[string]string{"PRICE": "$5"}, nil, true},
 		{`expression { params.VALUE == 'line\nnext' }`, "main", nil, map[string]interface{}{"VALUE": "line\nnext"}, true},
 		{`expression { params.VALUE == "quote: \"yes\"" }`, "main", nil, map[string]interface{}{"VALUE": `quote: "yes"`}, true},
@@ -43,7 +44,7 @@ func TestJenkinsWhenLiteralRejectsInterpolationAndInvalidEscape(t *testing.T) {
 	for _, condition := range []string{
 		`branch "${params.BRANCH}"`, `environment name: 'MODE', value: "$MODE"`,
 		`branch "\u0024{params.BRANCH}"`,
-		`branch 'release-\d+'`, `branch 'bad\uD800'`, `branch 'bad\uDE80'`,
+		`branch 'release-\d+'`, `branch 'bad\s'`, `branch 'bad\uD800'`, `branch 'bad\uDE80'`,
 	} {
 		source := fmt.Sprintf(`pipeline { agent any stages { stage('test') { when { %s } steps { sh 'echo ok' } } } }`, condition)
 		_, err := engine.ParseJenkinsfileConfig(source, "escape-test")
