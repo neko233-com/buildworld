@@ -1521,6 +1521,29 @@ func (s *Store) DeleteArtifact(id int64) error {
 // ---------------- Env Vars ----------------
 
 func (s *Store) SetEnvVar(scope string, projectID *int64, name, value string, isSecret bool, description string) error {
+	// SQLite treats NULLs as distinct in UNIQUE constraints. Update existing
+	// global/system rows together before inserting, including legacy duplicates.
+	if projectID == nil {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		result, err := tx.Exec(`UPDATE env_vars SET value=?, is_secret=?, description=? WHERE scope=? AND project_id IS NULL AND name=?`, value, isSecret, description, scope, name)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			if _, err = tx.Exec(`INSERT INTO env_vars (scope, project_id, name, value, is_secret, description) VALUES (?, NULL, ?, ?, ?, ?)`, scope, name, value, isSecret, description); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO env_vars (scope, project_id, name, value, is_secret, description) VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(scope, project_id, name) DO UPDATE SET value=excluded.value, is_secret=excluded.is_secret, description=excluded.description`,

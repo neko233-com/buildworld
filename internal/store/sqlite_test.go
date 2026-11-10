@@ -29,6 +29,36 @@ func newTestStore(t *testing.T) (*Store, func()) {
 	}
 }
 
+func TestSetEnvVarUpdatesNullScopeWithoutDuplicateAndConvergesExistingRows(t *testing.T) {
+	data, cleanup := newTestStore(t)
+	defer cleanup()
+	if err := data.SetEnvVar("system", nil, "local_agent_concurrency", "2", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.SetEnvVar("system", nil, "local_agent_concurrency", "16", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	values, err := data.ListEnvVars("system", nil)
+	if err != nil || len(values) != 1 || values[0].Value != "16" {
+		t.Fatalf("values=%v err=%v", values, err)
+	}
+	if _, err := data.db.Exec(`INSERT INTO env_vars (scope, project_id, name, value, is_secret, description) VALUES ('system', NULL, 'local_agent_concurrency', '1', 0, '')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.SetEnvVar("system", nil, "local_agent_concurrency", "32", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	values, err = data.ListEnvVars("system", nil)
+	if err != nil || len(values) != 2 {
+		t.Fatalf("values=%v err=%v", values, err)
+	}
+	for _, value := range values {
+		if value.Value != "32" {
+			t.Fatalf("legacy duplicate not converged: %#v", value)
+		}
+	}
+}
+
 func TestSQLiteStore(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "test-*.db")
 	if err != nil {
