@@ -64,6 +64,11 @@ curl -fsS \
 The response includes the running version, target platform, maximum bundle
 size, automatic-update policy, and the latest operation state.
 
+For a packaged server, `GET /api/version` also reports `source_commit` when its
+adjacent `release-info.json` has a matching version and valid source identity.
+Use both fields to check the running release after an update. Development
+builds and installations without valid release metadata omit the commit.
+
 ## Apply a verified bundle
 
 Generate the complete local release first. The canonical packaging command

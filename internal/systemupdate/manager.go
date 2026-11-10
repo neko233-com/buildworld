@@ -288,6 +288,9 @@ func writeBundle(ctx context.Context, destination string, source io.Reader) (str
 	return hex.EncodeToString(hash.Sum(nil)), written, nil
 }
 
+// ValidateBundle checks the update archive without changing the installation.
+func ValidateBundle(bundlePath string) error { return validateBundle(bundlePath) }
+
 func validateBundle(bundlePath string) error {
 	file, err := os.Open(bundlePath)
 	if err != nil {

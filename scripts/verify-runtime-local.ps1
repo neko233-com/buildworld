@@ -26,6 +26,9 @@ try {
     } finally { Pop-Location }
     $cliVersion = (& $cli version).Trim()
     if ($LASTEXITCODE -ne 0 -or $cliVersion -ne "buildworld $Version") { throw 'CLI release version mismatch.' }
+    $smokeCommit = 'a' * 40
+    $metadata = @{ schemaVersion = 1; repository = 'https://github.com/neko233-com/buildworld'; version = $Version; sourceCommit = $smokeCommit } | ConvertTo-Json -Compress
+    [IO.File]::WriteAllText((Join-Path $smokeRoot 'release-info.json'), $metadata, [Text.UTF8Encoding]::new($false))
 
     # Reserve an isolated loopback port. Never stop an existing service.
     $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
@@ -76,6 +79,7 @@ workers:
     if (-not $ready) { throw 'Isolated server did not become healthy.' }
     $remoteVersion = Invoke-RestMethod "$base/api/version" -NoProxy -TimeoutSec 5
     if ($remoteVersion.version -ne $Version) { throw 'Server release version mismatch.' }
+    if ($remoteVersion.source_commit -ne $smokeCommit) { throw 'Server source commit metadata mismatch.' }
     $html = Invoke-WebRequest $base -NoProxy -TimeoutSec 5
     if ($html.Content -notmatch '(?i)<!doctype html>') { throw 'Production Web UI was not served.' }
     $login = Invoke-RestMethod "$base/api/auth/login" -NoProxy -Method Post -ContentType 'application/json' -Body '{"username":"root","password":"root"}'

@@ -8,6 +8,29 @@ All notable BuildWorld changes are recorded here. The project follows
 
 No unreleased changes.
 
+## [1.16.26] - 2026-11-11
+
+### Added
+
+- Package and deploy the controller from its own Jenkinsfile, with an exact
+  source commit and restart-safe system update reconciliation.
+- Report the packaged source commit alongside the running release version.
+
+### Changed
+
+- Run native release verification and six-platform packaging on macOS and
+  Linux as well as Windows, while keeping production port 8080 fixed.
+- Pin SCM pipeline definitions and workspaces to the same Git commit, including
+  after a controller restart.
+
+### Fixed
+
+- Preserve older rollback snapshots and stop activation when an update step
+  fails; restore the previous service when activation cannot complete.
+- Evaluate supported nested Jenkins conditions, branch and tag comparators,
+  environment values and Groovy-style boolean conversions without silently
+  running unsupported conditions.
+
 ## [1.16.25] - 2026-11-10
 
 ### Fixed

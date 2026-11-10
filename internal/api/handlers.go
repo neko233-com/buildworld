@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -70,7 +71,13 @@ func (h *handlers) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *handlers) version(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"version": buildinfo.Version})
+	response := map[string]string{"version": buildinfo.Version}
+	if executable, err := os.Executable(); err == nil {
+		if commit := buildinfo.ReleaseCommit(executable, buildinfo.Version); commit != "" {
+			response["source_commit"] = commit
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 // ---------------------------------------------------------------------------

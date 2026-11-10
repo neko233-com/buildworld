@@ -28,6 +28,25 @@ production deployment.
 Documentation is public. Keep secrets, credentials, tokens, and private
 hostnames out of source text and screenshots.
 
+## Deploy BuildWorld from its Jenkinsfile
+
+The repository `Jenkinsfile` packages and deploys the controller running the
+builtin job. Select a release version already described in `CHANGELOG.md` and
+provide its exact reviewed `SOURCE_COMMIT`; the workspace must match it. Supply
+`BUILDWORLD_UPDATE_TOKEN` as a project secret owned by an administrator with
+the exact `system:update` scope. On macOS ARM64, the job uses the user-local
+release tools, or the path supplied by `BUILDWORLD_RELEASE_TOOLS`.
+
+The job runs the complete local verification and six-platform packaging gates,
+checks all generated SHA-256 entries and the host bundle's embedded metadata,
+then uploads that bundle through the authenticated local system-update API.
+The verified bundle and non-secret operation record survive a controller
+restart. On recovery, the job reconciles the same operation rather than
+uploading again, and succeeds only after health, release version and running
+source commit all match. A failed or rolled-back update fails the build.
+Packaging and deploying this way does not publish a GitHub Release or Pages;
+use the release publisher below for that distribution step.
+
 ## Preview without publication
 
 ```powershell
