@@ -184,7 +184,7 @@ func main() {
 		}
 	}
 
-	server := api.NewServer(api.Deps{
+	apiDeps := api.Deps{
 		Cfg:           cfg,
 		Store:         db,
 		Hub:           hub,
@@ -199,7 +199,19 @@ func main() {
 		BigScreen:     bigScreenService,
 		Updater:       updater,
 		UpdateCatalog: updateCatalog,
-	})
+	}
+	dispatcher, err := api.NewWebhookDispatcher(apiDeps)
+	if err != nil {
+		log.Fatalf("Failed to start webhook dispatcher: %v", err)
+	}
+	defer func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stopCancel()
+		if err := dispatcher.Stop(stopCtx); err != nil {
+			log.Printf("Webhook dispatcher shutdown incomplete: %v", err)
+		}
+	}()
+	server := api.NewServer(apiDeps)
 
 	// Graceful shutdown.
 	sigCh := make(chan os.Signal, 1)
@@ -233,7 +245,9 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := stopServerServices(ctx, runner.Shutdown, server.Stop); err != nil {
+	if err := stopServerServices(ctx, func(ctx context.Context) error {
+		return errors.Join(dispatcher.Stop(ctx), runner.Shutdown(ctx))
+	}, server.Stop); err != nil {
 		log.Printf("Server shutdown incomplete: %v", err)
 	}
 }

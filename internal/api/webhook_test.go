@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +24,32 @@ import (
 	"github.com/neko233-com/buildworld/internal/store"
 	"github.com/neko233-com/buildworld/internal/webhook"
 )
+
+// triggerBuildByWebhook exercises the same durable intake and target handling
+// as the HTTP endpoint without relying on background scheduling in these tests.
+func (h *handlers) triggerBuildByWebhook(payload webhook.WebhookPayload) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	hash := sha256.Sum256(body)
+	payload.Provider, payload.DeliveryID, payload.BodyHash = "test", hex.EncodeToString(hash[:]), hex.EncodeToString(hash[:])
+	if err := h.receiveWebhook(payload); err != nil {
+		return err
+	}
+	for {
+		target, err := h.d.Store.ClaimWebhookTarget(time.Now(), time.Minute)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := h.processWebhookTarget(context.Background(), target); err != nil {
+			return err
+		}
+	}
+}
 
 func TestWebhookPushCreatesMatchedProjectBuild(t *testing.T) {
 	database, err := store.New(filepath.Join(t.TempDir(), "webhook.db"))
@@ -259,15 +287,25 @@ stage('wrong') { when { tag 'other-*' } steps { sh 'echo wrong-tag-ran' } }
 		switch tc.provider {
 		case "github":
 			request.Header.Set("X-Hub-Signature-256", "sha256="+webhookSignature("tag-test-secret", body))
+			request.Header.Set("X-GitHub-Delivery", tc.tag)
 		case "gitea":
 			request.Header.Set("X-Gitea-Signature", webhookSignature("tag-test-secret", body))
+			request.Header.Set("X-Gitea-Delivery", tc.tag)
 		case "gitlab":
 			request.Header.Set("X-Gitlab-Token", "tag-test-secret")
+			request.Header.Set("Idempotency-Key", tc.tag)
 		}
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
 		if response.Code != http.StatusOK {
 			t.Fatalf("tag %s through %s: status=%d body=%s", tc.tag, tc.provider, response.Code, response.Body.String())
+		}
+		target, err := data.ClaimWebhookTarget(time.Now(), time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := (&handlers{d: Deps{Store: data}}).processWebhookTarget(context.Background(), target); err != nil {
+			t.Fatal(err)
 		}
 	}
 	inlineData, err := store.New(filepath.Join(root, "inline-buildworld.db"))
@@ -427,6 +465,7 @@ func TestWebhookEndpointsFailClosedAndTriggerOnlyWithCorrectSecret(t *testing.T)
 			path: "/api/webhooks/github",
 			setHeader: func(request *http.Request, secret string) {
 				request.Header.Set("X-Hub-Signature-256", "sha256="+webhookSignature(secret, payload))
+				request.Header.Set("X-GitHub-Delivery", "delivery-1")
 			},
 		},
 		{
@@ -434,6 +473,7 @@ func TestWebhookEndpointsFailClosedAndTriggerOnlyWithCorrectSecret(t *testing.T)
 			path: "/api/webhooks/gitlab",
 			setHeader: func(request *http.Request, secret string) {
 				request.Header.Set("X-Gitlab-Token", secret)
+				request.Header.Set("Idempotency-Key", "delivery-1")
 			},
 		},
 		{
@@ -441,6 +481,7 @@ func TestWebhookEndpointsFailClosedAndTriggerOnlyWithCorrectSecret(t *testing.T)
 			path: "/api/webhooks/gitea",
 			setHeader: func(request *http.Request, secret string) {
 				request.Header.Set("X-Gitea-Signature", webhookSignature(secret, payload))
+				request.Header.Set("X-Gitea-Delivery", "delivery-1")
 			},
 		},
 	}
@@ -489,6 +530,15 @@ func TestWebhookEndpointsFailClosedAndTriggerOnlyWithCorrectSecret(t *testing.T)
 				router.ServeHTTP(recorder, request)
 				if recorder.Code != scenario.wantStatus {
 					t.Fatalf("status = %d, want %d; body=%s", recorder.Code, scenario.wantStatus, recorder.Body.String())
+				}
+				if scenario.wantBuilds > 0 {
+					target, err := database.ClaimWebhookTarget(time.Now(), time.Minute)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := (&handlers{d: Deps{Store: database}}).processWebhookTarget(context.Background(), target); err != nil {
+						t.Fatal(err)
+					}
 				}
 				builds, err := database.ListBuildsByProject(project.ID)
 				if err != nil {

@@ -40,6 +40,32 @@ func TestBuildQueueCapacityUsesStoredBuiltinLimit(t *testing.T) {
 	}
 }
 
+func TestBuildQueueCapacityReportsEffectiveGlobalAndLocalLimits(t *testing.T) {
+	data, err := store.New(filepath.Join(t.TempDir(), "queue-capacity-effective.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	if err := data.SetEnvVar("system", nil, "local_agent_concurrency", "64", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.SetEnvVar("system", nil, "build_concurrency", "32", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	handler := &handlers{d: Deps{Store: data}}
+	response := httptest.NewRecorder()
+	handler.getBuildQueueCapacity(response, httptest.NewRequest(http.MethodGet, "/api/build-queue/capacity", nil))
+	var payload struct {
+		MaxConcurrentBuilds int `json:"max_concurrent_builds"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.MaxConcurrentBuilds != 32 {
+		t.Fatalf("effective capacity=%d, want 32", payload.MaxConcurrentBuilds)
+	}
+}
+
 func TestReorderBuildQueueUsesVersionedOperation(t *testing.T) {
 	data, err := store.New(filepath.Join(t.TempDir(), "queue-api.db"))
 	if err != nil {

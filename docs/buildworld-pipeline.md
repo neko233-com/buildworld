@@ -310,6 +310,26 @@ requires a complete SHA-1 or SHA-256 object ID; deletion events do not start a
 build. Approval-required builds are held before entering the queue, and an
 automatic retry of `publish-latest` requires a new manual confirmation.
 
+Webhook requests authenticate before BuildWorld records a delivery and its
+currently matching enabled projects in SQLite. Each target is resolved by one
+of 16 background workers; transient failures retry with a bounded delay. Build
+creation and the delivery target are committed together, so a worker restart
+does not allocate a second build. Interrupted leases expire within two minutes.
+Administrators can inspect recent target status and retry counts through
+`GET /api/webhook-deliveries`. GitHub does not automatically redeliver requests
+that fail before BuildWorld accepts them; arrange redelivery at the provider.
+
+Delivery identity is required: GitHub `X-GitHub-Delivery`, Gitea
+`X-Gitea-Delivery`, or GitLab `webhook-id` / `Idempotency-Key` (GitLab 17.4+
+for the latter). Reusing one identity with a different body is rejected.
+Deduplication covers the same provider delivery ID; a provider that issues a
+new ID for a redelivery presents a new event. It does not infer identity from
+commit hashes, because a legitimate later push can revisit the same commit.
+
+New installations default to 16 concurrent builds and 16 builtin executor
+slots. Both limits are configurable independently; the effective builtin
+capacity is the lower of the two. Existing saved settings are preserved.
+
 Complete helper reference is served by a running instance at
 `/script-api.html`. Public documentation continues at
 `docs-site/docs/pipelines.md` and `docs-site/docs/typescript-pipelines.md`.

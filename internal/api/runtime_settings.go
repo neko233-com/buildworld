@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/neko233-com/buildworld/internal/config"
+	"github.com/neko233-com/buildworld/internal/engine"
 	"github.com/neko233-com/buildworld/internal/store"
 )
 
@@ -46,8 +47,8 @@ func defaultGlobalSettings(cfg *config.Config) map[string]string {
 		"host":                             "0.0.0.0",
 		"port":                             strconv.Itoa(config.ControlPlanePort),
 		"build_timeout":                    "1800",
-		"build_concurrency":                "2",
-		"local_agent_concurrency":          "1",
+		"build_concurrency":                strconv.Itoa(engine.DefaultBuildConcurrency),
+		"local_agent_concurrency":          strconv.Itoa(engine.DefaultBuildConcurrency),
 		"cpu_limit_percent":                "25",
 		"background_mode":                  "true",
 		"retry_policy":                     "failed_once",
@@ -75,9 +76,6 @@ func defaultGlobalSettings(cfg *config.Config) map[string]string {
 	}
 	if cfg.Storage.BuildTemp != "" {
 		settings["build_temp_path"] = cfg.Storage.BuildTemp
-	}
-	if cfg.Workers.Local.MaxConcurrentBuilds > 0 {
-		settings["local_agent_concurrency"] = strconv.Itoa(cfg.Workers.Local.MaxConcurrentBuilds)
 	}
 	settings["agent_enrollment_token_configured"] = strconv.FormatBool(cfg.Workers.EnrollmentToken != "")
 	return settings

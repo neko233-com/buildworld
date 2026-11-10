@@ -245,6 +245,7 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/gitlab", h.gitlabWebhook)
 				r.Post("/gitea", h.giteaWebhook)
 			})
+			r.With(adminOnly).Get("/webhook-deliveries", h.listWebhookDeliveries)
 
 			// --- statistics ---
 			r.Get("/stats/dashboard", h.getDashboardStats)

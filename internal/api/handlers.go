@@ -1649,74 +1649,21 @@ func (h *handlers) deleteEnvVar(w http.ResponseWriter, r *http.Request) {
 // webhooks
 // ---------------------------------------------------------------------------
 
-// triggerBuildByWebhook creates a build for a project matching the repo URL.
-func (h *handlers) triggerBuildByWebhook(payload webhook.WebhookPayload) error {
-	projects, err := h.d.Store.ListProjects()
-	if err != nil {
-		return err
-	}
-	for _, p := range projects {
-		if !p.Enabled {
-			continue
-		}
-		repository := strings.TrimSpace(p.RepoURL)
-		if strings.EqualFold(strings.TrimSpace(p.PipelineSourceMode), "scm") {
-			// The event revision must belong to the repository from which this
-			// job resolves and checks out its pipeline, including SCM-only jobs.
-			repository = strings.TrimSpace(p.PipelineSCMRepo)
-		}
-		if repository == "" {
-			continue
-		}
-		if webhook.MatchesRepository(repository, payload) {
-			branch, commit, _ := webhook.ParsePushEvent(payload)
-			if branch == "" {
-				return nil
-			}
-			if !webhook.ValidCommitID(commit) {
-				return errors.New("webhook push requires a complete immutable commit ID")
-			}
-			config, revision, parameters, err := h.prepareProjectBuild(context.Background(), p, branch, commit, nil)
-			if err != nil {
-				return fmt.Errorf("resolve webhook build parameters: %w", err)
-			}
-			hold, err := h.approvalHold(config)
-			if err != nil {
-				return err
-			}
-			build, err := h.d.Store.CreateNextBuildWithApproval(p.ID, "webhook", branch, revision, parameters, nil, nil, hold)
-			if err != nil {
-				return err
-			}
-			if err := h.requestBuildApprovalForConfig(build, 0, config); err != nil {
-				return err
-			}
-			if h.d.Runner != nil {
-				if err := h.d.Runner.Enqueue(build.ID); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-	}
-	return nil
-}
-
 func (h *handlers) githubWebhook(w http.ResponseWriter, r *http.Request) {
 	wh := webhook.NewWebhookHandler(h.webhookSecret())
-	wh.OnPush(h.triggerBuildByWebhook)
+	wh.OnPush(h.receiveWebhook)
 	wh.HandleGitHubWebhook(w, r)
 }
 
 func (h *handlers) gitlabWebhook(w http.ResponseWriter, r *http.Request) {
 	wh := webhook.NewWebhookHandler(h.webhookSecret())
-	wh.OnPush(h.triggerBuildByWebhook)
+	wh.OnPush(h.receiveWebhook)
 	wh.HandleGitLabWebhook(w, r)
 }
 
 func (h *handlers) giteaWebhook(w http.ResponseWriter, r *http.Request) {
 	wh := webhook.NewWebhookHandler(h.webhookSecret())
-	wh.OnPush(h.triggerBuildByWebhook)
+	wh.OnPush(h.receiveWebhook)
 	wh.HandleGiteaWebhook(w, r)
 }
 
@@ -3062,25 +3009,30 @@ func (h *handlers) listBuildQueue(w http.ResponseWriter, r *http.Request) {
 // getBuildQueueCapacity exposes the builtin executor limit needed to interpret
 // the dashboard queue. It deliberately returns no administrator-only settings.
 func (h *handlers) getBuildQueueCapacity(w http.ResponseWriter, _ *http.Request) {
-	maxConcurrentBuilds := 1
-	if h.d.Cfg != nil && h.d.Cfg.Workers.Local.MaxConcurrentBuilds > 0 {
-		maxConcurrentBuilds = h.d.Cfg.Workers.Local.MaxConcurrentBuilds
-	}
-	if h.d.Store != nil {
+	maxConcurrentBuilds := engine.DefaultBuildConcurrency
+	if h.d.Runner != nil {
+		policy := h.d.Runner.ExecutionPolicySnapshot()
+		maxConcurrentBuilds = min(policy.MaxConcurrentBuilds, policy.MaxConcurrentLocalBuilds)
+	} else if h.d.Store != nil {
+		globalLimit, localLimit := engine.DefaultBuildConcurrency, engine.DefaultBuildConcurrency
 		settings, err := h.d.Store.ListEnvVars("system", nil)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		for _, setting := range settings {
-			if setting.Name != "local_agent_concurrency" {
+			if setting.Name != "local_agent_concurrency" && setting.Name != "build_concurrency" {
 				continue
 			}
 			if value, err := strconv.Atoi(setting.Value); err == nil && value > 0 {
-				maxConcurrentBuilds = value
+				if setting.Name == "build_concurrency" {
+					globalLimit = value
+				} else {
+					localLimit = value
+				}
 			}
-			break
 		}
+		maxConcurrentBuilds = min(globalLimit, localLimit)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"executor":              "builtin",

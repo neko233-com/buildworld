@@ -14,6 +14,9 @@ import (
 )
 
 type WebhookPayload struct {
+	Provider   string `json:"-"`
+	DeliveryID string `json:"-"`
+	BodyHash   string `json:"-"`
 	Ref        string `json:"ref"`
 	After      string `json:"after"`
 	Repository struct {
@@ -104,7 +107,7 @@ func (h *WebhookHandler) HandleGitHubWebhook(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 25<<20))
 	if err != nil {
 		http.Error(w, "Failed to read body", http.StatusInternalServerError)
 		return
@@ -113,7 +116,7 @@ func (h *WebhookHandler) HandleGitHubWebhook(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		return
 	}
-	h.handlePayload(w, bytes.NewReader(body))
+	h.handlePayload(w, bytes.NewReader(body), "github", r.Header.Get("X-GitHub-Delivery"), r.Header.Get("X-GitHub-Event"), body)
 }
 
 func (h *WebhookHandler) HandleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +127,16 @@ func (h *WebhookHandler) HandleGitLabWebhook(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Invalid token", http.StatusUnauthorized)
 		return
 	}
-	h.handlePayload(w, r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 25<<20))
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+	deliveryID := r.Header.Get("webhook-id")
+	if deliveryID == "" {
+		deliveryID = r.Header.Get("Idempotency-Key")
+	}
+	h.handlePayload(w, bytes.NewReader(body), "gitlab", deliveryID, r.Header.Get("X-Gitlab-Event"), body)
 }
 
 // HandleGiteaWebhook verifies Gitea's hex-encoded SHA-256 HMAC from the
@@ -133,7 +145,7 @@ func (h *WebhookHandler) HandleGiteaWebhook(w http.ResponseWriter, r *http.Reque
 	if !h.validateRequest(w, r) {
 		return
 	}
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 25<<20))
 	if err != nil {
 		http.Error(w, "Failed to read body", http.StatusInternalServerError)
 		return
@@ -142,15 +154,24 @@ func (h *WebhookHandler) HandleGiteaWebhook(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		return
 	}
-	h.handlePayload(w, bytes.NewReader(body))
+	h.handlePayload(w, bytes.NewReader(body), "gitea", r.Header.Get("X-Gitea-Delivery"), r.Header.Get("X-Gitea-Event"), body)
 }
 
-func (h *WebhookHandler) handlePayload(w http.ResponseWriter, body io.Reader) {
+func (h *WebhookHandler) handlePayload(w http.ResponseWriter, body io.Reader, provider, deliveryID, event string, raw []byte) {
+	// Providers send other event types to the same endpoint. Only pushes can
+	// create a build; tolerate absent event headers from compatible senders.
+	event = strings.ToLower(strings.TrimSpace(event))
+	if event != "" && event != "push" && !(provider == "gitlab" && (event == "push hook" || event == "tag push hook")) {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	var payload WebhookPayload
 	if err := json.NewDecoder(body).Decode(&payload); err != nil {
 		http.Error(w, "Failed to parse payload", http.StatusBadRequest)
 		return
 	}
+	hash := sha256.Sum256(raw)
+	payload.Provider, payload.DeliveryID, payload.BodyHash = provider, deliveryID, hex.EncodeToString(hash[:])
 
 	if h.onPush != nil {
 		if err := h.onPush(payload); err != nil {

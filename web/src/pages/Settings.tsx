@@ -56,7 +56,7 @@ const editableKeys = [
 
 const defaults: SettingsMap = {
   host: '0.0.0.0', port: '8080', build_timeout: '1800',
-  build_concurrency: '2', local_agent_concurrency: '1', cpu_limit_percent: '25',
+  build_concurrency: '16', local_agent_concurrency: '16', cpu_limit_percent: '25',
   background_mode: 'true', retry_policy: 'failed_once',
   artifacts_path: './artifacts', build_temp_path: './build_temp',
   build_log_retention_days: '30',

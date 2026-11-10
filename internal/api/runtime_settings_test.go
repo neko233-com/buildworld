@@ -152,13 +152,13 @@ func TestControlPlanePortCannotBeOverriddenByStoredSettings(t *testing.T) {
 	}
 }
 
-func TestResourceSettingsDefaultLowAndHotReloadWithoutRestart(t *testing.T) {
+func TestResourceSettingsDefaultsAndHotReloadWithoutRestart(t *testing.T) {
 	defaults := defaultGlobalSettings(nil)
 	if defaults["cpu_limit_percent"] != "25" || defaults["background_mode"] != "true" ||
-		defaults["local_agent_concurrency"] != "1" || defaults["build_concurrency"] != "2" ||
+		defaults["local_agent_concurrency"] != "16" || defaults["build_concurrency"] != "16" ||
 		defaults["port"] != "8080" ||
 		defaults[store.BuildLogRetentionDaysSetting] != "30" {
-		t.Fatalf("low-resource defaults = %#v", defaults)
+		t.Fatalf("resource defaults = %#v", defaults)
 	}
 	for _, removed := range []string{"tls", "logs_path"} {
 		if _, exists := defaults[removed]; exists {

@@ -71,6 +71,34 @@ func TestWebhookHandlerGitLabSignedPush(t *testing.T) {
 	}
 }
 
+func TestGitLabDeliveryIDAndNonPushFiltering(t *testing.T) {
+	handler := NewWebhookHandler("secret")
+	var deliveries []string
+	handler.OnPush(func(payload WebhookPayload) error {
+		deliveries = append(deliveries, payload.DeliveryID)
+		return nil
+	})
+	for _, tc := range []struct{ event, webhookID, idempotency string }{
+		{"Push Hook", "new-id", "old-id"},
+		{"Tag Push Hook", "", "old-id"},
+		{"Merge Request Hook", "ignored", ""},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"ref":"refs/heads/main"}`))
+		req.Header.Set("X-Gitlab-Token", "secret")
+		req.Header.Set("X-Gitlab-Event", tc.event)
+		req.Header.Set("webhook-id", tc.webhookID)
+		req.Header.Set("Idempotency-Key", tc.idempotency)
+		response := httptest.NewRecorder()
+		handler.HandleGitLabWebhook(response, req)
+		if response.Code != http.StatusOK {
+			t.Fatalf("event %s status %d", tc.event, response.Code)
+		}
+	}
+	if len(deliveries) != 2 || deliveries[0] != "new-id" || deliveries[1] != "old-id" {
+		t.Fatalf("deliveries = %v", deliveries)
+	}
+}
+
 func TestWebhookProvidersRequireConfiguredMatchingSecret(t *testing.T) {
 	body := []byte(`{"ref":"refs/heads/main","repository":{"full_name":"owner/repo"}}`)
 	providers := []struct {

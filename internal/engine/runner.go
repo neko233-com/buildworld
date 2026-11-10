@@ -87,6 +87,9 @@ type remoteArtifactBuffer struct {
 	data bytes.Buffer
 }
 
+// DefaultBuildConcurrency is the initial global and builtin executor limit.
+const DefaultBuildConcurrency = 16
+
 func NewBuildRunner(s *store.Store, hub *ws.Hub, wsRoot string, plugins *plugin.Loader) *BuildRunner {
 	buildRoot := filepath.Dir(wsRoot)
 	runner := &BuildRunner{
@@ -103,8 +106,8 @@ func NewBuildRunner(s *store.Store, hub *ws.Hub, wsRoot string, plugins *plugin.
 		poolCursor:       make(map[string]int),
 		executionPolicy: ExecutionPolicy{
 			DefaultTimeoutSec:        1800,
-			MaxConcurrentBuilds:      2,
-			MaxConcurrentLocalBuilds: 1,
+			MaxConcurrentBuilds:      DefaultBuildConcurrency,
+			MaxConcurrentLocalBuilds: DefaultBuildConcurrency,
 			RetryLimit:               1,
 			FailFast:                 true,
 			CPUPercent:               25,

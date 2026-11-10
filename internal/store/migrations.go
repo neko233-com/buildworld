@@ -348,6 +348,25 @@ var schemaMigrations = []schemaMigration{
 	{version: 13, name: "project-build-on-startup", up: addProjectBuildOnStartup},
 	{version: 14, name: "build-release-results", up: addBuildReleaseResults},
 	{version: 15, name: "build-release-identities", up: addBuildReleaseIdentities},
+	{version: 16, name: "durable-webhook-deliveries", up: addWebhookDeliveries},
+}
+
+func addWebhookDeliveries(tx *sql.Tx) error {
+	_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS webhook_deliveries (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		provider TEXT NOT NULL, delivery_id TEXT NOT NULL, body_hash TEXT NOT NULL,
+		payload TEXT NOT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(provider, delivery_id)
+	);
+	CREATE TABLE IF NOT EXISTS webhook_delivery_targets (
+		delivery_id INTEGER NOT NULL REFERENCES webhook_deliveries(id),
+		project_id INTEGER NOT NULL, build_id INTEGER,
+		state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+		next_attempt INTEGER NOT NULL DEFAULT 0, lease_until INTEGER NOT NULL DEFAULT 0,
+		last_error TEXT NOT NULL DEFAULT '', PRIMARY KEY(delivery_id, project_id)
+	);
+	CREATE INDEX IF NOT EXISTS webhook_targets_ready ON webhook_delivery_targets(state, next_attempt, lease_until);`)
+	return err
 }
 
 func runSchemaMigrations(db *sql.DB, migrations []schemaMigration) error {
