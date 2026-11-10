@@ -112,3 +112,10 @@ dry run above builds locally without reading remote publication state.
 Do not use `npm run deploy`, force-push `gh-pages`, or add an Actions workflow
 as an alternate publishing path.
 
+The documentation lockfile pins patched build-time dependencies. The scoped
+`tinypool` and `qs` overrides temporarily cross their parent packages' version
+ranges; remove them when upstream adopts fixed versions, and verify both normal
+and worker-thread SSG builds before changing them. `deepmerge` has an
+[unpatched low-severity advisory](https://github.com/advisories/GHSA-gcqx-w48m-w2h4);
+the audit reports its affected dependency paths separately.
+

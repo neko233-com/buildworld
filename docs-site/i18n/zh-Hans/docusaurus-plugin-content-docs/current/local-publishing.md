@@ -72,3 +72,6 @@ GitHub 可能显示平台托管的 Pages 部署记录。服务从 `gh-pages:/` �
 
 不要使用 `npm run deploy`、force-push `gh-pages` 或 Actions workflow 作为备用发布路径。
 
+文档站锁文件固定了已修复的构建期依赖。`tinypool` 和 `qs` 的定向覆盖暂时超出
+上游声明的版本范围；上游采用修复版本后再移除，调整时需验证普通构建和多线程
+SSG 构建。`deepmerge` 目前仍有[尚无修复版本的低风险公告](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)，审计结果按依赖路径分别报告。
