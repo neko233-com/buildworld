@@ -37,6 +37,9 @@ func ValidatePipelineSemantics(config *BuildConfig) error {
 		if err := ValidateJenkinsWhen(stage.JenkinsWhen); err != nil {
 			return fmt.Errorf("stage %q when: %w", stage.Name, err)
 		}
+		if stage.JenkinsWhenBeforeOptions && stage.JenkinsWhen == "" {
+			return fmt.Errorf("stage %q: beforeOptions requires a Jenkins condition", stage.Name)
+		}
 		if stage.JenkinsWhen != "" && len(config.AgentRequirements) > 0 {
 			return fmt.Errorf("stage %q when: remote worker execution cannot safely evaluate Jenkins conditions", stage.Name)
 		}

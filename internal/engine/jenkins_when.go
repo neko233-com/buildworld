@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf16"
 )
 
@@ -71,10 +72,16 @@ func validateJenkinsExpr(expr ast.Expr) error {
 			}
 			return nil
 		}
-		if ident, ok := node.Fun.(*ast.Ident); ok && (((ident.Name == "jenkinsBranch" || ident.Name == "jenkinsTag") && (len(node.Args) == 1 || len(node.Args) == 2)) || (ident.Name == "jenkinsEnvironment" && len(node.Args) == 2)) {
+		if ident, ok := node.Fun.(*ast.Ident); ok && (((ident.Name == "jenkinsBranch" || ident.Name == "jenkinsTag") && (len(node.Args) == 1 || len(node.Args) == 2)) || (ident.Name == "jenkinsEnvironment" && (len(node.Args) == 2 || len(node.Args) == 3))) {
 			for _, arg := range node.Args {
 				if literal, ok := arg.(*ast.BasicLit); !ok || literal.Kind != token.STRING {
 					return fmt.Errorf("Jenkins condition arguments must be literal strings")
+				}
+			}
+			if ident.Name == "jenkinsEnvironment" && len(node.Args) == 3 {
+				value, err := strconv.Unquote(node.Args[2].(*ast.BasicLit).Value)
+				if err != nil || (value != "true" && value != "false") {
+					return fmt.Errorf("Jenkins environment ignoreCase must be a literal boolean")
 				}
 			}
 			return nil
@@ -235,6 +242,12 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 				return compareJenkinsString(first, actual, comparator, "GLOB")
 			case "jenkinsEnvironment":
 				second, _ := strconv.Unquote(node.Args[1].(*ast.BasicLit).Value)
+				if len(node.Args) == 3 {
+					ignoreCase, _ := strconv.Unquote(node.Args[2].(*ast.BasicLit).Value)
+					if ignoreCase == "true" {
+						return jenkinsEqualsIgnoreCase(environment[first], second), nil
+					}
+				}
 				// Jenkins treats an absent environment variable and an empty value
 				// as equivalent for this condition.
 				return environment[first] == second, nil
@@ -326,6 +339,20 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 		}
 	}
 	return false, fmt.Errorf("unsupported Jenkins expression")
+}
+
+// jenkinsEqualsIgnoreCase uses Java's simple upper-then-lower case mapping.
+func jenkinsEqualsIgnoreCase(left, right string) bool {
+	a, b := []rune(left), []rune(right)
+	if len(utf16.Encode(a)) != len(utf16.Encode(b)) || len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] && unicode.ToLower(unicode.ToUpper(a[i])) != unicode.ToLower(unicode.ToUpper(b[i])) {
+			return false
+		}
+	}
+	return true
 }
 
 func jenkinsChangeRequestField(field string) bool {

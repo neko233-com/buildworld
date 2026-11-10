@@ -719,18 +719,13 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			stageStatuses[stageKey] = StageStatusSkipped
 			continue
 		}
-		// Declarative stage options wrap the default when evaluation. Starting
-		// this deadline here also covers evaluating a supported condition.
-		stageCtx := ctx
-		cancelStage := func() {}
-		if stage.TimeoutSec > 0 {
-			stageCtx, cancelStage = context.WithTimeout(ctx, time.Duration(stage.TimeoutSec)*time.Second)
-		}
 		jenkinsBranch := conditionEnvironment["BRANCH_NAME"]
 		if jenkinsBranch == "" {
 			jenkinsBranch = conditionEnvironment["GIT_LOCAL_BRANCH"]
 		}
-		shouldRun, conditionErr := ShouldRunStageWithJenkinsContext(stage, stageStatuses, params, conditionEnvironment, jenkinsBranch)
+		stageCtx, cancelStage, shouldRun, conditionErr := evaluateStageCondition(ctx, stage, func() (bool, error) {
+			return ShouldRunStageWithJenkinsContext(stage, stageStatuses, params, conditionEnvironment, jenkinsBranch)
+		})
 		if errors.Is(stageCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 			cancelStage()
 			r.log(buildID, stage.Name, fmt.Sprintf("Stage timed out after %ds", stage.TimeoutSec))
@@ -1391,6 +1386,26 @@ func (r *BuildRunner) execStep(ctx context.Context, step Step, workspace string,
 
 // completedStepError closes the race between a command returning and its
 // context being cancelled. A cancelled step must never emit a success marker.
+// evaluateStageCondition starts the stage timeout around the condition unless
+// Jenkins beforeOptions explicitly evaluates it before stage options.
+func evaluateStageCondition(ctx context.Context, stage Stage, evaluate func() (bool, error)) (context.Context, context.CancelFunc, bool, error) {
+	stageCtx := ctx
+	cancel := func() {}
+	startTimeout := func() {
+		if stage.TimeoutSec > 0 {
+			stageCtx, cancel = context.WithTimeout(ctx, time.Duration(stage.TimeoutSec)*time.Second)
+		}
+	}
+	if !stage.JenkinsWhenBeforeOptions {
+		startTimeout()
+	}
+	matched, err := evaluate()
+	if stage.JenkinsWhenBeforeOptions && err == nil && matched {
+		startTimeout()
+	}
+	return stageCtx, cancel, matched, err
+}
+
 func completedStepError(ctx context.Context, stepErr error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		if stepErr != nil {

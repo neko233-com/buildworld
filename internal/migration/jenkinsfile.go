@@ -825,10 +825,14 @@ func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) 
 				return nil, fmt.Errorf("stage %q options: %w", stageName, err)
 			}
 		}
-		branches, whenExpression, whenErr := parseJenkinsWhen(body, bodyMask)
+		branches, whenExpression, whenFlags, whenErr := parseJenkinsWhen(body, bodyMask)
 		if whenErr != nil {
 			return nil, fmt.Errorf("stage %q when: %w", stageName, whenErr)
 		}
+		if rootAgentNone && whenFlags.beforeAgent {
+			return nil, fmt.Errorf("stage %q when: evaluation before a stage agent is unsupported with pipeline agent none", stageName)
+		}
+		beforeOptions := whenFlags.beforeOptions
 		stageEnvironment := map[string]string{}
 		if environment, found := namedDirectBlock(body, bodyMask, "environment"); found {
 			parseJenkinsEnvironment(body[environment.start:environment.end], stageEnvironment, warnings)
@@ -851,18 +855,18 @@ func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) 
 			for _, warning := range stepWarnings {
 				*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
 			}
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, steps...)})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, JenkinsWhenBeforeOptions: beforeOptions, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, steps...)})
 			position = closeBody + 1
 			continue
 		}
 		if watch, ok := extractJenkinsServiceWatch(stepSource, strings.TrimSpace(stageName)); ok {
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, watch)})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, JenkinsWhenBeforeOptions: beforeOptions, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, watch)})
 			position = closeBody + 1
 			continue
 		}
 		if command, ok := translateJenkinsPIDStopStage(stepSource); ok {
 			*warnings = appendWarning(*warnings, "pid_stop_manual_review_required", fmt.Sprintf("Stage %q uses a generated process shutdown policy that must be reviewed before execution.", stageName))
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, engine.Step{
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, JenkinsWhenBeforeOptions: beforeOptions, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, engine.Step{
 				Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + command,
 			})})
 			position = closeBody + 1
@@ -878,12 +882,13 @@ func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) 
 			continue
 		}
 		stage := engine.Stage{
-			Name:        strings.TrimSpace(stageName),
-			Branches:    branches,
-			JenkinsWhen: whenExpression,
-			Environment: stageEnvironment,
-			TimeoutSec:  stageTimeout,
-			Steps:       workspaceSteps,
+			Name:                     strings.TrimSpace(stageName),
+			Branches:                 branches,
+			JenkinsWhen:              whenExpression,
+			JenkinsWhenBeforeOptions: beforeOptions,
+			Environment:              stageEnvironment,
+			TimeoutSec:               stageTimeout,
+			Steps:                    workspaceSteps,
 		}
 		if strings.TrimSpace(command) != "" {
 			stage.Steps = append(stage.Steps, engine.Step{Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + strings.TrimSpace(command)})
@@ -1103,31 +1108,38 @@ func isPureJenkinsGitSyncCommand(command string) bool {
 	return foundSync
 }
 
-func parseJenkinsWhen(source, mask string) ([]string, string, error) {
+type jenkinsWhenFlags struct {
+	beforeOptions bool
+	beforeAgent   bool
+	seen          map[string]bool
+}
+
+func parseJenkinsWhen(source, mask string) ([]string, string, jenkinsWhenFlags, error) {
 	block, found := namedBlock(source, mask, "when", 0, len(source))
 	if !found {
 		if findToken(mask, "when", 0, len(mask)) >= 0 {
-			return nil, "", fmt.Errorf("malformed when block")
+			return nil, "", jenkinsWhenFlags{}, fmt.Errorf("malformed when block")
 		}
-		return nil, "", nil
+		return nil, "", jenkinsWhenFlags{}, nil
 	}
 	body := source[block.start:block.end]
 	bodyMask := mask[block.start:block.end]
 	if findToken(mask, "when", block.end+1, len(mask)) >= 0 {
-		return nil, "", fmt.Errorf("multiple when blocks are unsupported")
+		return nil, "", jenkinsWhenFlags{}, fmt.Errorf("multiple when blocks are unsupported")
 	}
-	expression, err := parseJenkinsWhenChildren(body, bodyMask, "&&")
+	flags := &jenkinsWhenFlags{seen: make(map[string]bool)}
+	expression, err := parseJenkinsWhenChildren(body, bodyMask, "&&", flags)
 	if err != nil {
-		return nil, "", fmt.Errorf("unsupported Jenkins when condition: %w", err)
+		return nil, "", jenkinsWhenFlags{}, fmt.Errorf("unsupported Jenkins when condition: %w", err)
 	}
 	if err := engine.ValidateJenkinsWhen(expression); err != nil {
-		return nil, "", fmt.Errorf("unsupported Jenkins when condition: %w", err)
+		return nil, "", jenkinsWhenFlags{}, fmt.Errorf("unsupported Jenkins when condition: %w", err)
 	}
-	return nil, expression, nil
+	return nil, expression, *flags, nil
 }
 
 // parseJenkinsWhenChildren keeps nested and implicit allOf conditions ordered.
-func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
+func parseJenkinsWhenChildren(source, mask, operator string, flags *jenkinsWhenFlags) (string, error) {
 	var conditions []string
 	for cursor := 0; cursor < len(mask); {
 		cursor = skipSpace(mask, cursor, len(mask))
@@ -1172,7 +1184,7 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 					join = "!"
 				}
 				var err error
-				condition, err = parseJenkinsWhenChildren(source[open+1:end], mask[open+1:end], join)
+				condition, err = parseJenkinsWhenChildren(source[open+1:end], mask[open+1:end], join, nil)
 				if err != nil {
 					return "", err
 				}
@@ -1182,6 +1194,37 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 			}
 			conditions = append(conditions, "("+condition+")")
 			cursor = end + 1
+		case "beforeOptions", "beforeInput", "beforeAgent":
+			if flags == nil || flags.seen[word] {
+				return "", fmt.Errorf("%s must appear once at the top level", word)
+			}
+			flags.seen[word] = true
+			position := skipSpace(mask, after, len(mask))
+			value := ""
+			if position < len(mask) && mask[position] == '(' {
+				end, ok := matchingDelimiter(mask, position, '(', ')', len(mask))
+				if !ok {
+					return "", fmt.Errorf("unterminated %s", word)
+				}
+				value = strings.TrimSpace(mask[position+1 : end])
+				cursor = end + 1
+			} else {
+				index, token := nextIdentifier(mask, position)
+				if index != position {
+					return "", fmt.Errorf("%s requires a literal boolean", word)
+				}
+				value = token
+				cursor = position + len(token)
+			}
+			if value != "true" && value != "false" {
+				return "", fmt.Errorf("%s requires a literal boolean", word)
+			}
+			if word == "beforeOptions" {
+				flags.beforeOptions = value == "true"
+			}
+			if value == "true" {
+				flags.beforeAgent = true
+			}
 		case "buildingTag":
 			position := skipSourceSpace(source, after, len(source))
 			if position < len(source) && source[position] == '(' {
@@ -1255,24 +1298,36 @@ func parseJenkinsWhenChildren(source, mask, operator string) (string, error) {
 				if !ok {
 					return "", fmt.Errorf("unterminated environment arguments")
 				}
-				inner := source[position+1 : close]
 				var tail int
-				values, tail, err = parseWhenNamedStrings(inner, 0)
-				if err == nil && strings.TrimSpace(inner[tail:]) != "" {
+				values, tail, err = parseWhenNamedExpressions(source[position+1:close], mask[position+1:close], 0)
+				if err == nil && strings.TrimSpace(mask[position+1+tail:close]) != "" {
 					err = fmt.Errorf("unexpected environment argument")
 				}
 				end = close + 1
 			} else {
-				values, end, err = parseWhenNamedStrings(source, position)
+				values, end, err = parseWhenNamedExpressions(source, mask, position)
 			}
-			if err != nil || len(values) != 2 || values["name"] == "" {
+			if err != nil || len(values) < 2 || len(values) > 3 {
 				return "", fmt.Errorf("environment requires literal name and value")
 			}
-			value, exists := values["value"]
-			if !exists {
-				return "", fmt.Errorf("environment requires value")
+			name, nameErr := strconv.Unquote(values["name"])
+			value, valueErr := strconv.Unquote(values["value"])
+			if nameErr != nil || valueErr != nil || name == "" {
+				return "", fmt.Errorf("environment requires literal name and value")
 			}
-			conditions = append(conditions, "jenkinsEnvironment("+strconv.Quote(values["name"])+","+strconv.Quote(value)+")")
+			for key := range values {
+				if key != "name" && key != "value" && key != "ignoreCase" {
+					return "", fmt.Errorf("unsupported environment argument %q", key)
+				}
+			}
+			ignoreCase := "false"
+			if supplied, exists := values["ignoreCase"]; exists {
+				if supplied != "true" && supplied != "false" {
+					return "", fmt.Errorf("environment ignoreCase requires a literal boolean")
+				}
+				ignoreCase = supplied
+			}
+			conditions = append(conditions, "jenkinsEnvironment("+strconv.Quote(name)+","+strconv.Quote(value)+","+strconv.Quote(ignoreCase)+")")
 			cursor = end
 		case "changeRequest":
 			position := skipSourceSpace(source, after, len(source))

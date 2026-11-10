@@ -240,6 +240,78 @@ func TestJenkinsWhenEnvironmentMissingAndEmpty(t *testing.T) {
 	}
 }
 
+func TestJenkinsWhenEnvironmentIgnoreCase(t *testing.T) {
+	for _, tc := range []struct {
+		condition string
+		env       map[string]string
+		want      bool
+	}{
+		{`environment name: 'MODE', value: 'production', ignoreCase: true`, map[string]string{"MODE": "Production"}, true},
+		{`environment(name: 'MODE', value: 'production', ignoreCase: false)`, map[string]string{"MODE": "Production"}, false},
+		{`environment name: 'MODE', value: 'i', ignoreCase: true`, map[string]string{"MODE": "İ"}, true},
+		{`environment name: 'MODE', value: '', ignoreCase: true`, nil, true},
+		{`environment name: 'MODE', value: 'x', ignoreCase: true`, nil, false},
+	} {
+		source := fmt.Sprintf(`pipeline { agent any stages { stage('deploy') { when { %s } steps { sh 'echo deploy' } } } }`, tc.condition)
+		config, err := engine.ParseJenkinsfileConfig(source, "environment")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := engine.ShouldRunStageWithJenkinsContext(config.Stages[0], nil, nil, tc.env, "main")
+		if err != nil || got != tc.want {
+			t.Fatalf("condition=%s env=%v: got %v want %v: %v", tc.condition, tc.env, got, tc.want, err)
+		}
+	}
+	for _, condition := range []string{
+		`environment name: 'MODE', value: 'x', ignoreCase: params.SKIP`,
+		`environment name: 'MODE', value: 'x', ignoreCase: 'true'`,
+		`environment name: 'MODE', value: 'x', extra: true`,
+	} {
+		source := fmt.Sprintf(`pipeline { agent any stages { stage('deploy') { when { %s } steps { sh 'echo deploy' } } } }`, condition)
+		if _, err := engine.ParseJenkinsfileConfig(source, "environment"); err == nil {
+			t.Fatalf("invalid environment condition accepted: %s", condition)
+		}
+	}
+}
+
+func TestJenkinsWhenEvaluationTimingDirectives(t *testing.T) {
+	for _, tc := range []struct {
+		condition string
+		before    bool
+	}{
+		{`beforeOptions true; beforeInput false; beforeAgent true; branch 'main'`, true},
+		{`beforeOptions(false); beforeInput true; branch 'main'`, false},
+		{`beforeAgent true; branch 'main'`, false},
+	} {
+		source := fmt.Sprintf(`pipeline { agent any stages { stage('deploy') { when { %s } steps { sh 'echo deploy' } } } }`, tc.condition)
+		config, err := engine.ParseJenkinsfileConfig(source, "timing")
+		if err != nil || config.Stages[0].JenkinsWhenBeforeOptions != tc.before {
+			t.Fatalf("condition=%s config=%+v err=%v", tc.condition, config, err)
+		}
+		matched, err := engine.ShouldRunStageWithJenkinsContext(config.Stages[0], nil, nil, nil, "main")
+		if err != nil || !matched {
+			t.Fatalf("condition=%s matched=%v err=%v", tc.condition, matched, err)
+		}
+	}
+	for _, condition := range []string{
+		`beforeOptions params.FAST; branch 'main'`,
+		`beforeOptions true; beforeOptions false; branch 'main'`,
+		`allOf { beforeOptions true; branch 'main' }`,
+		`beforeOptions true`,
+	} {
+		source := fmt.Sprintf(`pipeline { agent any stages { stage('deploy') { when { %s } steps { sh 'echo deploy' } } } }`, condition)
+		if _, err := engine.ParseJenkinsfileConfig(source, "timing"); err == nil {
+			t.Fatalf("invalid timing directive accepted: %s", condition)
+		}
+	}
+	for _, directive := range []string{"beforeOptions true", "beforeInput true", "beforeAgent true"} {
+		source := fmt.Sprintf(`pipeline { agent none stages { stage('deploy') { agent any when { %s; branch 'main' } steps { sh 'echo deploy' } } } }`, directive)
+		if _, err := engine.ParseJenkinsfileConfig(source, "timing"); err == nil {
+			t.Fatalf("unsupported early per-stage agent condition accepted: %s", directive)
+		}
+	}
+}
+
 func TestJenkinsWhenBranchComparators(t *testing.T) {
 	for _, tc := range []struct {
 		condition, branch string
@@ -333,6 +405,8 @@ TAG_NAME = 'release-1'
 }
 stages { stage('guarded') { environment { DEPLOY_TO = 'stage' } when { allOf { branch 'main'; environment name: 'DEPLOY_TO', value: 'production'; expression { !params.ENTRY_ONLY } } } steps { sh 'test "$DEPLOY_TO" = stage; echo guarded-command-executed' } }
 stage('tagged') { when { allOf { buildingTag(); tag 'release-*' } } steps { sh 'echo tag-command-executed' } }
+stage('timing') { options { timeout(time: 10, unit: 'SECONDS') } when { beforeOptions true; environment name: 'DEPLOY_TO', value: 'Production', ignoreCase: true } steps { sh 'echo timing-command-executed' } }
+stage('timing-skip') { options { timeout(time: 10, unit: 'SECONDS') } when { beforeOptions true; environment name: 'DEPLOY_TO', value: 'staging', ignoreCase: true } steps { sh 'echo timing-command-incorrect' } }
 stage('missing-env') { when { environment name: 'BUILDWORLD_JENKINS_WHEN_EXPECTED_ABSENT_871093', value: '' } steps { sh 'echo missing-env-executed' } }
 stage('always') { steps { sh 'echo always-command-executed' } } } }`
 	project, err := db.CreateProject("jenkins-when", "", "", "git", "main", source, 0, nil, nil)
@@ -374,6 +448,12 @@ stage('always') { steps { sh 'echo always-command-executed' } } } }`
 		}
 		if !strings.Contains(build.Log, "tag-command-executed") {
 			t.Fatalf("tag stage missing: %s", build.Log)
+		}
+		if !strings.Contains(build.Log, "timing-command-executed") {
+			t.Fatalf("timing and ignoreCase stage missing: %s", build.Log)
+		}
+		if strings.Contains(build.Log, "timing-command-incorrect") {
+			t.Fatalf("mismatching timing condition executed: %s", build.Log)
 		}
 		if !strings.Contains(build.Log, "missing-env-executed") {
 			t.Fatalf("missing environment condition stage missing: %s", build.Log)

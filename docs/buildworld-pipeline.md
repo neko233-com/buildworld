@@ -278,7 +278,7 @@ validates translated output. It does not create an intermediate JSON or Markdown
 pipeline.
 
 Jenkins `when` supports `allOf`, `anyOf`, `not`, branch and tag patterns,
-`buildingTag()`, environment equality, `equals`, `changeRequest`, and a side-effect-free expression subset.
+`buildingTag()`, environment equality (including literal `ignoreCase`), `equals`, `changeRequest`, and a side-effect-free expression subset.
 Branch and tag patterns support `GLOB`, `EQUALS` and `REGEXP` comparators; Go's
 regular-expression syntax is narrower than Java's. Expressions support `params`
 and `env`, `currentBuild.number`, boolean and ordered comparisons, equality and
@@ -303,8 +303,13 @@ interpolated strings and regular-expression constructs unsupported by Go are
 rejected instead of being evaluated as a different condition.
 
 Unsupported conditions and arbitrary Groovy are rejected rather than executed
-unconditionally. `beforeAgent`, `beforeInput` and `beforeOptions` are not yet
-supported. Conditional Jenkins stages cannot be dispatched to remote workers.
+unconditionally. Literal `beforeOptions`, `beforeInput` and `beforeAgent` are
+accepted for the supported local executor; `beforeOptions true` evaluates the
+condition before starting a stage timeout. Stage input and specific stage
+agents remain unsupported, so their distinct lifecycle behavior is not available.
+Early evaluation with root `agent none` is rejected because per-stage agent
+allocation is not modeled.
+Conditional Jenkins stages cannot be dispatched to remote workers.
 Re-import previously converted pipelines from the Jenkinsfile so conditions
 discarded by older versions are restored.
 
