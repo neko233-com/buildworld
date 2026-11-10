@@ -313,6 +313,15 @@ SCM checkout records use database migration 17. Older BuildWorld binaries reject
 databases with a newer migration ledger; verify a data-preserving downgrade or
 restore procedure before deploying this version. An installation-directory
 rollback alone does not roll back the database schema.
+The updated system-update helper compares a read-only fingerprint of the
+migration ledger before activation and after a failed start. It refuses to
+restore the previous binary if that ledger changed, the database cannot be
+inspected, or the new process cannot be stopped. This protects the database and
+both installations for manual recovery; it does not itself downgrade the schema
+or guarantee reversal of external build actions. Safe inspection requires an
+absolute `database.path`, because a service and detached updater can have
+different working directories. The helper comes from the installed version, so
+an older installation does not gain this protection until it is upgraded.
 
 `changeRequest()` evaluates the existing `CHANGE_ID` and related `CHANGE_*`
 environment values, including named filters and `EQUALS`, `GLOB` or `REGEXP`

@@ -35,4 +35,5 @@ func init() {
 	rootCmd.AddCommand(enableAutostartCmd)
 	rootCmd.AddCommand(disableAutostartCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(inspectMigrationLedgerCmd)
 }

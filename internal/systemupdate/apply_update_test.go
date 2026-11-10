@@ -26,6 +26,10 @@ func TestUpdateHelperPreservesSnapshots(t *testing.T) {
 		{"success", "", "succeeded", "new", "current", "older", false},
 		{"new start fails", "new-start", "rolled_back", "current", "", "older", false},
 		{"restored server cannot become healthy", "rollback-unhealthy", "failed", "current", "", "older", false},
+		{"migration advances before failed start", "migration-advanced", "failed", "new", "current", "older", false},
+		{"migration inspection fails before update", "inspect-before", "rolled_back", "current", "older", "", false},
+		{"migration inspection fails after update", "inspect-after", "failed", "new", "current", "older", false},
+		{"new server cannot be stopped", "pause-new", "failed", "new", "current", "older", false},
 		{"pause fails", "pause", "rolled_back", "current", "older", "", false},
 		{"pause fails but supervisor keeps old server healthy", "pause-start", "rolled_back", "current", "older", "", false},
 		{"snapshot collision", "", "failed", "current", "older", "existing", true},
@@ -96,7 +100,7 @@ func writeTestFile(t *testing.T, path, content string, mode os.FileMode) {
 }
 
 func updateTestCLI(role string) string {
-	return "#!/bin/sh\ncase \"$1\" in\nstatus) echo 'is running';;\nversion) echo 'buildworld v1.0.0';;\npause) [ \"$UPDATE_TEST_FAILURE\" != pause ] && [ \"$UPDATE_TEST_FAILURE\" != pause-start ] || exit 1;;\nstart) [ \"$UPDATE_TEST_FAILURE\" != pause-start ] || exit 1; if [ " + role + " = new ] && { [ \"$UPDATE_TEST_FAILURE\" = new-start ] || [ \"$UPDATE_TEST_FAILURE\" = rollback-unhealthy ]; }; then exit 1; fi; [ " + role + " != current ] || touch \"$HOME/restored\";;\nesac\nexit 0\n"
+	return "#!/bin/sh\ncase \"$1\" in\nstatus) echo 'is running';;\nversion) echo 'buildworld v1.0.0';;\ninspect-migration-ledger) if [ \"$UPDATE_TEST_FAILURE\" = inspect-before ] || { [ \"$UPDATE_TEST_FAILURE\" = inspect-after ] && [ -f \"$HOME/started-new\" ]; }; then exit 1; fi; if [ \"$UPDATE_TEST_FAILURE\" = migration-advanced ] && [ -f \"$HOME/started-new\" ]; then printf 'v1:%064d\\n' 2; else printf 'v1:%064d\\n' 1; fi;;\npause) if [ \"$UPDATE_TEST_FAILURE\" = pause ] || [ \"$UPDATE_TEST_FAILURE\" = pause-start ] || { [ \"$UPDATE_TEST_FAILURE\" = pause-new ] && [ " + role + " = new ]; }; then exit 1; fi;;\nstart) [ \"$UPDATE_TEST_FAILURE\" != pause-start ] || exit 1; if [ " + role + " = new ]; then touch \"$HOME/started-new\"; case \"$UPDATE_TEST_FAILURE\" in new-start|rollback-unhealthy|migration-advanced|inspect-after|pause-new) exit 1;; esac; fi; [ " + role + " != current ] || touch \"$HOME/restored\";;\nesac\nexit 0\n"
 }
 
 func updateTestBundle(t *testing.T) []byte {

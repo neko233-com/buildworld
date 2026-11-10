@@ -20,6 +20,7 @@ was_running=0
 had_autostart=0
 pause_attempted=0
 bin_link=
+ledger_before=
 
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g'
@@ -131,7 +132,11 @@ fi
 restore_previous() {
   rollback_failed=0
   if [ "$activated" = "1" ] && [ -x "$install_dir/buildworld" ]; then
-    run_cli "$install_dir/buildworld" pause >/dev/null 2>&1 || rollback_failed=1
+    # Never replace a possibly running executable or return an older binary to
+    # a database whose migration ledger changed during the attempted start.
+    run_cli "$install_dir/buildworld" pause >/dev/null 2>&1 || return 1
+    ledger_after="$(run_cli "$install_dir/buildworld" inspect-migration-ledger 2>/dev/null)" || return 1
+    [ -n "$ledger_before" ] && [ "$ledger_after" = "$ledger_before" ] || return 1
   fi
   if [ "$activated" = "1" ] && [ -d "$install_dir" ]; then
     rm -rf "$install_dir" || rollback_failed=1
@@ -185,6 +190,10 @@ apply_update() {
     pause_attempted=1
     run_cli "$install_dir/buildworld" pause || return 1
   fi
+  # The incoming CLI can inspect databases from older installations without
+  # applying migrations. If the database cannot be identified, fail closed.
+  ledger_before="$(run_cli "$stage/buildworld" inspect-migration-ledger)" || return 1
+  printf '%s\n' "$ledger_before" | grep -Eq '^v1:[0-9a-f]{64}$' || return 1
   sleep 1
   if [ -e "$previous_dir" ] || [ -L "$previous_dir" ]; then
     [ -d "$previous_dir" ] && [ ! -L "$previous_dir" ] || return 1
