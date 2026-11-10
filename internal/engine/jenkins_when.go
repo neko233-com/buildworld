@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"math/big"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode"
@@ -633,44 +634,67 @@ func matchJenkinsPath(pattern, branch string, caseSensitive bool) (bool, error) 
 }
 
 type jenkinsPathPattern struct {
-	patterns []string
-	segments []*regexp.Regexp
+	patterns      []string
+	segments      [][]uint16
+	caseSensitive bool
 }
 
 func compileJenkinsPathPattern(pattern string, caseSensitive bool) (*jenkinsPathPattern, error) {
-	patterns := strings.Split(pattern, "/")
-	compiled := &jenkinsPathPattern{patterns: patterns, segments: make([]*regexp.Regexp, len(patterns))}
+	patterns := jenkinsAntPathSegments(pattern)
+	compiled := &jenkinsPathPattern{patterns: patterns, segments: make([][]uint16, len(patterns)), caseSensitive: caseSensitive}
 	for index, part := range patterns {
 		if part == "**" {
 			continue
 		}
-		var expression strings.Builder
-		if !caseSensitive {
-			expression.WriteString("(?i)")
-		}
-		expression.WriteString("^")
-		for _, char := range part {
-			switch char {
-			case '*':
-				expression.WriteString(".*")
-			case '?':
-				expression.WriteString(".")
-			default:
-				expression.WriteString(regexp.QuoteMeta(string(char)))
-			}
-		}
-		expression.WriteString("$")
-		var err error
-		compiled.segments[index], err = regexp.Compile(expression.String())
-		if err != nil {
-			return nil, err
-		}
+		compiled.segments[index] = utf16.Encode([]rune(part))
 	}
 	return compiled, nil
 }
 
+// Ant discards empty path components but retains an absolute root component.
+func jenkinsAntPathSegments(path string) []string {
+	if runtime.GOOS == "windows" {
+		path = strings.ReplaceAll(path, `\`, "/")
+	}
+	var root string
+	if strings.HasPrefix(path, "/") {
+		root = "/"
+	} else if runtime.GOOS == "windows" && len(path) >= 3 && path[1] == ':' && path[2] == '/' {
+		root, path = path[:3], path[3:]
+	}
+	parts := strings.FieldsFunc(path, func(r rune) bool { return r == '/' })
+	if root != "" {
+		parts = append([]string{root}, parts...)
+	}
+	return parts
+}
+
+// Ant wildcards operate on Java UTF-16 chars, and '*' also matches newlines.
+func matchJenkinsAntSegment(pattern []uint16, value string, caseSensitive bool) bool {
+	chars := utf16.Encode([]rune(value))
+	pi, vi, star, retry := 0, 0, -1, 0
+	for vi < len(chars) {
+		if pi < len(pattern) && pattern[pi] != '*' && (pattern[pi] == '?' || pattern[pi] == chars[vi] || (!caseSensitive && unicode.ToUpper(rune(pattern[pi])) == unicode.ToUpper(rune(chars[vi])))) {
+			pi++
+			vi++
+		} else if pi < len(pattern) && pattern[pi] == '*' {
+			star, retry = pi, vi
+			pi++
+		} else if star >= 0 {
+			retry++
+			vi, pi = retry, star+1
+		} else {
+			return false
+		}
+	}
+	for pi < len(pattern) && pattern[pi] == '*' {
+		pi++
+	}
+	return pi == len(pattern)
+}
+
 func (compiled *jenkinsPathPattern) matches(branch string) bool {
-	patterns, parts := compiled.patterns, strings.Split(branch, "/")
+	patterns, parts := compiled.patterns, jenkinsAntPathSegments(branch)
 	type position struct{ pattern, part int }
 	visited := make(map[position]bool)
 	var match func(int, int) bool
@@ -695,7 +719,7 @@ func (compiled *jenkinsPathPattern) matches(branch string) bool {
 		if bi == len(parts) {
 			return false
 		}
-		if !compiled.segments[pi].MatchString(parts[bi]) {
+		if !matchJenkinsAntSegment(compiled.segments[pi], parts[bi], compiled.caseSensitive) {
 			return false
 		}
 		return match(pi+1, bi+1)

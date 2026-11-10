@@ -281,8 +281,10 @@ Jenkins `when` supports `allOf`, `anyOf`, `not`, branch and tag patterns,
 `buildingTag()`, `changeset`, `changelog`, environment equality (including literal
 `ignoreCase`), `equals`, `changeRequest`, and a side-effect-free expression subset.
 Branch and tag patterns support `GLOB`, `EQUALS` and `REGEXP` comparators; Go's
-regular-expression syntax is narrower than Java's. Expressions support `params`
-and `env`, `currentBuild.number`, boolean and ordered comparisons, equality and
+regular-expression syntax is narrower than Java's. Ant-style `GLOB` matching
+ignores repeated and trailing path separators, and matches `?` against one UTF-16
+code unit like Jenkins' Ant comparator. Expressions support `params` and `env`,
+`currentBuild.number`, boolean and ordered comparisons, equality and
 `toString().toBoolean()`; numeric parameters keep JSON precision, while nonempty
 strings are true under Groovy truth. Pipeline environment is visible to `when`;
 the stage's own environment applies after its condition succeeds. `branch`
