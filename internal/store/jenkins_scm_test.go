@@ -188,3 +188,41 @@ func TestJenkinsSCMCheckoutConcurrentSaveAndPrune(t *testing.T) {
 		t.Fatalf("latest checkout=%+v err=%v", latest, err)
 	}
 }
+
+func TestPruneRetainsRetryLineage(t *testing.T) {
+	db, err := New(filepath.Join(t.TempDir(), "buildworld.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	project, err := db.CreateProject("retry-prune", "", "", "git", "main", "", 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := db.CreateBuild(project.ID, 1, "webhook", "refs/pull/42/head", "sha", "{}", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.FinishBuild(original.ID, "failed", 1); err != nil {
+		t.Fatal(err)
+	}
+	first, err := db.RetryBuildWithApproval(original.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.FinishBuild(first.ID, "failed", 1); err != nil {
+		t.Fatal(err)
+	}
+	second, err := db.RetryBuildWithApproval(first.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PruneCompletedBuilds(project.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{original.ID, first.ID, second.ID} {
+		if _, err := db.GetBuild(id); err != nil {
+			t.Fatalf("retry lineage lost build %d: %v", id, err)
+		}
+	}
+}

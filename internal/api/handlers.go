@@ -2123,6 +2123,7 @@ func (h *handlers) retryBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "publish-latest cannot reuse an earlier confirmation; start a parameterized build and confirm the selected target again")
 		return
 	}
+	engine.PublicBuildParameters(previousParameters)
 	project, err := h.d.Store.GetProject(previous.ProjectID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "project not found")

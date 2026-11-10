@@ -61,6 +61,8 @@ func TestJenkinsPullRequestHeadHistory(t *testing.T) {
 		ok      bool
 	}{
 		{"refs/pull/123/head", "123", true},
+		{"refs/merge-requests/123/head", "123", true},
+		{"refs/merge-requests/123/merge", "", false},
 		{"refs/pull/123/merge", "", false},
 		{"refs/pull/0/head", "", false},
 		{"refs/pull/01/head", "", false},

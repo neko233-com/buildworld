@@ -52,10 +52,14 @@ type jenkinsSCMHeadChanges struct {
 // jenkinsPullRequestHead identifies a provider's explicit PR-head ref, not a
 // user-supplied CHANGE_ID environment value.
 func jenkinsPullRequestHead(ref string) (string, bool) {
-	if !strings.HasPrefix(ref, "refs/pull/") || !strings.HasSuffix(ref, "/head") {
+	prefix := "refs/pull/"
+	if strings.HasPrefix(ref, "refs/merge-requests/") {
+		prefix = "refs/merge-requests/"
+	}
+	if !strings.HasPrefix(ref, prefix) || !strings.HasSuffix(ref, "/head") {
 		return "", false
 	}
-	id := strings.TrimSuffix(strings.TrimPrefix(ref, "refs/pull/"), "/head")
+	id := strings.TrimSuffix(strings.TrimPrefix(ref, prefix), "/head")
 	if len(id) == 0 || len(id) > 20 || id[0] == '0' {
 		return "", false
 	}

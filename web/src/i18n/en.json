@@ -529,7 +529,7 @@
     "buildOnStartup": "Build once when BuildWorld starts",
     "buildOnStartupHelp": "Runs once after each service start using default parameters and the existing approval policy. Disabled projects and projects with active or queued builds are skipped.",
     "pullRequestWebhook": "Build pull requests from this repository",
-    "pullRequestWebhookHelp": "Builds pinned commits from verified GitHub or Gitea PR events. External forks are not built automatically. Requires an SCM-sourced Jenkinsfile.",
+    "pullRequestWebhookHelp": "Builds pinned commits from verified GitHub, Gitea, or GitLab change requests. External forks are not built automatically. Requires an SCM-sourced Jenkinsfile.",
     "pullRequestWebhookRequiresSCM": "Disable PR builds or select an SCM-sourced Jenkinsfile.",
     "enableHTTPTrigger": "Enable external HTTP rebuild",
     "httpTriggerURL": "HTTP API URL",

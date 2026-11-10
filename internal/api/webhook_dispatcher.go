@@ -95,13 +95,34 @@ func (h *handlers) receiveWebhook(payload webhook.WebhookPayload) error {
 		branch = "refs/pull/" + id + "/head"
 		commit = pr.Head.SHA
 		change = &webhook.PullRequestChange{ID: id, Target: pr.Base.Ref, Branch: pr.Head.Ref, Title: pr.Title, Author: pr.User.Login}
-		for _, value := range []string{change.Target, change.Branch, change.Title, change.Author} {
+	} else if payload.Kind == "merge_request" {
+		mr := payload.GitLabMergeRequest
+		if mr == nil || mr.IID < 1 || !strings.EqualFold(mr.State, "opened") {
+			return errors.New("invalid merge request event")
+		}
+		if payload.Project.ID < 1 || mr.SourceProjectID != payload.Project.ID || mr.TargetProjectID != payload.Project.ID {
+			return nil
+		}
+		if strings.EqualFold(strings.TrimSpace(mr.Action), "update") && (!webhook.ValidCommitID(mr.OldRevision) || strings.EqualFold(mr.OldRevision, mr.LastCommit.ID)) {
+			return errors.New("merge request update requires a distinct previous commit")
+		}
+		id := strconv.FormatInt(mr.IID, 10)
+		branch = "refs/merge-requests/" + id + "/head"
+		commit = mr.LastCommit.ID
+		change = &webhook.PullRequestChange{ID: id, Target: mr.TargetBranch, Branch: mr.SourceBranch, Title: mr.Title}
+		// GitLab's user is the event actor, not necessarily the MR author.
+		if mr.AuthorID > 0 && payload.User.ID == mr.AuthorID {
+			change.Author, change.AuthorDisplayName = payload.User.Username, payload.User.Name
+		}
+	}
+	if change != nil {
+		for _, value := range []string{change.Target, change.Branch, change.Title, change.Author, change.AuthorDisplayName} {
 			if len(value) > 2048 || strings.ContainsRune(value, '\x00') {
 				return errors.New("invalid pull request metadata")
 			}
 		}
 	}
-	if change == nil && strings.HasPrefix(strings.TrimSpace(payload.Ref), "refs/pull/") {
+	if change == nil && (strings.HasPrefix(strings.TrimSpace(payload.Ref), "refs/pull/") || strings.HasPrefix(strings.TrimSpace(payload.Ref), "refs/merge-requests/")) {
 		return errors.New("PR refs require an authenticated PR event and project opt-in")
 	}
 	if len(payload.Ref) > 1024 {
@@ -200,11 +221,11 @@ func (h *handlers) processWebhookTarget(ctx context.Context, target *store.Webho
 		return err
 	}
 	if payload.Kind == "pull_request" {
-		if payload.Change == nil || branch != "refs/pull/"+payload.Change.ID+"/head" {
+		if payload.Change == nil || (branch != "refs/pull/"+payload.Change.ID+"/head" && branch != "refs/merge-requests/"+payload.Change.ID+"/head") {
 			return errors.New("missing PR metadata")
 		}
 		parameters, err = engine.AttachJenkinsChangeRequestContext(parameters, engine.JenkinsChangeRequestContext{
-			ID: payload.Change.ID, Target: payload.Change.Target, Branch: payload.Change.Branch, Title: payload.Change.Title, Author: payload.Change.Author,
+			ID: payload.Change.ID, Target: payload.Change.Target, Branch: payload.Change.Branch, Title: payload.Change.Title, Author: payload.Change.Author, AuthorDisplayName: payload.Change.AuthorDisplayName,
 		})
 		if err != nil {
 			return err

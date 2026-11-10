@@ -529,7 +529,7 @@
     "buildOnStartup": "BuildWorld 启动后自动构建一次",
     "buildOnStartupHelp": "每次服务启动时使用默认参数构建一次，并遵循现有审批规则。项目禁用或已有执行中、排队、待审批构建时跳过。",
     "pullRequestWebhook": "构建同仓库的 Pull Request",
-    "pullRequestWebhookHelp": "接收已验证的 GitHub 或 Gitea PR 事件并构建固定提交；外部 fork 不会自动构建。需要 SCM 来源的 Jenkinsfile。",
+    "pullRequestWebhookHelp": "接收已验证的 GitHub、Gitea 或 GitLab 合并请求事件并构建固定提交；外部 fork 不会自动构建。需要 SCM 来源的 Jenkinsfile。",
     "pullRequestWebhookRequiresSCM": "请先关闭 PR 自动构建，或选择 SCM 来源的 Jenkinsfile。",
     "enableHTTPTrigger": "开启外部 HTTP 重新构建",
     "httpTriggerURL": "HTTP API 地址",

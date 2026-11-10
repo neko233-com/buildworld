@@ -240,7 +240,128 @@ func TestPullRequestWebhookPinsBuildAndRespectsProjectPolicy(t *testing.T) {
 			break
 		}
 	}
-	if missingMetadata.Status != "failed" || !strings.Contains(missingMetadata.Log, "authenticated PR webhook metadata is unavailable") || strings.Contains(missingMetadata.Log, "TRUSTED_PR_OK") {
+	if missingMetadata.Status != "failed" || !strings.Contains(missingMetadata.Log, "authenticated PR webhook metadata or retry lineage is unavailable") || strings.Contains(missingMetadata.Log, "TRUSTED_PR_OK") {
 		t.Fatalf("missing metadata did not fail closed: %+v", missingMetadata)
 	}
+	if err := database.SetProjectPullRequestWebhook(project.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	mrSource := `pipeline { agent any stages { stage('mr') { when { allOf { branch 'MR-42'; changeRequest id: '42', target: 'main', branch: 'feature', title: 'Improve service' } } steps { sh 'test -z "$CHANGE_AUTHOR"; test "$(cat marker)" = mr; echo GITLAB_MR_OK' } } } }`
+	if err := os.WriteFile(filepath.Join(repository, "Jenkinsfile"), []byte(mrSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "marker"), []byte("mr"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("-C", repository, "add", "Jenkinsfile", "marker")
+	git("-C", repository, "commit", "-m", "GitLab MR")
+	mrRevision := git("-C", repository, "rev-parse", "HEAD")
+	git("-C", repository, "push", "origin", "HEAD:refs/merge-requests/42/head")
+	sendGitLab := func(delivery, action, oldRevision string, sourceProjectID, authorID int64) {
+		t.Helper()
+		body, err := json.Marshal(map[string]interface{}{
+			"object_kind": "merge_request", "project": map[string]interface{}{"id": 7, "git_http_url": originURL},
+			"user": map[string]interface{}{"id": 9, "username": "maintainer", "name": "Maintainer"},
+			"object_attributes": map[string]interface{}{"iid": 42, "action": action, "state": "opened", "oldrev": oldRevision,
+				"source_project_id": sourceProjectID, "target_project_id": 7, "source_branch": "feature", "target_branch": "main",
+				"title": "Improve service", "author_id": authorID, "last_commit": map[string]interface{}{"id": mrRevision}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+		req.Header.Set("X-Gitlab-Event", "Merge Request Hook")
+		req.Header.Set("X-Gitlab-Token", "fixture-secret")
+		req.Header.Set("Idempotency-Key", delivery)
+		response := httptest.NewRecorder()
+		provider.HandleGitLabWebhook(response, req)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GitLab webhook status=%d body=%s", response.Code, response.Body.String())
+		}
+	}
+	sendGitLab("mr-fork", "open", "", 8, 8)
+	sendGitLab("mr-edit", "update", "", 7, 8)
+	sendGitLab("mr-open", "open", "", 7, 8)
+	sendGitLab("mr-open", "open", "", 7, 8)
+	target, err = database.ClaimWebhookTarget(time.Now(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := handler.processWebhookTarget(context.Background(), target); err != nil {
+		t.Fatal(err)
+	}
+	builds, err = database.ListBuildsByProject(project.ID)
+	if err != nil || len(builds) != 4 || builds[0].CommitSHA != mrRevision || builds[0].Branch != "refs/merge-requests/42/head" {
+		for _, item := range builds {
+			t.Logf("build %d branch=%q trigger=%q status=%q", item.Number, item.Branch, item.Trigger, item.Status)
+		}
+		t.Fatalf("GitLab MR did not create a pinned isolated build: %+v err=%v", builds, err)
+	}
+	runner.Run(builds[0].ID)
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		build, err = database.GetBuild(builds[0].ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if build.Status == "success" || build.Status == "failed" {
+			break
+		}
+	}
+	if build == nil || build.Status != "success" || !strings.Contains(build.Log, "GITLAB_MR_OK") {
+		t.Fatalf("GitLab MR did not execute pinned metadata: %+v", build)
+	}
+	sendGitLab("mr-code-update", "update", first, 7, 9)
+	target, err = database.ClaimWebhookTarget(time.Now(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := handler.processWebhookTarget(context.Background(), target); err != nil {
+		t.Fatal(err)
+	}
+	builds, err = database.ListBuildsByProject(project.ID)
+	if err != nil || len(builds) != 5 || builds[0].CommitSHA != mrRevision || !strings.Contains(builds[0].Parameters, `"author":"maintainer"`) || !strings.Contains(builds[0].Parameters, `"author_display_name":"Maintainer"`) {
+		t.Fatalf("GitLab code update or confirmed author missing: %+v err=%v", builds, err)
+	}
+	for _, test := range []struct {
+		name       string
+		original   int64
+		wantStatus string
+		wantOutput string
+	}{
+		{"trusted", buildIDForOriginalPR(database, project.ID, t), "success", "TRUSTED_PR_OK"},
+		{"missing", missingMetadata.ID, "failed", "authenticated PR webhook metadata or retry lineage is unavailable"},
+	} {
+		retry, err := database.RetryBuildWithApproval(test.original, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runner.Run(retry.ID)
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			retry, err = database.GetBuild(retry.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if retry.Status == "success" || retry.Status == "failed" {
+				break
+			}
+		}
+		if retry.Status != test.wantStatus || !strings.Contains(retry.Log, test.wantOutput) {
+			t.Fatalf("%s retry: %+v", test.name, retry)
+		}
+	}
+}
+
+func buildIDForOriginalPR(database *store.Store, projectID int64, t *testing.T) int64 {
+	t.Helper()
+	builds, err := database.ListBuildsByProject(projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, build := range builds {
+		if build.Number == 1 {
+			return build.ID
+		}
+	}
+	t.Fatal("original PR build missing")
+	return 0
 }

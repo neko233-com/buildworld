@@ -89,7 +89,7 @@ func (s *Store) PreviousJenkinsSCMRevision(projectID int64, buildNumber int, rep
 			(b.branch=? OR b.branch=? OR ((b.branch IS NULL OR b.branch='') AND ?=(SELECT default_branch FROM projects WHERE id=?)))
 			AND (?=0 OR b.status NOT IN ('pending','running','pending_approval','queued'))
 			AND NOT EXISTS(SELECT 1 FROM jenkins_scm_checkouts c WHERE c.build_id=b.id AND c.repository_hash=? AND c.branch=? AND c.revision=''))`,
-			projectID, buildNumber, branch, "refs/heads/"+branch, branch, projectID, strings.HasPrefix(branch, "refs/pull/"), repositoryHash, branch).Scan(&previousExists)
+			projectID, buildNumber, branch, "refs/heads/"+branch, branch, projectID, strings.HasPrefix(branch, "refs/pull/") || strings.HasPrefix(branch, "refs/merge-requests/"), repositoryHash, branch).Scan(&previousExists)
 		if err != nil {
 			return "", false, fmt.Errorf("inspect prior build history: %w", err)
 		}

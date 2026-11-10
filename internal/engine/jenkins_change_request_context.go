@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/neko233-com/buildworld/internal/store"
 )
 
 // A NUL-containing name cannot be exposed as a process environment variable.
@@ -11,11 +13,12 @@ const jenkinsChangeRequestContextKey = "\x00buildworld.changeRequest"
 
 // JenkinsChangeRequestContext is the authenticated, pinned webhook metadata.
 type JenkinsChangeRequestContext struct {
-	ID     string `json:"id"`
-	Target string `json:"target"`
-	Branch string `json:"branch"`
-	Title  string `json:"title"`
-	Author string `json:"author"`
+	ID                string `json:"id"`
+	Target            string `json:"target"`
+	Branch            string `json:"branch"`
+	Title             string `json:"title"`
+	Author            string `json:"author"`
+	AuthorDisplayName string `json:"author_display_name,omitempty"`
 }
 
 // AttachJenkinsChangeRequestContext preserves validated parameters and adds the
@@ -24,7 +27,7 @@ func AttachJenkinsChangeRequestContext(parameters string, change JenkinsChangeRe
 	if change.ID == "" {
 		return "", fmt.Errorf("missing PR identity")
 	}
-	for _, value := range []string{change.ID, change.Target, change.Branch, change.Title, change.Author} {
+	for _, value := range []string{change.ID, change.Target, change.Branch, change.Title, change.Author, change.AuthorDisplayName} {
 		if len(value) > 2048 || strings.ContainsRune(value, '\x00') {
 			return "", fmt.Errorf("invalid PR context")
 		}
@@ -57,4 +60,26 @@ func readJenkinsChangeRequestContext(parameters, expectedID string) *JenkinsChan
 		return nil
 	}
 	return &change
+}
+
+// PublicBuildParameters removes internal webhook metadata before user parameter validation.
+func PublicBuildParameters(parameters map[string]interface{}) {
+	delete(parameters, jenkinsChangeRequestContextKey)
+}
+
+func (r *BuildRunner) changeRequestWebhookOrigin(build *store.Build) (bool, error) {
+	current := build
+	seen := make(map[int64]bool)
+	for current.Trigger == "retry" {
+		if current.RetriedFrom == nil || seen[current.ID] || len(seen) >= 128 {
+			return false, fmt.Errorf("invalid change request retry lineage")
+		}
+		seen[current.ID] = true
+		parent, err := r.store.GetBuild(*current.RetriedFrom)
+		if err != nil || parent == nil || parent.ProjectID != build.ProjectID || parent.Branch != build.Branch || parent.CommitSHA != build.CommitSHA || parent.Parameters != build.Parameters {
+			return false, fmt.Errorf("unavailable or inconsistent change request retry lineage")
+		}
+		current = parent
+	}
+	return current.Trigger == "webhook", nil
 }

@@ -17,6 +17,7 @@ type WebhookPayload struct {
 	Provider   string `json:"-"`
 	DeliveryID string `json:"-"`
 	BodyHash   string `json:"-"`
+	ObjectKind string `json:"object_kind,omitempty"`
 	Kind       string `json:"kind,omitempty"`
 	Action     string `json:"action,omitempty"`
 	Number     int64  `json:"number,omitempty"`
@@ -30,6 +31,7 @@ type WebhookPayload struct {
 		GitSSHURL  string `json:"git_ssh_url"`
 	} `json:"repository"`
 	Project struct {
+		ID                int64  `json:"id"`
 		PathWithNamespace string `json:"path_with_namespace"`
 		GitHTTPURL        string `json:"git_http_url"`
 		GitSSHURL         string `json:"git_ssh_url"`
@@ -41,8 +43,31 @@ type WebhookPayload struct {
 	Sender struct {
 		Login string `json:"login"`
 	} `json:"sender"`
-	PullRequest *PullRequestPayload `json:"pull_request,omitempty"`
-	Change      *PullRequestChange  `json:"change,omitempty"`
+	User struct {
+		ID       int64  `json:"id"`
+		Username string `json:"username"`
+		Name     string `json:"name"`
+	} `json:"user"`
+	GitLabMergeRequest *GitLabMergeRequestPayload `json:"object_attributes,omitempty"`
+	PullRequest        *PullRequestPayload        `json:"pull_request,omitempty"`
+	Change             *PullRequestChange         `json:"change,omitempty"`
+}
+
+// GitLabMergeRequestPayload contains the source identity and actual code update.
+type GitLabMergeRequestPayload struct {
+	IID             int64  `json:"iid"`
+	Action          string `json:"action"`
+	State           string `json:"state"`
+	OldRevision     string `json:"oldrev"`
+	SourceProjectID int64  `json:"source_project_id"`
+	TargetProjectID int64  `json:"target_project_id"`
+	SourceBranch    string `json:"source_branch"`
+	TargetBranch    string `json:"target_branch"`
+	Title           string `json:"title"`
+	AuthorID        int64  `json:"author_id"`
+	LastCommit      struct {
+		ID string `json:"id"`
+	} `json:"last_commit"`
 }
 
 // PullRequestPayload contains only provider fields used to authorize and pin a PR build.
@@ -70,11 +95,12 @@ type PullRequestPayload struct {
 
 // PullRequestChange is the bounded, credential-free metadata persisted for a build.
 type PullRequestChange struct {
-	ID     string `json:"id"`
-	Target string `json:"target"`
-	Branch string `json:"branch"`
-	Title  string `json:"title"`
-	Author string `json:"author"`
+	ID                string `json:"id"`
+	Target            string `json:"target"`
+	Branch            string `json:"branch"`
+	Title             string `json:"title"`
+	Author            string `json:"author"`
+	AuthorDisplayName string `json:"author_display_name,omitempty"`
 }
 
 // MatchesRepository accepts the clone identities emitted by supported push providers.
@@ -199,8 +225,9 @@ func (h *WebhookHandler) handlePayload(w http.ResponseWriter, body io.Reader, pr
 	// Providers send other event types to the same endpoint. PR events are
 	// identified by the verified provider header, not by a body-supplied field.
 	event = strings.ToLower(strings.TrimSpace(event))
+	gitlabMR := provider == "gitlab" && event == "merge request hook"
 	prEvent := (provider == "github" && event == "pull_request") || (provider == "gitea" && (event == "pull_request" || event == "pull_request_sync"))
-	if !prEvent && event != "" && event != "push" && !(provider == "gitlab" && (event == "push hook" || event == "tag push hook")) {
+	if !prEvent && !gitlabMR && event != "" && event != "push" && !(provider == "gitlab" && (event == "push hook" || event == "tag push hook")) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -214,6 +241,18 @@ func (h *WebhookHandler) handlePayload(w http.ResponseWriter, body io.Reader, pr
 		payload.Kind = "pull_request"
 		action := strings.ToLower(strings.TrimSpace(payload.Action))
 		if action != "opened" && action != "reopened" && action != "synchronize" && !(provider == "gitea" && action == "synchronized") {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	} else if gitlabMR {
+		payload.Kind = "merge_request"
+		mr := payload.GitLabMergeRequest
+		if mr == nil || payload.ObjectKind != "merge_request" {
+			http.Error(w, "Missing merge request details", http.StatusBadRequest)
+			return
+		}
+		action := strings.ToLower(strings.TrimSpace(mr.Action))
+		if action != "open" && action != "reopen" && !(action == "update" && mr.OldRevision != "") {
 			w.WriteHeader(http.StatusOK)
 			return
 		}

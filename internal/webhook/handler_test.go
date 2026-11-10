@@ -101,6 +101,41 @@ func TestPullRequestWebhookEventsAreAuthenticatedAndFiltered(t *testing.T) {
 	}
 }
 
+func TestGitLabMergeRequestWebhookFiltersNonCodeUpdates(t *testing.T) {
+	for _, tc := range []struct {
+		action, oldrev string
+		want           bool
+	}{
+		{"open", "", true}, {"reopen", "", true},
+		{"update", "0123456789abcdef0123456789abcdef01234567", true},
+		{"update", "", false}, {"merge", "", false}, {"approved", "", false},
+	} {
+		handler := NewWebhookHandler("secret")
+		received := false
+		handler.OnPush(func(payload WebhookPayload) error {
+			received = payload.Kind == "merge_request" && payload.GitLabMergeRequest != nil && payload.GitLabMergeRequest.IID == 42
+			return nil
+		})
+		body := `{"object_kind":"merge_request","project":{"id":7},"object_attributes":{"iid":42,"action":"` + tc.action + `","oldrev":"` + tc.oldrev + `"}}`
+		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(body))
+		req.Header.Set("X-Gitlab-Event", "Merge Request Hook")
+		req.Header.Set("X-Gitlab-Token", "secret")
+		response := httptest.NewRecorder()
+		handler.HandleGitLabWebhook(response, req)
+		if response.Code != http.StatusOK || received != tc.want {
+			t.Fatalf("action=%s oldrev=%q status=%d received=%v", tc.action, tc.oldrev, response.Code, received)
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"object_kind":"merge_request","object_attributes":{"action":"open"}}`))
+	req.Header.Set("X-Gitlab-Event", "Merge Request Hook")
+	req.Header.Set("X-Gitlab-Token", "wrong")
+	response := httptest.NewRecorder()
+	NewWebhookHandler("secret").HandleGitLabWebhook(response, req)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid token status=%d", response.Code)
+	}
+}
+
 func TestWebhookHandlerGitLabSignedPush(t *testing.T) {
 	handler := NewWebhookHandler("gitlab-secret")
 	received := false
@@ -131,7 +166,7 @@ func TestGitLabDeliveryIDAndNonPushFiltering(t *testing.T) {
 	for _, tc := range []struct{ event, webhookID, idempotency string }{
 		{"Push Hook", "new-id", "old-id"},
 		{"Tag Push Hook", "", "old-id"},
-		{"Merge Request Hook", "ignored", ""},
+		{"Issue Hook", "ignored", ""},
 	} {
 		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"ref":"refs/heads/main"}`))
 		req.Header.Set("X-Gitlab-Token", "secret")

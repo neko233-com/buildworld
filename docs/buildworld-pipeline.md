@@ -304,20 +304,23 @@ repository and branch. The first observed checkout has no changes. With
 changelog. If earlier builds exist but their checkout history is unavailable,
 the condition fails instead of assuming an empty history; the current checkout
 establishes the baseline for the next build. An SCM build of an explicit
-`refs/pull/<number>/head` is treated as a PR head: `BRANCH_NAME` is
-`PR-<number>`, `CHANGE_ID` is the number, and `changeset`/`changelog` inspect
+`refs/pull/<number>/head` or `refs/merge-requests/<number>/head` is treated as a
+change-request head: `BRANCH_NAME` is `PR-<number>` or `MR-<number>` respectively,
+`CHANGE_ID` is the number, and `changeset`/`changelog` inspect
 the captured checkouts of earlier builds of that same project, repository and
 PR head as well as this build's checkout. Earlier builds' changes remain
 visible before this build checks out. Builds without a checkout record that
 fact; older or incomplete snapshots fail closed instead of guessing. The total
 aggregated history is limited to 16 MiB. Manually supplying `CHANGE_ID` alone
 does not identify a PR head. A project may explicitly enable same-repository
-PR builds in its trigger settings. Verified GitHub `pull_request` and Gitea
-`pull_request` / `pull_request_sync` deliveries create builds pinned to the
-event's head commit; duplicate deliveries remain idempotent. The event supplies
-`CHANGE_TARGET`, `CHANGE_BRANCH`, `CHANGE_TITLE`, and `CHANGE_AUTHOR` in
-addition to the PR identity. External fork PRs do not run automatically, and
-GitLab merge-request events and merge-ref strategies are not implemented.
+PR builds in its trigger settings. Verified GitHub `pull_request`, Gitea
+`pull_request` / `pull_request_sync`, and GitLab `Merge Request Hook` deliveries
+create builds pinned to the event's head commit; duplicate deliveries remain
+idempotent. GitLab update events trigger only when `oldrev` identifies an actual
+code change. The event supplies `CHANGE_TARGET`, `CHANGE_BRANCH`, and
+`CHANGE_TITLE`; GitLab supplies `CHANGE_AUTHOR` only when the event actor is
+also the MR author. External fork requests do not run automatically. Merge-ref
+strategies are not implemented.
 Git collection excludes merge commits, records at most 1024 commits and fails
 if its output exceeds 16 MiB. Regular expressions use Go syntax rather than
 Java's complete regular-expression language.

@@ -915,14 +915,15 @@ func (s *Store) ListBuildsByProject(projectID int64) ([]*Build, error) {
 }
 
 // PruneCompletedBuilds keeps the newest completed builds for a project. Pinned,
-// pending, and running builds are always retained so the LRU policy cannot remove
-// work that operators still need.
+// pending, running, and retry ancestors are retained so retry provenance remains
+// verifiable even while the project history is being pruned.
 func (s *Store) PruneCompletedBuilds(projectID int64, retain int) error {
 	if retain < 0 {
 		return nil
 	}
 	rows, err := s.db.Query(`SELECT id FROM builds
 		WHERE project_id = ? AND status IN ('success', 'failed', 'cancelled') AND pinned = 0
+		AND id NOT IN (SELECT retried_from FROM builds WHERE retried_from IS NOT NULL)
 		ORDER BY COALESCE(finished_at, started_at) DESC, id DESC`, projectID)
 	if err != nil {
 		return err

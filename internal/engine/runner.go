@@ -643,9 +643,12 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	usesSCMChanges := pipelineUsesJenkinsSCMChanges(cfg)
 	pullRequestID, isPullRequestHead := jenkinsPullRequestHead(strings.TrimSpace(build.Branch))
 	isPullRequestHead = isPullRequestHead && strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm")
-	if isPullRequestHead && build.Trigger == "webhook" && readJenkinsChangeRequestContext(build.Parameters, pullRequestID) == nil {
-		r.fail(buildID, start, "authenticated PR webhook metadata is unavailable", project)
-		return
+	if isPullRequestHead {
+		webhookOrigin, err := r.changeRequestWebhookOrigin(build)
+		if err != nil || (webhookOrigin && readJenkinsChangeRequestContext(build.Parameters, pullRequestID) == nil) {
+			r.failWithoutRetry(buildID, start, "authenticated PR webhook metadata or retry lineage is unavailable", project)
+			return
+		}
 	}
 	// Jenkins gathers PR changes for future builds even when this particular
 	// Jenkinsfile does not yet contain a changelog-based condition.
@@ -1799,7 +1802,11 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 	if strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm") {
 		if id, ok := jenkinsPullRequestHead(branchName); ok {
 			pullRequestID = id
-			branchName = "PR-" + id
+			if strings.HasPrefix(branchName, "refs/merge-requests/") {
+				branchName = "MR-" + id
+			} else {
+				branchName = "PR-" + id
+			}
 		}
 	}
 	if strings.HasPrefix(branchName, "refs/tags/") {
@@ -1821,12 +1828,13 @@ func (r *BuildRunner) buildEnvAt(build *store.Build, cfg *BuildConfig, project *
 	}
 	if pullRequestID != "" {
 		envMap["CHANGE_ID"] = pullRequestID
-		if build.Trigger == "webhook" {
+		if webhookOrigin, err := r.changeRequestWebhookOrigin(build); err == nil && webhookOrigin {
 			if change := readJenkinsChangeRequestContext(build.Parameters, pullRequestID); change != nil {
 				envMap["CHANGE_TARGET"] = change.Target
 				envMap["CHANGE_BRANCH"] = change.Branch
 				envMap["CHANGE_TITLE"] = change.Title
 				envMap["CHANGE_AUTHOR"] = change.Author
+				envMap["CHANGE_AUTHOR_DISPLAY_NAME"] = change.AuthorDisplayName
 			}
 		}
 	}
@@ -1980,6 +1988,7 @@ func parseParams(jsonStr string) map[string]interface{} {
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return nil
 	}
+	PublicBuildParameters(m)
 	return m
 }
 
@@ -2016,6 +2025,14 @@ func (r *BuildRunner) broadcastStatus(buildID int64, status, stage string, progr
 }
 
 func (r *BuildRunner) fail(buildID int64, start time.Time, msg string, project *store.Project) {
+	r.finishFailure(buildID, start, msg, project, true)
+}
+
+func (r *BuildRunner) failWithoutRetry(buildID int64, start time.Time, msg string, project *store.Project) {
+	r.finishFailure(buildID, start, msg, project, false)
+}
+
+func (r *BuildRunner) finishFailure(buildID int64, start time.Time, msg string, project *store.Project, retry bool) {
 	r.runsMu.Lock()
 	stopping := r.shuttingDown
 	r.runsMu.Unlock()
@@ -2038,7 +2055,9 @@ func (r *BuildRunner) fail(buildID int64, start time.Time, msg string, project *
 	}
 
 	r.recordStatistics(buildID)
-	r.scheduleAutomaticRetry(buildID)
+	if retry {
+		r.scheduleAutomaticRetry(buildID)
+	}
 	// Automatic-retry diagnostics belong to the failed build. Flush them before
 	// publishing terminal status so they cannot recreate leaked per-build state.
 	r.flushDurableBuildLog(buildID, true)
