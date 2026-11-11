@@ -6,6 +6,15 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.16.32] - 2026-11-11
+
+### Fixed
+
+- Preserve the order of supported shell, archive, and workspace cleanup steps
+  mixed in a Jenkins pipeline-level post condition; reject unsupported syntax.
+- Stop the current post condition after a step fails while still evaluating
+  subsequent failure and cleanup conditions.
+
 ## [1.16.31] - 2026-11-11
 
 ### Fixed

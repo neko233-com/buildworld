@@ -158,6 +158,60 @@ func TestJenkinsRunnerDoesNotExecuteUnsupportedConditionalBody(t *testing.T) {
 	}
 }
 
+func TestJenkinsRunnerMixedPostArchivesBeforeCleanup(t *testing.T) {
+	shPath, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("a POSIX shell is required for the real Jenkins shell steps")
+	}
+	// Prefer the functional shell's directory to the Windows WSL placeholder.
+	t.Setenv("PATH", filepath.Dir(shPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	root := t.TempDir()
+	db, err := store.New(filepath.Join(root, "buildworld.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	source := `pipeline {
+ agent any
+ options { skipDefaultCheckout() }
+ stages { stage('build') { steps { sh 'mkdir -p dist; echo artifact > dist/result.txt' } } }
+ post { always {
+   sh 'test -f dist/result.txt'
+   archiveArtifacts artifacts: 'dist/**'
+   sh 'test -f dist/result.txt'
+   cleanWs()
+   sh 'test ! -e dist/result.txt; echo CLEANED'
+ } }
+}`
+	project, err := db.CreateProject("mixed-post", "", "", "git", "main", source, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build, err := db.CreateBuild(project.ID, 1, "manual", "main", "", `{}`, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := engine.NewBuildRunner(db, nil, filepath.Join(root, "workspaces"), nil)
+	runner.SetArtifactManager(engine.NewArtifactManager(db, filepath.Join(root, "artifacts")))
+	defer runner.Shutdown(context.Background())
+	runner.Run(build.ID)
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		build, err = db.GetBuild(build.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if build.Status == "failed" || build.Status == "success" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	artifacts, err := db.ListArtifactsByBuild(build.ID)
+	if err != nil || build.Status != "success" || !strings.Contains(build.Log, "CLEANED") || len(artifacts) != 1 || artifacts[0].Name != "dist/result.txt" {
+		t.Fatalf("status=%s log=%s artifacts=%#v err=%v", build.Status, build.Log, artifacts, err)
+	}
+}
+
 func TestConditionalJenkinsWatcherDoesNotRemoveTimeout(t *testing.T) {
 	config := &engine.BuildConfig{Stages: []engine.Stage{{Name: "watch", JenkinsWhen: "!params.ENTRY_ONLY", Steps: []engine.Step{{Type: "shell", Command: "go run ./tools/deploygame_cli ops resume-game-monitor --monitor-only=true"}}}}}
 	if err := engine.ValidatePipelineSemantics(config); err != nil {

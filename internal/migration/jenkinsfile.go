@@ -464,14 +464,14 @@ func parseJenkinsPost(source string, config *engine.BuildConfig, warnings *[]War
 			continue
 		}
 		body := strings.TrimSpace(source[open+1 : close])
-		if step, special, err := parseJenkinsPostBuiltin(body); special {
+		if steps, special, err := parseJenkinsPostSequence(body, condition); special {
 			if err != nil {
 				*warnings = appendWarning(*warnings, "post_review_required", "Post "+condition+": "+err.Error())
 			} else {
 				if config.Post == nil {
 					config.Post = map[string][]engine.Step{}
 				}
-				config.Post[condition] = append(config.Post[condition], step)
+				config.Post[condition] = append(config.Post[condition], steps...)
 			}
 			position = close + 1
 			continue
@@ -492,20 +492,149 @@ func parseJenkinsPost(source string, config *engine.BuildConfig, warnings *[]War
 	}
 }
 
+// parseJenkinsPostSequence retains the order of supported literal operations.
+// Any compound or ambiguous Groovy is rejected rather than flattened.
+func parseJenkinsPostSequence(source, condition string) ([]engine.Step, bool, error) {
+	mask := groovyCodeMask(source)
+	if findToken(mask, "archiveArtifacts", 0, len(mask)) < 0 && findToken(mask, "cleanWs", 0, len(mask)) < 0 && findToken(mask, "deleteDir", 0, len(mask)) < 0 {
+		return nil, false, nil
+	}
+	var steps []engine.Step
+	for cursor := 0; ; {
+		cursor = skipGroovyTrivia(source, cursor)
+		for cursor < len(source) && source[cursor] == ';' {
+			cursor = skipGroovyTrivia(source, cursor+1)
+		}
+		if cursor >= len(source) {
+			return steps, true, nil
+		}
+		index, word := nextIdentifier(mask, cursor)
+		if index != cursor {
+			return nil, true, fmt.Errorf("unsupported post syntax")
+		}
+		after := skipSourceSpace(source, cursor+len(word), len(source))
+		end := after
+		switch word {
+		case "archiveArtifacts", "cleanWs", "deleteDir":
+			if after < len(mask) && mask[after] == '(' {
+				close, ok := matchingDelimiter(mask, after, '(', ')', len(mask))
+				if !ok {
+					return nil, true, fmt.Errorf("unterminated %s", word)
+				}
+				end = close + 1
+			} else if word == "archiveArtifacts" {
+				end = after
+				for end < len(mask) && mask[end] != '\n' && mask[end] != '\r' && mask[end] != ';' {
+					end++
+				}
+			} else {
+				return nil, true, fmt.Errorf("%s requires an empty argument list", word)
+			}
+			if strings.HasSuffix(strings.TrimSpace(source[cursor:end]), ",") {
+				return nil, true, fmt.Errorf("incomplete %s arguments", word)
+			}
+			step, _, err := parseJenkinsPostBuiltin(strings.TrimSpace(source[cursor:end]))
+			if err != nil {
+				return nil, true, err
+			}
+			steps = append(steps, step)
+		case "sh", "echo", "error":
+			argument := after
+			parenthesized := argument < len(mask) && mask[argument] == '('
+			if parenthesized {
+				argument = skipSourceSpace(source, argument+1, len(source))
+				if word == "sh" {
+					index, name := nextIdentifier(mask, argument)
+					if index == argument && name == "script" {
+						colon := skipSpace(mask, argument+len(name), len(mask))
+						if colon >= len(mask) || mask[colon] != ':' {
+							return nil, true, fmt.Errorf("sh script argument requires a colon")
+						}
+						argument = skipSourceSpace(source, colon+1, len(source))
+					}
+				}
+			}
+			_, literalEnd, ok := parseGroovyString(source, argument)
+			if !ok {
+				return nil, true, fmt.Errorf("%s requires a literal string", word)
+			}
+			end = literalEnd
+			if parenthesized {
+				end = skipSourceSpace(source, end, len(source))
+				if end >= len(mask) || mask[end] != ')' {
+					return nil, true, fmt.Errorf("%s options are unsupported", word)
+				}
+				end++
+			}
+			command, warnings := translateJenkinsShell(source[cursor:end])
+			if len(warnings) != 0 || strings.TrimSpace(command) == "" {
+				return nil, true, fmt.Errorf("unsupported %s step", word)
+			}
+			steps = append(steps, engine.Step{Name: "post " + condition + " " + word, Type: "shell", Shell: "bash", Command: "set -e\n\n" + strings.TrimSpace(command)})
+		default:
+			return nil, true, fmt.Errorf("unsupported post step %q", word)
+		}
+		next, err := nextJenkinsPostStep(source, end)
+		if err != nil {
+			return nil, true, err
+		}
+		cursor = next
+	}
+}
+
+// nextJenkinsPostStep requires a real statement boundary even around comments.
+func nextJenkinsPostStep(source string, cursor int) (int, error) {
+	separated := false
+	for cursor < len(source) {
+		switch {
+		case source[cursor] == ' ' || source[cursor] == '\t':
+			cursor++
+		case source[cursor] == ';' || source[cursor] == '\n' || source[cursor] == '\r':
+			separated = true
+			cursor++
+		case strings.HasPrefix(source[cursor:], "//"):
+			end := strings.IndexByte(source[cursor:], '\n')
+			if end < 0 {
+				return len(source), nil
+			}
+			cursor += end
+		case strings.HasPrefix(source[cursor:], "/*"):
+			end := strings.Index(source[cursor+2:], "*/")
+			if end < 0 {
+				return 0, fmt.Errorf("unterminated post comment")
+			}
+			commentEnd := cursor + end + 4
+			separated = separated || strings.ContainsAny(source[cursor:commentEnd], "\r\n")
+			cursor = commentEnd
+		default:
+			if !separated {
+				return 0, fmt.Errorf("post steps require a separator")
+			}
+			return cursor, nil
+		}
+	}
+	return cursor, nil
+}
+
 // parseJenkinsPostBuiltin accepts only literal, standalone operations. Mixed
 // or unsupported Groovy must be reviewed rather than silently reordered.
 func parseJenkinsPostBuiltin(body string) (engine.Step, bool, error) {
 	mask := groovyCodeMask(body)
 	archive := findToken(mask, "archiveArtifacts", 0, len(mask))
 	clean := findToken(mask, "cleanWs", 0, len(mask))
-	if archive < 0 && clean < 0 {
+	deleteDir := findToken(mask, "deleteDir", 0, len(mask))
+	if archive < 0 && clean < 0 && deleteDir < 0 {
 		return engine.Step{}, false, nil
 	}
-	if clean >= 0 {
-		if strings.TrimSpace(mask) != "cleanWs()" {
-			return engine.Step{}, true, errors.New("cleanWs only supports an isolated no-argument call")
+	if clean >= 0 || deleteDir >= 0 {
+		operation := "cleanWs"
+		if deleteDir >= 0 {
+			operation = "deleteDir"
 		}
-		return engine.Step{Name: "cleanWs", Type: "jenkins_delete_dir"}, true, nil
+		if !isEmptyJenkinsPostCall(body, operation) {
+			return engine.Step{}, true, fmt.Errorf("%s only supports an isolated no-argument call", operation)
+		}
+		return engine.Step{Name: operation, Type: "jenkins_delete_dir"}, true, nil
 	}
 	allowed := map[string]bool{"archiveArtifacts": true, "artifacts": true, "allowEmptyArchive": true, "onlyIfSuccessful": true, "true": true, "false": true}
 	for cursor := 0; cursor < len(mask); {
@@ -542,6 +671,23 @@ func parseJenkinsPostBuiltin(body string) (engine.Step, bool, error) {
 		}
 	}
 	return engine.Step{Name: "archiveArtifacts", Type: "jenkins_archive_artifacts", Config: options}, true, nil
+}
+
+// isEmptyJenkinsPostCall checks the original source so masked string arguments
+// cannot be mistaken for whitespace inside a destructive workspace operation.
+func isEmptyJenkinsPostCall(source, name string) bool {
+	if !strings.HasPrefix(source, name) {
+		return false
+	}
+	cursor := skipGroovyTrivia(source, len(name))
+	if cursor >= len(source) || source[cursor] != '(' {
+		return false
+	}
+	cursor = skipGroovyTrivia(source, cursor+1)
+	if cursor >= len(source) || source[cursor] != ')' {
+		return false
+	}
+	return skipGroovyTrivia(source, cursor+1) == len(source)
 }
 
 func groovyNamedString(arguments, name string) (string, bool) {

@@ -1096,6 +1096,9 @@ func (r *BuildRunner) runPostSteps(originalCtx context.Context, cfg *BuildConfig
 					firstErr = err
 				}
 				outcome = "failure"
+				// Jenkins aborts the current post condition after a failed step,
+				// but still evaluates subsequent conditions such as cleanup.
+				break
 			}
 		}
 		if _, err := r.runPluginHook(postCtx, "build."+condition, outcome, workspace, project, build, env); err != nil {

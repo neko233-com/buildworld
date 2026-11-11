@@ -40,6 +40,43 @@ func TestJenkinsPostArchiveAndCleanupAreOrderedOperations(t *testing.T) {
 	}
 }
 
+func TestJenkinsPostMixedStepsPreserveOrderAndRejectAmbiguity(t *testing.T) {
+	body := `sh(script: 'echo first'); archiveArtifacts(artifacts: 'dist/**', allowEmptyArchive: true)
+// Keep cleanup after the archive.
+echo('archived'); cleanWs ( /* empty */ ); sh 'echo last'; deleteDir()`
+	source := fmt.Sprintf(`pipeline { agent any stages { stage('build') { steps { sh 'echo ok' } } } post { always { %s } } }`, body)
+	config, err := engine.ParseJenkinsfileConfig(source, "mixed-post")
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps := config.Post["always"]
+	want := []string{"shell", "jenkins_archive_artifacts", "shell", "jenkins_delete_dir", "shell", "jenkins_delete_dir"}
+	if len(steps) != len(want) {
+		t.Fatalf("steps=%#v", steps)
+	}
+	for i, step := range steps {
+		if step.Type != want[i] {
+			t.Fatalf("step %d=%#v want %s", i, step, want[i])
+		}
+	}
+	for _, invalid := range []string{
+		`sh(script: 'echo bad', returnStatus: true); cleanWs()`,
+		`script { sh 'echo bad' }; cleanWs()`,
+		`cleanWs() sh 'echo bad'`,
+		`cleanWs() /* comment */ sh 'echo bad'`,
+		`deleteDir('not-supported'); cleanWs()`,
+		`cleanWs(''); deleteDir()`,
+		`cleanWs(/* not empty */ 'x'); deleteDir()`,
+		`archiveArtifacts artifacts: 'dist/**', fingerprint: true; cleanWs()`,
+		"archiveArtifacts artifacts: 'dist/**',\ncleanWs()",
+	} {
+		source := fmt.Sprintf(`pipeline { agent any stages { stage('build') { steps { sh 'echo ok' } } } post { always { %s } } }`, invalid)
+		if _, err := engine.ParseJenkinsfileConfig(source, "unsafe-post"); err == nil {
+			t.Fatalf("accepted unsupported mixed post: %s", invalid)
+		}
+	}
+}
+
 func TestJenkinsGoGameObserverPreservesCancellationAndLongRunningContract(t *testing.T) {
 	result, err := NewJenkinsfileStrategy().Convert(Request{Source: `pipeline {
   agent any

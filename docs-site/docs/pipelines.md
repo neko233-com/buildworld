@@ -51,9 +51,11 @@ workspace setup and must explicitly arrange any checkout they need. Tag
 conditions use `TAG_NAME` from the build environment; an absent or empty value
 is not a tag build.
 
-This is not an arbitrary Groovy interpreter. Unsupported expressions,
-declarative conditions, and `beforeAgent`, `beforeInput`, or `beforeOptions`
-are rejected rather than silently running a guarded stage. REGEXP patterns
+This is not an arbitrary Groovy interpreter. Unsupported expressions and
+declarative conditions are rejected rather than silently running a guarded
+stage. Literal `beforeOptions`, `beforeInput`, and `beforeAgent` flags are
+accepted where their timing can be represented by the local executor;
+pre-agent evaluation with root `agent none` is rejected. REGEXP patterns
 must be accepted by Go's regular-expression engine, which supports a smaller
 syntax than Java's. Verify jobs using unsupported Jenkins plugins or features
 against Jenkins before migrating them.
@@ -65,14 +67,17 @@ stage agents are not implemented and fail validation. With root `agent none`,
 each supported executable stage must explicitly use `agent any`.
 
 Pipeline-level `post` supports `always`, `failure`, `success`, and `cleanup`
-in Jenkins condition order. A standalone `archiveArtifacts` with literal
+in Jenkins condition order. `archiveArtifacts` with literal
 workspace-relative Ant patterns, `allowEmptyArchive`, and `onlyIfSuccessful`
 archives regular files with their relative paths and SHA-256; missing matches
-fail by default. A standalone no-argument `cleanWs()` removes only the build
-workspace. Cleanup runs after the other supported post conditions, and post
-errors fail an otherwise successful build. These workspace operations require
-the local executor; matched symlinks, mixed archive or cleanup steps, and unsupported archive
-options, including Jenkins cross-build `fingerprint`, require manual conversion.
+fail by default. No-argument `cleanWs()` and `deleteDir()` remove only the
+build workspace. These operations may be mixed in order with literal `sh`,
+`echo`, and `error` steps in the same condition. A failed step skips the rest
+of its condition, while later applicable conditions, including `cleanup`,
+still run. Post errors fail an otherwise successful build. These workspace
+operations require the local executor; matched symlinks and unsupported
+archive options, including Jenkins cross-build `fingerprint`, require manual
+conversion.
 
 ## TypeScript pipeline
 
