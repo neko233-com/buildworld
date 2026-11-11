@@ -6,6 +6,17 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.16.30] - 2026-11-11
+
+### Added
+
+- Run supported Jenkins pipeline-level post archives and workspace cleanup in
+  condition order, preserving artifact paths and recording SHA-256 checksums.
+
+### Fixed
+
+- Fail a successful build when a post step fails instead of reporting success.
+
 ## [1.16.29] - 2026-11-11
 
 ### Fixed

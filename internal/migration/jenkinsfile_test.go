@@ -11,6 +11,35 @@ import (
 	"github.com/neko233-com/buildworld/internal/engine"
 )
 
+func TestJenkinsPostArchiveAndCleanupAreOrderedOperations(t *testing.T) {
+	source := `pipeline {
+  agent any
+  stages { stage('build') { steps { sh 'echo ok' } } }
+  post {
+    success { archiveArtifacts artifacts: 'dist/**', onlyIfSuccessful: true }
+    cleanup { cleanWs() }
+  }
+}`
+	config, err := engine.ParseJenkinsfileConfig(source, "website")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Artifacts) != 0 || len(config.Post["success"]) != 1 || config.Post["success"][0].Type != "jenkins_archive_artifacts" || config.Post["success"][0].Config["patterns"] != "dist/**" || config.Post["success"][0].Config["only_if_successful"] != "true" {
+		t.Fatalf("archive config=%#v", config)
+	}
+	if len(config.Post["cleanup"]) != 1 || config.Post["cleanup"][0].Type != "jenkins_delete_dir" {
+		t.Fatalf("cleanup config=%#v", config.Post["cleanup"])
+	}
+	unsupported := strings.Replace(source, "onlyIfSuccessful: true", "fingerprint: true", 1)
+	if _, err := engine.ParseJenkinsfileConfig(unsupported, "website"); err == nil || !strings.Contains(err.Error(), "fingerprint") {
+		t.Fatalf("unsupported fingerprint option error=%v", err)
+	}
+	duplicate := strings.Replace(source, "onlyIfSuccessful: true", "onlyIfSuccessful: true, onlyIfSuccessful: false", 1)
+	if _, err := engine.ParseJenkinsfileConfig(duplicate, "website"); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("duplicate archive option error=%v", err)
+	}
+}
+
 func TestJenkinsGoGameObserverPreservesCancellationAndLongRunningContract(t *testing.T) {
 	result, err := NewJenkinsfileStrategy().Convert(Request{Source: `pipeline {
   agent any
@@ -1156,8 +1185,8 @@ func TestJenkinsfileStrategyConvertsMacPipelineConfigXML(t *testing.T) {
 	if len(config.Triggers) != 2 || config.Triggers[1].Type != "schedule" || config.Triggers[1].Config["cron"] != "0 11 * * *" {
 		t.Fatalf("triggers = %#v", config.Triggers)
 	}
-	if strings.Join(config.Artifacts, ",") != "artifacts/*.zip,logs/*.log" {
-		t.Fatalf("artifacts = %#v", config.Artifacts)
+	if len(config.Artifacts) != 0 || len(config.Post["always"]) != 1 || config.Post["always"][0].Type != "jenkins_archive_artifacts" || config.Post["always"][0].Config["patterns"] != "artifacts/*.zip, logs/*.log" {
+		t.Fatalf("post artifacts = %#v, global artifacts = %#v", config.Post, config.Artifacts)
 	}
 	if command := config.Stages[0].Steps[0].Command; !strings.Contains(command, "/srv/unity/build.py --version ${VERSION}") {
 		t.Fatalf("dynamic command = %s", command)

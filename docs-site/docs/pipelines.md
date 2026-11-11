@@ -64,6 +64,16 @@ minutes (the default), hours or days. Stage input and input steps, stage-level
 stage agents are not implemented and fail validation. With root `agent none`,
 each supported executable stage must explicitly use `agent any`.
 
+Pipeline-level `post` supports `always`, `failure`, `success`, and `cleanup`
+in Jenkins condition order. A standalone `archiveArtifacts` with literal
+workspace-relative Ant patterns, `allowEmptyArchive`, and `onlyIfSuccessful`
+archives regular files with their relative paths and SHA-256; missing matches
+fail by default. A standalone no-argument `cleanWs()` removes only the build
+workspace. Cleanup runs after the other supported post conditions, and post
+errors fail an otherwise successful build. These workspace operations require
+the local executor; matched symlinks, mixed archive or cleanup steps, and unsupported archive
+options, including Jenkins cross-build `fingerprint`, require manual conversion.
+
 ## TypeScript pipeline
 
 ```typescript

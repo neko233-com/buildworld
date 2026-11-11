@@ -412,6 +412,15 @@ is rejected instead of being modified.
 Workspace operations in other positions or nested Groovy blocks require manual
 conversion and are not silently treated as successful.
 
+Pipeline-level `post` executes supported `always`, `failure`, `success`, and
+`cleanup` conditions in Jenkins order. Standalone `archiveArtifacts` accepts
+literal relative Ant patterns, `allowEmptyArchive`, and `onlyIfSuccessful`;
+the local executor preserves relative paths and stores SHA-256. No matches fail
+unless explicitly allowed. Standalone `cleanWs()` cleans the workspace after
+other post conditions. Post failures fail an otherwise successful build.
+Symlink matches, remote workers, mixed archive or cleanup steps, and unsupported
+options such as Jenkins cross-build `fingerprint` fail validation or execution.
+
 Stage `options { timeout(...) }` supports positive integral seconds, minutes
 (the default), hours and days. Stage-level or step-level `input`, stage `post`,
 `parallel`, `matrix`, nested stages, unsupported options and specific stage

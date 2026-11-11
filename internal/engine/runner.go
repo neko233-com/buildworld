@@ -985,9 +985,14 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		r.finishCleanup(buildID)
 		return
 	}
-	r.runPostSteps(ctx, cfg, "success", workspace, project, build, env, params)
+	postErr := r.runPostSteps(ctx, cfg, "success", workspace, project, build, env, params)
 	if errors.Is(context.Cause(ctx), errBuildRunnerShutdown) {
 		r.flushDurableBuildLog(buildID, true)
+		return
+	}
+	if postErr != nil {
+		r.fail(buildID, start, fmt.Sprintf("post step failed: %v", postErr), project)
+		r.finishCleanup(buildID)
 		return
 	}
 
@@ -1061,15 +1066,22 @@ func (r *BuildRunner) deferForProjectConcurrency(buildID, projectID int64, abort
 	return false
 }
 
-func (r *BuildRunner) runPostSteps(originalCtx context.Context, cfg *BuildConfig, outcome, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}) {
+func (r *BuildRunner) runPostSteps(originalCtx context.Context, cfg *BuildConfig, outcome, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}) error {
 	if errors.Is(context.Cause(originalCtx), errBuildRunnerShutdown) {
-		return
+		return nil
 	}
 	postCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	conditions := []string{"always", outcome, "cleanup"}
+	var firstErr error
+	conditions := []string{"always", "failure", "success", "cleanup"}
 	for _, condition := range conditions {
+		if (condition == "success" || condition == "failure") && condition != outcome {
+			continue
+		}
 		for _, step := range cfg.Post[condition] {
+			if step.Type == "jenkins_archive_artifacts" && step.Config["only_if_successful"] == "true" && outcome != "success" {
+				continue
+			}
 			stage := "post " + condition
 			r.log(build.ID, stage, fmt.Sprintf("--- Step: %s ---", step.Name))
 			stepEnv := appendRuntimeEnv(env, cfg, step.Runtime)
@@ -1079,12 +1091,17 @@ func (r *BuildRunner) runPostSteps(originalCtx context.Context, cfg *BuildConfig
 			_ = r.flushBuildOutput(build.ID, stage)
 			if err != nil {
 				r.log(build.ID, stage, fmt.Sprintf("ERROR: %v", err))
+				if firstErr == nil {
+					firstErr = err
+				}
+				outcome = "failure"
 			}
 		}
 		if _, err := r.runPluginHook(postCtx, "build."+condition, outcome, workspace, project, build, env); err != nil {
 			r.log(build.ID, "plugin build."+condition, fmt.Sprintf("ERROR: %v", err))
 		}
 	}
+	return firstErr
 }
 
 func (r *BuildRunner) runPluginHook(ctx context.Context, hook, outcome, workspace string, project *store.Project, build *store.Build, env []string) ([]string, error) {
@@ -1624,6 +1641,16 @@ func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace str
 		workingDirectory = resolved
 	}
 	switch step.Type {
+	case "jenkins_archive_artifacts":
+		if r.artifacts == nil {
+			return errors.New("artifact storage is not configured")
+		}
+		count, err := r.artifacts.CollectJenkins(build.ID, workspace, step.Config["patterns"], step.Config["allow_empty"] == "true")
+		if err != nil {
+			return err
+		}
+		onOutput(fmt.Sprintf("Archived %d artifact(s)", count))
+		return nil
 	case "jenkins_delete_dir":
 		if workingDirectory != workspace {
 			return fmt.Errorf("Jenkins deleteDir is only supported at the workspace root")

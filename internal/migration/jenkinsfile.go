@@ -2,6 +2,7 @@ package migration
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -144,7 +145,14 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 	if triggers, found := namedDirectBlock(pipelineSource, pipelineMask, "triggers"); found {
 		parseJenkinsTriggers(pipelineSource[triggers.start:triggers.end], config, &warnings)
 	}
-	parseJenkinsArtifacts(pipelineSource, config)
+	postBlock, hasPost := namedDirectBlock(pipelineSource, pipelineMask, "post")
+	artifactSource := pipelineSource
+	if hasPost {
+		// Post archives have outcome and ordering semantics; do not collect
+		// them unconditionally as global artifacts.
+		artifactSource = pipelineSource[:postBlock.start] + pipelineSource[postBlock.end:]
+	}
+	parseJenkinsArtifacts(artifactSource, config)
 	parseJenkinsAgent(pipelineSource, pipelineMask, config, &warnings)
 	if options, found := namedDirectBlock(pipelineSource, pipelineMask, "options"); found {
 		parseJenkinsOptions(pipelineSource[options.start:options.end], config, &warnings)
@@ -165,8 +173,8 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 		config.AllowLongRunning = true
 	}
 
-	if post, found := namedDirectBlock(pipelineSource, pipelineMask, "post"); found {
-		parseJenkinsPost(pipelineSource[post.start:post.end], config, &warnings)
+	if hasPost {
+		parseJenkinsPost(pipelineSource[postBlock.start:postBlock.end], config, &warnings)
 	}
 
 	encoded, err := engine.FormatTypeScriptPipeline(config)
@@ -455,7 +463,20 @@ func parseJenkinsPost(source string, config *engine.BuildConfig, warnings *[]War
 			position = close + 1
 			continue
 		}
-		command, postWarnings := translateJenkinsShell(source[open+1 : close])
+		body := strings.TrimSpace(source[open+1 : close])
+		if step, special, err := parseJenkinsPostBuiltin(body); special {
+			if err != nil {
+				*warnings = appendWarning(*warnings, "post_review_required", "Post "+condition+": "+err.Error())
+			} else {
+				if config.Post == nil {
+					config.Post = map[string][]engine.Step{}
+				}
+				config.Post[condition] = append(config.Post[condition], step)
+			}
+			position = close + 1
+			continue
+		}
+		command, postWarnings := translateJenkinsShell(body)
 		for _, warning := range postWarnings {
 			*warnings = appendWarning(*warnings, warning.Code, "Post "+condition+": "+warning.Message)
 		}
@@ -469,6 +490,58 @@ func parseJenkinsPost(source string, config *engine.BuildConfig, warnings *[]War
 		}
 		position = close + 1
 	}
+}
+
+// parseJenkinsPostBuiltin accepts only literal, standalone operations. Mixed
+// or unsupported Groovy must be reviewed rather than silently reordered.
+func parseJenkinsPostBuiltin(body string) (engine.Step, bool, error) {
+	mask := groovyCodeMask(body)
+	archive := findToken(mask, "archiveArtifacts", 0, len(mask))
+	clean := findToken(mask, "cleanWs", 0, len(mask))
+	if archive < 0 && clean < 0 {
+		return engine.Step{}, false, nil
+	}
+	if clean >= 0 {
+		if strings.TrimSpace(mask) != "cleanWs()" {
+			return engine.Step{}, true, errors.New("cleanWs only supports an isolated no-argument call")
+		}
+		return engine.Step{Name: "cleanWs", Type: "jenkins_delete_dir"}, true, nil
+	}
+	allowed := map[string]bool{"archiveArtifacts": true, "artifacts": true, "allowEmptyArchive": true, "onlyIfSuccessful": true, "true": true, "false": true}
+	for cursor := 0; cursor < len(mask); {
+		index, word := nextIdentifier(mask, cursor)
+		if index < 0 {
+			break
+		}
+		if !allowed[word] {
+			return engine.Step{}, true, fmt.Errorf("archiveArtifacts option or mixed step %q is unsupported", word)
+		}
+		cursor = index + len(word)
+	}
+	if archive != 0 || strings.Count(mask, "archiveArtifacts") != 1 {
+		return engine.Step{}, true, errors.New("archiveArtifacts must be an isolated step")
+	}
+	for _, option := range []string{"artifacts", "allowEmptyArchive", "onlyIfSuccessful"} {
+		first := findToken(mask, option, 0, len(mask))
+		if first >= 0 && findToken(mask, option, first+len(option), len(mask)) >= 0 {
+			return engine.Step{}, true, fmt.Errorf("duplicate archiveArtifacts option %s", option)
+		}
+	}
+	patterns, ok := groovyNamedString(body, "artifacts")
+	if !ok || strings.TrimSpace(patterns) == "" || strings.ContainsAny(patterns, "$\r\n\x00") {
+		return engine.Step{}, true, errors.New("archiveArtifacts requires literal artifact patterns")
+	}
+	options := map[string]string{"patterns": patterns}
+	for _, option := range []struct{ groovy, config string }{{"allowEmptyArchive", "allow_empty"}, {"onlyIfSuccessful", "only_if_successful"}} {
+		if findToken(mask, option.groovy, 0, len(mask)) >= 0 {
+			value, valid := groovyNamedBool(body, option.groovy)
+			if !valid {
+				return engine.Step{}, true, fmt.Errorf("%s requires a literal boolean", option.groovy)
+			}
+			options[option.config] = strconv.FormatBool(value)
+		}
+	}
+	return engine.Step{Name: "archiveArtifacts", Type: "jenkins_archive_artifacts", Config: options}, true, nil
 }
 
 func groovyNamedString(arguments, name string) (string, bool) {

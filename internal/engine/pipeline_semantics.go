@@ -87,6 +87,9 @@ func ValidatePipelineSemantics(config *BuildConfig) error {
 	}
 	for condition, steps := range config.Post {
 		for _, step := range steps {
+			if (step.Type == "jenkins_delete_dir" || step.Type == "jenkins_archive_artifacts") && len(config.AgentRequirements) > 0 {
+				return fmt.Errorf("post %q step %q: Jenkins workspace operations require the local executor", condition, step.Name)
+			}
 			if err := ValidatePipelineCondition(step.If); err != nil {
 				return fmt.Errorf("post %q step %q if: %w", condition, step.Name, err)
 			}
