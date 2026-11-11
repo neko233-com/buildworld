@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"debug/pe"
 	"fmt"
 	"io"
 	"os"
@@ -82,7 +83,7 @@ func (e *Executor) RunMultiShell(ctx context.Context, shell, command, dir string
 
 	switch shell {
 	case "powershell", "ps1", "pwsh":
-		return e.runPowerShell(ctx, command, dir, env, onOutput)
+		return e.runPowerShell(ctx, shell, command, dir, env, onOutput)
 	case "bash", "sh":
 		return e.runBash(ctx, shell, command, dir, env, onOutput)
 	case "cmd":
@@ -94,19 +95,27 @@ func (e *Executor) RunMultiShell(ctx context.Context, shell, command, dir string
 	}
 }
 
-func (e *Executor) runPowerShell(ctx context.Context, command, dir string, env []string, onOutput func(string)) error {
+func (e *Executor) runPowerShell(ctx context.Context, shell, command, dir string, env []string, onOutput func(string)) error {
 	isMultiLine := strings.Contains(command, "\n")
 	var cmd *processtree.Cmd
 	if runtime.GOOS == "windows" {
+		name := "powershell"
+		if shell == "pwsh" {
+			var err error
+			name, err = preferredWindowsPwsh()
+			if err != nil {
+				return fmt.Errorf("PowerShell Core (pwsh) is unavailable: %w", err)
+			}
+		}
 		if isMultiLine {
 			scriptPath, err := e.writeTempScript(dir, command, ".ps1")
 			if err != nil {
 				return err
 			}
 			defer os.Remove(scriptPath)
-			cmd = processtree.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
+			cmd = processtree.CommandContext(ctx, name, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
 		} else {
-			cmd = processtree.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command)
+			cmd = processtree.CommandContext(ctx, name, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command)
 		}
 	} else {
 		if isMultiLine {
@@ -127,6 +136,50 @@ func (e *Executor) runPowerShell(ctx context.Context, command, dir string, env [
 		cmd.Env = append(cmd.Environ(), env...)
 	}
 	return runWithLineWriters(cmd, onOutput)
+}
+
+// preferredWindowsPwsh prefers a matching native PE executable in PATH while
+// retaining the existing PATH choice when only a different architecture exists.
+func preferredWindowsPwsh() (string, error) {
+	fallback, err := exec.LookPath("pwsh")
+	if err != nil {
+		return "", err
+	}
+	if !strings.EqualFold(filepath.Base(fallback), "pwsh.exe") {
+		return fallback, nil
+	}
+	architecture := runtime.GOARCH
+	switch strings.ToUpper(os.Getenv("PROCESSOR_ARCHITEW6432")) {
+	case "AMD64":
+		architecture = "amd64"
+	case "ARM64":
+		architecture = "arm64"
+	}
+	var machine uint16
+	switch architecture {
+	case "amd64":
+		machine = pe.IMAGE_FILE_MACHINE_AMD64
+	case "arm64":
+		machine = pe.IMAGE_FILE_MACHINE_ARM64
+	default:
+		return fallback, nil
+	}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		candidate := filepath.Join(dir, "pwsh.exe")
+		binary, openErr := pe.Open(candidate)
+		if openErr != nil {
+			continue
+		}
+		matches := binary.Machine == machine
+		_ = binary.Close()
+		if matches {
+			return candidate, nil
+		}
+	}
+	return fallback, nil
 }
 
 func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env []string, onOutput func(string)) error {

@@ -67,6 +67,9 @@ Jenkins before migrating them.
 
 On Windows, a system WSL Bash launcher no longer shadows the Bash beside an
 installed POSIX shell. Explicit non-system Bash selections keep PATH priority.
+An explicit `pwsh` step selects PowerShell Core and prefers a native 64-bit
+executable; a 32-bit-only installation remains usable. Explicit `powershell`
+and `ps1` steps retain Windows PowerShell behavior.
 
 Stage `options { timeout(...) }` supports positive integral times in seconds,
 minutes (the default), hours or days. Stage input and input steps, `parallel`,

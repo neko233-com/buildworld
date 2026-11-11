@@ -6,6 +6,13 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.16.36] - 2026-11-11
+
+### Fixed
+
+- Run Windows `pwsh` steps with PowerShell Core, preferring the native
+  64-bit executable in PATH while retaining 32-bit-only installations.
+
 ## [1.16.35] - 2026-11-11
 
 ### Fixed

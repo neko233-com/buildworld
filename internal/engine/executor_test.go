@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"debug/pe"
 	"fmt"
 	"os"
 	"os/exec"
@@ -62,6 +63,74 @@ func TestPreferredWindowsBashPreservesExplicitChoiceAndMissingFallback(t *testin
 	}
 	if got := preferredWindowsBash(customBash, sh, filepath.Join(root, "Windows")); got != customBash {
 		t.Fatalf("explicit Bash path was changed to %q", got)
+	}
+}
+
+func TestWindowsPwshStepUsesPowerShellCore(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-specific PowerShell selection")
+	}
+	if _, err := exec.LookPath("pwsh"); err != nil {
+		t.Skip("PowerShell Core is not installed")
+	}
+	command := `if ($PSVersionTable.PSVersion.Major -lt 6) { throw 'expected PowerShell Core' }; Write-Output 'CORE_OK'`
+	if runtime.GOARCH == "amd64" {
+		for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+			binary, err := pe.Open(filepath.Join(dir, "pwsh.exe"))
+			if err != nil {
+				continue
+			}
+			native := binary.Machine == pe.IMAGE_FILE_MACHINE_AMD64
+			_ = binary.Close()
+			if native {
+				command += `; if (-not [Environment]::Is64BitProcess) { throw 'expected 64-bit PowerShell' }`
+				break
+			}
+		}
+	}
+	for _, input := range []string{command, command + "\nWrite-Output 'MULTILINE_OK'"} {
+		var output strings.Builder
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := NewExecutor().RunMultiShell(ctx, "pwsh", input, t.TempDir(), nil, func(line string) {
+			output.WriteString(line)
+		})
+		cancel()
+		if err != nil || !strings.Contains(output.String(), "CORE_OK") {
+			t.Fatalf("pwsh step did not run native PowerShell Core: %v; output=%s", err, output.String())
+		}
+	}
+}
+
+func TestWindowsPwshAllows32BitWhenOnlyOption(t *testing.T) {
+	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
+		t.Skip("requires 64-bit Windows")
+	}
+	var x86Dir string
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		binary, err := pe.Open(filepath.Join(dir, "pwsh.exe"))
+		if err != nil {
+			continue
+		}
+		isX86 := binary.Machine == pe.IMAGE_FILE_MACHINE_I386
+		_ = binary.Close()
+		if isX86 {
+			x86Dir = dir
+			break
+		}
+	}
+	if x86Dir == "" {
+		t.Skip("32-bit PowerShell Core is not installed")
+	}
+	t.Setenv("PATH", x86Dir)
+	var output strings.Builder
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	command := `if ([Environment]::Is64BitProcess) { throw 'expected fallback architecture' }; Write-Output 'X86_OK'`
+	err := NewExecutor().RunMultiShell(ctx, "pwsh", command, t.TempDir(), nil, func(line string) {
+		output.WriteString(line)
+	})
+	if err != nil || !strings.Contains(output.String(), "X86_OK") {
+		t.Fatalf("32-bit PowerShell fallback failed: %v; output=%s", err, output.String())
 	}
 }
 

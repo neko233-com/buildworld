@@ -232,6 +232,10 @@ On Windows, when the system WSL Bash launcher shadows an installed POSIX
 shell, BuildWorld uses the Bash beside that shell. An explicitly selected
 non-system Bash path keeps its PATH priority; the WSL launcher remains available
 when there is no sibling Bash.
+An explicit `pwsh` step uses PowerShell Core on Windows and prefers a native
+64-bit `pwsh.exe` found in PATH; if only a 32-bit executable is available it
+remains usable. Explicit `powershell` and `ps1` steps retain their existing
+Windows PowerShell behavior.
 
 `watchService` is the native Jenkins `tail -f` plus PID-monitoring equivalent.
 It keeps build running, streams appended bytes, emits low-frequency heartbeats,
