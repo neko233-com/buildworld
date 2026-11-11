@@ -714,11 +714,12 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 
 	env := r.buildEnvAt(build, cfg, project, workspace)
 	if r.buildEnvironment != nil {
-		isolated, environmentErr := r.buildEnvironment.Environment(workspace)
+		isolated, cleanupTemporary, environmentErr := r.buildEnvironment.LocalEnvironment(workspace)
 		if environmentErr != nil {
 			r.fail(buildID, start, fmt.Sprintf("build environment error: %v", environmentErr), project)
 			return
 		}
+		defer cleanupTemporary()
 		env = append(env, isolated...)
 	}
 	env = append(env, executionResourceEnvironment(r.executionPolicySnapshot())...)

@@ -6,6 +6,14 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.16.31] - 2026-11-11
+
+### Fixed
+
+- Keep each builtin build's temporary directory outside its workspace so
+  Jenkins `deleteDir` and `cleanWs` cannot break subsequent Go and other steps.
+- Clean that build's temporary directory when the build finishes.
+
 ## [1.16.30] - 2026-11-11
 
 ### Added

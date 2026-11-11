@@ -67,10 +67,35 @@ func (e *BuildEnvironment) Ensure() error {
 // Environment returns process variables that isolate Go, Node.js/npm and all
 // generic temporary files from the host profile and operating-system temp dir.
 func (e *BuildEnvironment) Environment(workspace string) ([]string, error) {
+	return e.environment(workspace, filepath.Join(workspace, ".buildworld", "tmp"))
+}
+
+// LocalEnvironment owns a build-scoped temporary directory outside its Jenkins
+// workspace. deleteDir and cleanWs may remove the workspace at any time.
+func (e *BuildEnvironment) LocalEnvironment(workspace string) ([]string, func(), error) {
+	if err := e.Ensure(); err != nil {
+		return nil, nil, err
+	}
+	temporaryRoot := filepath.Join(e.root, "tmp")
+	if err := os.MkdirAll(temporaryRoot, 0o755); err != nil {
+		return nil, nil, fmt.Errorf("create build temporary root: %w", err)
+	}
+	temporary, err := os.MkdirTemp(temporaryRoot, "build-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create build temporary directory: %w", err)
+	}
+	values, err := e.environment(workspace, temporary)
+	if err != nil {
+		_ = os.RemoveAll(temporary)
+		return nil, nil, err
+	}
+	return values, func() { _ = os.RemoveAll(temporary) }, nil
+}
+
+func (e *BuildEnvironment) environment(workspace, temporary string) ([]string, error) {
 	if err := e.Ensure(); err != nil {
 		return nil, err
 	}
-	temporary := filepath.Join(workspace, ".buildworld", "tmp")
 	if err := os.MkdirAll(temporary, 0o755); err != nil {
 		return nil, fmt.Errorf("create build temporary directory: %w", err)
 	}
