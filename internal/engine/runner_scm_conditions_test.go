@@ -16,6 +16,48 @@ import (
 	"github.com/neko233-com/buildworld/internal/store"
 )
 
+func TestSCMPipelineFetchPreservesOlderPinnedCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is unavailable")
+	}
+	root := t.TempDir()
+	origin, repository := filepath.Join(root, "origin.git"), filepath.Join(root, "repository")
+	runRunnerSCMGit(t, "init", "--bare", origin)
+	runRunnerSCMGit(t, "init", repository)
+	runRunnerSCMGit(t, "-C", repository, "config", "user.email", "test@example.invalid")
+	runRunnerSCMGit(t, "-C", repository, "config", "user.name", "Test")
+	file := filepath.Join(repository, "Jenkinsfile")
+	if err := os.WriteFile(file, []byte("old pinned definition"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRunnerSCMGit(t, "-C", repository, "add", "Jenkinsfile")
+	runRunnerSCMGit(t, "-C", repository, "commit", "-m", "old")
+	runRunnerSCMGit(t, "-C", repository, "branch", "-M", "main")
+	revisionBytes, err := exec.Command("git", "-C", repository, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := strings.TrimSpace(string(revisionBytes))
+	if err := os.WriteFile(file, []byte("new definition"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRunnerSCMGit(t, "-C", repository, "commit", "-am", "new")
+	runRunnerSCMGit(t, "-C", repository, "remote", "add", "origin", origin)
+	runRunnerSCMGit(t, "-C", repository, "push", "origin", "main")
+	runRunnerSCMGit(t, "--git-dir", origin, "symbolic-ref", "HEAD", "refs/heads/main")
+	path := filepath.ToSlash(origin)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	originURL := (&url.URL{Scheme: "file", Path: path}).String()
+	content, _, got, err := engine.FetchSCMPipelineWithRevision(context.Background(), engine.SCMPipelineSource{
+		RepoURL: originURL, Branch: "main", Revision: revision, Path: "Jenkinsfile", Format: engine.FormatJenkinsfile,
+	})
+	if err != nil || got != revision || content != "old pinned definition" {
+		t.Fatalf("content=%q revision=%q error=%v", content, got, err)
+	}
+}
+
 func TestJenkinsSCMBuildFetchesPinnedHiddenRef(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is unavailable")

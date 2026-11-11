@@ -11,6 +11,8 @@ All notable BuildWorld changes are recorded here. The project follows
 ### Fixed
 
 - Keep a slow SCM fetch from blocking all other builds in the central queue.
+- Resolve pinned branch builds with a shallow clone and fetch the exact
+  requested commit when necessary.
 
 ## [1.16.28] - 2026-11-11
 

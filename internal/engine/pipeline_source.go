@@ -384,6 +384,10 @@ func fetchSCMObject(ctx context.Context, src SCMPipelineSource, requirePipeline 
 		args := []string{"clone"}
 		if src.Revision == "" && !strings.HasPrefix(branch, "refs/tags/") && !explicitRef {
 			args = append(args, "--branch", branch, "--depth", "1")
+		} else if src.Revision != "" && !strings.HasPrefix(branch, "refs/tags/") && !explicitRef {
+			// A pinned build needs its exact commit, not the full repository
+			// history. Fetch it explicitly below if it is outside this tip.
+			args = append(args, "--no-checkout", "--depth", "1")
 		}
 		args = append(args, "--", cloneURL, dest)
 		cmd := processtree.CommandContext(ctx, "git", args...)
