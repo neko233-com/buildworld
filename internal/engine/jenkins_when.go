@@ -23,6 +23,63 @@ const jenkinsTriggerTypeContextKey = "\x00buildworld.currentBuild.trigger"
 const jenkinsTriggerActorContextKey = "\x00buildworld.currentBuild.triggerActor"
 const jenkinsRetryCausesContextKey = "\x00buildworld.currentBuild.retryCauses"
 
+var jenkinsDecimalSyntax = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
+
+// jenkinsDecimal preserves Groovy BigDecimal scale for both comparison and toString.
+type jenkinsDecimal string
+
+func parseJenkinsDecimal(text string) (jenkinsDecimal, error) {
+	unsigned := strings.TrimPrefix(text, "-")
+	if !jenkinsDecimalSyntax.MatchString(unsigned) {
+		return "", fmt.Errorf("unsupported Jenkins decimal literal")
+	}
+	if _, _, err := jenkinsNumeric(json.Number(text)); err != nil {
+		return "", err
+	}
+	return jenkinsDecimal(text), nil
+}
+
+func (decimal jenkinsDecimal) String() string {
+	text := string(decimal)
+	negative := strings.HasPrefix(text, "-")
+	text = strings.TrimPrefix(text, "-")
+	exponent := 0
+	if index := strings.IndexAny(text, "eE"); index >= 0 {
+		exponent, _ = strconv.Atoi(text[index+1:]) // bounded by parseJenkinsDecimal
+		text = text[:index]
+	}
+	whole, fraction, _ := strings.Cut(text, ".")
+	scale := len(fraction) - exponent
+	digits := strings.TrimLeft(whole+fraction, "0")
+	if digits == "" {
+		digits = "0"
+		negative = false
+	}
+	adjusted := len(digits) - 1 - scale
+	var result string
+	if scale >= 0 && adjusted >= -6 {
+		switch {
+		case scale == 0:
+			result = digits
+		case scale < len(digits):
+			point := len(digits) - scale
+			result = digits[:point] + "." + digits[point:]
+		default:
+			result = "0." + strings.Repeat("0", scale-len(digits)) + digits
+		}
+	} else {
+		result = digits[:1]
+		if len(digits) > 1 {
+			result += "." + digits[1:]
+		}
+		result += fmt.Sprintf("E%+d", adjusted)
+	}
+	if negative {
+		result = "-" + result
+	}
+	return result
+}
+
 func pipelineUsesJenkinsTrigger(config *BuildConfig) bool {
 	for _, stage := range config.Stages {
 		expr, err := parser.ParseExpr(stage.JenkinsWhen)
@@ -89,6 +146,10 @@ func validateJenkinsExpr(expr ast.Expr) error {
 	case *ast.BasicLit:
 		if node.Kind == token.STRING || node.Kind == token.INT {
 			return nil
+		}
+		if node.Kind == token.FLOAT {
+			_, err := parseJenkinsDecimal(node.Value)
+			return err
 		}
 	case *ast.SelectorExpr:
 		if root, ok := node.X.(*ast.Ident); ok && (root.Name == "params" || root.Name == "env") {
@@ -175,8 +236,14 @@ func validateJenkinsExpr(expr ast.Expr) error {
 			return validateJenkinsExpr(node.X)
 		}
 		if node.Op == token.SUB {
-			if literal, ok := node.X.(*ast.BasicLit); ok && literal.Kind == token.INT {
-				return nil
+			if literal, ok := node.X.(*ast.BasicLit); ok {
+				if literal.Kind == token.INT {
+					return nil
+				}
+				if literal.Kind == token.FLOAT {
+					_, err := parseJenkinsDecimal("-" + literal.Value)
+					return err
+				}
 			}
 		}
 	case *ast.BinaryExpr:
@@ -221,7 +288,7 @@ func jenkinsTruth(value interface{}) (bool, error) {
 		return v != "", nil
 	case float64:
 		return v != 0, nil
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, json.Number:
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, json.Number, jenkinsDecimal:
 		n, _, err := jenkinsNumeric(v)
 		if err != nil {
 			return false, err
@@ -248,6 +315,9 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 				return nil, fmt.Errorf("invalid or excessive Jenkins integer")
 			}
 			return json.Number(strconv.FormatInt(number, 10)), nil
+		}
+		if node.Kind == token.FLOAT {
+			return parseJenkinsDecimal(node.Value)
 		}
 		return strconv.Unquote(node.Value)
 	case *ast.SelectorExpr:
@@ -430,6 +500,9 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 	case *ast.UnaryExpr:
 		if node.Op == token.SUB {
 			literal := node.X.(*ast.BasicLit)
+			if literal.Kind == token.FLOAT {
+				return parseJenkinsDecimal("-" + literal.Value)
+			}
 			number, err := strconv.ParseInt("-"+literal.Value, 0, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid or excessive Jenkins integer")
@@ -569,6 +642,8 @@ func jenkinsNumeric(value interface{}) (*big.Rat, bool, error) {
 	var text string
 	switch v := value.(type) {
 	case json.Number:
+		text = string(v)
+	case jenkinsDecimal:
 		text = string(v)
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 		text = fmt.Sprint(v)

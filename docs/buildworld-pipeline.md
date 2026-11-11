@@ -285,7 +285,9 @@ regular-expression syntax is narrower than Java's. Ant-style `GLOB` matching
 ignores repeated and trailing path separators, and matches `?` against one UTF-16
 code unit like Jenkins' Ant comparator. Expressions support `params` and `env`,
 `currentBuild.number`, boolean and ordered comparisons, equality and
-`toString().toBoolean()`; numeric parameters keep JSON precision, while nonempty
+`toString().toBoolean()`; numeric parameters and decimal literals keep exact
+precision. Decimal literals currently exclude digit separators and limit
+exponents to ±1000. Nonempty
 strings are true under Groovy truth. Pipeline environment is visible to `when`;
 the stage's own environment applies after its condition succeeds. `branch`
 uses `BRANCH_NAME`, falling back to `GIT_LOCAL_BRANCH` when it is empty. For tag

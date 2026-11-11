@@ -36,6 +36,8 @@ func TestJenkinsWhenEqualsValuesAndBuildNumber(t *testing.T) {
 		{`expression { params.LABEL < 'release' }`, map[string]interface{}{"LABEL": "main"}, nil, true},
 		{`expression { params.COUNT != 2 && params.COUNT <= 3 }`, map[string]interface{}{"COUNT": json.Number("3")}, nil, true},
 		{`expression { params.A < params.B }`, map[string]interface{}{"A": "\ue000", "B": "\U00010000"}, nil, false},
+		{`expression { params.THRESHOLD >= 0.125 && -0.50 < -0.1 }`, map[string]interface{}{"THRESHOLD": json.Number("0.125")}, nil, true},
+		{`equals expected: 1.20, actual: 1.2`, nil, nil, true},
 	} {
 		t.Run(tc.condition+fmt.Sprint(tc.want), func(t *testing.T) {
 			source := fmt.Sprintf(`pipeline { agent any stages { stage('guard') { when { %s } steps { sh 'echo ok' } } } }`, tc.condition)
@@ -93,7 +95,7 @@ func TestJenkinsWhenEqualsRunsAgainstActualBuildNumber(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer data.Close()
-	source := `pipeline { agent any environment { BUILD_NUMBER = '99' } stages { stage('matched') { when { equals expected: 2, actual: currentBuild.number } steps { sh 'echo actual-match' } } stage('skipped') { when { equals expected: 1, actual: currentBuild.number } steps { sh 'echo wrong-match' } } } }`
+	source := `pipeline { agent any environment { BUILD_NUMBER = '99' } stages { stage('matched') { when { equals expected: 2, actual: currentBuild.number } steps { sh 'echo actual-match' } } stage('skipped') { when { equals expected: 1, actual: currentBuild.number } steps { sh 'echo wrong-match' } } stage('decimal') { when { expression { 1.234567890123456789 > 1.234567890123456788 && -0.5 < 0.0 } } steps { sh 'echo decimal-match' } } stage('decimal-skipped') { when { equals expected: 0.1, actual: 0.2 } steps { sh 'echo wrong-decimal' } } } }`
 	project, err := data.CreateProject("equals", "", "", "git", "main", source, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +118,7 @@ func TestJenkinsWhenEqualsRunsAgainstActualBuildNumber(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if build.Status != "success" || !strings.Contains(build.Log, "actual-match") || strings.Contains(build.Log, "wrong-match") {
+	if build.Status != "success" || !strings.Contains(build.Log, "actual-match") || strings.Contains(build.Log, "wrong-match") || !strings.Contains(build.Log, "decimal-match") || strings.Contains(build.Log, "wrong-decimal") {
 		t.Fatalf("unexpected build: status=%s log=%s", build.Status, build.Log)
 	}
 }
