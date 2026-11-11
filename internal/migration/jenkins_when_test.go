@@ -192,6 +192,18 @@ func TestJenkinsWhenGroovyTruthAndStringBoolean(t *testing.T) {
 	}
 }
 
+func TestJenkinsfileWhenEvaluatesLargeInteger(t *testing.T) {
+	source := `pipeline { agent any stages { stage('deploy') { when { expression { 0xffffffffffffffff > 9223372036854775807 } } steps { sh 'echo deploy' } } } }`
+	config, err := engine.ParseJenkinsfileConfig(source, "large-integer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := engine.ShouldRunStageWithJenkinsContext(config.Stages[0], nil, nil, nil, "main")
+	if err != nil || !got {
+		t.Fatalf("large integer condition got=%v err=%v", got, err)
+	}
+}
+
 func TestJenkinsWhenNestedConditions(t *testing.T) {
 	source := `pipeline { agent any stages { stage('deploy') {
 when { anyOf { branch 'release/**'; branch 'main' }; environment name: 'DEPLOY_TO', value: 'production'; not { expression { params.SKIP.toString().toBoolean() } } }

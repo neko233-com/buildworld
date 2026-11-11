@@ -24,6 +24,23 @@ const jenkinsTriggerActorContextKey = "\x00buildworld.currentBuild.triggerActor"
 const jenkinsRetryCausesContextKey = "\x00buildworld.currentBuild.retryCauses"
 
 var jenkinsDecimalSyntax = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
+var jenkinsIntegerSyntax = regexp.MustCompile(`^(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[bB][01](?:_?[01])*|0[0-7](?:_?[0-7])*|0|[1-9](?:_?[0-9])*)$`)
+
+// parseJenkinsInteger keeps Groovy's arbitrary-precision integral value.
+func parseJenkinsInteger(text string) (json.Number, error) {
+	unsigned := strings.TrimPrefix(text, "-")
+	if len(unsigned) > 256 || !jenkinsIntegerSyntax.MatchString(unsigned) {
+		return "", fmt.Errorf("unsupported Jenkins integer literal")
+	}
+	value, ok := new(big.Int).SetString(text, 0)
+	if !ok {
+		return "", fmt.Errorf("invalid Jenkins integer literal")
+	}
+	if len(value.String()) > 256 {
+		return "", fmt.Errorf("Jenkins integer is too large")
+	}
+	return json.Number(value.String()), nil
+}
 
 // jenkinsDecimal preserves Groovy BigDecimal scale for both comparison and toString.
 type jenkinsDecimal string
@@ -144,8 +161,12 @@ func validateJenkinsExpr(expr ast.Expr) error {
 			return nil
 		}
 	case *ast.BasicLit:
-		if node.Kind == token.STRING || node.Kind == token.INT {
+		if node.Kind == token.STRING {
 			return nil
+		}
+		if node.Kind == token.INT {
+			_, err := parseJenkinsInteger(node.Value)
+			return err
 		}
 		if node.Kind == token.FLOAT {
 			_, err := parseJenkinsDecimal(node.Value)
@@ -238,7 +259,8 @@ func validateJenkinsExpr(expr ast.Expr) error {
 		if node.Op == token.SUB {
 			if literal, ok := node.X.(*ast.BasicLit); ok {
 				if literal.Kind == token.INT {
-					return nil
+					_, err := parseJenkinsInteger("-" + literal.Value)
+					return err
 				}
 				if literal.Kind == token.FLOAT {
 					_, err := parseJenkinsDecimal("-" + literal.Value)
@@ -310,11 +332,7 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 		return node.Name == "true", nil
 	case *ast.BasicLit:
 		if node.Kind == token.INT {
-			number, err := strconv.ParseInt(node.Value, 0, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid or excessive Jenkins integer")
-			}
-			return json.Number(strconv.FormatInt(number, 10)), nil
+			return parseJenkinsInteger(node.Value)
 		}
 		if node.Kind == token.FLOAT {
 			return parseJenkinsDecimal(node.Value)
@@ -503,11 +521,7 @@ func evalJenkinsExpr(expr ast.Expr, params map[string]interface{}, environment m
 			if literal.Kind == token.FLOAT {
 				return parseJenkinsDecimal("-" + literal.Value)
 			}
-			number, err := strconv.ParseInt("-"+literal.Value, 0, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid or excessive Jenkins integer")
-			}
-			return json.Number(strconv.FormatInt(number, 10)), nil
+			return parseJenkinsInteger("-" + literal.Value)
 		}
 		v, err := evalJenkinsExpr(node.X, params, environment, branch)
 		if err != nil {

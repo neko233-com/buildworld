@@ -287,7 +287,9 @@ code unit like Jenkins' Ant comparator. Expressions support `params` and `env`,
 `currentBuild.number`, boolean and ordered comparisons, equality and
 `toString().toBoolean()`; numeric parameters and decimal literals keep exact
 precision. Decimal literals currently exclude digit separators and limit
-exponents to ±1000. Nonempty
+exponents to ±1000. Integer literals and their decimal representations are
+limited to 256 characters; the supported separator syntax is the shared
+Go/Groovy subset. Nonempty
 strings are true under Groovy truth. Pipeline environment is visible to `when`;
 the stage's own environment applies after its condition succeeds. `branch`
 uses `BRANCH_NAME`, falling back to `GIT_LOCAL_BRANCH` when it is empty. For tag

@@ -2,8 +2,32 @@ package engine
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
+
+// Expected outcomes were checked with Groovy on the installed Jenkins controller.
+func TestJenkinsIntegerLiteralsPreserveGroovySemantics(t *testing.T) {
+	for _, expression := range []string{
+		`9223372036854775808 > 9223372036854775807`,
+		`-9223372036854775809 < -9223372036854775808`,
+		`0xffffffffffffffff == 18446744073709551615`,
+		`0b1000000000000000000000000000000000000000000000000000000000000000 == 9223372036854775808`,
+		`01_7 == 15`,
+		`1_000 == 1000`,
+		`(9223372036854775808).toString() == "9223372036854775808"`,
+	} {
+		got, err := EvaluateJenkinsWhen(expression, nil)
+		if err != nil || !got {
+			t.Errorf("%s: got=%t error=%v", expression, got, err)
+		}
+	}
+	for _, expression := range []string{`0o77 == 63`, `0b_1 == 1`, `0_7 == 7`, strings.Repeat("9", 257) + ` == 1`, `0x` + strings.Repeat("f", 256) + ` == 1`} {
+		if err := ValidateJenkinsWhen(expression); err == nil {
+			t.Errorf("accepted unsupported Groovy integer %s", expression)
+		}
+	}
+}
 
 func TestBuildParametersPreserveLargeIntegerForJenkinsConditions(t *testing.T) {
 	params := parseParams(`{"COUNT":9007199254740993}`)
