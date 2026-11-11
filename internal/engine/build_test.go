@@ -50,6 +50,65 @@ func (blockingSCMFetcher) FetchSCMPipeline(ctx context.Context, _ SCMPipelineSou
 	return "", FormatYAML, ctx.Err()
 }
 
+type queueBlockingSCMFetcher struct{ release <-chan struct{} }
+
+func (f queueBlockingSCMFetcher) FetchSCMPipeline(ctx context.Context, _ SCMPipelineSource) (string, PipelineFormat, error) {
+	select {
+	case <-f.release:
+	case <-ctx.Done():
+	}
+	return "", FormatYAML, errors.New("fixture SCM fetch stopped")
+}
+
+func (f queueBlockingSCMFetcher) FetchSCMPipelineWithRevision(ctx context.Context, source SCMPipelineSource) (string, PipelineFormat, string, error) {
+	content, format, err := f.FetchSCMPipeline(ctx, source)
+	return content, format, "", err
+}
+
+func TestBuildQueueDoesNotWaitForSCMFetch(t *testing.T) {
+	root := t.TempDir()
+	db, err := store.New(filepath.Join(root, "queue.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	slow, err := db.CreateProject("slow-scm", "", "", "git", "main", testEmptyPipelineSource, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetProjectPipelineSource(slow.ID, "yaml", "scm", "https://example.invalid/repo.git", "main", "pipeline.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateBuild(slow.ID, 1, "manual", "main", "", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	fast, err := db.CreateProject("inline", "", "", "git", "main", testEmptyPipelineSource, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build, err := db.CreateBuild(fast.ID, 1, "manual", "main", "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	previous := DefaultSCMFetcher
+	DefaultSCMFetcher = queueBlockingSCMFetcher{release: release}
+	runner := NewBuildRunner(db, nil, filepath.Join(root, "workspace"), nil)
+	t.Cleanup(func() {
+		close(release)
+		_ = runner.Shutdown(context.Background())
+		DefaultSCMFetcher = previous
+	})
+	done := make(chan struct{})
+	go func() { runner.dispatchPending(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("slow SCM fetch blocked the central dispatcher")
+	}
+	waitForBuildStatus(t, db, build.ID, 3*time.Second, "success")
+}
+
 func TestLoadBuildConfigBoundsSCMPipelineFetch(t *testing.T) {
 	previous := DefaultSCMFetcher
 	DefaultSCMFetcher = blockingSCMFetcher{}

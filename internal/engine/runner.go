@@ -443,7 +443,10 @@ func (r *BuildRunner) dispatchPending() {
 		}
 
 		localExecution := true
-		if projectErr == nil {
+		if projectErr == nil && !strings.EqualFold(strings.TrimSpace(project.PipelineSourceMode), "scm") {
+			// SCM resolution can take minutes. Only the build goroutine may
+			// fetch it; blocking this dispatcher would stall the entire queue.
+			// Until resolved, reserve capacity conservatively as a local build.
 			if cfg, configErr := r.loadBuildConfig(context.Background(), project); configErr == nil {
 				localExecution = len(cfg.AgentRequirements) == 0
 			}

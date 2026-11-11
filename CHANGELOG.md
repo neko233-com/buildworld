@@ -6,6 +6,12 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.16.29] - 2026-11-11
+
+### Fixed
+
+- Keep a slow SCM fetch from blocking all other builds in the central queue.
+
 ## [1.16.28] - 2026-11-11
 
 ### Fixed
