@@ -70,6 +70,8 @@ func TestManagerStagesVerifiedBundleAndLocksConcurrentUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// These tests exercise bundle staging with a fake launcher, not the host supervisor.
+	manager.checkSupervisor = func(context.Context) error { return nil }
 	bundle := completeBundle(t)
 	sum := sha256.Sum256(bundle)
 	status, err := manager.Start(context.Background(), Request{
@@ -114,6 +116,8 @@ func TestManagerRejectsChecksumMismatchAndReleasesLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The checksum fixture must not inspect an unrelated host LaunchDaemon.
+	manager.checkSupervisor = func(context.Context) error { return nil }
 	_, err = manager.Start(context.Background(), Request{
 		Version: "1.0.1",
 		SHA256:  strings.Repeat("0", 64),
