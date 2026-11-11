@@ -20,14 +20,17 @@ func TestSystemSupervisorBridgeLimitsActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := t.TempDir()
+	root := filepath.Join(t.TempDir(), "space ' fixture")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	launchctl := filepath.Join(root, "launchctl")
 	writeTestFile(t, launchctl, "#!/bin/sh\nprintf '%s\\n' \"$*\"\n", 0o700)
 	if !strings.Contains(string(data), "/bin/launchctl") {
 		t.Fatal("bridge command missing")
 	}
 	bridge := filepath.Join(root, "bridge")
-	writeTestFile(t, bridge, strings.ReplaceAll(string(data), "/bin/launchctl", launchctl), 0o700)
+	writeTestFile(t, bridge, strings.ReplaceAll(string(data), "/bin/launchctl", shellFixturePath(launchctl)), 0o700)
 	for _, tc := range []struct{ action, want string }{
 		{"status", "print system/com.buildworld.server"},
 		{"stop", "bootout system/com.buildworld.server"},
@@ -74,7 +77,10 @@ func TestSystemSupervisorUpdate(t *testing.T) {
 		{"unhealthy controller", "unhealthy-before", "failed", "current", "older"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			root := t.TempDir()
+			root := filepath.Join(t.TempDir(), "space ' fixture")
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
 			install, previous := filepath.Join(root, "install"), filepath.Join(root, "install.previous")
 			home, bin, operation := filepath.Join(root, "home"), filepath.Join(root, "bin"), filepath.Join(root, "operation")
 			for _, dir := range []string{install, previous, home, bin, operation} {
@@ -136,7 +142,7 @@ func TestSystemSupervisorUpdate(t *testing.T) {
 				if !strings.Contains(helper, old) {
 					t.Fatalf("missing fixture substitution %s", old)
 				}
-				helper = strings.ReplaceAll(helper, old, replacement)
+				helper = strings.ReplaceAll(helper, old, shellFixturePath(replacement))
 			}
 			helperPath := filepath.Join(root, "apply-update.sh")
 			writeTestFile(t, helperPath, helper, 0o700)

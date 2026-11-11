@@ -35,7 +35,10 @@ func TestUpdateHelperPreservesSnapshots(t *testing.T) {
 		{"snapshot collision", "", "failed", "current", "older", "existing", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			root := t.TempDir()
+			root := filepath.Join(t.TempDir(), "space ' fixture")
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
 			install := filepath.Join(root, "install")
 			previous := install + ".previous"
 			snapshot := install + ".snapshot-abcdef"
@@ -75,8 +78,8 @@ func TestUpdateHelperPreservesSnapshots(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				isolated := strings.ReplaceAll(string(data), "/Library/LaunchDaemons/com.buildworld.server.plist", filepath.Join(root, "absent-system.plist"))
-				isolated = strings.ReplaceAll(isolated, "/bin/launchctl", filepath.Join(bin, "launchctl"))
+				isolated := strings.ReplaceAll(string(data), "/Library/LaunchDaemons/com.buildworld.server.plist", shellFixturePath(filepath.Join(root, "absent-system.plist")))
+				isolated = strings.ReplaceAll(isolated, "/bin/launchctl", shellFixturePath(filepath.Join(bin, "launchctl")))
 				writeTestFile(t, filepath.Join(bin, "launchctl"), "#!/bin/sh\nexit 1\n", 0o700)
 				helper = filepath.Join(root, "isolated-apply-update.sh")
 				writeTestFile(t, helper, isolated, 0o700)
@@ -102,6 +105,10 @@ func TestUpdateHelperPreservesSnapshots(t *testing.T) {
 			}
 		})
 	}
+}
+
+func shellFixturePath(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
 func writeTestFile(t *testing.T, path, content string, mode os.FileMode) {
