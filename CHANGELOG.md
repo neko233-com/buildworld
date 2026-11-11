@@ -6,6 +6,13 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.16.37] - 2026-11-11
+
+### Added
+
+- Allow administrators to select audited, in-app-only BuildWorld notifications
+  for an individual build and its retries without changing global channels.
+
 ## [1.16.36] - 2026-11-11
 
 ### Fixed
