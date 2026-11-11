@@ -34,6 +34,22 @@ func ValidatePipelineSemantics(config *BuildConfig) error {
 	automaticLongRunning := false
 	for stageIndex := range config.Stages {
 		stage := &config.Stages[stageIndex]
+		if len(stage.Post) > 0 && len(config.AgentRequirements) > 0 {
+			return fmt.Errorf("stage %q post: remote worker execution is not supported", stage.Name)
+		}
+		for condition, steps := range stage.Post {
+			if condition != "always" && condition != "aborted" && condition != "failure" && condition != "success" && condition != "cleanup" {
+				return fmt.Errorf("stage %q post: unsupported condition %q", stage.Name, condition)
+			}
+			for _, step := range steps {
+				if strings.TrimSpace(step.If) != "" {
+					return fmt.Errorf("stage %q post %q step %q: conditional post steps are not supported", stage.Name, condition, step.Name)
+				}
+				if step.Type == "service_watch" {
+					return fmt.Errorf("stage %q post %q step %q: service_watch is not allowed", stage.Name, condition, step.Name)
+				}
+			}
+		}
 		if err := ValidateJenkinsWhen(stage.JenkinsWhen); err != nil {
 			return fmt.Errorf("stage %q when: %w", stage.Name, err)
 		}

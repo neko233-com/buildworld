@@ -29,8 +29,8 @@ type BuildConfig struct {
 	Triggers       []Trigger             `json:"triggers,omitempty"`
 	Environment    map[string]string     `json:"environment,omitempty"`
 	Artifacts      []string              `json:"artifacts,omitempty"`
-	// Post contains Jenkins-style lifecycle steps keyed by always, success,
-	// failure, or cleanup. They run after the normal stages on every worker.
+	// Post contains Jenkins-style lifecycle steps keyed by always, aborted,
+	// success, failure, or cleanup. They run after the normal stages.
 	Post               map[string][]Step `json:"post,omitempty"`
 	AgentRequirements  []string          `json:"agent_requirements,omitempty"`
 	RetentionCompleted int               `json:"retention_completed"`
@@ -58,6 +58,8 @@ type Stage struct {
 	Environment              map[string]string `json:"environment,omitempty" yaml:"env,omitempty"`
 	WorkingDirectory         string            `json:"working_directory,omitempty" yaml:"working-directory,omitempty"`
 	TimeoutSec               int               `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
+	// Post holds lifecycle steps for this stage; skipped stages do not run them.
+	Post map[string][]Step `json:"post,omitempty" yaml:"post,omitempty"`
 }
 
 type Step struct {

@@ -1,5 +1,5 @@
 export type StepType = 'shell' | 'tail' | 'script' | 'git' | 'notify' | 'service_watch' | string
-export type PostCondition = 'always' | 'success' | 'failure' | 'cleanup'
+export type PostCondition = 'always' | 'aborted' | 'success' | 'failure' | 'cleanup'
 export type ApprovalRole = 'admin' | 'developer'
 
 export type ApprovalPolicy = {
@@ -73,6 +73,7 @@ export type Stage = {
   working_directory?: string
   timeoutSec?: number
   timeout_sec?: number
+  post?: Partial<Record<PostCondition, readonly Step[]>> | null
 }
 
 export type Trigger = {

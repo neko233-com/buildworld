@@ -6,6 +6,19 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.16.33] - 2026-11-11
+
+### Added
+
+- Run supported Jenkins stage-level `post` conditions in the local executor,
+  including `aborted` for cancellation and Jenkinsfile stage timeouts.
+
+### Fixed
+
+- Keep stage `post` steps within their stage environment, skip them when its
+  `when` condition is false, and preserve conditional artifact collection.
+- Classify Jenkinsfile stage timeouts as cancelled, matching Jenkins ABORTED.
+
 ## [1.16.32] - 2026-11-11
 
 ### Fixed

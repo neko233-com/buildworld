@@ -61,13 +61,16 @@ syntax than Java's. Verify jobs using unsupported Jenkins plugins or features
 against Jenkins before migrating them.
 
 Stage `options { timeout(...) }` supports positive integral times in seconds,
-minutes (the default), hours or days. Stage input and input steps, stage-level
-`post`, `parallel`, `matrix`, nested stages, other stage options, and specific
-stage agents are not implemented and fail validation. With root `agent none`,
+minutes (the default), hours or days. Stage input and input steps, `parallel`,
+`matrix`, nested stages, other stage options, and specific stage agents are
+not implemented and fail validation. With root `agent none`,
 each supported executable stage must explicitly use `agent any`.
 
-Pipeline-level `post` supports `always`, `failure`, `success`, and `cleanup`
-in Jenkins condition order. `archiveArtifacts` with literal
+Pipeline and stage `post` support `always`, `aborted`, `failure`, `success`,
+and `cleanup` in Jenkins condition order. User cancellation or a Jenkinsfile
+stage timeout evaluates `aborted` and records the build as cancelled;
+a stage skipped by `when` does not run its `post`. Stage-level `post` currently
+requires the local executor. `archiveArtifacts` with literal
 workspace-relative Ant patterns, `allowEmptyArchive`, and `onlyIfSuccessful`
 archives regular files with their relative paths and SHA-256; missing matches
 fail by default. No-argument `cleanWs()` and `deleteDir()` remove only the

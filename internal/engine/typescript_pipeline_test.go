@@ -268,6 +268,25 @@ export default definePipeline({
 	}
 }
 
+func TestStagePostTypeScriptRoundTripAndAliases(t *testing.T) {
+	config, err := ParseTypeScriptPipeline(`import { definePipeline } from '@buildworld/pipeline'
+export default definePipeline({ stages: [{ name: 'build', steps: [{ name: 'run', type: 'shell', command: 'echo ok' }], post: { always: [{ name: 'cleanup', type: 'shell', command: 'echo cleanup', platformAdditions: { macos: 'echo mac' } }] } }] })`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := config.Stages[0].Post["always"][0].PlatformAdditions["macos"]; got != "echo mac" {
+		t.Fatalf("stage post alias lost: %q", got)
+	}
+	source, err := FormatTypeScriptPipeline(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseTypeScriptPipeline(source)
+	if err != nil || len(parsed.Stages[0].Post["always"]) != 1 {
+		t.Fatalf("stage post round trip failed: %#v, %v", parsed, err)
+	}
+}
+
 func TestParseTypeScriptPipelineRejectsExecutableAST(t *testing.T) {
 	cases := map[string]string{
 		"this":                   `export default definePipeline({ stages: [], description: this })`,

@@ -37,9 +37,15 @@ const stageAliases = [
 
 const normalizeStepLiteral = source => withAliases(source, stepAliases)
 
+const normalizePost = source => Object.fromEntries(
+  Object.entries(source)
+    .map(([condition, steps]) => [condition, Array.isArray(steps) ? steps.map(normalizeStepLiteral) : steps]),
+)
+
 const normalizeStageLiteral = source => {
   const value = withAliases(source, stageAliases)
   if (Array.isArray(value.steps)) value.steps = value.steps.map(normalizeStepLiteral)
+  if (value.post) value.post = normalizePost(value.post)
   return value
 }
 
@@ -53,10 +59,7 @@ export const definePipeline = source => {
   }
   if (Array.isArray(pipeline.stages)) pipeline.stages = pipeline.stages.map(normalizeStageLiteral)
   if (pipeline.post) {
-    pipeline.post = Object.fromEntries(
-      Object.entries(pipeline.post)
-        .map(([condition, steps]) => [condition, Array.isArray(steps) ? steps.map(normalizeStepLiteral) : steps]),
-    )
+    pipeline.post = normalizePost(pipeline.post)
   }
   return pipeline
 }
@@ -84,7 +87,7 @@ export const watchService = (name, options = {}) => {
   return { name, type: 'service_watch', config }
 }
 
-export const stage = (name, steps, options = {}) => ({
+export const stage = (name, steps, options = {}) => normalizeStageLiteral({
   ...withAliases(options, stageAliases),
   name,
   steps: Array.isArray(steps) ? steps : [steps],

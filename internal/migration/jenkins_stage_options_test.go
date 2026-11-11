@@ -48,7 +48,6 @@ func TestJenkinsUnsupportedStageGuardsNeverExecuteUnconditionally(t *testing.T) 
 		`options { timeout(time: 1, activity: true) } steps { sh 'echo deploy' }`,
 		`options { timeout(time: 0) } steps { sh 'echo deploy' }`,
 		`options { timeout(time: 1); timeout(time: 2) } steps { sh 'echo deploy' }`,
-		`post { always { echo 'cleanup' } } steps { sh 'echo deploy' }`,
 		`parallel { stage('one') { steps { sh 'echo one' } } stage('two') { steps { sh 'echo two' } } }`,
 		`stages { stage('inner') { steps { sh 'echo inner' } } }`,
 		`agent none steps { sh 'echo deploy' }`,
@@ -105,12 +104,12 @@ func TestJenkinsStageTimeoutStopsActualStep(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if build.Status == "failed" || build.Status == "success" {
+		if build.Status == "failed" || build.Status == "success" || build.Status == "cancelled" {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if build.Status != "failed" || !strings.Contains(strings.ToLower(build.Log), "timed out") || strings.Contains(build.Log, "must-not-finish") {
+	if build.Status != "cancelled" || !strings.Contains(strings.ToLower(build.Log), "timed out") || strings.Contains(build.Log, "must-not-finish") {
 		t.Fatalf("timeout did not stop the stage: status=%s log=%s", build.Status, build.Log)
 	}
 }

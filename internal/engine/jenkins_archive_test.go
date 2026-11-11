@@ -111,6 +111,47 @@ func TestJenkinsPostFailureStopsItsBlockAndRunsLaterConditions(t *testing.T) {
 	}
 }
 
+func TestJenkinsPostFailureDoesNotTurnAbortIntoFailure(t *testing.T) {
+	root := t.TempDir()
+	db, err := store.New(filepath.Join(root, "buildworld.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	project, err := db.CreateProject("post-abort", "", "", "git", "main", testEmptyPipelineSource, 0, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build, err := db.CreateBuild(project.ID, 1, "manual", "main", "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(root, "workspaces", "job")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "sentinel.txt"), []byte("preserved"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewBuildRunner(db, nil, filepath.Join(root, "workspaces"), nil)
+	runner.SetArtifactManager(NewArtifactManager(db, filepath.Join(root, "artifacts")))
+	config := &BuildConfig{Post: map[string][]Step{
+		"always":  {{Name: "missing", Type: "jenkins_archive_artifacts", Config: map[string]string{"patterns": "missing/**"}}},
+		"aborted": {{Name: "sentinel", Type: "jenkins_archive_artifacts", Config: map[string]string{"patterns": "sentinel.txt"}}},
+		"failure": {{Name: "must-not-run", Type: "jenkins_delete_dir"}},
+	}}
+	if err := runner.runPostSteps(context.Background(), config, "aborted", workspace, project, build, nil, nil); err == nil {
+		t.Fatal("expected archive failure")
+	}
+	artifacts, err := db.ListArtifactsByBuild(build.ID)
+	if err != nil || len(artifacts) != 1 || artifacts[0].Name != "sentinel.txt" {
+		t.Fatalf("aborted condition was not preserved: artifacts=%#v err=%v", artifacts, err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "sentinel.txt")); err != nil {
+		t.Fatalf("failure condition ran after abort: %v", err)
+	}
+}
+
 func TestJenkinsPostArchiveFailureFailsBuildAndRunsCleanup(t *testing.T) {
 	root := t.TempDir()
 	db, err := store.New(filepath.Join(root, "buildworld.db"))

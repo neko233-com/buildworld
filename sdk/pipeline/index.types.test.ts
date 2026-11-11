@@ -94,6 +94,7 @@ definePipeline({
     environment: null,
     working_directory: '/srv/literal',
     timeout_sec: 30,
+    post: { aborted: [shell('aborted', 'echo aborted')] },
     steps: [{
       name: 'Literal step',
       type: 'shell',

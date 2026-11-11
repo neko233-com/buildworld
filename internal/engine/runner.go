@@ -724,6 +724,16 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	}
 	env = append(env, executionResourceEnvironment(r.executionPolicySnapshot())...)
 	params := parseParams(build.Parameters)
+	jenkinsPipeline := DetectPipelineFormat(source) == FormatJenkinsfile
+	finishJenkinsTimeout := func(stageName, message string) {
+		r.runPostSteps(ctx, cfg, "aborted", workspace, project, build, env, params)
+		r.log(buildID, stageName, "ABORTED: "+message)
+		r.flushDurableBuildLog(buildID, true)
+		_ = r.store.CancelBuild(buildID)
+		_ = r.store.UpdateBuildQueueItemStatusByBuildID(buildID, "cancelled")
+		r.broadcastStatus(buildID, "cancelled", stageName, 1)
+		r.finishCleanup(buildID)
+	}
 	env, err = r.runPluginHook(ctx, "build.before", "", workspace, project, build, env)
 	if err != nil {
 		r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
@@ -809,9 +819,18 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		stageCtx, cancelStage, shouldRun, conditionErr := evaluateStageCondition(ctx, stage, func() (bool, error) {
 			return ShouldRunStageWithJenkinsContext(stage, stageStatuses, params, conditionEnvironment, jenkinsBranch)
 		})
+		if jenkinsPipeline && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			cancelStage()
+			finishJenkinsTimeout(stage.Name, fmt.Sprintf("pipeline timed out after %ds", build.TimeoutSec))
+			return
+		}
 		if errors.Is(stageCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 			cancelStage()
 			r.log(buildID, stage.Name, fmt.Sprintf("Stage timed out after %ds", stage.TimeoutSec))
+			if jenkinsPipeline {
+				finishJenkinsTimeout(stage.Name, fmt.Sprintf("stage timed out after %ds", stage.TimeoutSec))
+				return
+			}
 			r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 			r.fail(buildID, start, fmt.Sprintf("stage %q timed out after %ds", stage.Name, stage.TimeoutSec), project)
 			return
@@ -834,6 +853,14 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		stageEnv := AppendPipelineEnvironment(env, stage.Environment)
 		stageBaseEnvLength := len(stageEnv)
 		stageFailed := false
+		stagePostRan := false
+		runStagePost := func(outcome string) error {
+			if stagePostRan || len(stage.Post) == 0 {
+				return nil
+			}
+			stagePostRan = true
+			return r.runScopedPostSteps(stageCtx, cfg, stage.Post, stage.Name+" post", outcome, workspace, project, build, stageEnv, params, false, jenkinsPipeline)
+		}
 		for _, configuredStep := range stage.Steps {
 			step := configuredStep
 			if stage.WorkingDirectory != "" {
@@ -852,6 +879,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 				stepShouldRun, conditionErr = EvaluatePipelineCondition(step.If, ConditionContext{Success: !stageFailed, Failure: stageFailed})
 				if conditionErr != nil {
 					cancelStage()
+					_ = runStagePost("failure")
 					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 					r.fail(buildID, start, fmt.Sprintf("step %q condition: %v", step.Name, conditionErr), project)
 					return
@@ -904,7 +932,8 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 						r.flushDurableBuildLog(buildID, true)
 						return
 					}
-					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
+					_ = runStagePost("aborted")
+					r.runPostSteps(ctx, cfg, "aborted", workspace, project, build, env, params)
 					r.log(buildID, stage.Name, fmt.Sprintf("CANCELLED: step %q stopped by user", step.Name))
 					r.flushDurableBuildLog(buildID, true)
 					_ = r.store.CancelBuild(buildID)
@@ -915,6 +944,12 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 				r.log(buildID, stage.Name, fmt.Sprintf("ERROR: %v", stepErr))
 				if ctx.Err() == context.DeadlineExceeded {
 					cancelStage()
+					if jenkinsPipeline {
+						_ = runStagePost("aborted")
+						finishJenkinsTimeout(stage.Name, fmt.Sprintf("step %q timed out after %ds", step.Name, build.TimeoutSec))
+						return
+					}
+					_ = runStagePost("failure")
 					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 					r.fail(buildID, start, fmt.Sprintf("step %q timed out after %ds", step.Name, build.TimeoutSec), project)
 					r.finishCleanup(buildID)
@@ -922,6 +957,13 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 				}
 				stageFailed = true
 				if stageCtx.Err() == context.DeadlineExceeded {
+					if jenkinsPipeline {
+						cancelStage()
+						_ = runStagePost("aborted")
+						finishJenkinsTimeout(stage.Name, fmt.Sprintf("stage timed out after %ds", stage.TimeoutSec))
+						return
+					}
+					_ = runStagePost("failure")
 					failedSteps = append(failedSteps, stage.Name+" (timeout)")
 					r.log(buildID, stage.Name, fmt.Sprintf("Stage timed out after %ds", stage.TimeoutSec))
 					if r.executionPolicySnapshot().FailFast {
@@ -935,6 +977,7 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 				}
 				if r.executionPolicySnapshot().FailFast {
 					cancelStage()
+					_ = runStagePost("failure")
 					r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
 					r.fail(buildID, start, fmt.Sprintf("step %q failed: %v", step.Name, stepErr), project)
 					r.finishCleanup(buildID)
@@ -946,6 +989,47 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 			}
 			r.log(buildID, stage.Name, fmt.Sprintf("--- Step complete: %s ---", step.Name))
 			stageEnv = append(stageEnv, outputs...)
+		}
+		stageOutcome := "success"
+		if stageFailed || len(failedSteps) > 0 {
+			stageOutcome = "failure"
+		}
+		stagePostErr := runStagePost(stageOutcome)
+		if errors.Is(context.Cause(ctx), errBuildRunnerShutdown) {
+			cancelStage()
+			r.flushDurableBuildLog(buildID, true)
+			return
+		}
+		if ctx.Err() == context.Canceled {
+			cancelStage()
+			r.runPostSteps(ctx, cfg, "aborted", workspace, project, build, env, params)
+			r.log(buildID, stage.Name, "CANCELLED: stage post stopped by user")
+			r.flushDurableBuildLog(buildID, true)
+			_ = r.store.CancelBuild(buildID)
+			_ = r.store.UpdateBuildQueueItemStatusByBuildID(buildID, "cancelled")
+			r.broadcastStatus(buildID, "cancelled", stage.Name, 1)
+			return
+		}
+		if jenkinsPipeline && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			cancelStage()
+			finishJenkinsTimeout(stage.Name, fmt.Sprintf("pipeline timed out after %ds", build.TimeoutSec))
+			return
+		}
+		if jenkinsPipeline && errors.Is(stageCtx.Err(), context.DeadlineExceeded) {
+			cancelStage()
+			finishJenkinsTimeout(stage.Name, fmt.Sprintf("stage post timed out after %ds", stage.TimeoutSec))
+			return
+		}
+		if stagePostErr != nil {
+			stageFailed = true
+			failedSteps = append(failedSteps, stage.Name+" / post")
+			if r.executionPolicySnapshot().FailFast {
+				cancelStage()
+				r.runPostSteps(ctx, cfg, "failure", workspace, project, build, env, params)
+				r.fail(buildID, start, fmt.Sprintf("stage %q post failed: %v", stage.Name, stagePostErr), project)
+				r.finishCleanup(buildID)
+				return
+			}
 		}
 		cancelStage()
 		stageOutputs := stageEnv[stageBaseEnvLength:]
@@ -1068,41 +1152,72 @@ func (r *BuildRunner) deferForProjectConcurrency(buildID, projectID int64, abort
 }
 
 func (r *BuildRunner) runPostSteps(originalCtx context.Context, cfg *BuildConfig, outcome, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}) error {
+	return r.runScopedPostSteps(originalCtx, cfg, cfg.Post, "post", outcome, workspace, project, build, env, params, true, false)
+}
+
+func (r *BuildRunner) runScopedPostSteps(originalCtx context.Context, cfg *BuildConfig, post map[string][]Step, scope, outcome, workspace string, project *store.Project, build *store.Build, env []string, params map[string]interface{}, pipelineHooks, abortOnDeadline bool) error {
 	if errors.Is(context.Cause(originalCtx), errBuildRunnerShutdown) {
 		return nil
 	}
-	postCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	var postParent context.Context = context.Background()
+	observeStage := !pipelineHooks && originalCtx.Err() == nil
+	if observeStage {
+		postParent = originalCtx
+	}
+	postCtx, cancel := context.WithTimeout(postParent, 60*time.Second)
 	defer cancel()
 	var firstErr error
-	conditions := []string{"always", "failure", "success", "cleanup"}
+	conditions := []string{"always", "aborted", "failure", "success", "cleanup"}
 	for _, condition := range conditions {
-		if (condition == "success" || condition == "failure") && condition != outcome {
+		if (condition == "success" || condition == "failure" || condition == "aborted") && condition != outcome {
 			continue
 		}
-		for _, step := range cfg.Post[condition] {
+		for _, step := range post[condition] {
 			if step.Type == "jenkins_archive_artifacts" && step.Config["only_if_successful"] == "true" && outcome != "success" {
 				continue
 			}
-			stage := "post " + condition
+			stage := scope + " " + condition
 			r.log(build.ID, stage, fmt.Sprintf("--- Step: %s ---", step.Name))
 			stepEnv := appendRuntimeEnv(env, cfg, step.Runtime)
 			err := r.execStep(postCtx, step, workspace, project, build, stepEnv, params, stage, func(line string) {
 				r.logBuildLine(build.ID, stage, line)
 			})
 			_ = r.flushBuildOutput(build.ID, stage)
+			if observeStage && originalCtx.Err() != nil {
+				if errors.Is(context.Cause(originalCtx), errBuildRunnerShutdown) {
+					return context.Cause(originalCtx)
+				}
+				err = completedStepError(originalCtx, err)
+				if errors.Is(originalCtx.Err(), context.Canceled) || abortOnDeadline {
+					outcome = "aborted"
+				} else {
+					outcome = "failure"
+				}
+				// A cancelled stage still evaluates later post conditions using
+				// a bounded cleanup context, as Jenkins does after interruption.
+				cancel()
+				var cleanupCancel context.CancelFunc
+				postCtx, cleanupCancel = context.WithTimeout(context.Background(), 60*time.Second)
+				defer cleanupCancel()
+				observeStage = false
+			}
 			if err != nil {
 				r.log(build.ID, stage, fmt.Sprintf("ERROR: %v", err))
 				if firstErr == nil {
 					firstErr = err
 				}
-				outcome = "failure"
+				if outcome != "aborted" {
+					outcome = "failure"
+				}
 				// Jenkins aborts the current post condition after a failed step,
 				// but still evaluates subsequent conditions such as cleanup.
 				break
 			}
 		}
-		if _, err := r.runPluginHook(postCtx, "build."+condition, outcome, workspace, project, build, env); err != nil {
-			r.log(build.ID, "plugin build."+condition, fmt.Sprintf("ERROR: %v", err))
+		if pipelineHooks && condition != "aborted" {
+			if _, err := r.runPluginHook(postCtx, "build."+condition, outcome, workspace, project, build, env); err != nil {
+				r.log(build.ID, "plugin build."+condition, fmt.Sprintf("ERROR: %v", err))
+			}
 		}
 	}
 	return firstErr

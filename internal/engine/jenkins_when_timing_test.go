@@ -32,3 +32,26 @@ func TestBeforeOptionsRequiresJenkinsCondition(t *testing.T) {
 		t.Fatal("beforeOptions accepted without a Jenkins condition")
 	}
 }
+
+func TestStagePostRejectsUnrepresentableSemantics(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stage  Stage
+		remote bool
+	}{
+		{"remote", Stage{Name: "build", Post: map[string][]Step{"always": {{Name: "cleanup", Type: "shell"}}}}, true},
+		{"unknown", Stage{Name: "build", Post: map[string][]Step{"unstable": {{Name: "cleanup", Type: "shell"}}}}, false},
+		{"step condition", Stage{Name: "build", Post: map[string][]Step{"always": {{Name: "cleanup", Type: "shell", If: "success()"}}}}, false},
+		{"watch", Stage{Name: "build", Post: map[string][]Step{"always": {{Name: "watch", Type: "service_watch"}}}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := &BuildConfig{Stages: []Stage{tc.stage}}
+			if tc.remote {
+				config.AgentRequirements = []string{"remote"}
+			}
+			if err := ValidatePipelineSemantics(config); err == nil {
+				t.Fatal("unsupported stage post was accepted")
+			}
+		})
+	}
+}

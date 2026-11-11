@@ -146,13 +146,9 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 		parseJenkinsTriggers(pipelineSource[triggers.start:triggers.end], config, &warnings)
 	}
 	postBlock, hasPost := namedDirectBlock(pipelineSource, pipelineMask, "post")
-	artifactSource := pipelineSource
-	if hasPost {
-		// Post archives have outcome and ordering semantics; do not collect
-		// them unconditionally as global artifacts.
-		artifactSource = pipelineSource[:postBlock.start] + pipelineSource[postBlock.end:]
-	}
-	parseJenkinsArtifacts(artifactSource, config)
+	// Post archives have condition and ordering semantics at either scope;
+	// neither may be collected again as an unconditional global artifact.
+	parseJenkinsArtifacts(withoutJenkinsPostBlocks(pipelineSource), config)
 	parseJenkinsAgent(pipelineSource, pipelineMask, config, &warnings)
 	if options, found := namedDirectBlock(pipelineSource, pipelineMask, "options"); found {
 		parseJenkinsOptions(pipelineSource[options.start:options.end], config, &warnings)
@@ -200,6 +196,33 @@ func (*JenkinsfileStrategy) Convert(request Request) (*Result, error) {
 		Summary:      Summary{StageCount: len(config.Stages), EnvironmentCount: len(config.Environment)},
 		Hints:        hints,
 	}, nil
+}
+
+func withoutJenkinsPostBlocks(source string) string {
+	mask := groovyCodeMask(source)
+	result := []byte(source)
+	for cursor := 0; cursor < len(mask); {
+		index := findToken(mask, "post", cursor, len(mask))
+		if index < 0 {
+			break
+		}
+		open := skipSpace(mask, index+len("post"), len(mask))
+		if open >= len(mask) || mask[open] != '{' {
+			cursor = index + len("post")
+			continue
+		}
+		close, ok := matchingDelimiter(mask, open, '{', '}', len(mask))
+		if !ok {
+			break
+		}
+		for i := index; i <= close; i++ {
+			if result[i] != '\n' && result[i] != '\r' {
+				result[i] = ' '
+			}
+		}
+		cursor = close + 1
+	}
+	return string(result)
 }
 
 func convertScriptedJenkinsfile(request Request, source, mask string) (*Result, error) {
@@ -458,7 +481,7 @@ func parseJenkinsPost(source string, config *engine.BuildConfig, warnings *[]War
 			*warnings = appendWarning(*warnings, "post_review_required", "A Jenkins post condition has an unclosed body.")
 			return
 		}
-		if condition != "always" && condition != "success" && condition != "failure" && condition != "cleanup" {
+		if condition != "always" && condition != "aborted" && condition != "success" && condition != "failure" && condition != "cleanup" {
 			*warnings = appendWarning(*warnings, "post_review_required", fmt.Sprintf("Jenkins post condition %q is not supported.", condition))
 			position = close + 1
 			continue
@@ -1031,7 +1054,7 @@ func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) 
 		if _, found := namedDirectBlock(body, bodyMask, "input"); found {
 			return nil, fmt.Errorf("stage %q: Jenkins stage input is not supported; refusing to bypass approval", stageName)
 		}
-		for _, directive := range []string{"post", "parallel", "matrix", "stages"} {
+		for _, directive := range []string{"parallel", "matrix", "stages"} {
 			if _, found := namedDirectBlock(body, bodyMask, directive); found {
 				return nil, fmt.Errorf("stage %q: Jenkins %s is not supported at stage scope", stageName, directive)
 			}
@@ -1043,6 +1066,22 @@ func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) 
 			if err != nil {
 				return nil, fmt.Errorf("stage %q options: %w", stageName, err)
 			}
+		}
+		var stagePost map[string][]engine.Step
+		if post, found := namedDirectBlock(body, bodyMask, "post"); found {
+			if _, duplicate := namedDirectBlock(body[post.end+1:], bodyMask[post.end+1:], "post"); duplicate {
+				return nil, fmt.Errorf("stage %q: duplicate Jenkins post blocks", stageName)
+			}
+			postConfig := &engine.BuildConfig{}
+			var postWarnings []Warning
+			parseJenkinsPost(body[post.start:post.end], postConfig, &postWarnings)
+			if len(postConfig.Post) == 0 && len(postWarnings) == 0 {
+				postWarnings = appendWarning(postWarnings, "post_review_required", "Post block has no supported conditions.")
+			}
+			for _, warning := range postWarnings {
+				*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
+			}
+			stagePost = postConfig.Post
 		}
 		branches, whenExpression, whenFlags, whenErr := parseJenkinsWhen(body, bodyMask)
 		if whenErr != nil {
@@ -1074,18 +1113,18 @@ func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) 
 			for _, warning := range stepWarnings {
 				*warnings = appendWarning(*warnings, warning.Code, fmt.Sprintf("Stage %q: %s", stageName, warning.Message))
 			}
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, JenkinsWhenBeforeOptions: beforeOptions, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, steps...)})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, JenkinsWhenBeforeOptions: beforeOptions, Environment: stageEnvironment, TimeoutSec: stageTimeout, Post: stagePost, Steps: append(workspaceSteps, steps...)})
 			position = closeBody + 1
 			continue
 		}
 		if watch, ok := extractJenkinsServiceWatch(stepSource, strings.TrimSpace(stageName)); ok {
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, JenkinsWhenBeforeOptions: beforeOptions, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, watch)})
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, JenkinsWhenBeforeOptions: beforeOptions, Environment: stageEnvironment, TimeoutSec: stageTimeout, Post: stagePost, Steps: append(workspaceSteps, watch)})
 			position = closeBody + 1
 			continue
 		}
 		if command, ok := translateJenkinsPIDStopStage(stepSource); ok {
 			*warnings = appendWarning(*warnings, "pid_stop_manual_review_required", fmt.Sprintf("Stage %q uses a generated process shutdown policy that must be reviewed before execution.", stageName))
-			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, JenkinsWhenBeforeOptions: beforeOptions, Environment: stageEnvironment, TimeoutSec: stageTimeout, Steps: append(workspaceSteps, engine.Step{
+			stages = append(stages, engine.Stage{Name: strings.TrimSpace(stageName), Branches: branches, JenkinsWhen: whenExpression, JenkinsWhenBeforeOptions: beforeOptions, Environment: stageEnvironment, TimeoutSec: stageTimeout, Post: stagePost, Steps: append(workspaceSteps, engine.Step{
 				Name: strings.TrimSpace(stageName), Type: "shell", Shell: "bash", Command: "set -e\n\n" + command,
 			})})
 			position = closeBody + 1
@@ -1107,6 +1146,7 @@ func parseJenkinsStages(source string, rootAgentNone bool, warnings *[]Warning) 
 			JenkinsWhenBeforeOptions: beforeOptions,
 			Environment:              stageEnvironment,
 			TimeoutSec:               stageTimeout,
+			Post:                     stagePost,
 			Steps:                    workspaceSteps,
 		}
 		if strings.TrimSpace(command) != "" {

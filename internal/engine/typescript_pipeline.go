@@ -1021,19 +1021,26 @@ func normalizeTypeScriptPipelineLiterals(pipeline map[string]interface{}) {
 			if steps, ok := stage["steps"].([]interface{}); ok {
 				stage["steps"] = normalizeTypeScriptStepLiterals(steps)
 			}
+			if post, ok := stage["post"].(map[string]interface{}); ok {
+				stage["post"] = normalizeTypeScriptPostLiterals(post)
+			}
 			normalized[index] = stage
 		}
 		pipeline["stages"] = normalized
 	}
 	if post, ok := pipeline["post"].(map[string]interface{}); ok {
-		post = cloneTypeScriptObject(post)
-		for condition, value := range post {
-			if steps, ok := value.([]interface{}); ok {
-				post[condition] = normalizeTypeScriptStepLiterals(steps)
-			}
-		}
-		pipeline["post"] = post
+		pipeline["post"] = normalizeTypeScriptPostLiterals(post)
 	}
+}
+
+func normalizeTypeScriptPostLiterals(post map[string]interface{}) map[string]interface{} {
+	post = cloneTypeScriptObject(post)
+	for condition, value := range post {
+		if steps, ok := value.([]interface{}); ok {
+			post[condition] = normalizeTypeScriptStepLiterals(steps)
+		}
+	}
+	return post
 }
 
 func normalizeTypeScriptStepLiterals(steps []interface{}) []interface{} {

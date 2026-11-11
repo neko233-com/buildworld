@@ -41,6 +41,15 @@ test('helpers normalize camelCase exactly like the server parser', () => {
   assert.equal('required_roles' in source.approval, false)
 })
 
+test('stage post steps normalize aliases without mutating the input', () => {
+  const options = { post: { always: [{ name: 'cleanup', type: 'shell', platformAdditions: { macos: 'echo ok' } }] } }
+  const result = stage('Build', shell('run', 'echo ok'), options)
+  assert.deepEqual(result.post.always[0].platform_additions, { macos: 'echo ok' })
+  assert.equal('platform_additions' in options.post.always[0], false)
+  const pipeline = definePipeline({ stages: [{ name: 'Build', steps: [], ...options }] })
+  assert.deepEqual(pipeline.stages[0].post.always[0].platform_additions, { macos: 'echo ok' })
+})
+
 test('step, stage, parameter, and service watch aliases are canonicalized', () => {
   const run = shell('run', 'npm test', {
     if: 'success()',
