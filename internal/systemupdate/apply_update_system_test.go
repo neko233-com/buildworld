@@ -66,6 +66,7 @@ func TestSystemSupervisorUpdate(t *testing.T) {
 		name, failure, status, current, previous string
 	}{
 		{"success", "", "succeeded", "new", "current"},
+		{"launchd removal delayed", "start-transient", "succeeded", "new", "current"},
 		{"cannot stop", "stop", "rolled_back", "current", "older"},
 		{"new start fails", "start", "rolled_back", "current", ""},
 		{"migration advanced", "migration-advanced", "failed", "new", "current"},
@@ -105,7 +106,7 @@ func TestSystemSupervisorUpdate(t *testing.T) {
 			writeTestFile(t, filepath.Join(bin, "nc"), "#!/bin/sh\ntest -f \"$HOME/loaded\"\n", 0o700)
 			writeTestFile(t, filepath.Join(bin, "launchctl"), "#!/bin/sh\ntest -f \"$HOME/loaded\" || exit 1\nprintf '\"LimitLoadToSessionType\" = \"System\";\\n\"PID\" = 4242;\\n'\n", 0o700)
 			writeTestFile(t, filepath.Join(bin, "plistbuddy"), "#!/bin/sh\ncase \"$2\" in 'Print :UserName') echo gamer;; *) echo true;; esac\n", 0o700)
-			writeTestFile(t, filepath.Join(bin, "sudo"), "#!/bin/sh\nread -r action\ncase \"$action\" in\nstatus) [ \"$UPDATE_TEST_FAILURE\" != bridge-denied ] || exit 1; test -f \"$HOME/loaded\" || exit 1; echo 'pid = 4242';;\nstop) [ \"$UPDATE_TEST_FAILURE\" != stop ] || exit 1; rm -f \"$HOME/loaded\";;\nstart) if [ \"$(cat \"$TEST_INSTALL/marker\")\" = new ]; then [ \"$UPDATE_TEST_FAILURE\" != start ] || exit 1; touch \"$HOME/started-new\"; else touch \"$HOME/restored\"; fi; touch \"$HOME/loaded\";;\n*) exit 1;; esac\n", 0o700)
+			writeTestFile(t, filepath.Join(bin, "sudo"), "#!/bin/sh\nread -r action\ncase \"$action\" in\nstatus) [ \"$UPDATE_TEST_FAILURE\" != bridge-denied ] || exit 1; test -f \"$HOME/loaded\" || exit 1; echo 'pid = 4242';;\nstop) [ \"$UPDATE_TEST_FAILURE\" != stop ] || exit 1; rm -f \"$HOME/loaded\";;\nstart) if [ \"$(cat \"$TEST_INSTALL/marker\")\" = new ]; then [ \"$UPDATE_TEST_FAILURE\" != start ] || exit 1; if [ \"$UPDATE_TEST_FAILURE\" = start-transient ] && [ ! -f \"$HOME/start-retried\" ]; then touch \"$HOME/start-retried\"; exit 1; fi; touch \"$HOME/started-new\"; else touch \"$HOME/restored\"; fi; touch \"$HOME/loaded\";;\n*) exit 1;; esac\n", 0o700)
 			writeTestFile(t, filepath.Join(bin, "curl"), "#!/bin/sh\ntest -f \"$HOME/loaded\" || exit 1\nif [ \"$UPDATE_TEST_FAILURE\" = migration-advanced ] && [ \"$(cat \"$TEST_INSTALL/marker\")\" = new ]; then exit 1; fi\ncase \"$*\" in */api/health*) echo '{\"status\":\"ok\"}';; *) if [ \"$(cat \"$TEST_INSTALL/marker\")\" = new ]; then echo '{\"version\":\"v1.2.3\"}'; else echo '{\"version\":\"v1.0.0\"}'; fi;; esac\n", 0o700)
 			_, source, _, _ := runtime.Caller(0)
 			scripts := filepath.Join(filepath.Dir(source), "..", "..", "scripts")

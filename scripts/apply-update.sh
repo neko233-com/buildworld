@@ -173,7 +173,17 @@ stop_server() {
 
 start_server() {
   if [ "$system_supervised" = 1 ]; then
-    printf 'start\n' | /usr/bin/sudo -n "$system_bridge"
+    # launchctl bootout can return before launchd has finished removing the
+    # previous job. A bootstrap during that interval fails with EIO.
+    attempt=0
+    while [ "$attempt" -lt 15 ]; do
+      if printf 'start\n' | /usr/bin/sudo -n "$system_bridge"; then
+        return 0
+      fi
+      attempt=$((attempt + 1))
+      [ "$attempt" -ge 15 ] || sleep 1
+    done
+    return 1
   elif [ "$had_autostart" = 1 ]; then
     run_cli "$install_dir/buildworld" enable-autostart
   else
