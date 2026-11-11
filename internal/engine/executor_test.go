@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -11,6 +12,58 @@ import (
 	"testing"
 	"time"
 )
+
+func TestWindowsJenkinsShellWithWSLStubAheadOfGit(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows WSL launcher is not present")
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no POSIX shell is installed")
+	}
+	siblingBash := filepath.Join(filepath.Dir(sh), "bash.exe")
+	if _, err := os.Stat(siblingBash); err != nil {
+		t.Skip("POSIX shell has no sibling Bash")
+	}
+	systemDir := filepath.Join(os.Getenv("SystemRoot"), "System32")
+	if _, err := os.Stat(filepath.Join(systemDir, "bash.exe")); err != nil {
+		t.Skip("Windows WSL Bash launcher is not installed")
+	}
+	t.Setenv("PATH", systemDir+string(os.PathListSeparator)+filepath.Dir(sh)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var output strings.Builder
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = NewExecutor().RunMultiShell(ctx, "bash", "printf 'GIT_BASH_OK\\n'", t.TempDir(), nil, func(line string) {
+		output.WriteString(line)
+	})
+	if err != nil || !strings.Contains(output.String(), "GIT_BASH_OK") {
+		t.Fatalf("Jenkins shell failed with WSL launcher ahead of Git: %v; output=%s", err, output.String())
+	}
+}
+
+func TestPreferredWindowsBashPreservesExplicitChoiceAndMissingFallback(t *testing.T) {
+	root := t.TempDir()
+	gitDir := filepath.Join(root, "git", "bin")
+	if err := os.MkdirAll(gitDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sh := filepath.Join(gitDir, "sh.exe")
+	gitBash := filepath.Join(gitDir, "bash.exe")
+	systemBash := filepath.Join(root, "Windows", "System32", "bash.exe")
+	customBash := filepath.Join(root, "custom", "bash.exe")
+	if got := preferredWindowsBash(systemBash, sh, filepath.Join(root, "Windows")); got != systemBash {
+		t.Fatalf("missing Git Bash changed the selection: %q", got)
+	}
+	if err := os.WriteFile(gitBash, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := preferredWindowsBash(systemBash, sh, filepath.Join(root, "Windows")); got != gitBash {
+		t.Fatalf("WSL launcher selected %q, want %q", got, gitBash)
+	}
+	if got := preferredWindowsBash(customBash, sh, filepath.Join(root, "Windows")); got != customBash {
+		t.Fatalf("explicit Bash path was changed to %q", got)
+	}
+}
 
 func TestExecutorRun(t *testing.T) {
 	executor := NewExecutor()

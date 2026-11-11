@@ -228,6 +228,10 @@ Source is parsed into declarative data through an AST allowlist. BuildWorld does
 not run it as JavaScript. `eval`, `Function`, user-defined functions, loops,
 timers, promises, Node.js APIs, file access, and network access are rejected.
 Shell commands run only when explicitly declared in pipeline steps.
+On Windows, when the system WSL Bash launcher shadows an installed POSIX
+shell, BuildWorld uses the Bash beside that shell. An explicitly selected
+non-system Bash path keeps its PATH priority; the WSL launcher remains available
+when there is no sibling Bash.
 
 `watchService` is the native Jenkins `tail -f` plus PID-monitoring equivalent.
 It keeps build running, streams appended bytes, emits low-frequency heartbeats,

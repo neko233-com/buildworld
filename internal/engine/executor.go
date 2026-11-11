@@ -131,9 +131,11 @@ func (e *Executor) runPowerShell(ctx context.Context, command, dir string, env [
 
 func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env []string, onOutput func(string)) error {
 	if runtime.GOOS == "windows" {
-		_, err := exec.LookPath("bash")
+		bashPath, err := exec.LookPath("bash")
 		if err == nil {
-			cmd := processtree.CommandContext(ctx, "bash", "-c", command)
+			shPath, _ := exec.LookPath("sh")
+			bashPath = preferredWindowsBash(bashPath, shPath, os.Getenv("SystemRoot"))
+			cmd := processtree.CommandContext(ctx, bashPath, "-c", command)
 			if dir != "" {
 				cmd.Dir = dir
 			}
@@ -168,6 +170,23 @@ func (e *Executor) runBash(ctx context.Context, shell, command, dir string, env 
 		cmd.Env = append(cmd.Environ(), env...)
 	}
 	return runWithLineWriters(cmd, onOutput)
+}
+
+// preferredWindowsBash avoids the Windows WSL launcher when a POSIX shell on
+// PATH has its own Bash. Preserve explicitly selected non-system Bash paths.
+func preferredWindowsBash(bashPath, shPath, windowsRoot string) string {
+	if windowsRoot == "" || shPath == "" {
+		return bashPath
+	}
+	systemBash := filepath.Join(windowsRoot, "System32", "bash.exe")
+	if !strings.EqualFold(filepath.Clean(bashPath), filepath.Clean(systemBash)) {
+		return bashPath
+	}
+	candidate := filepath.Join(filepath.Dir(shPath), "bash.exe")
+	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		return candidate
+	}
+	return bashPath
 }
 
 func (e *Executor) runCmd(ctx context.Context, command, dir string, env []string, onOutput func(string)) error {

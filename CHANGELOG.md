@@ -6,6 +6,13 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.16.35] - 2026-11-11
+
+### Fixed
+
+- On Windows, prefer the Bash beside an installed POSIX shell over the
+  system WSL launcher when the launcher would otherwise shadow it.
+
 ## [1.16.34] - 2026-11-11
 
 ### Fixed

@@ -65,6 +65,9 @@ non-ASCII text or Unicode escapes, are rejected to prevent different matches.
 Verify regex patterns and jobs using unsupported plugins or features against
 Jenkins before migrating them.
 
+On Windows, a system WSL Bash launcher no longer shadows the Bash beside an
+installed POSIX shell. Explicit non-system Bash selections keep PATH priority.
+
 Stage `options { timeout(...) }` supports positive integral times in seconds,
 minutes (the default), hours or days. Stage input and input steps, `parallel`,
 `matrix`, nested stages, other stage options, and specific stage agents are
