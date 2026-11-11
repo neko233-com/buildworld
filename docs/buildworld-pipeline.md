@@ -72,6 +72,16 @@ API callers use `POST /api/projects/{id}/builds` with:
 {"branch":"main","parameters":{"RELEASE_CHANNEL":"wechat","RELEASE_ENVIRONMENT":"test","RELEASE_ACTION":"restart-version","RELEASE_VERSION":"0.1.234"}}
 ```
 
+An administrator can opt one build into BuildWorld in-app notifications only:
+add `"notification_mode":"in_app_only"` and a `"notification_reason"` of
+`"authorized_release"`, `"maintenance"`, or `"testing"` at the request's top
+level. BuildWorld records the decision in its audit log and exposes the mode in
+the build response. It applies to lifecycle and pipeline notification events,
+including retries of that build; ordinary builds retain their existing channels.
+Project HTTP triggers cannot set this policy. This setting does not control
+messages sent directly by pipeline commands or independently triggered projects;
+those must be reviewed and configured separately.
+
 The project-specific HTTP trigger accepts the same parameter object in its
 POST body. Keep its generated opaque URL private; callers cannot use this
 endpoint to bypass declared parameter validation or the configured release

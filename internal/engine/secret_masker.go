@@ -366,5 +366,6 @@ func (r *BuildRunner) sendBuildEventAsync(buildID int64, build *store.Build, pro
 		return
 	}
 	safeBuild, safeProject := r.maskedNotificationObjects(buildID, build, project)
-	go r.notificationService.SendBuildEvent(safeBuild, safeProject, event)
+	inAppOnly := BuildNotificationsInAppOnly(build.Parameters)
+	go r.notificationService.sendBuildEvent(safeBuild, safeProject, event, inAppOnly)
 }

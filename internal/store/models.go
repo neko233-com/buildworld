@@ -100,6 +100,7 @@ type Build struct {
 	Branch           string                `json:"branch,omitempty"`
 	CommitSHA        string                `json:"commit_sha,omitempty"`
 	Parameters       string                `json:"parameters,omitempty"`
+	NotificationMode string                `json:"notification_mode,omitempty"`
 	ReleaseResults   []*BuildReleaseResult `json:"release_results,omitempty"`
 	WaitDependencyOn *int64                `json:"wait_dependency_on,omitempty"`
 	RetriedFrom      *int64                `json:"retried_from,omitempty"`

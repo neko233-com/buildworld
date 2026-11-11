@@ -1837,10 +1837,15 @@ func (r *BuildRunner) execBaseStep(ctx context.Context, step Step, workspace str
 			return fmt.Errorf("load build for pipeline notification: %w", err)
 		}
 		safeBuild, safeProject := r.maskedNotificationObjects(build.ID, currentBuild, project)
-		if err := r.notificationService.SendBuildEvent(safeBuild, safeProject, "pipeline.notification"); err != nil {
+		inAppOnly := BuildNotificationsInAppOnly(currentBuild.Parameters)
+		if err := r.notificationService.sendBuildEvent(safeBuild, safeProject, "pipeline.notification", inAppOnly); err != nil {
 			return fmt.Errorf("send pipeline notification: %w", err)
 		}
-		onOutput("Pipeline notification delivered")
+		if inAppOnly {
+			onOutput("Pipeline notification recorded in-app only")
+		} else {
+			onOutput("Pipeline notification delivered")
+		}
 		return nil
 	case "script":
 		scriptPath := filepath.Join(workingDirectory, ".bw_step.sh")

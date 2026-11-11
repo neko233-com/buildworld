@@ -610,8 +610,10 @@ func (h *handlers) reorderProjects(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type triggerBuildReq struct {
-	Branch     string                 `json:"branch"`
-	Parameters map[string]interface{} `json:"parameters"`
+	Branch             string                 `json:"branch"`
+	Parameters         map[string]interface{} `json:"parameters"`
+	NotificationMode   string                 `json:"notification_mode"`
+	NotificationReason string                 `json:"notification_reason"`
 }
 
 func decodeTriggerBuildRequest(r *http.Request) (triggerBuildReq, error) {
@@ -829,6 +831,9 @@ func redactBuildParameters(build *store.Build, secretNames map[string]struct{}, 
 		return nil
 	}
 	redacted := *build
+	if engine.BuildNotificationsInAppOnly(build.Parameters) {
+		redacted.NotificationMode = "in_app_only"
+	}
 	if strings.TrimSpace(build.Parameters) == "" {
 		return &redacted
 	}
@@ -1016,6 +1021,16 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if req.NotificationMode != "" || req.NotificationReason != "" {
+		if auth.RoleFromContext(r.Context()) != "admin" || userIDOf(r) <= 0 {
+			writeErr(w, http.StatusForbidden, "administrator required for notification policy")
+			return
+		}
+		if req.NotificationMode != "in_app_only" || (req.NotificationReason != "authorized_release" && req.NotificationReason != "maintenance" && req.NotificationReason != "testing") {
+			writeErr(w, http.StatusBadRequest, "invalid notification policy or reason")
+			return
+		}
+	}
 
 	branch := strings.TrimSpace(req.Branch)
 	if branch == "" {
@@ -1037,10 +1052,36 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "cannot identify build trigger user")
 		return
 	}
+	if req.NotificationMode == "in_app_only" {
+		paramsJSON, err = engine.AttachInAppOnlyNotifications(paramsJSON)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "cannot attach notification policy")
+			return
+		}
+		user, userErr := h.d.Store.GetUser(userIDOf(r))
+		if userErr != nil || user.Role != "admin" {
+			writeErr(w, http.StatusForbidden, "active administrator required")
+			return
+		}
+		if err := h.d.Store.CreateAuditLog(user.ID, user.Username, "set_notification_policy", "project", strconv.FormatInt(project.ID, 10), "in_app_only: "+req.NotificationReason, clientIP(r)); err != nil {
+			writeErr(w, http.StatusInternalServerError, "cannot audit notification policy")
+			return
+		}
+	}
 	build, err := h.d.Store.CreateNextBuildWithApproval(project.ID, "manual", branch, revision, paramsJSON, nil, nil, hold)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if req.NotificationMode == "in_app_only" {
+		// The pre-creation audit is mandatory; this second record links it to the
+		// allocated build. Do not enqueue if that link cannot be recorded.
+		user, userErr := h.d.Store.GetUser(userIDOf(r))
+		if userErr != nil || h.d.Store.CreateAuditLog(user.ID, user.Username, "apply_notification_policy", "build", strconv.FormatInt(build.ID, 10), "in_app_only: "+req.NotificationReason, clientIP(r)) != nil {
+			_ = h.d.Store.FinishBuild(build.ID, "failed", 0)
+			writeErr(w, http.StatusInternalServerError, "cannot audit build notification policy")
+			return
+		}
 	}
 	if err := h.requestBuildApprovalForConfig(build, userIDOf(r), config); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -3172,6 +3213,10 @@ func (h *handlers) projectHTTPTriggerBuild(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if req.NotificationMode != "" || req.NotificationReason != "" {
+		writeErr(w, http.StatusForbidden, "notification policy requires an authenticated administrator")
+		return
+	}
 	branch := strings.TrimSpace(req.Branch)
 	if branch == "" {
 		branch = project.DefaultBranch
@@ -3246,6 +3291,10 @@ func (h *handlers) httpTriggerBuild(w http.ResponseWriter, r *http.Request) {
 	req, err := decodeTriggerBuildRequest(r)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.NotificationMode != "" || req.NotificationReason != "" {
+		writeErr(w, http.StatusForbidden, "notification policy requires the administrator build endpoint")
 		return
 	}
 	branch := strings.TrimSpace(req.Branch)

@@ -12,6 +12,37 @@ import (
 const jenkinsChangeRequestContextKey = "\x00buildworld.changeRequest"
 const jenkinsTriggerUserContextKey = "\x00buildworld.triggerUser"
 const jenkinsRetryContextKey = "\x00buildworld.retry"
+const notificationModeContextKey = "\x00buildworld.notificationMode"
+
+// AttachInAppOnlyNotifications persists a per-build delivery policy in reserved metadata.
+func AttachInAppOnlyNotifications(parameters string) (string, error) {
+	fields := make(map[string]json.RawMessage)
+	if parameters != "" {
+		if err := json.Unmarshal([]byte(parameters), &fields); err != nil || fields == nil {
+			return "", fmt.Errorf("invalid notification parameters")
+		}
+	}
+	if _, exists := fields[notificationModeContextKey]; exists {
+		return "", fmt.Errorf("reserved notification context already exists")
+	}
+	fields[notificationModeContextKey] = json.RawMessage(`"in_app_only"`)
+	encoded, err := json.Marshal(fields)
+	return string(encoded), err
+}
+
+// BuildNotificationsInAppOnly resolves the policy before any secret masking.
+// Malformed stored parameters fail closed so corruption cannot cause external delivery.
+func BuildNotificationsInAppOnly(parameters string) bool {
+	if parameters == "" {
+		return false
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal([]byte(parameters), &fields) != nil || fields == nil {
+		return true
+	}
+	_, exists := fields[notificationModeContextKey]
+	return exists // unknown policies fail closed
+}
 
 type jenkinsRetryContext struct {
 	Kind string `json:"kind"`
@@ -117,6 +148,7 @@ func PublicBuildParameters(parameters map[string]interface{}) {
 	delete(parameters, jenkinsChangeRequestContextKey)
 	delete(parameters, jenkinsTriggerUserContextKey)
 	delete(parameters, jenkinsRetryContextKey)
+	delete(parameters, notificationModeContextKey)
 }
 
 // AttachJenkinsTriggerUser records the authenticated user at build creation.

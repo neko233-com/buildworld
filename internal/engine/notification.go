@@ -21,18 +21,19 @@ func NewNotificationService(s *store.Store) *NotificationService {
 }
 
 type NotificationPayload struct {
-	Event     string    `json:"event"`
-	BuildID   int64     `json:"build_id"`
-	BuildNum  int       `json:"build_number"`
-	ProjectID int64     `json:"project_id"`
-	Project   string    `json:"project"`
-	Status    string    `json:"status"`
-	Trigger   string    `json:"trigger"`
-	Branch    string    `json:"branch,omitempty"`
-	Commit    string    `json:"commit,omitempty"`
-	Duration  int64     `json:"duration_ms,omitempty"`
-	Message   string    `json:"message"`
-	Timestamp time.Time `json:"timestamp"`
+	NotificationMode string    `json:"notification_mode,omitempty"`
+	Event            string    `json:"event"`
+	BuildID          int64     `json:"build_id"`
+	BuildNum         int       `json:"build_number"`
+	ProjectID        int64     `json:"project_id"`
+	Project          string    `json:"project"`
+	Status           string    `json:"status"`
+	Trigger          string    `json:"trigger"`
+	Branch           string    `json:"branch,omitempty"`
+	Commit           string    `json:"commit,omitempty"`
+	Duration         int64     `json:"duration_ms,omitempty"`
+	Message          string    `json:"message"`
+	Timestamp        time.Time `json:"timestamp"`
 }
 
 func (ns *NotificationService) SendBuildNotifications(build *store.Build, project *store.Project) error {
@@ -43,6 +44,10 @@ func (ns *NotificationService) SendBuildNotifications(build *store.Build, projec
 // Events include build.started and build.completed; per-channel conditions decide
 // which statuses should be delivered.
 func (ns *NotificationService) SendBuildEvent(build *store.Build, project *store.Project, eventType string) error {
+	return ns.sendBuildEvent(build, project, eventType, BuildNotificationsInAppOnly(build.Parameters))
+}
+
+func (ns *NotificationService) sendBuildEvent(build *store.Build, project *store.Project, eventType string, inAppOnly bool) error {
 	channels, err := ns.store.ListEnabledNotificationChannels()
 	if err != nil {
 		return fmt.Errorf("list channels: %w", err)
@@ -65,9 +70,15 @@ func (ns *NotificationService) SendBuildEvent(build *store.Build, project *store
 	if build.DurationMs != nil {
 		payload.Duration = *build.DurationMs
 	}
+	if inAppOnly {
+		payload.NotificationMode = "in_app_only"
+	}
 
 	var deliveries sync.WaitGroup
 	for _, channel := range channels {
+		if inAppOnly && channel.Type != store.NotificationChannelWeb {
+			continue
+		}
 		if !ns.matchesConditions(channel, payload) {
 			continue
 		}
