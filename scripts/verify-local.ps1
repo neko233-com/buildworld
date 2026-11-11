@@ -166,7 +166,7 @@ try {
     Invoke-Checked 'Shell installer syntax' {
         & $bashPath -n scripts/install.sh
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        & $bashPath -n scripts/apply-update.sh
+        & $bashPath -n scripts/apply-update.sh scripts/buildworld-system-supervisor.sh
     }
     Invoke-Checked 'Git whitespace validation' { git diff HEAD --check }
 } finally {

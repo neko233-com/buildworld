@@ -34,6 +34,31 @@ button calls the authenticated check endpoint and shows the matching release
 for the current platform. If a newer stable release exists, the administrator
 can confirm the update in the same popover. The service briefly restarts only
 after that confirmation and rolls back automatically if readiness fails.
+If the database migration ledger has changed, the helper preserves both
+installations and reports a failure for manual recovery instead of starting an
+older binary against a newer schema.
+
+## macOS system LaunchDaemon
+
+A system `com.buildworld.server` LaunchDaemon can update without a desktop
+session after an administrator installs the root-owned
+`scripts/buildworld-system-supervisor.sh` as
+`/usr/local/libexec/buildworld-system-supervisor`. Use `visudo` to grant only
+the service account permission to run that exact command with no arguments,
+for example:
+
+```text
+gamer ALL=(root) NOPASSWD: /usr/local/libexec/buildworld-system-supervisor ""
+```
+
+Replace `gamer` with the actual service account. The bridge accepts only three
+fixed actions on standard input: inspect, stop, and start that service. The
+server verifies its digest, root ownership, daemon configuration and current
+PID before accepting an update. The detached updater verifies those properties
+again before stopping the service. An absent or altered bridge fails closed;
+it never accepts an arbitrary command or service name. Installation of this
+root-owned operating-system integration is separate from replacing the
+user-owned release bundle.
 
 The equivalent API calls are:
 
@@ -96,6 +121,8 @@ curl -fsS \
 The server returns `202 Accepted` after staging and verification. The detached
 helper pauses the service, rotates the current bundle, starts the new version,
 checks `/api/health` and `/api/version`, and rolls back if readiness fails.
+Rollback stops before replacing a binary if the new server cannot be stopped,
+the migration ledger changed, or the database cannot be inspected.
 Poll the status endpoint until it reports `succeeded` or `rolled_back`.
 
 The server uses `https://gh-proxy.com` as the default GitHub mirror for public

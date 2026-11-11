@@ -335,6 +335,21 @@ SCM checkout records use database migration 17. Older BuildWorld binaries reject
 databases with a newer migration ledger; verify a data-preserving downgrade or
 restore procedure before deploying this version. An installation-directory
 rollback alone does not roll back the database schema.
+On macOS, a system `com.buildworld.server` LaunchDaemon can use the same
+authenticated update API without a graphical login when an administrator has
+installed `scripts/buildworld-system-supervisor.sh` as root-owned
+`/usr/local/libexec/buildworld-system-supervisor` and granted the service user
+passwordless sudo for that exact command with no arguments. The bridge accepts
+only `status`, `stop`, and `start` on standard input and targets that one
+root-owned LaunchDaemon. Before accepting an update, the server verifies the
+bridge digest and ownership, the daemon user and lifecycle settings, and the
+running PID; the updater repeats these checks before stopping it. Configure
+the rule through `visudo`, for example `gamer ALL=(root) NOPASSWD:
+/usr/local/libexec/buildworld-system-supervisor ""`, replacing `gamer` with the
+actual service account. Missing or invalid authorization fails closed. The
+root bridge is a stable operating-system integration, installed separately
+from the user-owned release directory; updates still use the authenticated,
+checksummed bundle and the migration-ledger rollback guard.
 The updated system-update helper compares a read-only fingerprint of the
 migration ledger before activation and after a failed start. It refuses to
 restore the previous binary if that ledger changed, the database cannot be

@@ -26,7 +26,7 @@ const MaxBundleBytes int64 = 512 << 20
 var (
 	ErrUpdateInProgress      = errors.New("system update is already in progress")
 	ErrAutomaticDisabled     = errors.New("automatic system updates are disabled; an administrator must start the update")
-	ErrUnsupportedSupervisor = errors.New("BuildWorld is managed by an unsupported system LaunchDaemon; an administrator must migrate it to the supported per-user LaunchAgent before updating")
+	ErrUnsupportedSupervisor = errors.New("BuildWorld system LaunchDaemon requires the verified, restricted administrator-installed supervisor bridge")
 	versionPattern           = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 	checksumPattern          = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 )

@@ -18,6 +18,7 @@ activated=0
 rotated=0
 was_running=0
 had_autostart=0
+system_supervised=0
 pause_attempted=0
 bin_link=
 ledger_before=
@@ -108,6 +109,36 @@ fi
 case "$(uname -s)" in
   Darwin)
     [ -f "$HOME/Library/LaunchAgents/com.buildworld.server.plist" ] && had_autostart=1
+    system_plist=/Library/LaunchDaemons/com.buildworld.server.plist
+    system_bridge=/usr/local/libexec/buildworld-system-supervisor
+    system_info="$(/bin/launchctl list com.buildworld.server 2>/dev/null || true)"
+    if [ -e "$system_plist" ] && [ -z "$system_info" ]; then
+      fail "cannot identify the configured system supervisor"
+    fi
+    if printf '%s\n' "$system_info" | grep -q '"LimitLoadToSessionType" = "System"'; then
+      # The root bridge has exactly one executable entry and three fixed
+      # actions. Verify both it and the daemon before any service is stopped.
+      for protected in "$system_plist" "$system_bridge"; do
+        [ -f "$protected" ] && [ ! -L "$protected" ] || fail "system supervisor file is missing or unsafe"
+        [ "$(/usr/bin/stat -f '%u' "$protected")" = 0 ] || fail "system supervisor file is not root owned"
+        mode="$(/usr/bin/stat -f '%Lp' "$protected")"
+        [ "$((0$mode & 022))" -eq 0 ] || fail "system supervisor file is writable by other users"
+      done
+      bridge_hash="$(/usr/bin/shasum -a 256 "$system_bridge")" || fail "cannot check system supervisor bridge"
+      [ "${bridge_hash%% *}" = "3b8e7e8841bf5dcdc4a058b2978162912ea53913f91c6ab9ad560db03a9aa15c" ] || fail "system supervisor bridge identity mismatch"
+      [ "$(/usr/libexec/PlistBuddy -c 'Print :UserName' "$system_plist")" = "$(id -un)" ] || fail "system supervisor user mismatch"
+      [ "$(/usr/libexec/PlistBuddy -c 'Print :RunAtLoad' "$system_plist")" = true ] || fail "system supervisor does not start at load"
+      [ "$(/usr/libexec/PlistBuddy -c 'Print :KeepAlive' "$system_plist")" = true ] || fail "system supervisor does not keep the service alive"
+      system_pid="$(printf '%s\n' "$system_info" | awk -F= '/"PID" =/ { gsub(/[;[:space:]]/, "", $2); print $2; exit }')"
+      case "$system_pid" in ''|*[!0-9]*) fail "system supervisor PID is invalid" ;; esac
+      [ "$system_pid" -gt 0 ] || fail "system supervisor PID is invalid"
+      system_executable="$(/bin/ps -p "$system_pid" -o comm= | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      [ "$system_executable" = "$install_dir/buildworld-server" ] || fail "system supervisor process identity mismatch"
+      bridge_status="$(printf 'status\n' | /usr/bin/sudo -n "$system_bridge")" || fail "system supervisor bridge is unavailable"
+      bridge_pid="$(printf '%s\n' "$bridge_status" | awk -F= '/^[[:space:]]*pid =/ { gsub(/[[:space:]]/, "", $2); print $2; exit }')"
+      [ "$bridge_pid" = "$system_pid" ] || fail "system supervisor status identity mismatch"
+      system_supervised=1
+    fi
     ;;
   Linux)
     [ -f "$HOME/.config/systemd/user/buildworld.service" ] && had_autostart=1
@@ -125,8 +156,36 @@ run_cli() {
   fi
 }
 
+stop_server() {
+  if [ "$system_supervised" = 1 ]; then
+    if printf 'status\n' | /usr/bin/sudo -n "$system_bridge" >/dev/null 2>&1; then
+      printf 'stop\n' | /usr/bin/sudo -n "$system_bridge"
+    else
+      # An unavailable bridge is not evidence of a stopped daemon. Refuse to
+      # replace binaries while either launchd or the control port is present.
+      ! /bin/launchctl list com.buildworld.server >/dev/null 2>&1 || return 1
+      ! /usr/bin/nc -z -w 2 127.0.0.1 8080 >/dev/null 2>&1
+    fi
+  else
+    run_cli "$install_dir/buildworld" pause
+  fi
+}
+
+start_server() {
+  if [ "$system_supervised" = 1 ]; then
+    printf 'start\n' | /usr/bin/sudo -n "$system_bridge"
+  elif [ "$had_autostart" = 1 ]; then
+    run_cli "$install_dir/buildworld" enable-autostart
+  else
+    run_cli "$install_dir/buildworld" start
+  fi
+}
+
 if run_cli "$install_dir/buildworld" status 2>&1 | grep -q "is running"; then
   was_running=1
+fi
+if [ "$system_supervised" = 1 ] && [ "$was_running" != 1 ]; then
+  fail "system-supervised controller is not healthy; refusing update"
 fi
 
 restore_previous() {
@@ -134,7 +193,7 @@ restore_previous() {
   if [ "$activated" = "1" ] && [ -x "$install_dir/buildworld" ]; then
     # Never replace a possibly running executable or return an older binary to
     # a database whose migration ledger changed during the attempted start.
-    run_cli "$install_dir/buildworld" pause >/dev/null 2>&1 || return 1
+    stop_server >/dev/null 2>&1 || return 1
     ledger_after="$(run_cli "$install_dir/buildworld" inspect-migration-ledger 2>/dev/null)" || return 1
     [ -n "$ledger_before" ] && [ "$ledger_after" = "$ledger_before" ] || return 1
   fi
@@ -158,10 +217,8 @@ restore_previous() {
        printf '%s' "$running_version" | grep -Fq "\"version\":\"$current_version\"" &&
        printf '%s' "$health" | grep -q '"status":"ok"'; then
       :
-    elif [ "$had_autostart" = "1" ]; then
-      run_cli "$install_dir/buildworld" enable-autostart >/dev/null 2>&1 || rollback_failed=1
     else
-      run_cli "$install_dir/buildworld" start >/dev/null 2>&1 || rollback_failed=1
+      start_server >/dev/null 2>&1 || rollback_failed=1
     fi
     # A successful start command does not prove that the restored server can
     # open the current database or remain healthy after an upgrade migration.
@@ -188,7 +245,7 @@ apply_update() {
   write_status "applying" "verified update is being installed" || return 1
   if [ "$was_running" = "1" ]; then
     pause_attempted=1
-    run_cli "$install_dir/buildworld" pause || return 1
+    stop_server || return 1
   fi
   # The incoming CLI can inspect databases from older installations without
   # applying migrations. If the database cannot be identified, fail closed.
@@ -208,10 +265,10 @@ apply_update() {
     mkdir -p "$(dirname "$bin_link")" || return 1
     ln -sf "$install_dir/buildworld" "$bin_link" || return 1
   fi
-  if [ "$had_autostart" = "1" ]; then
-    run_cli "$install_dir/buildworld" enable-autostart || return 1
+  if [ "$system_supervised" = "1" ] || [ "$had_autostart" = "1" ]; then
+    start_server || return 1
   elif [ "$was_running" = "1" ]; then
-    run_cli "$install_dir/buildworld" start || return 1
+    start_server || return 1
   fi
 
   attempt=0

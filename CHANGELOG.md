@@ -6,12 +6,16 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.16.28] - 2026-11-11
+
 ### Fixed
 
 - Avoid directly terminating a supervised macOS server and report the
   launchctl failure when its active LaunchAgent cannot be unloaded.
-- Reject unsafe self-updates of a system-managed macOS service before it is
-  interrupted, and report a healthy unchanged service accurately on rollback.
+- Permit authenticated updates of a system-managed macOS service only through
+  the verified, restricted administrator-installed supervisor bridge; reject
+  unsafe service identities and report a healthy unchanged service accurately
+  on rollback.
 - Resolve SCM build parameters and approval rules from the selected immutable
   revision, including webhook, startup, scheduled, and retry paths. Preserve
   full webhook object IDs and hold approval-required builds before queueing.

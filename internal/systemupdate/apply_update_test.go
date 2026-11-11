@@ -69,6 +69,18 @@ func TestUpdateHelperPreservesSnapshots(t *testing.T) {
 			lock := filepath.Join(state, "lock")
 			_, source, _, _ := runtime.Caller(0)
 			helper := filepath.Join(filepath.Dir(source), "..", "..", "scripts", "apply-update.sh")
+			if runtime.GOOS == "darwin" {
+				// The fixture must not inspect the host's real LaunchDaemon.
+				data, err := os.ReadFile(helper)
+				if err != nil {
+					t.Fatal(err)
+				}
+				isolated := strings.ReplaceAll(string(data), "/Library/LaunchDaemons/com.buildworld.server.plist", filepath.Join(root, "absent-system.plist"))
+				isolated = strings.ReplaceAll(isolated, "/bin/launchctl", filepath.Join(bin, "launchctl"))
+				writeTestFile(t, filepath.Join(bin, "launchctl"), "#!/bin/sh\nexit 1\n", 0o700)
+				helper = filepath.Join(root, "isolated-apply-update.sh")
+				writeTestFile(t, helper, isolated, 0o700)
+			}
 			cmd := exec.Command("sh", helper, bundlePath, fmt.Sprintf("%x", sum), "1.2.3", "abcdef", status, lock, install, "")
 			cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "UPDATE_TEST_FAILURE="+tc.fail)
 			output, err := cmd.CombinedOutput()

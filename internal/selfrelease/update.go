@@ -248,7 +248,7 @@ func submitBundle(ctx context.Context, client *http.Client, base, token, bundle 
 			Code string `json:"code"`
 		}
 		if json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&rejection) == nil && rejection.Code == "unsupported_update_supervisor" {
-			return "", fmt.Errorf("%w: BuildWorld is managed by a system LaunchDaemon; an administrator must migrate it to a per-user LaunchAgent", errUpdateRejected)
+			return "", fmt.Errorf("%w: BuildWorld system LaunchDaemon requires the verified, restricted administrator-installed supervisor bridge", errUpdateRejected)
 		}
 		return "", fmt.Errorf("%w: HTTP %d", errUpdateRejected, response.StatusCode)
 	}
