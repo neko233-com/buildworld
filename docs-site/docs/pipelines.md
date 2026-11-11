@@ -56,9 +56,14 @@ declarative conditions are rejected rather than silently running a guarded
 stage. Literal `beforeOptions`, `beforeInput`, and `beforeAgent` flags are
 accepted where their timing can be represented by the local executor;
 pre-agent evaluation with root `agent none` is rejected. REGEXP patterns
-must be accepted by Go's regular-expression engine, which supports a smaller
-syntax than Java's. Verify jobs using unsupported Jenkins plugins or features
-against Jenkins before migrating them.
+support common lookarounds and backreferences as well as Go's linear syntax;
+the backtracking engine has a 100 ms time limit and 65536 stack slots. Java's
+full regex language and every Unicode edge case are not supported. Some
+incompatible syntax is explicitly rejected, but validation is not exhaustive.
+Unicode or UNIX-lines Java flags, and case-insensitive patterns involving
+non-ASCII text or Unicode escapes, are rejected to prevent different matches.
+Verify regex patterns and jobs using unsupported plugins or features against
+Jenkins before migrating them.
 
 Stage `options { timeout(...) }` supports positive integral times in seconds,
 minutes (the default), hours or days. Stage input and input steps, `parallel`,

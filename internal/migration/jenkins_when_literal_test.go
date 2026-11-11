@@ -26,6 +26,9 @@ func TestJenkinsWhenGroovyLiteralEscapes(t *testing.T) {
 		{`environment(name: 'PRICE', value: "\$5")`, "main", map[string]string{"PRICE": "$5"}, nil, true},
 		{`expression { params.VALUE == 'line\nnext' }`, "main", nil, map[string]interface{}{"VALUE": "line\nnext"}, true},
 		{`expression { params.VALUE == "quote: \"yes\"" }`, "main", nil, map[string]interface{}{"VALUE": `quote: "yes"`}, true},
+		{`branch pattern: 'release-(?=[0-9]{2}$)[0-9]+', comparator: 'REGEXP'`, "release-44", nil, nil, true},
+		{`branch pattern: 'release-(?=[0-9]{3}$)[0-9]+', comparator: 'REGEXP'`, "release-44", nil, nil, false},
+		{`branch pattern: 'release-([0-9])\\1', comparator: 'REGEXP'`, "release-44", nil, nil, true},
 	}
 	for _, tc := range tests {
 		source := fmt.Sprintf(`pipeline { agent any stages { stage('test') { when { %s } steps { sh 'echo ok' } } } }`, tc.condition)

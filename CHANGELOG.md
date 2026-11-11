@@ -6,6 +6,13 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.16.34] - 2026-11-11
+
+### Fixed
+
+- Support bounded lookaround and backreference matching in Jenkins branch,
+  tag, change-request, changeset and changelog regex conditions.
+
 ## [1.16.33] - 2026-11-11
 
 ### Added

@@ -280,8 +280,16 @@ pipeline.
 Jenkins `when` supports `allOf`, `anyOf`, `not`, branch and tag patterns,
 `buildingTag()`, `changeset`, `changelog`, environment equality (including literal
 `ignoreCase`), `equals`, `changeRequest`, and a side-effect-free expression subset.
-Branch and tag patterns support `GLOB`, `EQUALS` and `REGEXP` comparators; Go's
-regular-expression syntax is narrower than Java's. Ant-style `GLOB` matching
+Branch and tag patterns support `GLOB`, `EQUALS` and `REGEXP` comparators.
+Regular expressions use Go's linear engine where possible, with a bounded
+backtracking engine for supported lookarounds and backreferences. Backtracking
+is limited to 100 ms and 65536 stack slots; reaching a limit fails the condition.
+Some incompatible syntax is explicitly rejected, but this is not an exhaustive
+Java compatibility validator: verify other patterns against Jenkins. Java's
+`(?U)`, `(?u)`, and `(?d)` flags are rejected, as are case-insensitive regex
+matches involving non-ASCII input or Unicode escapes, because their semantics
+differ between engines.
+Ant-style `GLOB` matching
 ignores repeated and trailing path separators, and matches `?` against one UTF-16
 code unit like Jenkins' Ant comparator. Expressions support `params` and `env`,
 `currentBuild.number`, boolean and ordered comparisons, equality and
@@ -328,8 +336,8 @@ code change. The event supplies `CHANGE_TARGET`, `CHANGE_BRANCH`, and
 also the MR author. External fork requests do not run automatically. Merge-ref
 strategies are not implemented.
 Git collection excludes merge commits, records at most 1024 commits and fails
-if its output exceeds 16 MiB. Regular expressions use Go syntax rather than
-Java's complete regular-expression language.
+if its output exceeds 16 MiB. SCM regular expressions use the same bounded
+engines and Java compatibility limits as branch and tag expressions.
 
 SCM checkout records use database migration 17. Older BuildWorld binaries reject
 databases with a newer migration ledger; verify a data-preserving downgrade or
@@ -367,9 +375,9 @@ metadata for supported change requests; other source integrations must supply
 their own values.
 The [Jenkins implementation](https://github.com/jenkinsci/pipeline-model-definition-plugin/blob/master/pipeline-model-definition/src/main/java/org/jenkinsci/plugins/pipeline/modeldefinition/when/impl/ChangeRequestConditional.java)
 currently accepts a `url` filter but does not check it, so BuildWorld rejects
-that filter rather than allowing a guard to be silently ignored. Groovy literal escapes are supported in condition strings;
-interpolated strings and regular-expression constructs unsupported by Go are
-rejected instead of being evaluated as a different condition.
+that filter rather than allowing a guard to be silently ignored. Groovy literal
+escapes are supported in condition strings; interpolated strings and known
+unsupported regex constructs are rejected rather than guessed.
 
 Unsupported conditions and arbitrary Groovy are rejected rather than executed
 unconditionally. Literal `beforeOptions`, `beforeInput` and `beforeAgent` are

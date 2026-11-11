@@ -3,6 +3,7 @@ module github.com/neko233-com/buildworld
 go 1.26.0
 
 require (
+	github.com/dlclark/regexp2/v2 v2.5.1
 	github.com/dop251/goja v0.0.0-20260701091749-b07b74453ea9
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/glebarez/go-sqlite v1.22.0
@@ -18,7 +19,6 @@ require (
 )
 
 require (
-	github.com/dlclark/regexp2/v2 v2.5.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1

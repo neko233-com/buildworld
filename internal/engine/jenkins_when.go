@@ -616,7 +616,11 @@ func compareJenkinsString(pattern, actual, comparator, fallback string) (bool, e
 	case "EQUALS":
 		return pattern == actual, nil
 	case "REGEXP":
-		return regexp.MatchString("^(?:"+pattern+")$", actual)
+		re, err := compileJenkinsRegex(`\A(?:` + pattern + `)\z`)
+		if err != nil {
+			return false, err
+		}
+		return re.match(actual)
 	default:
 		return matchJenkinsBranch(pattern, actual)
 	}

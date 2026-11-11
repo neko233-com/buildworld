@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"unicode/utf8"
@@ -171,7 +170,7 @@ func jenkinsMatchesChangeSet(pattern, comparator string, caseSensitive bool, cha
 		comparator = "GLOB"
 	}
 	var glob *jenkinsPathPattern
-	var expression *regexp.Regexp
+	var expression *jenkinsRegex
 	for _, change := range changes {
 		for _, path := range change.Paths {
 			path = jenkinsDefaultIfBlank(path)
@@ -187,10 +186,10 @@ func jenkinsMatchesChangeSet(pattern, comparator string, caseSensitive bool, cha
 				}
 			case "REGEXP":
 				if expression == nil {
-					expression, err = regexp.Compile(`\A(?:` + pattern + `)\z`)
+					expression, err = compileJenkinsRegex(`\A(?:` + pattern + `)\z`)
 				}
 				if err == nil {
-					matched = expression.MatchString(path)
+					matched, err = expression.match(path)
 				}
 			default:
 				matched = pattern == path
@@ -204,17 +203,22 @@ func jenkinsMatchesChangeSet(pattern, comparator string, caseSensitive bool, cha
 }
 
 func jenkinsMatchesChangeLog(pattern string, changes []jenkinsSCMChange) (bool, error) {
-	titlePattern, err := regexp.Compile(`\A(?:` + pattern + `)\z`)
+	titlePattern, err := compileJenkinsRegex(`\A(?:` + pattern + `)\z`)
 	if err != nil {
 		return false, err
 	}
-	commentPattern, err := regexp.Compile(`(?ms)\A(?:[^\r\n]*?` + pattern + `[^\r\n]*?)\z`)
+	commentPattern, err := compileJenkinsRegex(`(?ms)\A(?:[^\r\n]*?` + pattern + `[^\r\n]*?)\z`)
 	if err != nil {
 		return false, err
 	}
 	for _, change := range changes {
-		if titlePattern.MatchString(change.Title) || commentPattern.MatchString(change.Comment) {
-			return true, nil
+		matched, err := titlePattern.match(change.Title)
+		if err != nil || matched {
+			return matched, err
+		}
+		matched, err = commentPattern.match(change.Comment)
+		if err != nil || matched {
+			return matched, err
 		}
 	}
 	return false, nil
