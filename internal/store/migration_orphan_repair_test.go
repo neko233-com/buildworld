@@ -64,6 +64,7 @@ func TestProjectHistoryReferenceMigrationRepairsProductionOrphansWithForeignKeys
 		"15:build-release-identities",
 		"16:durable-webhook-deliveries",
 		"17:jenkins-scm-checkouts",
+		"18:login-and-idempotency-audit-indexes",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("migration ledger = %v, want %v", got, want)
 	}
@@ -113,6 +114,7 @@ func TestProjectHistoryReferenceMigrationRepairsProductionOrphansWithForeignKeys
 func createProjectHistoryRepairFixtureTables(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
+		`CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY, user_id INTEGER, username TEXT, action TEXT NOT NULL, resource_type TEXT, resource_id TEXT, ip TEXT, created_at DATETIME)`,
 		`CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY)`,
 		`CREATE TABLE IF NOT EXISTS builds (
 			id INTEGER PRIMARY KEY,

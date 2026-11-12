@@ -361,7 +361,7 @@ export async function request<T = any>(method: string, path: string, body?: any,
       throw new ApiError(message, 0, 'network_unavailable')
     }
 
-    if (resp.status === 401) {
+    if (resp.status === 401 && path !== '/auth/login') {
       clearToken()
       window.location.href = '/login'
       throw new ApiError('Unauthorized', 401, 'unauthorized')
@@ -393,8 +393,8 @@ export async function request<T = any>(method: string, path: string, body?: any,
 
 export const api = {
   // auth
-  login: (username: string, password: string) =>
-    request<{ token: string; user: any }>('POST', '/auth/login', { username, password }),
+  login: (username: string, password: string, totpCode: string) =>
+    request<{ token: string; user: any }>('POST', '/auth/login', { username, password, totp_code: totpCode }),
   me: () => request<any>('GET', '/auth/me'),
 
   // projects

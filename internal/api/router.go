@@ -61,13 +61,21 @@ func NewRouter(d Deps) http.Handler {
 	h := &handlers{d: d, portability: portabilityRegistry, migrations: migration.NewDefaultRegistry()}
 	apiTokenValidator := auth.NewAPITokenValidator(d.Store)
 	sessionValidator := auth.NewJWTSessionValidator(d.Store)
+	requireMFA := d.Cfg != nil && d.Cfg.Auth.TOTPRequired
+	validateMFA := func(claims *auth.Claims) bool {
+		if d.Store == nil || d.Cfg == nil || d.JWT == nil {
+			return false
+		}
+		user, err := d.Store.GetUser(claims.UserID)
+		return err == nil && user != nil && d.JWT.MatchesMFASecret(claims, d.Cfg.Auth.TOTPSecrets[user.Username])
+	}
 	adminOnly := auth.RequireRoles("admin")
 	editors := auth.RequireRoles("admin", "developer")
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(contentTypeJSONMiddleware)
 		r.Group(func(r chi.Router) {
-			r.Use(auth.Middleware(d.JWT, sessionValidator, apiTokenValidator, publicPrefixes...))
+			r.Use(auth.MiddlewareWithMFA(d.JWT, sessionValidator, apiTokenValidator, requireMFA, validateMFA, publicPrefixes...))
 			// --- health & version ---
 			r.Get("/health", h.health)
 			r.Get("/version", h.version)
@@ -316,7 +324,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 	})
 	// WebSocket endpoint.
-	r.With(auth.Middleware(d.JWT, sessionValidator, apiTokenValidator)).Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+	r.With(auth.MiddlewareWithMFA(d.JWT, sessionValidator, apiTokenValidator, requireMFA, validateMFA)).Get("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ws.HandleWebSocket(d.Hub, w, r)
 	})
 

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -82,7 +83,7 @@ func (h *handlers) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *handlers) version(w http.ResponseWriter, _ *http.Request) {
-	response := map[string]string{"version": buildinfo.Version}
+	response := map[string]string{"version": buildinfo.Version, "build_idempotency": "v1", "single_server_release_receipt": "v1", "auth_totp_required": strconv.FormatBool(h.d.Cfg != nil && h.d.Cfg.Auth.TOTPRequired)}
 	if executable, err := os.Executable(); err == nil {
 		if commit := buildinfo.ReleaseCommit(executable, buildinfo.Version); commit != "" {
 			response["source_commit"] = commit
@@ -98,6 +99,7 @@ func (h *handlers) version(w http.ResponseWriter, _ *http.Request) {
 type loginReq struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	TOTPCode string `json:"totp_code"`
 }
 
 type loginResp struct {
@@ -108,12 +110,30 @@ type loginResp struct {
 
 func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 	var req loginReq
+	r.Body = http.MaxBytesReader(w, r.Body, 8192)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Username == "" || req.Password == "" {
+	if req.Username == "" || len(req.Username) > 256 || req.Password == "" || len(req.Password) > 4096 {
 		writeErr(w, http.StatusBadRequest, "username and password required")
+		return
+	}
+	// Only the socket peer is trusted. Forwarded headers require a separately
+	// configured trusted proxy and must not let callers choose their rate key.
+	peer, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil || peer == "" || h.d.Store == nil {
+		writeErr(w, http.StatusServiceUnavailable, "login protection unavailable")
+		return
+	}
+	allowed, err := h.d.Store.ReserveLoginAttempt(req.Username, peer)
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "login protection unavailable")
+		return
+	}
+	if !allowed {
+		w.Header().Set("Retry-After", "300")
+		writeErr(w, http.StatusTooManyRequests, "too many login attempts")
 		return
 	}
 
@@ -126,11 +146,33 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
+	requireTOTP := h.d.Cfg != nil && h.d.Cfg.Auth.TOTPRequired
+	if requireTOTP {
+		counter, valid := auth.VerifyTOTP(h.d.Cfg.Auth.TOTPSecrets[user.Username], req.TOTPCode, time.Now())
+		if !valid {
+			writeErr(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+		consumed, consumeErr := h.d.Store.ConsumeTOTP(user.ID, counter)
+		if consumeErr != nil {
+			writeErr(w, http.StatusServiceUnavailable, "login protection unavailable")
+			return
+		}
+		if !consumed {
+			writeErr(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+	}
 
 	_ = h.d.Store.UpdateLastLogin(user.ID)
 
 	const sessionDuration = 30 * 24 * time.Hour
-	token, err := h.d.JWT.Generate(user.ID, user.Role, user.SessionVersion, sessionDuration)
+	var token string
+	if requireTOTP {
+		token, err = h.d.JWT.GenerateMFA(user.ID, user.Role, user.SessionVersion, sessionDuration, h.d.Cfg.Auth.TOTPSecrets[user.Username])
+	} else {
+		token, err = h.d.JWT.Generate(user.ID, user.Role, user.SessionVersion, sessionDuration)
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to generate token")
 		return
@@ -1031,6 +1073,32 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	idempotencyKey, fingerprint, err := buildIdempotencyIdentity(project.ID, r.Header.Get("Idempotency-Key"), req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if idempotencyKey != "" {
+		if userIDOf(r) <= 0 {
+			writeErr(w, http.StatusUnauthorized, "authenticated build identity required")
+			return
+		}
+		existing, lookupErr := h.d.Store.FindIdempotentBuild(idempotencyKey, fingerprint, userIDOf(r))
+		if errors.Is(lookupErr, store.ErrBuildIdempotencyConflict) {
+			writeErr(w, http.StatusConflict, "idempotency key conflicts with another request")
+			return
+		}
+		if lookupErr != nil {
+			writeErr(w, http.StatusServiceUnavailable, "build receipt unavailable")
+			return
+		}
+		if existing != nil {
+			w.Header().Set("Idempotency-Supported", "v1")
+			w.Header().Set("Idempotency-Replayed", "true")
+			writeJSON(w, http.StatusOK, h.publicBuild(existing))
+			return
+		}
+	}
 
 	branch := strings.TrimSpace(req.Branch)
 	if branch == "" {
@@ -1052,6 +1120,7 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "cannot identify build trigger user")
 		return
 	}
+	var policyAudit *store.IdempotentBuildAudit
 	if req.NotificationMode == "in_app_only" {
 		paramsJSON, err = engine.AttachInAppOnlyNotifications(paramsJSON)
 		if err != nil {
@@ -1067,13 +1136,30 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "cannot audit notification policy")
 			return
 		}
+		policyAudit = &store.IdempotentBuildAudit{Username: user.Username, Detail: "in_app_only: " + req.NotificationReason, IP: clientIP(r)}
 	}
-	build, err := h.d.Store.CreateNextBuildWithApproval(project.ID, "manual", branch, revision, paramsJSON, nil, nil, hold)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+	var build *store.Build
+	created := true
+	if idempotencyKey != "" {
+		build, created, err = h.d.Store.CreateIdempotentBuild(project.ID, userIDOf(r), idempotencyKey, fingerprint, branch, revision, paramsJSON, hold, policyAudit)
+	} else {
+		build, err = h.d.Store.CreateNextBuildWithApproval(project.ID, "manual", branch, revision, paramsJSON, nil, nil, hold)
+	}
+	if errors.Is(err, store.ErrBuildIdempotencyConflict) {
+		writeErr(w, http.StatusConflict, "idempotency key conflicts with another request")
 		return
 	}
-	if req.NotificationMode == "in_app_only" {
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "build receipt unavailable")
+		return
+	}
+	if !created {
+		w.Header().Set("Idempotency-Supported", "v1")
+		w.Header().Set("Idempotency-Replayed", "true")
+		writeJSON(w, http.StatusOK, h.publicBuild(build))
+		return
+	}
+	if req.NotificationMode == "in_app_only" && idempotencyKey == "" {
 		// The pre-creation audit is mandatory; this second record links it to the
 		// allocated build. Do not enqueue if that link cannot be recorded.
 		user, userErr := h.d.Store.GetUser(userIDOf(r))
@@ -1093,6 +1179,9 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+	}
+	if idempotencyKey != "" {
+		w.Header().Set("Idempotency-Supported", "v1")
 	}
 	writeJSON(w, http.StatusCreated, h.publicBuild(build))
 }

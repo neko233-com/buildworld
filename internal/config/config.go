@@ -35,7 +35,9 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret string `yaml:"jwt_secret"`
+	JWTSecret    string            `yaml:"jwt_secret"`
+	TOTPRequired bool              `yaml:"totp_required"`
+	TOTPSecrets  map[string]string `yaml:"totp_secrets"`
 }
 
 type PluginsConfig struct {

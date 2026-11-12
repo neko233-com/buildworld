@@ -109,9 +109,18 @@ describe('Login', () => {
 
     await submit(container.querySelector<HTMLFormElement>('form')!)
 
-    expect(login).toHaveBeenCalledWith('admin', 'secret')
+    expect(login).toHaveBeenCalledWith('admin', 'secret', '')
     expect(container.querySelector('[role="alert"]')?.textContent).toBe('Invalid username or password')
     expect(username.getAttribute('aria-invalid')).toBe('true')
     expect(password.getAttribute('aria-describedby')).toBe('login-error')
+  })
+
+  it('submits a six digit authenticator code when supplied', async () => {
+    login.mockRejectedValue(new Error('Invalid credentials'))
+    inputValue(container.querySelector<HTMLInputElement>('#login-username')!, 'admin')
+    inputValue(container.querySelector<HTMLInputElement>('#login-password')!, 'secret')
+    inputValue(container.querySelector<HTMLInputElement>('#login-totp')!, '12x3456')
+    await submit(container.querySelector<HTMLFormElement>('form')!)
+    expect(login).toHaveBeenCalledWith('admin', 'secret', '123456')
   })
 })

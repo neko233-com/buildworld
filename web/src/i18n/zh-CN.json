@@ -16,6 +16,7 @@
     "description": "请使用此服务器已配置的账号。",
     "username": "用户名",
     "password": "密码",
+    "oneTimeCode": "动态验证码（启用时填写）",
     "showPassword": "显示密码",
     "hidePassword": "隐藏密码",
     "signIn": "登录",

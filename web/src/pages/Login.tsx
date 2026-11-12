@@ -10,6 +10,7 @@ export default function Login() {
   const { t, locale, locales, changeLocale } = useI18n()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [totpCode, setTotpCode] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -21,7 +22,7 @@ export default function Login() {
     setLoading(true)
     setError('')
     try {
-      const { token } = await api.login(username.trim(), password)
+      const { token } = await api.login(username.trim(), password, totpCode)
       setToken(token)
       window.location.assign('/')
     } catch (reason: any) {
@@ -91,6 +92,12 @@ export default function Login() {
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
+        </div>
+
+        <div className="jenkins-login-field">
+          <label htmlFor="login-totp">{t('login.oneTimeCode')}</label>
+          <input id="login-totp" name="totp_code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} disabled={loading}
+            value={totpCode} onChange={event => setTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))} />
         </div>
 
         <button className="jenkins-login-submit" type="submit" disabled={loading || !username.trim() || !password}>

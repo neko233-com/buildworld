@@ -350,6 +350,21 @@ var schemaMigrations = []schemaMigration{
 	{version: 15, name: "build-release-identities", up: addBuildReleaseIdentities},
 	{version: 16, name: "durable-webhook-deliveries", up: addWebhookDeliveries},
 	{version: 17, name: "jenkins-scm-checkouts", up: addJenkinsSCMCheckouts},
+	{version: 18, name: "login-and-idempotency-audit-indexes", up: addLoginAndIdempotencyAuditIndexes},
+}
+
+// addLoginAndIdempotencyAuditIndexes keeps login protection and request lookup bounded as audit history grows.
+func addLoginAndIdempotencyAuditIndexes(tx *sql.Tx) error {
+	for _, statement := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_audit_request_lookup ON audit_logs(action, resource_type, username, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_login_source ON audit_logs(action, resource_type, ip, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_totp_consumed ON audit_logs(user_id, action, resource_type, resource_id)`,
+	} {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("create login/idempotency audit index: %w", err)
+		}
+	}
+	return nil
 }
 
 func addJenkinsSCMCheckouts(tx *sql.Tx) error {

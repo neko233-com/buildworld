@@ -16,6 +16,7 @@
     "description": "Use an account configured for this server.",
     "username": "Username",
     "password": "Password",
+    "oneTimeCode": "Authenticator code (if enabled)",
     "showPassword": "Show password",
     "hidePassword": "Hide password",
     "signIn": "Sign in",

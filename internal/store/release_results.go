@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -13,18 +14,19 @@ import (
 const ReleaseResultMarker = "::buildworld:release-result "
 
 type BuildReleaseResult struct {
-	SourceCommit     string `json:"sourceCommit,omitempty"`
-	ConfigCommit     string `json:"configCommit,omitempty"`
-	ConfigSnapshotID string `json:"configSnapshotId,omitempty"`
-	ConfigVersion    string `json:"configVersion,omitempty"`
-	SDKVersion       string `json:"sdkVersion,omitempty"`
-	GatewayVersion   string `json:"gatewayVersion,omitempty"`
-	Channel          string `json:"channel"`
-	Environment      string `json:"environment"`
-	Action           string `json:"action"`
-	Version          string `json:"version"`
-	Branch           string `json:"branch,omitempty"`
-	Component        string `json:"component,omitempty"`
+	SourceCommit     string   `json:"sourceCommit,omitempty"`
+	ConfigCommit     string   `json:"configCommit,omitempty"`
+	ConfigSnapshotID string   `json:"configSnapshotId,omitempty"`
+	ConfigVersion    string   `json:"configVersion,omitempty"`
+	SDKVersion       string   `json:"sdkVersion,omitempty"`
+	GatewayVersion   string   `json:"gatewayVersion,omitempty"`
+	TargetServerIDs  []string `json:"targetServerIds,omitempty"`
+	Channel          string   `json:"channel"`
+	Environment      string   `json:"environment"`
+	Action           string   `json:"action"`
+	Version          string   `json:"version"`
+	Branch           string   `json:"branch,omitempty"`
+	Component        string   `json:"component,omitempty"`
 }
 
 const releaseResultsSchema = `CREATE TABLE IF NOT EXISTS build_release_results (
@@ -104,6 +106,27 @@ func (s *Store) CaptureReleaseResults(buildID int64, content string) error {
 		if selected, ok := parameters["RELEASE_BRANCH"].(string); ok && selected != "" && selected != result.Branch {
 			continue
 		}
+		target, valid := requestedReleaseServerID(parameters["TARGET_SERVER_ID"])
+		if !valid || target == "" && len(result.TargetServerIDs) != 0 || target != "" && (result.Component != "game-server" || len(result.TargetServerIDs) != 1 || result.TargetServerIDs[0] != target) {
+			continue
+		}
+		if target != "" {
+			// Partial deployment receipts do not belong in the whole-scope
+			// release catalog. Store them separately without changing its schema.
+			payload, err := json.Marshal(result)
+			if err != nil {
+				return err
+			}
+			buildKey := strconv.FormatInt(buildID, 10)
+			_, err = s.db.Exec(`INSERT INTO audit_logs (username, action, resource_type, detail)
+				SELECT ?, 'single-server-release', ?, ?
+				WHERE NOT EXISTS (SELECT 1 FROM audit_logs WHERE username=? AND action='single-server-release' AND resource_type=?)`,
+				buildKey, result.Component, string(payload), buildKey, result.Component)
+			if err != nil {
+				return fmt.Errorf("persist single-server release receipt: %w", err)
+			}
+			continue
+		}
 		_, err := s.db.Exec(`INSERT INTO build_release_results (build_id, component, channel, environment, action, version, branch, source_commit, config_commit, config_snapshot_id, config_version, sdk_version, gateway_version)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(build_id, component) DO NOTHING`, buildID, result.Component, result.Channel, result.Environment, result.Action, result.Version, result.Branch, result.SourceCommit, result.ConfigCommit, result.ConfigSnapshotID, result.ConfigVersion, result.SDKVersion, result.GatewayVersion)
@@ -112,6 +135,32 @@ func (s *Store) CaptureReleaseResults(buildID int64, content string) error {
 		}
 	}
 	return nil
+}
+
+func requestedReleaseServerID(value any) (string, bool) {
+	if value == nil {
+		return "", true
+	}
+	var raw string
+	switch typed := value.(type) {
+	case string:
+		if typed == "" || typed == "0" {
+			return "", true
+		}
+		raw = typed
+	case float64:
+		if typed == 0 {
+			return "", true
+		}
+		raw = strconv.FormatFloat(typed, 'f', -1, 64)
+	default:
+		return "", false
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != raw {
+		return "", false
+	}
+	return raw, true
 }
 
 // AttachReleaseResults batches metadata reads and never loads build log bodies.
@@ -131,7 +180,6 @@ func (s *Store) AttachReleaseResults(builds []*Build) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var id int64
 		var result BuildReleaseResult
@@ -140,7 +188,34 @@ func (s *Store) AttachReleaseResults(builds []*Build) error {
 		}
 		byID[id].ReleaseResults = append(byID[id].ReleaseResults, &result)
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for i, build := range builds {
+		args[i] = strconv.FormatInt(build.ID, 10)
+	}
+	partialRows, err := s.db.Query("SELECT username, detail FROM audit_logs WHERE action='single-server-release' AND username IN ("+strings.Join(placeholders, ",")+") ORDER BY id", args...)
+	if err != nil {
+		return err
+	}
+	defer partialRows.Close()
+	for partialRows.Next() {
+		var buildKey, detail string
+		var result BuildReleaseResult
+		if err := partialRows.Scan(&buildKey, &detail); err != nil {
+			return err
+		}
+		id, parseErr := strconv.ParseInt(buildKey, 10, 64)
+		if parseErr != nil || byID[id] == nil || json.Unmarshal([]byte(detail), &result) != nil || len(result.TargetServerIDs) != 1 {
+			return fmt.Errorf("single-server release receipt is invalid")
+		}
+		byID[id].ReleaseResults = append(byID[id].ReleaseResults, &result)
+	}
+	return partialRows.Err()
 }
 
 // ListReleaseRecords returns completed successful publications without build logs or secret parameters.

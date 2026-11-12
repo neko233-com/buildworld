@@ -121,6 +121,12 @@ func NewAPITokenValidator(s *store.Store) APITokenValidator {
 // bw_session cookie (for browser/AI agent flows), or an API Token.
 // Public paths (e.g. login, health, webhooks) bypass auth.
 func Middleware(jwt *JWT, sessionValidator JWTSessionValidator, apiTokenValidator APITokenValidator, publicPrefixes ...string) func(http.Handler) http.Handler {
+	return MiddlewareWithMFA(jwt, sessionValidator, apiTokenValidator, false, nil, publicPrefixes...)
+}
+
+// MiddlewareWithMFA rejects browser sessions issued before MFA was enabled;
+// scoped API tokens remain a separate machine authentication mechanism.
+func MiddlewareWithMFA(jwt *JWT, sessionValidator JWTSessionValidator, apiTokenValidator APITokenValidator, requireMFA bool, validateMFA func(*Claims) bool, publicPrefixes ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			for _, p := range publicPrefixes {
@@ -154,7 +160,7 @@ func Middleware(jwt *JWT, sessionValidator JWTSessionValidator, apiTokenValidato
 				return
 			}
 			claims, err := jwt.Validate(token)
-			if err != nil {
+			if err != nil || (requireMFA && (validateMFA == nil || !validateMFA(claims))) {
 				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return
 			}
@@ -182,9 +188,6 @@ func extractToken(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
 		return strings.TrimPrefix(auth, "Bearer ")
-	}
-	if qt := r.URL.Query().Get("token"); qt != "" {
-		return qt
 	}
 	if session, err := r.Cookie("bw_session"); err == nil {
 		return session.Value

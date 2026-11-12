@@ -44,6 +44,11 @@ func TestMiddlewareAuthenticatesNestedChiRoute(t *testing.T) {
 	if authorized.Body.String() != "42" {
 		t.Fatalf("authenticated user id = %q, want 42", authorized.Body.String())
 	}
+	queryOnly := httptest.NewRecorder()
+	router.ServeHTTP(queryOnly, httptest.NewRequest(http.MethodGet, "/api/auth/me?token="+token, nil))
+	if queryOnly.Code != http.StatusUnauthorized {
+		t.Fatalf("credential in URL accepted: %d", queryOnly.Code)
+	}
 }
 
 func TestMiddlewarePublicPathMatchingIsExactUnlessDirectory(t *testing.T) {
