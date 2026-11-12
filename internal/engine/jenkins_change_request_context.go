@@ -13,6 +13,65 @@ const jenkinsChangeRequestContextKey = "\x00buildworld.changeRequest"
 const jenkinsTriggerUserContextKey = "\x00buildworld.triggerUser"
 const jenkinsRetryContextKey = "\x00buildworld.retry"
 const notificationModeContextKey = "\x00buildworld.notificationMode"
+const prestartPipelineContextKey = "\x00buildworld.prestartPipelineRepo"
+
+// AttachPrestartPipelineGuard 保存预留服流水线的可信仓库，供执行时再次核对。
+func AttachPrestartPipelineGuard(parameters, repo string) (string, error) {
+	fields := make(map[string]json.RawMessage)
+	if json.Unmarshal([]byte(parameters), &fields) != nil || fields == nil || strings.TrimSpace(repo) == "" {
+		return "", fmt.Errorf("invalid prestart pipeline context")
+	}
+	if _, exists := fields[prestartPipelineContextKey]; exists {
+		return "", fmt.Errorf("reserved prestart context already exists")
+	}
+	fields[prestartPipelineContextKey], _ = json.Marshal(repo)
+	result, err := json.Marshal(fields)
+	return string(result), err
+}
+
+// ValidatePrestartPipelineGuard 在排队和实际执行时检查相同的流水线身份。
+func ValidatePrestartPipelineGuard(project *store.Project, config *BuildConfig, repo string) error {
+	if project == nil || !project.Enabled || strings.TrimSpace(repo) == "" || project.PipelineSCMRepo != repo ||
+		project.PipelineSourceMode != "scm" || project.PipelineFormat != "jenkinsfile" ||
+		project.PipelineSCMPath != "server_game/.jenkins/Jenkinsfile_ProductionRelease_Prestart" {
+		return fmt.Errorf("prestart pipeline identity mismatch")
+	}
+	if config == nil {
+		return nil
+	}
+	count := 0
+	for _, parameter := range config.Parameters {
+		if parameter.Name == "OPENING_PROBE_SECRET" {
+			count++
+			if !parameter.IsSecret && !strings.EqualFold(parameter.Type, "password") {
+				return fmt.Errorf("prestart probe secret is not protected")
+			}
+		}
+	}
+	if count != 1 {
+		return fmt.Errorf("prestart probe secret declaration is invalid")
+	}
+	return nil
+}
+
+func validateStoredPrestartPipeline(project *store.Project, config *BuildConfig, parameters string) error {
+	if strings.TrimSpace(parameters) == "" {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal([]byte(parameters), &fields) != nil {
+		return fmt.Errorf("invalid build parameters")
+	}
+	value, exists := fields[prestartPipelineContextKey]
+	if !exists {
+		return nil
+	}
+	var repo string
+	if json.Unmarshal(value, &repo) != nil {
+		return fmt.Errorf("invalid prestart pipeline context")
+	}
+	return ValidatePrestartPipelineGuard(project, config, repo)
+}
 
 // AttachInAppOnlyNotifications persists a per-build delivery policy in reserved metadata.
 func AttachInAppOnlyNotifications(parameters string) (string, error) {
@@ -149,6 +208,7 @@ func PublicBuildParameters(parameters map[string]interface{}) {
 	delete(parameters, jenkinsTriggerUserContextKey)
 	delete(parameters, jenkinsRetryContextKey)
 	delete(parameters, notificationModeContextKey)
+	delete(parameters, prestartPipelineContextKey)
 }
 
 // AttachJenkinsTriggerUser records the authenticated user at build creation.

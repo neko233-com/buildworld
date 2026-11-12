@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"strconv"
@@ -83,7 +84,7 @@ func (h *handlers) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *handlers) version(w http.ResponseWriter, _ *http.Request) {
-	response := map[string]string{"version": buildinfo.Version, "build_idempotency": "v1", "single_server_release_receipt": "v1", "multi_server_release_receipt": "v1", "auth_totp_required": strconv.FormatBool(h.d.Cfg != nil && h.d.Cfg.Auth.TOTPRequired)}
+	response := map[string]string{"version": buildinfo.Version, "build_idempotency": "v1", "single_server_release_receipt": "v1", "multi_server_release_receipt": "v1", "prestart_pipeline_guard": "v1", "auth_totp_required": strconv.FormatBool(h.d.Cfg != nil && h.d.Cfg.Auth.TOTPRequired)}
 	if executable, err := os.Executable(); err == nil {
 		if commit := buildinfo.ReleaseCommit(executable, buildinfo.Version); commit != "" {
 			response["source_commit"] = commit
@@ -652,10 +653,12 @@ func (h *handlers) reorderProjects(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type triggerBuildReq struct {
-	Branch             string                 `json:"branch"`
-	Parameters         map[string]interface{} `json:"parameters"`
-	NotificationMode   string                 `json:"notification_mode"`
-	NotificationReason string                 `json:"notification_reason"`
+	Branch               string                 `json:"branch"`
+	Parameters           map[string]interface{} `json:"parameters"`
+	NotificationMode     string                 `json:"notification_mode"`
+	NotificationReason   string                 `json:"notification_reason"`
+	PrestartContract     string                 `json:"prestart_contract,omitempty"`
+	ExpectedPipelineRepo string                 `json:"expected_pipeline_repo,omitempty"`
 }
 
 func decodeTriggerBuildRequest(r *http.Request) (triggerBuildReq, error) {
@@ -1078,6 +1081,15 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if req.PrestartContract != "" || req.ExpectedPipelineRepo != "" {
+		repo, parseErr := url.Parse(req.ExpectedPipelineRepo)
+		if req.PrestartContract != "v1" || idempotencyKey == "" || req.Branch != "main" || parseErr != nil || repo == nil ||
+			(repo.Scheme != "http" && repo.Scheme != "https") || repo.Host == "" || repo.User != nil || repo.RawQuery != "" || repo.Fragment != "" ||
+			engine.ValidatePrestartPipelineGuard(project, nil, req.ExpectedPipelineRepo) != nil {
+			writeErr(w, http.StatusBadRequest, "invalid prestart pipeline contract")
+			return
+		}
+	}
 	if idempotencyKey != "" {
 		if userIDOf(r) <= 0 {
 			writeErr(w, http.StatusUnauthorized, "authenticated build identity required")
@@ -1108,6 +1120,17 @@ func (h *handlers) triggerBuild(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if req.PrestartContract == "v1" {
+		if engine.ValidatePrestartPipelineGuard(project, config, req.ExpectedPipelineRepo) != nil {
+			writeErr(w, http.StatusBadRequest, "invalid prestart pipeline contract")
+			return
+		}
+		paramsJSON, err = engine.AttachPrestartPipelineGuard(paramsJSON, req.ExpectedPipelineRepo)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "cannot persist prestart pipeline contract")
+			return
+		}
 	}
 	hold, err := h.approvalHold(config)
 	if err != nil {

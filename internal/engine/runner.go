@@ -591,6 +591,10 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 		}
 	}
 
+	if err := validateStoredPrestartPipeline(project, nil, build.Parameters); err != nil {
+		r.failWithoutRetry(buildID, start, err.Error(), project)
+		return
+	}
 	source, revision, err := ResolveBuildPipelineSource(ctx, project, build)
 	if err != nil {
 		r.fail(buildID, start, fmt.Sprintf("pipeline source: %v", err), project)
@@ -606,6 +610,10 @@ func (r *BuildRunner) run(ctx context.Context, buildID int64) {
 	cfg, err := r.parseBuildConfig(project, source)
 	if err != nil {
 		r.fail(buildID, start, fmt.Sprintf("invalid pipeline config: %v", err), project)
+		return
+	}
+	if err := validateStoredPrestartPipeline(project, cfg, build.Parameters); err != nil {
+		r.failWithoutRetry(buildID, start, err.Error(), project)
 		return
 	}
 	if err := ValidateConfiguredReleaseTarget(cfg, parseParams(build.Parameters)); err != nil {

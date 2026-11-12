@@ -45,6 +45,10 @@ func TestBuildTriggerIdempotencyReturnsOriginalAndRejectsChanges(t *testing.T) {
 		return response
 	}
 	key := "stable-request-0001"
+	guarded := trigger(`{"branch":"main","prestart_contract":"v1","expected_pipeline_repo":"https://git.example/game.git","parameters":{"OPENING_PROBE_SECRET":"fixture"}}`, "stable-prestart-0001")
+	if guarded.Code != http.StatusBadRequest || strings.Contains(guarded.Body.String(), "fixture") {
+		t.Fatalf("non-prestart project accepted or exposed a secret: %d", guarded.Code)
+	}
 	first := trigger(`{"branch":"main"}`, key)
 	if first.Code != http.StatusCreated || first.Header().Get("Idempotency-Supported") != "v1" {
 		t.Fatalf("first request: %d %s", first.Code, first.Body.String())

@@ -115,6 +115,9 @@ func TestVersionEndpoint(t *testing.T) {
 	if resp["multi_server_release_receipt"] != "v1" {
 		t.Error("multi-server receipt capability was not advertised")
 	}
+	if resp["prestart_pipeline_guard"] != "v1" {
+		t.Error("prestart pipeline guard capability was not advertised")
+	}
 }
 
 func TestVersionEndpointMethodNotAllowed(t *testing.T) {
