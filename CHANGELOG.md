@@ -6,6 +6,19 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.16.38] - 2026-11-12
+
+### Added
+
+- Protect administrator login with optional TOTP and bounded failed-login attempts.
+- Preserve idempotent build identities and provide authenticated read-only lookup for uncertain submissions.
+- Record selected-server release receipts independently from complete-environment release history.
+- Guard prestart builds against pipeline identity changes and unmasked task secrets.
+
+### Fixed
+
+- Prevent partial server releases from appearing as complete-environment restarts in build history.
+
 ## [1.16.37] - 2026-11-11
 
 ### Added
