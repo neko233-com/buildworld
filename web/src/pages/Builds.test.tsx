@@ -101,6 +101,22 @@ describe('Builds active refresh', () => {
     expect(container.querySelectorAll('.builds-table tbody .row-actions > *')).toHaveLength(6)
   })
 
+  it('shows partial targets without offering an unscoped restart link', async () => {
+    const release = { channel: 'wechat', environment: 'test', action: 'restart-version', version: '1.2.3', component: 'game-server' }
+    searchBuilds.mockReset().mockResolvedValue({
+      ...terminalResult,
+      items: [
+        { ...terminalResult.items[0], finished_at: '2026-11-12T12:00:00Z', release_results: [{ ...release, targetServerIds: ['10001', '10002'] }] },
+        { ...terminalResult.items[1], finished_at: '2026-11-12T12:00:00Z', release_results: [release] },
+      ],
+    })
+    await renderBuilds()
+    const rows = container.querySelectorAll('.builds-table tbody tr')
+    expect(rows[0]?.textContent).toContain('10001, 10002')
+    expect(rows[0]?.querySelector('a[href*="release_action=restart-version"]')).toBeNull()
+    expect(rows[1]?.querySelector('a[href*="release_action=restart-version"]')).not.toBeNull()
+  })
+
   it('clears active polling when the page unmounts', async () => {
     vi.useFakeTimers()
     await renderBuilds()

@@ -61,6 +61,7 @@ export type BuildReleaseResult = {
   configVersion?: string
   sdkVersion?: string
   gatewayVersion?: string
+  targetServerIds?: string[]
   channel: string
   environment: string
   action: string

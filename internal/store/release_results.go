@@ -106,11 +106,11 @@ func (s *Store) CaptureReleaseResults(buildID int64, content string) error {
 		if selected, ok := parameters["RELEASE_BRANCH"].(string); ok && selected != "" && selected != result.Branch {
 			continue
 		}
-		target, valid := requestedReleaseServerID(parameters["TARGET_SERVER_ID"])
-		if !valid || target == "" && len(result.TargetServerIDs) != 0 || target != "" && (result.Component != "game-server" || len(result.TargetServerIDs) != 1 || result.TargetServerIDs[0] != target) {
+		targets, valid := requestedReleaseServerIDs(parameters)
+		if !valid || len(targets) == 0 && len(result.TargetServerIDs) != 0 || len(targets) != 0 && (result.Component != "game-server" || !sameReleaseServerIDs(targets, result.TargetServerIDs)) {
 			continue
 		}
-		if target != "" {
+		if len(targets) != 0 {
 			// Partial deployment receipts do not belong in the whole-scope
 			// release catalog. Store them separately without changing its schema.
 			payload, err := json.Marshal(result)
@@ -118,10 +118,14 @@ func (s *Store) CaptureReleaseResults(buildID int64, content string) error {
 				return err
 			}
 			buildKey := strconv.FormatInt(buildID, 10)
+			action := "single-server-release"
+			if len(targets) > 1 {
+				action = "partial-server-release"
+			}
 			_, err = s.db.Exec(`INSERT INTO audit_logs (username, action, resource_type, detail)
-				SELECT ?, 'single-server-release', ?, ?
-				WHERE NOT EXISTS (SELECT 1 FROM audit_logs WHERE username=? AND action='single-server-release' AND resource_type=?)`,
-				buildKey, result.Component, string(payload), buildKey, result.Component)
+				SELECT ?, ?, ?, ?
+				WHERE NOT EXISTS (SELECT 1 FROM audit_logs WHERE username=? AND action=? AND resource_type=?)`,
+				buildKey, action, result.Component, string(payload), buildKey, action, result.Component)
 			if err != nil {
 				return fmt.Errorf("persist single-server release receipt: %w", err)
 			}
@@ -135,6 +139,71 @@ func (s *Store) CaptureReleaseResults(buildID int64, content string) error {
 		}
 	}
 	return nil
+}
+
+func requestedReleaseServerIDs(parameters map[string]interface{}) ([]string, bool) {
+	single, valid := requestedReleaseServerID(parameters["TARGET_SERVER_ID"])
+	if !valid {
+		return nil, false
+	}
+	value, exists := parameters["TARGET_SERVER_IDS"]
+	if !exists {
+		if single == "" {
+			return nil, true
+		}
+		return []string{single}, true
+	}
+	if value == nil {
+		return nil, false
+	}
+	raw, ok := value.(string)
+	if !ok {
+		return nil, false
+	}
+	if raw == "" {
+		if single == "" {
+			return nil, true
+		}
+		return []string{single}, true
+	}
+	if single != "" {
+		return nil, false
+	}
+	parts := strings.Split(raw, ",")
+	if len(parts) > 256 {
+		return nil, false
+	}
+	ids := make([]string, 0, len(parts))
+	seen := make(map[string]bool, len(parts))
+	for _, part := range parts {
+		id, ok := requestedReleaseServerID(strings.TrimSpace(part))
+		if !ok || id == "" || seen[id] {
+			return nil, false
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return ids, true
+}
+
+func sameReleaseServerIDs(expected, actual []string) bool {
+	if len(expected) != len(actual) || len(actual) == 0 || len(actual) > 256 {
+		return false
+	}
+	seen := make(map[string]bool, len(actual))
+	for _, id := range actual {
+		parsed, ok := requestedReleaseServerID(id)
+		if !ok || parsed == "" || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	for _, id := range expected {
+		if !seen[id] {
+			return false
+		}
+	}
+	return true
 }
 
 func requestedReleaseServerID(value any) (string, bool) {
@@ -198,7 +267,7 @@ func (s *Store) AttachReleaseResults(builds []*Build) error {
 	for i, build := range builds {
 		args[i] = strconv.FormatInt(build.ID, 10)
 	}
-	partialRows, err := s.db.Query("SELECT username, detail FROM audit_logs WHERE action='single-server-release' AND username IN ("+strings.Join(placeholders, ",")+") ORDER BY id", args...)
+	partialRows, err := s.db.Query("SELECT username, detail FROM audit_logs WHERE action IN ('single-server-release','partial-server-release') AND username IN ("+strings.Join(placeholders, ",")+") ORDER BY id", args...)
 	if err != nil {
 		return err
 	}
@@ -210,8 +279,8 @@ func (s *Store) AttachReleaseResults(builds []*Build) error {
 			return err
 		}
 		id, parseErr := strconv.ParseInt(buildKey, 10, 64)
-		if parseErr != nil || byID[id] == nil || json.Unmarshal([]byte(detail), &result) != nil || len(result.TargetServerIDs) != 1 {
-			return fmt.Errorf("single-server release receipt is invalid")
+		if parseErr != nil || byID[id] == nil || json.Unmarshal([]byte(detail), &result) != nil || !sameReleaseServerIDs(result.TargetServerIDs, result.TargetServerIDs) {
+			return fmt.Errorf("partial-server release receipt is invalid")
 		}
 		byID[id].ReleaseResults = append(byID[id].ReleaseResults, &result)
 	}

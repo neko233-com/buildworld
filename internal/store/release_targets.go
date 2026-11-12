@@ -32,6 +32,7 @@ func (s *Store) ListReleaseTargetOverviews(projectID int64) ([]*ReleaseTargetOve
 			WHERE json_type(target_parameters, '$.RELEASE_CHANNEL') = 'text'
 				AND json_type(target_parameters, '$.RELEASE_ENVIRONMENT') = 'text'
 				AND (json_type(target_parameters, '$.TARGET_SERVER_ID') IS NULL OR json_extract(target_parameters, '$.TARGET_SERVER_ID') IN ('', '0', 0))
+				AND (json_type(target_parameters, '$.TARGET_SERVER_IDS') IS NULL OR (json_type(target_parameters, '$.TARGET_SERVER_IDS') = 'text' AND json_extract(target_parameters, '$.TARGET_SERVER_IDS') = ''))
 		), targets AS (
 			SELECT DISTINCT channel, environment FROM targeted WHERE channel <> ''
 				AND length(environment) BETWEEN 1 AND 32

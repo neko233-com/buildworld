@@ -662,6 +662,7 @@
     "createProjectFirst": "请先创建项目，再定义构建流程。"
   },
   "builds": {
+    "targetServers": "目标服号：",
     "title": "构建历史",
     "buildNumber": "构建 #",
     "status": "状态",

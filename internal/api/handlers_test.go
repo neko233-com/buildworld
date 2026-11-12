@@ -112,6 +112,9 @@ func TestVersionEndpoint(t *testing.T) {
 	if resp["version"] != buildinfo.Version {
 		t.Errorf("version = %s, want %s", resp["version"], buildinfo.Version)
 	}
+	if resp["multi_server_release_receipt"] != "v1" {
+		t.Error("multi-server receipt capability was not advertised")
+	}
 }
 
 func TestVersionEndpointMethodNotAllowed(t *testing.T) {

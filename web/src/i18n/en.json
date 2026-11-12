@@ -662,6 +662,7 @@
     "createProjectFirst": "Create a project before defining its build flow."
   },
   "builds": {
+    "targetServers": "Target servers:",
     "title": "Build History",
     "buildNumber": "Build #",
     "status": "Status",

@@ -83,7 +83,7 @@ func (h *handlers) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *handlers) version(w http.ResponseWriter, _ *http.Request) {
-	response := map[string]string{"version": buildinfo.Version, "build_idempotency": "v1", "single_server_release_receipt": "v1", "auth_totp_required": strconv.FormatBool(h.d.Cfg != nil && h.d.Cfg.Auth.TOTPRequired)}
+	response := map[string]string{"version": buildinfo.Version, "build_idempotency": "v1", "single_server_release_receipt": "v1", "multi_server_release_receipt": "v1", "auth_totp_required": strconv.FormatBool(h.d.Cfg != nil && h.d.Cfg.Auth.TOTPRequired)}
 	if executable, err := os.Executable(); err == nil {
 		if commit := buildinfo.ReleaseCommit(executable, buildinfo.Version); commit != "" {
 			response["source_commit"] = commit
