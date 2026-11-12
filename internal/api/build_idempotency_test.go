@@ -57,6 +57,22 @@ func TestBuildTriggerIdempotencyReturnsOriginalAndRejectsChanges(t *testing.T) {
 	if err := json.Unmarshal(first.Body.Bytes(), &original); err != nil {
 		t.Fatal(err)
 	}
+	lookup := func(body, requestKey string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/projects/%d/builds/idempotency-lookup", project.ID), strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Idempotency-Key", requestKey)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		return response
+	}
+	lookedUp := lookup(`{"branch":"main"}`, key)
+	var lookedUpBuild store.Build
+	if json.Unmarshal(lookedUp.Body.Bytes(), &lookedUpBuild) != nil || lookedUp.Code != http.StatusOK || lookedUp.Header().Get("Idempotency-Lookup-Supported") != "v1" || lookedUpBuild.ID != original.ID {
+		t.Fatalf("lookup failed: %d", lookedUp.Code)
+	}
+	if lookup(`{"branch":"changed"}`, key).Code != http.StatusConflict || lookup(`{"branch":"main"}`, "unknown-request-0001").Code != http.StatusNotFound {
+		t.Fatal("lookup accepted mismatched request or invented a build")
+	}
 	replay := trigger(`{"branch":"main"}`, key)
 	var replayed store.Build
 	if err := json.Unmarshal(replay.Body.Bytes(), &replayed); err != nil {

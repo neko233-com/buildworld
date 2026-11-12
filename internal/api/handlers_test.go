@@ -118,6 +118,9 @@ func TestVersionEndpoint(t *testing.T) {
 	if resp["prestart_pipeline_guard"] != "v1" {
 		t.Error("prestart pipeline guard capability was not advertised")
 	}
+	if resp["build_idempotency_lookup"] != "v1" {
+		t.Error("idempotency lookup capability was not advertised")
+	}
 }
 
 func TestVersionEndpointMethodNotAllowed(t *testing.T) {

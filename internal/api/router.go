@@ -132,6 +132,7 @@ func NewRouter(d Deps) http.Handler {
 					r.Get("/release-records", h.listReleaseRecords)
 					r.Get("/builds", h.listProjectBuilds)
 					r.With(editors, auth.RequireAPITokenScope(auth.ScopeBuildTrigger)).Post("/builds", h.triggerBuild)
+					r.With(editors, auth.RequireAPITokenScope(auth.ScopeBuildTrigger)).Post("/builds/idempotency-lookup", h.lookupIdempotentBuild)
 					r.Get("/stats", h.getProjectStats)
 					r.With(editors).Post("/flags", h.setProjectFlags)
 				})
