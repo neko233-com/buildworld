@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -33,6 +35,13 @@ func startProcess(cmd *exec.Cmd, state *platformState) error {
 
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	// cmd.exe parses /c programs itself; Go's ordinary argv quoting escapes
+	// nested quotes for a different parser and can turn commands into literals.
+	// Preserve the supplied shell program as one /s /c payload. Job ownership
+	// and cancellation flags below still apply to the same native process.
+	if cmd.SysProcAttr.CmdLine == "" && strings.EqualFold(filepath.Base(cmd.Path), "cmd.exe") && len(cmd.Args) == 3 && strings.EqualFold(cmd.Args[1], "/c") {
+		cmd.SysProcAttr.CmdLine = syscall.EscapeArg(cmd.Path) + ` /d /s /c "` + cmd.Args[2] + `"`
 	}
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_SUSPENDED
 	if err := cmd.Start(); err != nil {

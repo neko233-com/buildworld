@@ -6,6 +6,13 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-11-13
+
+### Fixed
+
+- Support worker operation request identities on HTTP intranet origins and retain operation errors through snapshot polling.
+- Preserve nested quotes in Windows command programs so remote steps execute instead of echoing script text.
+
 ## [1.17.0] - 2026-11-13
 
 ### Added

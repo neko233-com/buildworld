@@ -7,10 +7,20 @@ import { dialogs } from '../components/AppDialogs'
 import { formatDateTime } from '../lib/dateTime'
 import './WorkerRuntimeDialog.css'
 
+// HTTP intranet origins do not expose randomUUID, but do expose getRandomValues.
+function operationRequestID(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 15) | 64
+  bytes[8] = (bytes[8] & 63) | 128
+  const value = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`
+}
+
 export function WorkerRuntimeDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const { t } = useI18n()
   const [data, setData] = useState<WorkerRuntimeView | null>(null)
   const [error, setError] = useState('')
+  const [pollError, setPollError] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [capacity, setCapacity] = useState(4)
@@ -25,8 +35,8 @@ export function WorkerRuntimeDialog({ id, onClose }: { id: string; onClose: () =
     let timer: number
     const refresh = async () => {
       if (!document.hidden) {
-        try { const value = await api.workerRuntime(id); if (active) { setData(value); setError('') } }
-        catch (reason) { if (active) setError((reason as Error).message) }
+        try { const value = await api.workerRuntime(id); if (active) { setData(value); setPollError('') } }
+        catch (reason) { if (active) setPollError((reason as Error).message) }
       }
       if (active) timer = window.setTimeout(refresh, 5000)
     }
@@ -36,7 +46,7 @@ export function WorkerRuntimeDialog({ id, onClose }: { id: string; onClose: () =
   const operate = async (kind: 'diagnose' | 'drain' | 'resume' | 'concurrency') => {
     setBusy(true); setError(''); setNotice('')
     try {
-      const value = await api.workerOperation(id, { request_id: crypto.randomUUID(), kind, ...(kind === 'concurrency' ? { capacity } : {}) })
+      const value = await api.workerOperation(id, { request_id: operationRequestID(), kind, ...(kind === 'concurrency' ? { capacity } : {}) })
       if (mounted.current) setNotice(`${t('workerOps.queued')}: ${value.id}`)
     } catch (reason) { if (mounted.current) setError((reason as Error).message) }
     finally { if (mounted.current) setBusy(false) }
@@ -45,7 +55,7 @@ export function WorkerRuntimeDialog({ id, onClose }: { id: string; onClose: () =
     event.preventDefault()
     if (!file || !await dialogs.confirm(t('workerOps.updateConfirm'), { title: t('workerOps.update'), action: t('workerOps.update') })) return
     const identity = `${file.name}/${file.size}/${file.lastModified}/${version}/${digest}`
-    if (uploadIdentity.current.input !== identity) uploadIdentity.current = { input: identity, request: crypto.randomUUID() }
+    if (uploadIdentity.current.input !== identity) uploadIdentity.current = { input: identity, request: operationRequestID() }
     setBusy(true); setError(''); setNotice('')
     try {
       const value = await api.uploadWorkerUpdate(id, file, version, digest, uploadIdentity.current.request)
@@ -56,7 +66,7 @@ export function WorkerRuntimeDialog({ id, onClose }: { id: string; onClose: () =
   const sample = data?.runtime
   return <ModalDialog ariaLabel={t('workerOps.title')} className="worker-runtime-dialog" busy={busy} onClose={onClose}>
     <header><div><h2>{t('workerOps.title')}</h2><p>{data?.worker.name || id}</p></div><button data-dialog-initial-focus disabled={busy} onClick={onClose}>{t('common.close')}</button></header>
-    {error && <p className="form-error" role="alert">{error}</p>}
+    {(error || pollError) && <p className="form-error" role="alert">{error || pollError}</p>}
     {notice && <p className="worker-operation-notice" role="status">{notice}</p>}
     {!data && !error && <p>{t('common.loading')}</p>}
     {data && <>

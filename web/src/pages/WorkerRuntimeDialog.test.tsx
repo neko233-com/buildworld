@@ -17,7 +17,7 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks()
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container)
 })
-afterEach(() => { act(() => root.unmount()); container.remove(); vi.useRealTimers() })
+afterEach(() => { act(() => root.unmount()); container.remove(); vi.useRealTimers(); vi.unstubAllGlobals() })
 const render = async (id: string) => { await act(async () => { root.render(<MemoryRouter><WorkerRuntimeDialog key={id} id={id} onClose={() => {}} /></MemoryRouter>); await Promise.resolve() }) }
 
 it('ignores a late snapshot after switching worker context', async () => {
@@ -40,4 +40,16 @@ it('keeps editable capacity during polling errors and waits for operation receip
   expect(api.workerOperation).toHaveBeenCalledWith('worker', expect.objectContaining({ kind: 'concurrency', capacity: 7 }))
   expect(container.textContent).toContain('operation-1')
   expect(container.textContent).toContain('workerOps.queued')
+})
+
+it('supports HTTP origins without randomUUID and preserves action failures through polling', async () => {
+  vi.stubGlobal('crypto', { getRandomValues: (bytes: Uint8Array) => bytes.fill(7) })
+  vi.mocked(api.workerRuntime).mockResolvedValue(fixture('worker') as never)
+  vi.mocked(api.workerOperation).mockRejectedValue(new Error('operation refused'))
+  await render('worker')
+  await act(async () => { Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'workerOps.diagnose')!.click() })
+  expect(api.workerOperation).toHaveBeenCalledWith('worker', expect.objectContaining({ request_id: '07070707-0707-4707-8707-070707070707', kind: 'diagnose' }))
+  expect(container.textContent).toContain('operation refused')
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+  expect(container.textContent).toContain('operation refused')
 })

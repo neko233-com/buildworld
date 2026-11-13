@@ -43,7 +43,9 @@ the source) for its own OS and architecture, and verifies the manifest before
 executing it. Executable bytes are never embedded in a build message. Script
 plugins are not supported; workers execute only verified Go binaries.
 
-## Remote operations (1.17.0+)
+## Remote operations (1.17.1+)
+
+Use 1.17.1 or later on HTTP intranet origins. That version supports browser request identities without secure-context-only APIs and preserves nested quotes in native Windows shell programs.
 
 Open the authenticated administrator page `/agents`, then **Manage**. The list refreshes every ten seconds; the open runtime dialog refreshes every five seconds without resetting editable fields. An old worker explicitly shows that no management snapshot has been reported. Upgrade that worker through its existing supervised installation first; an empty report is never treated as healthy.
 

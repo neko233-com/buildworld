@@ -14,6 +14,34 @@ import (
 	"time"
 )
 
+func TestWindowsQuotedShellProgramExecutesInsteadOfEchoing(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows command interpreter")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "command with spaces.cmd")
+	if err := os.WriteFile(script, []byte("@echo off\r\necho %~1\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, shell := range []string{"", "cmd"} {
+		var lines []string
+		command := `pwsh -NoProfile -NonInteractive -Command "Write-Output ('QUOTED_' + 'COMMAND_EXECUTED')"`
+		if err := NewExecutor().RunMultiShell(context.Background(), shell, command, dir, nil, func(line string) { lines = append(lines, line) }); err != nil {
+			t.Fatal(err)
+		}
+		if strings.TrimSpace(strings.Join(lines, "\n")) != "QUOTED_COMMAND_EXECUTED" {
+			t.Fatalf("shell=%q output=%q", shell, lines)
+		}
+		lines = nil
+		if err := NewExecutor().RunMultiShell(context.Background(), shell, `"`+script+`" "argument with spaces"`, dir, nil, func(line string) { lines = append(lines, line) }); err != nil {
+			t.Fatal(err)
+		}
+		if strings.TrimSpace(strings.Join(lines, "\n")) != "argument with spaces" {
+			t.Fatalf("quoted path shell=%q output=%q", shell, lines)
+		}
+	}
+}
+
 func TestWindowsShellCannotBeShadowedByCheckout(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows command interpreter")
