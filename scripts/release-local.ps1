@@ -163,6 +163,7 @@ try {
         New-Item -ItemType Directory -Force -Path (Join-Path $stage 'web') | Out-Null
         New-Item -ItemType Directory -Force -Path (Join-Path $stage 'sdk\pipeline') | Out-Null
         [IO.File]::WriteAllText((Join-Path $stage 'release-info.json'), ($releaseMetadata | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $stage 'buildworld-worker.release-info.json'), ($releaseMetadata | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'apply-update.sh') -Destination (Join-Path $stage 'apply-update.sh') -Force
         $env:GOOS = $os
         $env:GOARCH = $arch

@@ -14,10 +14,23 @@ var commitPattern = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 // ReleaseCommit reads the commit recorded beside a packaged server binary.
 // Invalid, missing, or version-mismatched metadata never identifies a release.
 func ReleaseCommit(executable, version string) string {
+	return releaseCommitFrom(executable, version, "release-info.json")
+}
+
+// WorkerReleaseCommit keeps an independently updated worker from changing the
+// source identity of a controller installed in the same directory.
+func WorkerReleaseCommit(executable, version string) string {
+	if _, err := os.Stat(filepath.Join(filepath.Dir(executable), "buildworld-worker.release-info.json")); !os.IsNotExist(err) {
+		return releaseCommitFrom(executable, version, "buildworld-worker.release-info.json")
+	}
+	return ReleaseCommit(executable, version)
+}
+
+func releaseCommitFrom(executable, version, metadataName string) string {
 	if executable == "" || version == "" || version == "dev" {
 		return ""
 	}
-	file, err := os.Open(filepath.Join(filepath.Dir(executable), "release-info.json"))
+	file, err := os.Open(filepath.Join(filepath.Dir(executable), metadataName))
 	if err != nil {
 		return ""
 	}

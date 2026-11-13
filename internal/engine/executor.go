@@ -55,7 +55,11 @@ func (e *Executor) RunShell(ctx context.Context, command, dir string, env []stri
 	var name string
 	var args []string
 	if runtime.GOOS == "windows" {
-		name = "cmd"
+		var err error
+		name, err = windowsCommandShell()
+		if err != nil {
+			return err
+		}
 		args = []string{"/c", command}
 	} else {
 		name = "sh"
@@ -244,7 +248,11 @@ func preferredWindowsBash(bashPath, shPath, windowsRoot string) string {
 
 func (e *Executor) runCmd(ctx context.Context, command, dir string, env []string, onOutput func(string)) error {
 	if runtime.GOOS == "windows" {
-		cmd := processtree.CommandContext(ctx, "cmd", "/c", command)
+		name, err := windowsCommandShell()
+		if err != nil {
+			return err
+		}
+		cmd := processtree.CommandContext(ctx, name, "/c", command)
 		if dir != "" {
 			cmd.Dir = dir
 		}
@@ -254,6 +262,20 @@ func (e *Executor) runCmd(ctx context.Context, command, dir string, env []string
 		return runWithLineWriters(cmd, onOutput)
 	}
 	return e.RunShell(ctx, command, dir, env, onOutput)
+}
+
+// windowsCommandShell resolves the operating-system interpreter before looking
+// at any build workspace. A checkout containing cmd/cmd.exe cannot shadow it.
+func windowsCommandShell() (string, error) {
+	for _, candidate := range []string{os.Getenv("ComSpec"), filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")} {
+		if !filepath.IsAbs(candidate) || !strings.EqualFold(filepath.Base(candidate), "cmd.exe") {
+			continue
+		}
+		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("trusted Windows command interpreter is unavailable")
 }
 
 func (e *Executor) runPython(ctx context.Context, shell, command, dir string, env []string, onOutput func(string)) error {

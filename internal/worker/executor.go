@@ -15,8 +15,8 @@ import (
 	"github.com/neko233-com/buildworld/internal/bytemsg"
 	"github.com/neko233-com/buildworld/internal/engine"
 	"github.com/neko233-com/buildworld/internal/plugin"
-	"github.com/neko233-com/buildworld/internal/processtree"
 	pb "github.com/neko233-com/buildworld/internal/rpc/generated"
+	"github.com/neko233-com/buildworld/internal/workercontrol"
 	"google.golang.org/grpc"
 )
 
@@ -29,6 +29,10 @@ type Executor struct {
 	plugins     *plugin.Loader
 	environment *engine.BuildEnvironment
 	pluginMu    sync.Mutex
+	tasks       map[string]workercontrol.Task
+	capacity    int
+	draining    bool
+	startedAt   time.Time
 }
 
 const (
@@ -52,7 +56,7 @@ func NewExecutorWithPlugins(plugins *plugin.Loader) *Executor {
 }
 
 func NewExecutorWithPluginsAt(plugins *plugin.Loader, environment *engine.BuildEnvironment) *Executor {
-	return &Executor{running: make(map[string]context.CancelFunc), plugins: plugins, environment: environment}
+	return &Executor{running: make(map[string]context.CancelFunc), plugins: plugins, environment: environment, tasks: make(map[string]workercontrol.Task), capacity: 4, startedAt: time.Now().UTC()}
 }
 
 func (e *Executor) ExecuteBuild(req *pb.BuildRequest, stream grpc.ServerStreamingServer[pb.BuildResponse]) error {
@@ -62,9 +66,21 @@ func (e *Executor) ExecuteBuild(req *pb.BuildRequest, stream grpc.ServerStreamin
 	}
 	buildCtx, cancel := context.WithCancel(ctx)
 	e.mu.Lock()
+	if req.BuildId == "" || e.running[req.BuildId] != nil || e.draining || len(e.running) >= e.capacity {
+		e.mu.Unlock()
+		cancel()
+		return e.send(stream, req.BuildId, "", "", "worker is draining, duplicate build, or execution capacity is exhausted", "failed", true)
+	}
 	e.running[req.BuildId] = cancel
+	e.tasks[req.BuildId] = workercontrol.Task{ID: req.BuildId, Project: req.ProjectName, State: "preparing", StartedAt: time.Now().UTC().Format(time.RFC3339Nano), UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	e.mu.Unlock()
-	defer func() { cancel(); e.mu.Lock(); delete(e.running, req.BuildId); e.mu.Unlock() }()
+	defer func() {
+		cancel()
+		e.mu.Lock()
+		delete(e.running, req.BuildId)
+		delete(e.tasks, req.BuildId)
+		e.mu.Unlock()
+	}()
 
 	cfg, err := engine.ParsePipelineConfig(req.PipelineConfig)
 	if err != nil {
@@ -79,21 +95,13 @@ func (e *Executor) ExecuteBuild(req *pb.BuildRequest, stream grpc.ServerStreamin
 	if err := e.environment.Ensure(); err != nil {
 		return err
 	}
-	workspace, err := os.MkdirTemp(e.environment.WorkspacesRoot(), "buildworld-worker-*")
+	e.track(req.BuildId, "checkout", "", "waiting_workspace", "")
+	workspace, release, err := e.prepareWorkspace(buildCtx, req)
 	if err != nil {
-		return err
+		return e.send(stream, req.BuildId, "checkout", "", err.Error(), "failed", true)
 	}
-	defer os.RemoveAll(workspace)
-	if req.RepoUrl != "" {
-		if err := processtree.CommandContext(buildCtx, "git", "clone", req.RepoUrl, workspace).Run(); err != nil {
-			return e.send(stream, req.BuildId, "checkout", "clone", err.Error(), "failed", true)
-		}
-		if req.Branch != "" {
-			if err := processtree.CommandContext(buildCtx, "git", "-C", workspace, "checkout", req.Branch).Run(); err != nil {
-				return e.send(stream, req.BuildId, "checkout", "branch", err.Error(), "failed", true)
-			}
-		}
-	}
+	defer release()
+	e.track(req.BuildId, "checkout", "", "running", workspace)
 	env := engine.AppendPipelineEnvironment(nil, cfg.Environment)
 	env = engine.AppendPipelineEnvironment(env, req.Environment)
 	isolated, err := e.environment.Environment(workspace)
@@ -455,6 +463,7 @@ func cloneStringMap(source map[string]string) map[string]string {
 }
 
 func (e *Executor) send(stream grpc.ServerStreamingServer[pb.BuildResponse], id, stage, step, output, status string, isError bool) error {
+	e.track(id, stage, step, status, "")
 	return stream.Send(&pb.BuildResponse{BuildId: id, Stage: stage, Step: step, Output: output, Status: status, IsError: isError, Protocol: bytemsg.NewProtocolInfo()})
 }
 

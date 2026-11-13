@@ -1,0 +1,44 @@
+{
+  "runtime": {
+    "version": "v1.17.0",
+    "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "os": "windows",
+    "arch": "amd64",
+    "pid": 54300,
+    "session": "1",
+    "started_at": "2026-11-13T14:05:03.3652576Z",
+    "observed_at": "2026-11-13T14:10:53.4791781Z",
+    "goroutines": 5,
+    "heap_bytes": 3029720,
+    "capacity": 3,
+    "draining": false,
+    "tasks": []
+  },
+  "operations": [
+    {
+      "id": "bffed41d-5e95-4fb5-8fb7-5f89165f78f1",
+      "kind": "resume",
+      "status": "success",
+      "message": "Worker accepts new dispatches"
+    },
+    {
+      "id": "0fe4bcdd-1396-4569-bfab-afdfe9ff60f7",
+      "kind": "concurrency",
+      "status": "success",
+      "message": "Admission capacity updated; existing tasks preserved"
+    },
+    {
+      "id": "e7defd8a-9fed-47d7-8602-cf785af7e45b",
+      "kind": "drain",
+      "status": "success",
+      "message": "New dispatches blocked; existing tasks continue"
+    },
+    {
+      "id": "32a7507b-8297-4c22-8646-a964d90270d8",
+      "kind": "diagnose",
+      "status": "success",
+      "message": "Runtime and active task snapshot captured; environment and command lines excluded"
+    }
+  ],
+  "consoleErrors": []
+}

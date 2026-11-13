@@ -65,6 +65,7 @@ func TestProjectHistoryReferenceMigrationRepairsProductionOrphansWithForeignKeys
 		"16:durable-webhook-deliveries",
 		"17:jenkins-scm-checkouts",
 		"18:login-and-idempotency-audit-indexes",
+		"19:worker-runtime-and-operations",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("migration ledger = %v, want %v", got, want)
 	}

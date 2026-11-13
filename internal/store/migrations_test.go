@@ -37,6 +37,7 @@ func TestSchemaMigrationsCreateFreshDatabase(t *testing.T) {
 		"16:durable-webhook-deliveries",
 		"17:jenkins-scm-checkouts",
 		"18:login-and-idempotency-audit-indexes",
+		"19:worker-runtime-and-operations",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("migration ledger = %v, want %v", got, want)
 	}
@@ -130,6 +131,7 @@ func TestUserSessionVersionMigrationUpgradesVersionedDatabase(t *testing.T) {
 		"16:durable-webhook-deliveries",
 		"17:jenkins-scm-checkouts",
 		"18:login-and-idempotency-audit-indexes",
+		"19:worker-runtime-and-operations",
 	}) {
 		t.Fatalf("migration ledger = %v", got)
 	}
@@ -172,7 +174,7 @@ func TestRemovedFeatureSchemaMigrationDropsTablesAndIndexes(t *testing.T) {
 			t.Fatalf("removed %s %q still exists", object.kind, object.name)
 		}
 	}
-	if got := readMigrationLedger(t, db); got[len(got)-1] != "18:login-and-idempotency-audit-indexes" {
+	if got := readMigrationLedger(t, db); got[len(got)-1] != "19:worker-runtime-and-operations" {
 		t.Fatalf("migration ledger = %v", got)
 	}
 }
@@ -242,7 +244,7 @@ func TestSSHKeysSchemaMigrationDropsDeadTableAndPreservesRepositoryCredentials(t
 	if credentialType != "ssh_key" || privateKey != "private-value" || publicKey != "ssh-ed25519 active" {
 		t.Fatalf("repository credential changed: type=%q private=%q public=%q", credentialType, privateKey, publicKey)
 	}
-	if got := readMigrationLedger(t, db); got[len(got)-1] != "18:login-and-idempotency-audit-indexes" {
+	if got := readMigrationLedger(t, db); got[len(got)-1] != "19:worker-runtime-and-operations" {
 		t.Fatalf("migration ledger = %v", got)
 	}
 }

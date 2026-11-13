@@ -441,6 +441,13 @@ export const api = {
 
   // agents
   listAgents: () => request<any[]>('GET', '/agents/'),
+  workerRuntime: (id:string) => request<WorkerRuntimeView>('GET', '/agents/'+encodeURIComponent(id)+'/runtime'),
+  workerOperation: (id:string,input:{request_id:string;kind:string;capacity?:number}) => request<WorkerOperation>('POST','/agents/'+encodeURIComponent(id)+'/operations',input),
+  uploadWorkerUpdate: async (id:string,file:File,version:string,sha256:string,requestID:string):Promise<WorkerOperation> => {
+    const data=new FormData(); data.set('bundle',file);data.set('version',version);data.set('sha256',sha256);data.set('request_id',requestID);data.set('mode','manual');
+    const response=await fetch(API_BASE+'/agents/'+encodeURIComponent(id)+'/update',{method:'POST',headers:authHeader(),body:data});
+    const body=await response.json();if(!response.ok)throw new ApiError(body.error||'Worker update upload failed',response.status);return body;
+  },
   registerAgent: (data: any) => request('POST', '/agents/register', data),
   deleteAgent: (id: string) => request('DELETE', `/agents/${id}`),
   generateAgentToken: () => request<{ token: string }>('POST', '/agents/generate-token'),
@@ -611,3 +618,7 @@ export const api = {
   getBigScreenData: () => request<any>('GET', '/bigscreen'),
 
 }
+
+export type WorkerTask = { id:string; project:string; stage:string; step:string; state:string; workspace:string; started_at:string; updated_at:string }
+export type WorkerOperation = { id:string; kind:string; status:string; message:string; updated_at:string; result?:unknown }
+export type WorkerRuntimeView = { worker:{name:string;status:string}; draining:boolean; observed_at:string; runtime:{version?:string;source_commit:string;os:string;arch:string;pid:number;session:string;capacity:number;goroutines:number;heap_bytes:number;tasks:WorkerTask[]};operations:WorkerOperation[] }

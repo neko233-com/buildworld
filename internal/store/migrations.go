@@ -351,6 +351,7 @@ var schemaMigrations = []schemaMigration{
 	{version: 16, name: "durable-webhook-deliveries", up: addWebhookDeliveries},
 	{version: 17, name: "jenkins-scm-checkouts", up: addJenkinsSCMCheckouts},
 	{version: 18, name: "login-and-idempotency-audit-indexes", up: addLoginAndIdempotencyAuditIndexes},
+	{version: 19, name: "worker-runtime-and-operations", up: addWorkerControl},
 }
 
 // addLoginAndIdempotencyAuditIndexes keeps login protection and request lookup bounded as audit history grows.

@@ -1404,7 +1404,7 @@ func (s *Store) UpdateWorkerHeartbeat(id string, activeBuilds int) error {
 // TryAcquireWorker reserves one execution slot using a single conditional SQL
 // update. Concurrent scheduler goroutines cannot overbook a worker this way.
 func (s *Store) TryAcquireWorker(id string) (bool, error) {
-	result, err := s.db.Exec("UPDATE workers SET active_builds = active_builds + 1 WHERE id = ? AND status = 'online' AND active_builds < max_concurrent_builds", id)
+	result, err := s.db.Exec("UPDATE workers SET active_builds = active_builds + 1 WHERE id = ? AND status = 'online' AND active_builds < max_concurrent_builds AND NOT EXISTS (SELECT 1 FROM worker_controls c WHERE c.worker_id=workers.id AND c.draining=TRUE)", id)
 	if err != nil {
 		return false, err
 	}

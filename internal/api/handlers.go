@@ -1421,6 +1421,10 @@ func (h *handlers) registerAgent(w http.ResponseWriter, r *http.Request) {
 	if req.MaxBuilds == 0 {
 		req.MaxBuilds = 4
 	}
+	if req.MaxBuilds < 1 || req.MaxBuilds > 64 {
+		writeErr(w, 400, "max_builds must be between 1 and 64")
+		return
+	}
 	agentID := uuid.New().String()
 	token := uuid.New().String()
 	tokenHash, _ := auth.HashPassword(token)

@@ -1,0 +1,139 @@
+{
+  "concurrentBuilds": [
+    {
+      "id": 8,
+      "project_id": 2,
+      "number": 4,
+      "status": "success",
+      "trigger": "manual",
+      "branch": "main",
+      "parameters": "{}",
+      "pinned": false,
+      "started_at": "2026-11-13T22:09:29.4394889+08:00",
+      "finished_at": "2026-11-13T22:09:52.527499+08:00",
+      "duration_ms": 23114,
+      "log": "[22:09:29] [] ::buildworld:plan {\"stages\":[{\"name\":\"Concurrent\",\"steps\":[\"Wait\"]}]}\n[22:09:29] [remote] Dispatching to worker local-ops-qa at 127.0.0.1:53673\n[22:09:29] [Concurrent] started\n[22:09:52] [done] completed\n",
+      "timeout_sec": 1800
+    },
+    {
+      "id": 9,
+      "project_id": 3,
+      "number": 4,
+      "status": "success",
+      "trigger": "manual",
+      "branch": "main",
+      "parameters": "{}",
+      "pinned": false,
+      "started_at": "2026-11-13T22:09:29.4799499+08:00",
+      "finished_at": "2026-11-13T22:09:52.544963+08:00",
+      "duration_ms": 23088,
+      "log": "[22:09:29] [] ::buildworld:plan {\"stages\":[{\"name\":\"Concurrent\",\"steps\":[\"Wait\"]}]}\n[22:09:29] [remote] Dispatching to worker local-ops-qa at 127.0.0.1:53673\n[22:09:29] [Concurrent] started\n[22:09:52] [done] completed\n",
+      "timeout_sec": 1800
+    }
+  ],
+  "runtimeBeforeResume": {
+    "draining": true,
+    "observed_at": "2026-11-13T14:10:13.5189423Z",
+    "operations": [
+      {
+        "id": "0fe4bcdd-1396-4569-bfab-afdfe9ff60f7",
+        "worker_id": "23997ac8-dacb-4bdd-bf48-edfa059ae1b4",
+        "request_id": "2c4d673d-cdb8-43ce-8828-cbd2fba1873c",
+        "kind": "concurrency",
+        "capacity": 3,
+        "status": "running",
+        "message": "",
+        "created_at": "2026-11-13T14:10:08.2393473Z",
+        "updated_at": "2026-11-13T14:10:13.5205402Z"
+      },
+      {
+        "id": "e7defd8a-9fed-47d7-8602-cf785af7e45b",
+        "worker_id": "23997ac8-dacb-4bdd-bf48-edfa059ae1b4",
+        "request_id": "1311ef16-a83a-4275-9caf-d63932a8cbe5",
+        "kind": "drain",
+        "status": "success",
+        "message": "New dispatches blocked; existing tasks continue",
+        "created_at": "2026-11-13T14:09:37.3975547Z",
+        "updated_at": "2026-11-13T14:09:53.5205809Z"
+      },
+      {
+        "id": "32a7507b-8297-4c22-8646-a964d90270d8",
+        "worker_id": "23997ac8-dacb-4bdd-bf48-edfa059ae1b4",
+        "request_id": "6b9c5fa3-83e5-4967-8730-20b52021f12b",
+        "kind": "diagnose",
+        "status": "success",
+        "message": "Runtime and active task snapshot captured; environment and command lines excluded",
+        "result": {
+          "go_version": "go1.27.0",
+          "goroutine_stacks": "goroutine 1 [running]:\ngithub.com/neko233-com/buildworld/internal/worker.(*Executor).diagnosticSnapshot(0x1e58b6f5a540)\n\tC:/Users/luohaojun/AppData/Local/Temp/temp/sdk-liveops/buildworld-integration/internal/worker/diagnostics.go:19 +0x51\ngithub.com/neko233-com/buildworld/internal/worker.(*Executor).executeControl(0x1e58b6f5a540, 0x1e58b7728270)\n\tC:/Users/luohaojun/AppData/Local/Temp/temp/sdk-liveops/buildworld-integration/internal/worker/runtime.go:62 +0x193\ngithub.com/neko233-com/buildworld/internal/worker.(*Daemon).control(0x1e58b702f440, 0x7ff73aea1ac8?)\n\tC:/Users/luohaojun/AppData/Local/Temp/temp/sdk-liveops/buildworld-integration/internal/worker/state.go:87 +0x97\ngithub.com/neko233-com/buildworld/internal/worker.(*Daemon).heartbeat(0x1e58b702f440)\n\tC:/Users/luohaojun/AppData/Local/Temp/temp/sdk-liveops/buildworld-integration/internal/worker/daemon.go:191 +0x866\ngithub.com/neko233-com/buildworld/internal/worker.(*Daemon).Start(0x1e58b702f440, {0x7ff73afcf128?, 0x7ff73b0c2d60?})\n\tC:/Users/luohaojun/AppData/Local/Temp/temp/sdk-liveops/buildworld-integration/internal/worker/daemon.go:110 +0xab7\nmain.main()\n\tC:/Users/luohaojun/AppData/Local/Temp/temp/sdk-liveops/buildworld-integration/cmd/worker/main.go:68 +0x7e5\n\ngoroutine 8 [IO wait]:\ninternal/poll.runtime_pollWait(0x27c5e5f8600, 0x72)\n\tD:/Languages/Go/src/runtime/netpoll.go:351 +0x85\ninternal/poll.(*pollDesc).wait(0x1e5800000074?, 0x7ff739ee3249?, 0x0)\n\tD:/Languages/Go/src/internal/poll/fd_poll_runtime.go:84 +0x27\ninternal/poll.(*FD).waitIO(0x1e58b7174000, 0x1e58b6fa66f0)\n\tD:/Languages/Go/src/internal/poll/fd_windows.go:233 +0x3d\ninternal/poll.(*FD).execIO(0x1e58b7174000, 0x72, 0x1e58b75a5ba0, {0x0, 0x0, 0x7ff700000000?})\n\tD:/Languages/Go/src/internal/poll/fd_windows.go:310 +0x27e\ninternal/poll.(*FD).acceptOne(0x1e58b7174000, 0x384, {0x1e58b726a0f0?, 0x1e58b75a5c60?, 0x7ff739f979e3?})\n\tD:/Languages/Go/src/internal/poll/fd_windows.go:1111 +0x85\ninternal/poll.(*FD).Accept(0x1e58b7174000, 0x1e58b75a5d88)\n\tD:/Languages/Go/src/internal/poll/fd_windows.go:1146 +0x18d\nnet.(*netFD).accept(0x1e58b7174000)\n\tD:/Languages/Go/src/net/fd_windows.go:201 +0x4b\nnet.(*TCPListener).accept(0x1e58b7114b00)\n\tD:/Languages/Go/src/net/tcpsock_posix.go:159 +0x1b\nnet.(*TCPListener).Accept(0x1e58b7114b00)\n\tD:/Languages/Go/src/net/tcpsock.go:387 +0x30\ngoogle.golang.org/grpc.(*Server).Serve(0x1e58b7046fc8, {0x7ff73afcd178, 0x1e58b7114b00})\n\tC:/Users/luohaojun/go/pkg/mod/google.golang.org/grpc@v1.82.1/server.go:934 +0x423\ngithub.com/neko233-com/buildworld/internal/worker.(*Daemon).Start.func1()\n\tC:/Users/luohaojun/AppData/Local/Temp/temp/sdk-liveops/buildworld-integration/internal/worker/daemon.go:81 +0x25\ncreated by github.com/neko233-com/buildworld/internal/worker.(*Daemon).Start in goroutine 1\n\tC:/Users/luohaojun/AppData/Local/Temp/temp/sdk-liveops/buildworld-integration/internal/worker/daemon.go:80 +0x514\n\ngoroutine 12 [syscall]:\nos/signal.signal_recv()\n\tD:/Languages/Go/src/runtime/sigqueue.go:152 +0x98\nos/signal.loop()\n\tD:/Languages/Go/src/os/signal/signal_unix.go:23 +0x13\ncreated by os/signal.Notify.func2.1 in goroutine 1\n\tD:/Languages/Go/src/os/signal/signal.go:164 +0x1f\n\ngoroutine 10 [IO wait]:\ninternal/poll.runtime_pollWait(0x27c5e5f8400, 0x72)\n\tD:/Languages/Go/src/runtime/netpoll.go:351 +0x85\ninternal/poll.(*pollDesc).wait(0x1e58b717da01?, 0x7ff700000001?, 0x0)\n\tD:/Languages/Go/src/internal/poll/fd_poll_runtime.go:84 +0x27\ninternal/poll.(*FD).waitIO(0x1e58b71740e0, 0x1e58b6fa6780)\n\tD:/Languages/Go/src/internal/poll/fd_windows.go:233 +0x3d\ninternal/poll.(*FD).execIO(0x1e58b71740e0, 0x72, 0x1e58b717dbf8, {0x1e58b717dbb8, 0x1, 0x1e58b717db80?})\n\tD:/Languages/Go/src/internal/poll/fd_windows.go:310 +0x27e\ninternal/poll.(*FD).Read(0x1e58b71740e0, {0x1e58b7182000, 0x1000, 0x1000})\n\tD:/Languages/Go/src/internal/poll/fd_windows.go:611 +0x21f\nnet.(*netFD).Read(0x1e58b71740e0, {0x1e58b7182000?, 0x7ff739e877dc?, 0x7ff73aecec00?})\n\tD:/Languages/Go/src/net/fd_posix.go:68 +0x25\nnet.(*conn).Read(0x1e58b6e66560, {0x1e58b7182000?, 0x1e58b70f7d40?, 0x7ff73aece050?})\n\tD:/Languages/Go/src/net/net.go:196 +0x45\nnet/http.(*persistConn).Read(0x1e58b7161400, {0x1e58b7182000?, 0x7ff73afc83f0?, 0x7ff73b04f930?})\n\tD:/Languages/Go/src/net/http/transport.go:2300 +0x47\nbufio.(*Reader).fill(0x1e58b6f5a600)\n\tD:/Languages/Go/src/bufio/bufio.go:113 +0x103\nbufio.(*Reader).Peek(0x1e58b6f5a600, 0x1)\n\tD:/Languages/Go/src/bufio/bufio.go:152 +0x52\nnet/http.(*persistConn).readLoop(0x1e58b7161400)\n\tD:/Languages/Go/src/net/http/transport.go:2483 +0x172\ncreated by net/http.(*Transport).dialConn in goroutine 9\n\tD:/Languages/Go/src/net/http/transport.go:2123 +0x1da5\n\ngoroutine 11 [select]:\nnet/http.(*persistConn).writeLoop(0x1e58b7161400)\n\tD:/Languages/Go/src/net/http/transport.go:2810 +0xe6\ncreated by net/http.(*Transport).dialConn in goroutine 9\n\tD:/Languages/Go/src/net/http/transport.go:2124 +0x1e05\n",
+          "owned_processes": [
+            {
+              "pid": 920,
+              "parent_pid": 25156,
+              "name": "buildworld-worker.exe"
+            },
+            {
+              "pid": 76180,
+              "parent_pid": 920,
+              "name": "conhost.exe"
+            }
+          ],
+          "process_sample_state": "observed",
+          "runtime": {
+            "version": "v1.17.0",
+            "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "os": "windows",
+            "arch": "amd64",
+            "pid": 920,
+            "session": "1",
+            "started_at": "2026-11-13T13:59:00.2358237Z",
+            "observed_at": "2026-11-13T14:00:50.5030285Z",
+            "goroutines": 5,
+            "heap_bytes": 3751664,
+            "capacity": 2,
+            "draining": false,
+            "tasks": []
+          },
+          "stacks_truncated": false,
+          "tools": {
+            "bash": "C:\\WINDOWS\\system32\\bash.exe",
+            "git": "C:\\Program Files\\Git\\bin\\git.exe",
+            "go": "D:\\Languages\\Go\\bin\\go.exe",
+            "node": "C:\\nvm4w\\nodejs\\node.exe",
+            "pwsh": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+          }
+        },
+        "created_at": "2026-11-13T14:00:44.0500992Z",
+        "updated_at": "2026-11-13T14:01:00.4213829Z"
+      }
+    ],
+    "runtime": {
+      "version": "v1.17.0",
+      "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "os": "windows",
+      "arch": "amd64",
+      "pid": 54300,
+      "session": "1",
+      "started_at": "2026-11-13T14:05:03.3652576Z",
+      "observed_at": "2026-11-13T14:10:13.478517Z",
+      "goroutines": 5,
+      "heap_bytes": 2941400,
+      "capacity": 2,
+      "draining": true,
+      "tasks": []
+    },
+    "worker": {
+      "id": "23997ac8-dacb-4bdd-bf48-edfa059ae1b4",
+      "name": "local-ops-qa",
+      "address": "127.0.0.1:53673",
+      "labels": "[\"ops-qa\"]",
+      "pool": "validation",
+      "max_concurrent_builds": 2,
+      "active_builds": 0,
+      "status": "online",
+      "last_heartbeat": "2026-11-13T22:10:13.5232535+08:00",
+      "created_at": "2026-11-13T13:59:00Z"
+    }
+  },
+  "consoleErrors": []
+}

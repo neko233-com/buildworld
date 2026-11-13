@@ -6,6 +6,19 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-11-13
+
+### Added
+
+- Add authenticated worker runtime diagnostics, tracked execution, durable operation receipts, drain/resume and live concurrency management.
+- Add manual verified worker release updates with new-process readiness and automatic binary rollback, independent worker identity and metadata.
+
+### Fixed
+
+- Enforce worker-side capacity and preserve reused repository/branch workspaces with full-build OS ownership locks.
+- Keep worker management forms stable through polling and show missing runtime evidence explicitly.
+- Resolve the trusted Windows command interpreter independently of repository files.
+
 ## [1.16.38] - 2026-11-12
 
 ### Added

@@ -14,6 +14,24 @@ import (
 	"time"
 )
 
+func TestWindowsShellCannotBeShadowedByCheckout(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows command interpreter")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cmd.exe"), []byte("must never execute"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	var lines []string
+	if err := NewExecutor().RunShell(context.Background(), "echo NATIVE_SHELL_OK", dir, nil, func(line string) { lines = append(lines, line) }); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(lines, "\n"), "NATIVE_SHELL_OK") {
+		t.Fatal(lines)
+	}
+}
+
 func TestWindowsJenkinsShellWithWSLStubAheadOfGit(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows WSL launcher is not present")
