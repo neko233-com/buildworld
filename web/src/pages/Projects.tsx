@@ -10,6 +10,7 @@ import { PageState } from '../components/PageState'
 import JenkinsPageShell from '../components/JenkinsPageShell'
 import { formatDateTime } from '../lib/dateTime'
 import { useJenkinsBuildFlow } from './projectBuildFlow'
+import { beginProjectDetailNavigation, preloadProjectDetail } from './projectDetailLoader'
 
 type ProjectTableProps = {
   caption: string
@@ -37,7 +38,7 @@ function ProjectTable({ caption, projects, editable, building, emptyLabel, isPar
       <tbody>
         {!projects.length && <tr><td colSpan={6} className="operations-empty"><FolderGit2 size={18} />{emptyLabel}</td></tr>}
         {projects.map(project => <tr key={project.id}>
-            <td><Link className="entity-link" to={`/projects/${project.id}`}><FolderGit2 size={16} /><span><strong>{project.name}</strong><small>{project.description || 'Git'}</small></span></Link></td>
+            <td><Link className="entity-link" to={`/projects/${project.id}`} onMouseEnter={preloadProjectDetail} onFocus={preloadProjectDetail} onClick={event => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) beginProjectDetailNavigation(project.id) }}><FolderGit2 size={16} /><span><strong>{project.name}</strong><small>{project.description || 'Git'}</small></span></Link></td>
             <td><div className="project-row-tags">{(project.tags || []).length ? project.tags.map((tag: string) => <button type="button" key={tag} className="project-tag" onClick={() => onToggleTag(tag)}>{tag}</button>) : <span className="muted-cell">-</span>}</div></td>
             <td><span className="repo-cell" title={project.repo_url || '-'}>{project.repo_url || '-'}</span></td>
             <td><span className="branch-cell"><GitBranch size={13} />{project.default_branch || '-'}</span></td>

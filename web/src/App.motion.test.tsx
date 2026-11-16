@@ -21,7 +21,7 @@ vi.mock('./components/InAppNotifications', () => ({
   default: () => <button type="button" className="notification-bell">Notifications</button>,
 }))
 
-import { AppMotionBoundary, focusRouteContent, Layout } from './App'
+import { AppMotionBoundary, focusRouteContent, Layout, RouteLoading } from './App'
 
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 const appSource = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
@@ -64,6 +64,7 @@ describe('application motion accessibility', () => {
     container.remove()
     localStorage.clear()
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -71,6 +72,15 @@ describe('application motion accessibility', () => {
     act(() => root.render(<AppMotionBoundary><span>content</span></AppMotionBoundary>))
 
     expect(container.querySelector('[data-motion-policy="user"]')?.textContent).toBe('content')
+  })
+
+  it('provides a retry after route resources take too long to load', async () => {
+    vi.useFakeTimers()
+    act(() => root.render(<RouteLoading />))
+    expect(container.querySelector('[role="status"]')).not.toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000) })
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(container.querySelector<HTMLButtonElement>('[role="alert"] button')).not.toBeNull()
   })
 
   it('keeps current workspace navigation translations', () => {

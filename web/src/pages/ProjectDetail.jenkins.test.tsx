@@ -2,7 +2,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api'
 import { dialogs } from '../components/AppDialogs'
@@ -105,6 +105,36 @@ describe('ProjectDetail Jenkins Job status', () => {
     expect(match).toBeDefined()
     return match as HTMLButtonElement
   }
+
+  it('replaces a stalled project request with a retryable error', async () => {
+    vi.useFakeTimers()
+    vi.mocked(api.getProject).mockReturnValueOnce(new Promise(() => {}))
+    await renderPage()
+    expect(container.querySelector('.page-state.loading')).not.toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000) })
+    expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/timed out|超时/)
+    await act(async () => { button('Retry').click(); await Promise.resolve(); await Promise.resolve() })
+    expect(container.querySelector('.jenkins-job-layout')).not.toBeNull()
+  })
+
+  it('does not show the previous project while another project is loading', async () => {
+    vi.useFakeTimers()
+    vi.mocked(api.getProject).mockImplementation(id => id === 7 ? Promise.resolve(project) : new Promise(() => {}))
+    function SwitchProject() {
+      const navigate = useNavigate()
+      return <button onClick={() => navigate('/projects/8')}>Switch project</button>
+    }
+    await act(async () => {
+      root.render(<MemoryRouter initialEntries={['/projects/7']}><SwitchProject /><Routes><Route path="/projects/:id" element={<ProjectDetail />} /></Routes></MemoryRouter>)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(container.querySelector('h1')?.textContent).toBe('Weather')
+    await act(async () => { button('Switch project').click(); await Promise.resolve() })
+    expect(container.querySelector('h1')).toBeNull()
+    expect(container.querySelector('.page-state.loading')).not.toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000) })
+  })
 
   it('matches Jenkins Job navigation, permalinks, and clickable build history', async () => {
     await renderPage()

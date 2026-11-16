@@ -514,8 +514,16 @@ function NotFound() {
   </section>
 }
 
-function RouteLoading() {
-  return <div className="route-loading"><PageState /></div>
+export function RouteLoading() {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSlow(true), 12_000)
+    return () => window.clearTimeout(timer)
+  }, [])
+  const message = document.documentElement.lang.toLowerCase().startsWith('zh')
+    ? '页面资源加载时间过长，请检查服务连接后重试。'
+    : 'Page resources are taking too long to load. Check the server connection and retry.'
+  return <div className="route-loading"><PageState error={slow ? message : null} onRetry={() => window.location.reload()} /></div>
 }
 
 export default App

@@ -6,6 +6,14 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.17.2] - 2026-11-16
+
+### Fixed
+
+- Start project data loading alongside route loading, prevent stale project
+  details during navigation, and offer retry when loading stalls.
+- Keep Monaco's loader fallback on the BuildWorld origin.
+
 ## [1.17.1] - 2026-11-13
 
 ### Fixed

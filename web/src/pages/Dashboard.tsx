@@ -17,6 +17,7 @@ import { formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
 import { sortProjectGroups, type ProjectGroup } from '../lib/projectGroups'
 import { useJenkinsBuildFlow } from './projectBuildFlow'
+import { beginProjectDetailNavigation, preloadProjectDetail } from './projectDetailLoader'
 
 const ACTIVE_VIEW_KEY = 'buildworld.jenkins.active-view'
 const ACTIVE_BUILD_STATUSES = new Set(['running', 'pending', 'pending_approval', 'queued'])
@@ -405,7 +406,7 @@ export default function Dashboard() {
                   onDragEnd={() => setDraggingID(null)}
                 ><GripVertical size={14} /></button>}</div></td>
                 <td><span className={`jenkins-status-orb ${status}`} role="img" aria-label={statusLabel} title={statusLabel} /></td>
-                <td><Link className="jenkins-job-name" title={project.description ? `${project.name}\n${project.description}` : project.name} to={`/projects/${project.id}`}><span><strong>{project.name}</strong>{project.description && <small className="jenkins-dashboard-project-description">{project.description}</small>}{project.default_branch && project.default_branch.trim().toLowerCase() !== 'main' && <small className="jenkins-job-branch">{project.default_branch}</small>}</span></Link></td>
+                <td><Link className="jenkins-job-name" title={project.description ? `${project.name}\n${project.description}` : project.name} to={`/projects/${project.id}`} onMouseEnter={preloadProjectDetail} onFocus={preloadProjectDetail} onClick={event => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) beginProjectDetailNavigation(project.id) }}><span><strong>{project.name}</strong>{project.description && <small className="jenkins-dashboard-project-description">{project.description}</small>}{project.default_branch && project.default_branch.trim().toLowerCase() !== 'main' && <small className="jenkins-job-branch">{project.default_branch}</small>}</span></Link></td>
                 <td><LatestBuildStatus build={latest} emptyLabel={t('projectDetail.none')} /></td>
                 <td><BuildReference build={lastSuccess} emptyLabel={t('projectDetail.none')} /></td>
                 <td><BuildReference build={lastFailure} emptyLabel={t('projectDetail.none')} /></td>

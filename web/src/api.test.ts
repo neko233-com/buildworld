@@ -24,6 +24,30 @@ describe('API request resilience', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
+  it('propagates project cancellation without retrying an aborted request', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+    }))
+    const pending = api.getProject(7, { signal: controller.signal })
+    const aborted = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    controller.abort()
+    await aborted
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][1]?.signal).toBe(controller.signal)
+  })
+
+  it('does not clear a newer session when an older request returns 401', async () => {
+    setToken('old-session')
+    let respond!: (response: Response) => void
+    vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise(resolve => { respond = resolve }))
+    const pending = api.getProject(7)
+    setToken('new-session')
+    respond(new Response('Unauthorized', { status: 401 }))
+    await expect(pending).rejects.toMatchObject({ status: 401 })
+    expect(localStorage.getItem('token')).toBe('new-session')
+  })
+
   it('does not retry mutations that could be applied twice', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response('Bad Gateway', { status: 502 }))

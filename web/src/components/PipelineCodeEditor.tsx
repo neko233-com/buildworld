@@ -142,7 +142,9 @@ if (typeof self !== 'undefined') {
     ),
   }
 }
-loader.config({ monaco: monacoRuntime })
+// Never fall back to the loader's public CDN if its initialization changes.
+// The application supplies Monaco and its workers from the local bundle.
+loader.config({ monaco: monacoRuntime, paths: { vs: '/assets/monaco/vs' } })
 
 export default function PipelineCodeEditor({
   value,

@@ -179,6 +179,7 @@ export type SystemUpdateResponse = {
 type RequestOptions = {
   contentType?: string
   rawBody?: boolean
+  signal?: AbortSignal
 }
 
 export class ApiError extends Error {
@@ -350,8 +351,10 @@ export async function request<T = any>(method: string, path: string, body?: any,
         method,
         headers,
         body: hasBody ? (options.rawBody ? body : JSON.stringify(body)) : undefined,
+        signal: options.signal,
       })
-    } catch {
+    } catch (reason) {
+      if (options.signal?.aborted) throw reason
       if (retryableMethod && attempt < RETRY_DELAYS.length) {
         await retryDelay(attempt)
         continue
@@ -363,8 +366,12 @@ export async function request<T = any>(method: string, path: string, body?: any,
     }
 
     if (resp.status === 401 && path !== '/auth/login') {
-      clearToken()
-      window.location.href = '/login'
+      // An old request must not log out a newer session established while it
+      // was in flight (for example a project navigation prefetch).
+      if (getToken() === token) {
+        clearToken()
+        window.location.href = '/login'
+      }
       throw new ApiError('Unauthorized', 401, 'unauthorized')
     }
     if (!resp.ok) {
@@ -406,7 +413,7 @@ export const api = {
     request<any>('POST', `/projects/${id}/flags`, { favorite, quick_access: quickAccess }),
   reorderProjects: (orderedIds: number[]) =>
     request<any>('PUT', '/projects/order', { ordered_ids: orderedIds }),
-  getProject: (id: number) => request<any>('GET', `/projects/${id}`),
+  getProject: (id: number, options?: { signal?: AbortSignal }) => request<any>('GET', `/projects/${id}`, undefined, options),
   listReleaseTargets: (id: number) => request<ReleaseTargetOverview[]>('GET', `/projects/${id}/release-targets`),
   listReleaseRecords: (id: number) => request<BuildReleaseResult[]>('GET', `/projects/${id}/release-records`),
   createProject: (data: any) => request('POST', '/projects/', data),

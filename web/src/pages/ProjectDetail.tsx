@@ -24,6 +24,7 @@ import { formatDuration } from '../lib/durationPresentation'
 import { projectGroupPath } from '../lib/projectGroups'
 import ProjectJobActions from './ProjectJobActions'
 import { useJenkinsBuildFlow } from './projectBuildFlow'
+import { loadProjectDetail } from './projectDetailLoader'
 
 const activeStatuses = new Set(['running', 'pending', 'queued', 'pending_approval'])
 const buildsPerPage = 30
@@ -42,13 +43,18 @@ function buildDayGroup(value: string | undefined): { key: string; label: string 
 }
 
 export default function ProjectDetail() {
+  const { id } = useParams<{ id: string }>()
+  return <ProjectDetailPage key={id} />
+}
+
+function ProjectDetailPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const projectId = Number(id)
   const validProjectId = Number.isSafeInteger(projectId) && projectId > 0
   const editable = canEdit()
-  const { data: project, loading, error, reload, setData: setProject } = useApi(() => validProjectId ? api.getProject(projectId) : Promise.resolve(null), [projectId, validProjectId])
+  const { data: project, loading, error, reload, setData: setProject } = useApi(() => validProjectId ? loadProjectDetail(projectId) : Promise.resolve(null), [projectId, validProjectId])
   const { data: buildResult, loading: buildsLoading, error: buildsError, reload: reloadBuilds } = useApi(() => validProjectId ? api.searchBuilds({
     q: '', projectId, status: '', trigger: '', branch: '', pinned: false, page: 1, limit: 100,
   }) : Promise.resolve({ version: 1, items: [], total: 0, limit: 100, offset: 0 }), [projectId, validProjectId])
