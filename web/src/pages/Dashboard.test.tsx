@@ -421,6 +421,7 @@ describe('Dashboard Jenkins job view', () => {
     const pendingBuild = new Promise<{ id: number }>(resolve => { resolveBuild = resolve })
     triggerBuild.mockReturnValue(pendingBuild)
     await renderDashboard()
+    expect(validateProject).not.toHaveBeenCalled()
 
     const alphaBuild = buttonNamed('构建 Alpha')
     await act(async () => {
@@ -461,9 +462,12 @@ describe('Dashboard Jenkins job view', () => {
     }))
     await renderDashboard()
 
-    await act(async () => buttonNamed('参数化构建 Alpha').click())
+    expect(validateProject).not.toHaveBeenCalled()
+    await act(async () => buttonNamed('构建 Alpha').click())
 
     expect(triggerBuild).not.toHaveBeenCalled()
+    expect(validateProject).toHaveBeenCalledTimes(1)
+    expect(validateProject).toHaveBeenCalledWith(1)
     expect(container.querySelector('output[aria-label="current-location"]')?.textContent).toBe('/projects/1/build')
   })
 

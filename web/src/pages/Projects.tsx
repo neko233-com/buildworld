@@ -60,8 +60,7 @@ export default function Projects() {
   const [flagBusy, setFlagBusy] = useState<{ id: number; flag: 'favorite' | 'quick_access' } | null>(null)
   const [deleting, setDeleting] = useState<number | null>(null)
   const editable = canEdit()
-  const buildProjects = projects || []
-  const { isParameterized, start } = useJenkinsBuildFlow(editable ? buildProjects : [], navigate)
+  const { isParameterized, start } = useJenkinsBuildFlow(navigate)
   const deferredSearch = useDeferredValue(searchInput.trim().toLocaleLowerCase())
 
   const handleBuild = async (project: any) => {

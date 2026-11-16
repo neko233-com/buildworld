@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { NavigateFunction } from 'react-router-dom'
 import { api } from '../api'
 import { normalizeBuildParameterDefinitions } from '../components/RunBuildDialog'
@@ -15,16 +15,10 @@ function projectModeKey(project: JenkinsBuildProject): string {
   return `${project.id}:${project.updated_at || ''}`
 }
 
-export function useJenkinsBuildFlow(projects: JenkinsBuildProject[], navigate: NavigateFunction) {
+export function useJenkinsBuildFlow(navigate: NavigateFunction) {
   const [modes, setModes] = useState<Record<string, JenkinsBuildMode>>({})
   const requests = useRef(new Map<string, Promise<JenkinsBuildMode>>())
   const mounted = useRef(true)
-  const projectsRef = useRef(projects)
-  projectsRef.current = projects
-  const projectKeys = useMemo(
-    () => projects.filter(project => project.enabled !== false).map(projectModeKey).sort().join('|'),
-    [projects],
-  )
 
   const inspect = useCallback((project: JenkinsBuildProject): Promise<JenkinsBuildMode> => {
     const key = projectModeKey(project)
@@ -44,11 +38,6 @@ export function useJenkinsBuildFlow(projects: JenkinsBuildProject[], navigate: N
     requests.current.set(key, request)
     return request
   }, [])
-
-  useEffect(() => {
-    const enabledProjects = projectsRef.current.filter(project => project.enabled !== false)
-    void Promise.allSettled(enabledProjects.map(inspect))
-  }, [inspect, projectKeys])
 
   useEffect(() => {
     mounted.current = true

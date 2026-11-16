@@ -146,7 +146,7 @@ describe('ProjectChanges', () => {
     vi.mocked(api.validateProject).mockResolvedValue({ valid: true, format: 'yaml', stages: 1, steps: 1, parameters: [{ name: 'ENV', type: 'choice', choices: ['dev'] }], allow_long_running: false })
     await renderPage()
 
-    await act(async () => button('Build with Parameters').click())
+    await act(async () => button('Build Now').click())
 
     expect(api.triggerBuild).not.toHaveBeenCalled()
     expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/projects/7/build')

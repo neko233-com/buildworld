@@ -129,6 +129,7 @@ export default definePipeline({ parameters: [parameter('signing_token', 'passwor
     })
     const quickBuild = container.querySelector<HTMLButtonElement>('button.row-run')
     expect(quickBuild).not.toBeNull()
+    expect(validateProject).not.toHaveBeenCalled()
     await act(async () => {
       quickBuild?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       await Promise.resolve()

@@ -72,7 +72,7 @@ export default function ProjectChanges() {
   const [building, setBuilding] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [stopping, setStopping] = useState<number | null>(null)
-  const { isParameterized, start } = useJenkinsBuildFlow(project && editable ? [project] : [], navigate)
+  const { isParameterized, start } = useJenkinsBuildFlow(navigate)
   const requestedBuildId = Number(searchParams.get('build'))
   const filteredChanges = Number.isSafeInteger(requestedBuildId) && requestedBuildId > 0
     ? (changes || []).filter(change => change.build_id === requestedBuildId)

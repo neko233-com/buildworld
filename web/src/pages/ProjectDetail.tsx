@@ -64,7 +64,7 @@ function ProjectDetailPage() {
   const [building, setBuilding] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [stopping, setStopping] = useState<number | null>(null)
-  const { isParameterized, start } = useJenkinsBuildFlow(project && editable ? [project] : [], navigate)
+  const { isParameterized, start } = useJenkinsBuildFlow(navigate)
 
   const buildList = useMemo(() => [...(buildResult?.items || [])].sort((left, right) => (right.number - left.number) || (right.id - left.id)), [buildResult])
   const visibleBuilds = useMemo(() => {

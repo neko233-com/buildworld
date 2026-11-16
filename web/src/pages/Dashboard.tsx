@@ -153,8 +153,7 @@ export default function Dashboard() {
     ])
     return { projects, overviews, groups, builds }
   })
-  const buildProjects = data?.projects || []
-  const { isParameterized, start } = useJenkinsBuildFlow(editable ? buildProjects : [], navigate)
+  const { isParameterized, start } = useJenkinsBuildFlow(navigate)
   const hasActiveBuilds = (data?.overviews || []).some(overview => ACTIVE_BUILD_STATUSES.has(overview.latest?.status || ''))
 
   useEffect(() => {

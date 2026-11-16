@@ -6,6 +6,13 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.17.3] - 2026-11-16
+
+### Fixed
+
+- Validate build parameters only when a build is requested, preventing project
+  lists from launching SCM clones for every job and blocking navigation.
+
 ## [1.17.2] - 2026-11-16
 
 ### Fixed
