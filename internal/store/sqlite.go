@@ -2500,16 +2500,37 @@ func (s *Store) CreateAuditLog(userID int64, username, action, resourceType, res
 }
 
 func (s *Store) ListAuditLogs(limit, offset int) ([]*AuditLog, error) {
+	return s.SearchAuditLogs(limit, offset, 0, "", "")
+}
+
+// SearchAuditLogs keeps the offset API and supports stable paging by event ID.
+func (s *Store) SearchAuditLogs(limit, offset int, beforeID int64, action, actor string) ([]*AuditLog, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.db.Query(
-		"SELECT id, user_id, username, action, resource_type, resource_id, detail, ip, created_at FROM audit_logs ORDER BY id DESC LIMIT ? OFFSET ?",
-		limit, offset,
-	)
+	query := "SELECT id, user_id, username, action, resource_type, resource_id, detail, ip, created_at FROM audit_logs"
+	var where []string
+	var args []any
+	if beforeID > 0 {
+		where = append(where, "id < ?")
+		args = append(args, beforeID)
+	}
+	if action != "" {
+		where = append(where, "action = ?")
+		args = append(args, action)
+	}
+	if actor != "" {
+		where = append(where, "(instr(lower(COALESCE(username, '')), lower(?)) > 0 OR CAST(user_id AS TEXT) = ?)")
+		args = append(args, actor, actor)
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	args = append(args, limit, offset)
+	rows, err := s.db.Query(query+" ORDER BY id DESC LIMIT ? OFFSET ?", args...)
 	if err != nil {
 		return nil, err
 	}

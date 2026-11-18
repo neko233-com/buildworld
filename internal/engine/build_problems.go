@@ -87,7 +87,9 @@ func (stepFailureProblemStrategy) Analyze(context BuildProblemContext) []BuildPr
 	}
 	var problems []BuildProblem
 	stage, step := "", ""
-	for index, line := range strings.Split(context.Log, "\n") {
+	lineNumber := 0
+	for line := range strings.SplitSeq(context.Log, "\n") {
+		lineNumber++
 		message := buildLogMessage(line)
 		switch {
 		case strings.HasPrefix(message, "=== Stage: ") && strings.HasSuffix(message, " ==="):
@@ -99,7 +101,7 @@ func (stepFailureProblemStrategy) Analyze(context BuildProblemContext) []BuildPr
 			code, action := classifyBuildFailure(detail)
 			problems = append(problems, BuildProblem{
 				Code: code, Stage: stage, Step: step, Message: detail,
-				Excerpt: message, Line: index + 1, SuggestedAction: action,
+				Excerpt: message, Line: lineNumber, SuggestedAction: action,
 			})
 		}
 	}
@@ -126,7 +128,9 @@ func (terminalBuildProblemStrategy) Analyze(context BuildProblemContext) []Build
 	if context.Status != "failed" {
 		return nil
 	}
-	for index, line := range strings.Split(context.Log, "\n") {
+	lineNumber := 0
+	for line := range strings.SplitSeq(context.Log, "\n") {
+		lineNumber++
 		message := buildLogMessage(line)
 		if !strings.HasPrefix(message, "BUILD FAILED:") {
 			continue
@@ -135,7 +139,7 @@ func (terminalBuildProblemStrategy) Analyze(context BuildProblemContext) []Build
 		code, action := classifyBuildFailure(detail)
 		return []BuildProblem{{
 			Code: code, Message: detail, Excerpt: message,
-			Line: index + 1, SuggestedAction: action,
+			Line: lineNumber, SuggestedAction: action,
 		}}
 	}
 	return []BuildProblem{{

@@ -95,7 +95,7 @@ func findTimelineStep(steps []BuildTimelineStep, stage, name string, after int) 
 // markers not present in that plan are ignored instead of inventing steps.
 func ParseBuildTimeline(buildStatus, logText string) BuildTimeline {
 	var plan TimelinePlan
-	for _, line := range strings.Split(logText, "\n") {
+	for line := range strings.SplitSeq(logText, "\n") {
 		message := buildLogMessage(line)
 		if !strings.HasPrefix(message, timelinePlanMarker) {
 			continue
@@ -108,7 +108,7 @@ func ParseBuildTimeline(buildStatus, logText string) BuildTimeline {
 	active := -1
 	lastSeen := -1
 
-	for _, line := range strings.Split(logText, "\n") {
+	for line := range strings.SplitSeq(logText, "\n") {
 		message := buildLogMessage(line)
 		switch {
 		case strings.HasPrefix(message, "=== Stage: ") && strings.HasSuffix(message, " ==="):

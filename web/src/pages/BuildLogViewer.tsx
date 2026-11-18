@@ -8,7 +8,7 @@ import { useBuildLogStream } from '../useBuildLogStream'
 import { useI18n } from '../i18n'
 import { buildLogMessage, visibleBuildLog } from '../lib/buildTimeline'
 import { BUILD_LOG_WINDOW_MAX_CHARACTERS, BUILD_LOG_WINDOW_MAX_LINES, isNearLogBottom } from '../lib/logFollow'
-import { LOG_VIRTUALIZATION_THRESHOLD, useVirtualLogWindow } from '../lib/logVirtualization'
+import { findLogMatches, LOG_VIRTUALIZATION_THRESHOLD, logWindowRows, useVirtualLogWindow } from '../lib/logVirtualization'
 import { logTones, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
 import { PageState } from '../components/PageState'
 
@@ -88,15 +88,12 @@ function BuildLogViewerPage() {
   const lines = useMemo(() => rawLines.map(buildLogMessage), [rawLines])
   const lineTones = useMemo(() => colorizeLogs ? logTones(rawLines) : [], [colorizeLogs, rawLines])
   const normalizedQuery = useDeferredValue(query.trim().toLowerCase())
-  const matches = useMemo(() => normalizedQuery
-    ? lines.flatMap((line, index) => line.toLowerCase().includes(normalizedQuery) ? [index] : [])
-    : [], [lines, normalizedQuery])
-  const visibleLines = useMemo(() => filterLogMatches && normalizedQuery
-    ? matches.map(index => ({ line: lines[index], index }))
-    : lines.map((line, index) => ({ line, index })), [filterLogMatches, lines, matches, normalizedQuery])
-  const virtualizeLog = !wrap && visibleLines.length > LOG_VIRTUALIZATION_THRESHOLD
-  const virtualLog = useVirtualLogWindow(logViewportRef, visibleLines.length, 20, virtualizeLog)
-  const renderedLines = useMemo(() => visibleLines.slice(virtualLog.start, virtualLog.end), [virtualLog.end, virtualLog.start, visibleLines])
+  const matches = useMemo(() => findLogMatches(lines, normalizedQuery), [lines, normalizedQuery])
+  const filteredMatches = filterLogMatches && normalizedQuery ? matches : null
+  const visibleLineCount = filteredMatches?.length ?? lines.length
+  const virtualizeLog = !wrap && visibleLineCount > LOG_VIRTUALIZATION_THRESHOLD
+  const virtualLog = useVirtualLogWindow(logViewportRef, visibleLineCount, 20, virtualizeLog)
+  const renderedLines = useMemo(() => logWindowRows(lines, filteredMatches, virtualLog.start, virtualLog.end), [filteredMatches, lines, virtualLog.end, virtualLog.start])
   const renderLogLine = useCallback(({ line, index }: { line: string, index: number }) => <div key={index} ref={element => { if (element) lineRefs.current.set(index, element); else lineRefs.current.delete(index) }} className={`${colorizeLogs ? lineTones[index] : ''} ${matches[activeMatch] === index ? 'active-match' : ''}`}><span>{index + 1}</span><code>{highlightLine(line, normalizedQuery)}</code></div>, [activeMatch, colorizeLogs, lineTones, matches, normalizedQuery])
 
   const scrollToLatest = useCallback(() => {
@@ -264,8 +261,8 @@ function BuildLogViewerPage() {
       const viewport = logViewportRef.current
       if (viewport && followRef.current && !isNearLogBottom(viewport)) setFollowing(false)
     }}>
-      {visibleLines.length ? <div className={`plain-log-lines ${virtualizeLog ? 'is-virtualized' : ''}`} style={virtualizeLog ? { height: `${virtualLog.totalHeight}px` } : undefined}>
-        {virtualizeLog ? <div className="plain-log-lines-window" style={{ transform: `translateY(${virtualLog.offsetTop}px)` }}>{renderedLines.map(renderLogLine)}</div> : visibleLines.map(renderLogLine)}
+      {visibleLineCount ? <div className={`plain-log-lines ${virtualizeLog ? 'is-virtualized' : ''}`} style={virtualizeLog ? { height: `${virtualLog.totalHeight}px` } : undefined}>
+        {virtualizeLog ? <div className="plain-log-lines-window" style={{ transform: `translateY(${virtualLog.offsetTop}px)` }}>{renderedLines.map(renderLogLine)}</div> : renderedLines.map(renderLogLine)}
       </div> : <div className="plain-log-empty"><FileText size={22} /><span>{filterLogMatches && normalizedQuery ? t('common.noData') : running ? t('builds.waitingForLogs') : t('builds.noLogs')}</span></div>}
     </div>
     <footer className="plain-log-footer"><span>{t('builds.outputLines')}: {lines.length}</span><span>{follow ? t('builds.followingOutput') : t('builds.followPaused')}</span><span>UTF-8</span></footer>

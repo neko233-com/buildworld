@@ -4,6 +4,26 @@ import type { RefObject } from 'react'
 export const LOG_VIRTUAL_OVERSCAN_LINES = 80
 export const LOG_VIRTUALIZATION_THRESHOLD = 160
 
+const NO_MATCHES: readonly number[] = []
+
+export function findLogMatches(lines: readonly string[], normalizedQuery: string): readonly number[] {
+  if (!normalizedQuery) return NO_MATCHES
+  const matches: number[] = []
+  for (let index = 0; index < lines.length; index++) {
+    if (lines[index].toLowerCase().includes(normalizedQuery)) matches.push(index)
+  }
+  return matches
+}
+
+export function logWindowRows(lines: readonly string[], matches: readonly number[] | null, start: number, end: number) {
+  const rows: { line: string; index: number }[] = []
+  for (let position = start; position < end; position++) {
+    const index = matches ? matches[position] : position
+    rows.push({ line: lines[index], index })
+  }
+  return rows
+}
+
 type ViewportMetrics = {
   scrollTop: number
   height: number

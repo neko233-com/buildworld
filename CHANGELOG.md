@@ -6,6 +6,22 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.17.4] - 2026-11-18
+
+### Added
+
+- Browse older audit events using stable pages and search across history by action, username, or user ID.
+
+### Changed
+
+- Keep dashboard requests independent, share duplicate reads, and load build summaries and chart code only where needed.
+- Walk durable logs without allocating full line arrays and create browser row objects only for the visible log window.
+
+### Fixed
+
+- Keep dashboard actions visible on desktop, preserve keyboard focus and ordering, and support empty project and queue lists.
+- Load audit records even when system or login events do not have a user ID or resource ID.
+
 ## [1.17.3] - 2026-11-16
 
 ### Fixed

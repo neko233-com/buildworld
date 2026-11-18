@@ -10,7 +10,7 @@ import { dialogs } from '../components/AppDialogs'
 import { PageState } from '../components/PageState'
 import { buildLogMessage, timelineProgress, visibleBuildLog, type BuildTimelineStep } from '../lib/buildTimeline'
 import { BUILD_LOG_WINDOW_MAX_CHARACTERS, BUILD_LOG_WINDOW_MAX_LINES, isNearLogBottom } from '../lib/logFollow'
-import { LOG_VIRTUALIZATION_THRESHOLD, useVirtualLogWindow } from '../lib/logVirtualization'
+import { findLogMatches, LOG_VIRTUALIZATION_THRESHOLD, logWindowRows, useVirtualLogWindow } from '../lib/logVirtualization'
 import { logTones, readLogTonePreference, writeLogTonePreference } from '../lib/logTone'
 import { buildTriggerLabel } from '../lib/buildPresentation'
 import { canEdit } from '../authz'
@@ -167,15 +167,12 @@ function BuildDetailPage() {
   const consoleTones = useMemo(() => colorizeLogs ? logTones(rawConsoleLines) : [], [colorizeLogs, rawConsoleLines])
   const logLines = useMemo(() => consoleLines.filter(Boolean), [consoleLines])
   const normalizedLogQuery = useDeferredValue(logQuery.trim().toLowerCase())
-  const logMatches = useMemo(() => normalizedLogQuery
-    ? consoleLines.flatMap((line, index) => line.toLowerCase().includes(normalizedLogQuery) ? [index] : [])
-    : [], [consoleLines, normalizedLogQuery])
-  const visibleConsoleLines = useMemo(() => filterLogMatches && normalizedLogQuery
-    ? logMatches.map(index => ({ line: consoleLines[index], index }))
-    : consoleLines.map((line, index) => ({ line, index })), [consoleLines, filterLogMatches, logMatches, normalizedLogQuery])
-  const virtualizeConsoleLog = visibleConsoleLines.length > LOG_VIRTUALIZATION_THRESHOLD
-  const virtualConsoleLog = useVirtualLogWindow(consoleRef, visibleConsoleLines.length, 14 * 1.66, virtualizeConsoleLog)
-  const renderedConsoleLines = useMemo(() => visibleConsoleLines.slice(virtualConsoleLog.start, virtualConsoleLog.end), [virtualConsoleLog.end, virtualConsoleLog.start, visibleConsoleLines])
+  const logMatches = useMemo(() => findLogMatches(consoleLines, normalizedLogQuery), [consoleLines, normalizedLogQuery])
+  const filteredMatches = filterLogMatches && normalizedLogQuery ? logMatches : null
+  const visibleLineCount = filteredMatches?.length ?? consoleLines.length
+  const virtualizeConsoleLog = visibleLineCount > LOG_VIRTUALIZATION_THRESHOLD
+  const virtualConsoleLog = useVirtualLogWindow(consoleRef, visibleLineCount, 14 * 1.66, virtualizeConsoleLog)
+  const renderedConsoleLines = useMemo(() => logWindowRows(consoleLines, filteredMatches, virtualConsoleLog.start, virtualConsoleLog.end), [consoleLines, filteredMatches, virtualConsoleLog.end, virtualConsoleLog.start])
   const liveLogStatus = t(`builds.${liveLogState}`)
   const problemsPending = problemsLoading || (!!build && !problems && !problemsError)
 
@@ -294,7 +291,7 @@ function BuildDetailPage() {
     const lineIndex = rawConsoleLines.findIndex(line => stagePattern.test(line))
     const logLine = lineIndex >= 0 ? document.getElementById(`build-log-line-${lineIndex}`) : null
     if (!logLine) {
-      const visiblePosition = visibleConsoleLines.findIndex(entry => entry.index === lineIndex)
+      const visiblePosition = filteredMatches ? filteredMatches.indexOf(lineIndex) : lineIndex
       const consoleOutput = consoleRef.current
       if (visiblePosition < 0 || !consoleOutput || filterLogMatches) return false
       requestedStageLogRef.current = stageName
@@ -531,7 +528,7 @@ function BuildDetailPage() {
             const consoleOutput = consoleRef.current
             if (!consoleOutput) return
             if (followConsoleRef.current && !isNearLogBottom(consoleOutput)) setConsoleFollowing(false)
-          }}>{visibleConsoleLines.length ? virtualizeConsoleLog ? <><span className="jenkins-console-spacer" style={{ height: `${virtualConsoleLog.offsetTop}px` }} aria-hidden="true" />{renderedConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>)}<span className="jenkins-console-spacer" style={{ height: `${Math.max(0, virtualConsoleLog.totalHeight - virtualConsoleLog.end * (14 * 1.66))}px` }} aria-hidden="true" /></> : visibleConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>) : logsLoading ? t('common.loading') : filterLogMatches && normalizedLogQuery ? t('common.noData') : isActive ? t('builds.waitingForLogs') : t('builds.noLogs')}</pre>
+          }}>{visibleLineCount ? virtualizeConsoleLog ? <><span className="jenkins-console-spacer" style={{ height: `${virtualConsoleLog.offsetTop}px` }} aria-hidden="true" />{renderedConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>)}<span className="jenkins-console-spacer" style={{ height: `${Math.max(0, virtualConsoleLog.totalHeight - virtualConsoleLog.end * (14 * 1.66))}px` }} aria-hidden="true" /></> : renderedConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>) : logsLoading ? t('common.loading') : filterLogMatches && normalizedLogQuery ? t('common.noData') : isActive ? t('builds.waitingForLogs') : t('builds.noLogs')}</pre>
           {isExecuting && <div className="jenkins-console-progress" role="status" aria-live="polite">{followConsole ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pause size={16} />}{followConsole ? liveLogStatus : t('builds.followPaused')}</div>}
         </section>
         </div>

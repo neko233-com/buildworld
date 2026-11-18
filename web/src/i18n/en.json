@@ -1202,6 +1202,9 @@
     "more": "More"
   },
   "auditLog": {
+    "page": "Page {page}",
+    "pageEvents": "Records on this page",
+    "actionSearch": "Exact action, e.g. login",
     "title": "Audit Log",
     "time": "Time",
     "user": "User",

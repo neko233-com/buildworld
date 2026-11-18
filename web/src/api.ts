@@ -451,7 +451,7 @@ export const api = {
   me: () => request<any>('GET', '/auth/me'),
 
   // projects
-  listProjects: () => request<any[]>('GET', '/projects/'),
+  listProjects: () => request<any[] | null>('GET', '/projects/').then(items => items ?? []),
   listProjectBuildOverviews: () => request<ProjectBuildOverview[]>('GET', '/projects/job-overview'),
   listQuickAccess: () => request<any[]>('GET', '/projects/?quick_access=1'),
   setProjectFlags: (id: number, favorite: boolean, quickAccess: boolean) =>
@@ -587,8 +587,13 @@ export const api = {
   getDashboardStats: () => request<any>('GET', '/stats/dashboard'),
 
   // audit logs
-  listAuditLogs: (page = 1, limit = 50) =>
-    request<any[]>('GET', `/audit-logs?offset=${Math.max(0, page - 1) * limit}&limit=${limit}`),
+  listAuditLogs: (options: { limit: number; beforeID?: number; action?: string; actor?: string }) => {
+    const query = new URLSearchParams({ limit: String(options.limit) })
+    if (options.beforeID) query.set('before_id', String(options.beforeID))
+    if (options.action) query.set('action', options.action)
+    if (options.actor) query.set('actor', options.actor)
+    return request<any[]>('GET', `/audit-logs?${query}`)
+  },
 
   // api tokens
   listAPITokens: () => request<any[]>('GET', '/api-tokens/'),

@@ -1307,12 +1307,12 @@ func (h *handlers) getBuildTimeline(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	build, err := h.d.Store.GetBuild(id)
+	status, log, err := h.d.Store.GetBuildStatusAndLog(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "build not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, engine.ParseBuildTimeline(build.Status, build.Log))
+	writeJSON(w, http.StatusOK, engine.ParseBuildTimeline(status, log))
 }
 
 func (h *handlers) getBuildProblems(w http.ResponseWriter, r *http.Request) {
@@ -1321,12 +1321,12 @@ func (h *handlers) getBuildProblems(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	build, err := h.d.Store.GetBuild(id)
+	status, log, err := h.d.Store.GetBuildStatusAndLog(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "build not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, engine.AnalyzeBuildProblems(build.Status, build.Log))
+	writeJSON(w, http.StatusOK, engine.AnalyzeBuildProblems(status, log))
 }
 
 func (h *handlers) getBuildChain(w http.ResponseWriter, r *http.Request) {
@@ -2707,7 +2707,22 @@ func (h *handlers) listAuditLogs(w http.ResponseWriter, r *http.Request) {
 			offset = v
 		}
 	}
-	logs, err := h.d.Store.ListAuditLogs(limit, offset)
+	query := r.URL.Query()
+	var beforeID int64
+	if raw := query.Get("before_id"); raw != "" {
+		var err error
+		beforeID, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || beforeID <= 0 {
+			writeErr(w, http.StatusBadRequest, "invalid audit cursor")
+			return
+		}
+	}
+	action, actor := strings.TrimSpace(query.Get("action")), strings.TrimSpace(query.Get("actor"))
+	if len(action) > 512 || len(actor) > 512 {
+		writeErr(w, http.StatusBadRequest, "audit filter is too long")
+		return
+	}
+	logs, err := h.d.Store.SearchAuditLogs(limit, offset, beforeID, action, actor)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

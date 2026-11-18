@@ -22,6 +22,13 @@ type BuildLogTail struct {
 	WindowTruncated    bool
 }
 
+// GetBuildStatusAndLog reads the durable output used by diagnostics without
+// loading unrelated metadata or allocating copies of build parameters.
+func (s *Store) GetBuildStatusAndLog(id int64) (status, log string, err error) {
+	err = s.db.QueryRow("SELECT status, COALESCE(log, '') FROM builds WHERE id = ?", id).Scan(&status, &log)
+	return status, log, err
+}
+
 // GetBuildLogTail reads only a small suffix from SQLite before applying the
 // line boundary. This keeps both the database-to-process and HTTP payloads
 // bounded when a build has a large retained log.
@@ -65,8 +72,8 @@ func retainBuildLogTail(log string, maxLines, maxCharacters int) (string, bool) 
 
 	start := 0
 	truncated := false
-	if utf8.RuneCountInString(log) > maxCharacters {
-		start = byteOffsetAfterRunes(log, utf8.RuneCountInString(log)-maxCharacters)
+	if length := utf8.RuneCountInString(log); length > maxCharacters {
+		start = byteOffsetAfterRunes(log, length-maxCharacters)
 		truncated = true
 	}
 	if start > 0 && log[start-1] != '\n' {

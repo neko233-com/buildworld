@@ -1202,6 +1202,9 @@
     "more": "多"
   },
   "auditLog": {
+    "page": "第 {page} 页",
+    "pageEvents": "本页记录",
+    "actionSearch": "精确操作名，例如 login",
     "title": "审计日志",
     "time": "时间",
     "user": "用户",

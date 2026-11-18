@@ -34,4 +34,20 @@ func TestListAuditLogsHandlesEventsWithoutActorOrResource(t *testing.T) {
 		}
 		t.Fatalf("unexpected audit log entries, count = %d", len(logs))
 	}
+
+	first, err := data.SearchAuditLogs(1, 0, 0, "", "OPER")
+	if err != nil || len(first) != 1 || first[0].Action != "login-attempt" {
+		t.Fatalf("first actor page = %+v, %v", first, err)
+	}
+	if err := data.CreateAuditLog(42, "operator", "delete", "project", "9", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	second, err := data.SearchAuditLogs(2, 0, first[0].ID, "", "OPER")
+	if err != nil || len(second) != 1 || second[0].ID != logs[2].ID {
+		t.Fatalf("second actor page = %+v, %v", second, err)
+	}
+	filtered, err := data.SearchAuditLogs(50, 0, 0, "update", "42")
+	if err != nil || len(filtered) != 1 || filtered[0].Action != "update" {
+		t.Fatalf("filtered audit entries = %+v, %v", filtered, err)
+	}
 }

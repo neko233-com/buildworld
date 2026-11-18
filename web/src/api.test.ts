@@ -10,9 +10,9 @@ describe('API request resilience', () => {
     localStorage.clear()
   })
 
-  it('treats a legacy null build queue as an empty list', async () => {
+  it.each([api.listBuildQueue, api.listProjects])('treats legacy null lists as empty arrays', async loadList => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('null'))
-    await expect(api.listBuildQueue()).resolves.toEqual([])
+    await expect(loadList()).resolves.toEqual([])
   })
 
   it('retries transient gateway failures for reads', async () => {
