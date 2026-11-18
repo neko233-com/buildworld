@@ -94,7 +94,7 @@ function Get-LatestPagesBuild([string]$Repo) {
         'api', '--hostname', 'github.com',
         '-H', 'Accept: application/vnd.github+json',
         '-H', 'X-GitHub-Api-Version: 2022-11-28',
-        "repos/$Repo/pages/builds/latest"
+        "repos/$Repo/pages/builds?per_page=10"
     )
     $result = Invoke-NetworkReadRetry -Read {
         $output = & gh @arguments 2>&1
@@ -103,7 +103,8 @@ function Get-LatestPagesBuild([string]$Repo) {
     $output = $result.Output
     $exitCode = $result.ExitCode
     if ($exitCode -eq 0) {
-        return ($output -join [Environment]::NewLine) | ConvertFrom-Json
+        $builds = ($output -join [Environment]::NewLine) | ConvertFrom-Json
+        return Get-NewestDocsPagesBuild -Builds $builds
     }
 
     $errorText = $output -join [Environment]::NewLine

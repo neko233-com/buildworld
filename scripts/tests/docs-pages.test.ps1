@@ -22,4 +22,16 @@ foreach ($case in @(
     }
     if (-not $rejected) { throw 'An unverified Pages deployment was accepted.' }
 }
-Write-Host 'Pages exact-commit regressions passed (4 cases).'
+$earlierFailed = [pscustomobject]@{commit = $sha; status = 'errored'; created_at = '2026-11-18T04:35:04Z'}
+$laterRunning = [pscustomobject]@{commit = $sha; status = 'building'; created_at = '2026-11-18T04:35:08Z'}
+$laterBuilt = [pscustomobject]@{commit = $sha; status = 'built'; created_at = $laterRunning.created_at}
+$script:pageAttempts = 0
+Wait-DocsPagesBuild -Commit $sha -TimeoutSeconds 1 -Wait {} -GetLatest {
+    $script:pageAttempts++
+    $later = if ($script:pageAttempts -eq 1) { $laterRunning } else { $laterBuilt }
+    Get-NewestDocsPagesBuild -Builds @($earlierFailed, $later)
+}
+if ($script:pageAttempts -ne 2) { throw 'Pages verification did not wait for the newer run.' }
+if ($null -ne (Get-NewestDocsPagesBuild -Builds @())) { throw 'Empty Pages build history returned a build.' }
+
+Write-Host 'Pages exact-commit regressions passed (6 cases).'

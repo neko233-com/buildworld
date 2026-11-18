@@ -1,3 +1,10 @@
+# The legacy Pages API can list its automatic and explicitly requested builds
+# out of creation order, including runs for the same commit.
+function Get-NewestDocsPagesBuild {
+    param([object[]]$Builds)
+    $Builds | Sort-Object -Property created_at -Descending -Stable | Select-Object -First 1
+}
+
 function Wait-DocsPagesBuild {
     param(
         [string]$Commit,
