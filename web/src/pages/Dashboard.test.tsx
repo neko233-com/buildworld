@@ -10,11 +10,12 @@ import { useI18n } from '../i18n'
 import Dashboard from './Dashboard'
 
 vi.mock('../api', () => ({
+  getToken: () => localStorage.getItem('token'),
   api: {
     listProjects: vi.fn(),
     listProjectBuildOverviews: vi.fn(),
     listProjectGroups: vi.fn(),
-    listBuilds: vi.fn(),
+    listRecentBuilds: vi.fn(),
     getStorageUsage: vi.fn(),
     listBuildQueue: vi.fn(),
     getBuildQueueCapacity: vi.fn(),
@@ -40,7 +41,7 @@ vi.mock('../authz', () => ({ canEdit: () => true, isAdmin: () => false }))
 const listProjects = vi.mocked(api.listProjects)
 const listProjectBuildOverviews = vi.mocked(api.listProjectBuildOverviews)
 const listProjectGroups = vi.mocked(api.listProjectGroups)
-const listBuilds = vi.mocked(api.listBuilds)
+const listRecentBuilds = vi.mocked(api.listRecentBuilds)
 const getStorageUsage = vi.mocked(api.getStorageUsage)
 const listBuildQueue = vi.mocked(api.listBuildQueue)
 const getBuildQueueCapacity = vi.mocked(api.getBuildQueueCapacity)
@@ -114,10 +115,10 @@ describe('Dashboard Jenkins job view', () => {
     listProjects.mockReset().mockResolvedValue(projects)
     listProjectBuildOverviews.mockReset().mockResolvedValue(overviews)
     listProjectGroups.mockReset().mockResolvedValue(groups)
-    listBuilds.mockReset().mockResolvedValue([
-      { id: 112, project_id: 1, number: 12, status: 'running', started_at: '2026-07-21T10:12:00Z' },
-      { id: 204, project_id: 2, number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
-      { id: 110, project_id: 1, number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
+    listRecentBuilds.mockReset().mockResolvedValue([
+      { id: 112, project_id: 1, project_name: 'Alpha', number: 12, status: 'running', started_at: '2026-07-21T10:12:00Z' },
+      { id: 204, project_id: 2, project_name: 'Beta', number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
+      { id: 110, project_id: 1, project_name: 'Alpha', number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
     ])
     getStorageUsage.mockReset().mockResolvedValue({
       executor: 'builtin',
@@ -198,10 +199,10 @@ describe('Dashboard Jenkins job view', () => {
   it('shows every project in persisted Jenkins order with build history, duration, links, and reorder controls', async () => {
     await renderDashboard()
 
-    expect(listProjects).toHaveBeenCalledTimes(2)
+    expect(listProjects).toHaveBeenCalledOnce()
     expect(listProjectBuildOverviews).toHaveBeenCalledOnce()
     expect(listProjectGroups).toHaveBeenCalledOnce()
-    expect(listBuilds).toHaveBeenCalledWith(30)
+    expect(listRecentBuilds).toHaveBeenCalledWith(30)
     expect(getStorageUsage).toHaveBeenCalledOnce()
     expect(listBuildQueue).toHaveBeenCalledOnce()
     expect(listAgents).not.toHaveBeenCalled()
@@ -234,7 +235,7 @@ describe('Dashboard Jenkins job view', () => {
     expect(headings[0]).toBe('ID')
     expect(headings[1]).toBe('S')
     expect(headings[2]).toContain('名称')
-    expect(headings).toEqual(['ID', 'S', '名称', '最近一次构建状态', '最近成功构建', '最近失败构建', '耗时', ''])
+    expect(headings).toEqual(['ID', 'S', '名称', '最近一次构建状态', '最近成功构建', '最近失败构建', '耗时', '操作'])
     expect(table!.querySelector('[aria-label="项目 ID"]')?.textContent).toBe('ID')
     expect(table!.querySelector('[aria-label="状态"]')?.textContent).toBe('S')
     expect(table!.querySelector('[aria-label="成功率"]')).toBeNull()
@@ -294,7 +295,7 @@ describe('Dashboard Jenkins job view', () => {
     await act(async () => {
       rowFor(1).dispatchEvent(new Event('drop', { bubbles: true, cancelable: true }))
     })
-    expect(reorderProjects).toHaveBeenLastCalledWith([2, 3, 1])
+    expect(reorderProjects).toHaveBeenLastCalledWith([3, 2, 1])
   })
 
   it('uses one stable table density without user controls or stored preferences', async () => {
@@ -421,7 +422,6 @@ describe('Dashboard Jenkins job view', () => {
     const pendingBuild = new Promise<{ id: number }>(resolve => { resolveBuild = resolve })
     triggerBuild.mockReturnValue(pendingBuild)
     await renderDashboard()
-    expect(validateProject).not.toHaveBeenCalled()
 
     const alphaBuild = buttonNamed('构建 Alpha')
     await act(async () => {
@@ -451,7 +451,7 @@ describe('Dashboard Jenkins job view', () => {
     expect(alphaBuild.getAttribute('aria-busy')).toBe('false')
   })
 
-  it('labels parameterized jobs and routes them without queueing', async () => {
+  it('validates only the selected job and routes parameterized jobs without queueing', async () => {
     validateProject.mockImplementation(async id => ({
       valid: true,
       format: 'yaml',
@@ -464,10 +464,9 @@ describe('Dashboard Jenkins job view', () => {
 
     expect(validateProject).not.toHaveBeenCalled()
     await act(async () => buttonNamed('构建 Alpha').click())
+    expect(validateProject).toHaveBeenCalledExactlyOnceWith(1)
 
     expect(triggerBuild).not.toHaveBeenCalled()
-    expect(validateProject).toHaveBeenCalledTimes(1)
-    expect(validateProject).toHaveBeenCalledWith(1)
     expect(container.querySelector('output[aria-label="current-location"]')?.textContent).toBe('/projects/1/build')
   })
 
@@ -514,19 +513,19 @@ describe('Dashboard Jenkins job view', () => {
     listProjectBuildOverviews.mockReset()
       .mockResolvedValueOnce(idleOverviews)
       .mockResolvedValue(overviews)
-    listBuilds.mockReset()
+    listRecentBuilds.mockReset()
       .mockResolvedValueOnce([
-        { id: 204, project_id: 2, number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
-        { id: 110, project_id: 1, number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
+        { id: 204, project_id: 2, project_name: 'Beta', number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
+        { id: 110, project_id: 1, project_name: 'Alpha', number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
       ])
       .mockResolvedValueOnce([
-        { id: 204, project_id: 2, number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
-        { id: 110, project_id: 1, number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
+        { id: 204, project_id: 2, project_name: 'Beta', number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
+        { id: 110, project_id: 1, project_name: 'Alpha', number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
       ])
       .mockResolvedValue([
-        { id: 112, project_id: 1, number: 12, status: 'running', started_at: '2026-07-21T10:12:00Z' },
-        { id: 204, project_id: 2, number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
-        { id: 110, project_id: 1, number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
+        { id: 112, project_id: 1, project_name: 'Alpha', number: 12, status: 'running', started_at: '2026-07-21T10:12:00Z' },
+        { id: 204, project_id: 2, project_name: 'Beta', number: 4, status: 'success', started_at: '2026-07-21T10:04:00Z' },
+        { id: 110, project_id: 1, project_name: 'Alpha', number: 10, status: 'failed', started_at: '2026-07-21T10:10:00Z' },
       ])
 
     await renderDashboard()

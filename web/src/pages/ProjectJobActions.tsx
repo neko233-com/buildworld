@@ -32,7 +32,6 @@ type ProjectJobActionsProps = {
   activeView: 'status' | 'changes'
   editable: boolean
   building: boolean
-  parameterized: boolean
   deleting: boolean
   onBuildNow: () => void
   onDelete: () => void
@@ -68,7 +67,6 @@ export default function ProjectJobActions({
   activeView,
   editable,
   building,
-  parameterized,
   deleting,
   onBuildNow,
   onDelete,
@@ -163,7 +161,7 @@ export default function ProjectJobActions({
     <nav className="jenkins-job-actions">
       <Link className={activeView === 'status' ? 'active' : undefined} to={`/projects/${projectId}`}><Activity size={16} />{t('projectDetail.status')}</Link>
       <Link className={activeView === 'changes' ? 'active' : undefined} to={`/projects/${projectId}/changes`}><GitCommitHorizontal size={16} />{t('projectDetail.changes')}</Link>
-      {editable && <button type="button" onClick={onBuildNow} disabled={building || !projectEnabled || busyAction !== null} aria-busy={building || undefined} title={!projectEnabled ? t('common.disabled') : undefined}>{building ? <LoaderCircle className="timeline-spinner" size={16} /> : <Play size={16} />}{t(parameterized ? 'builds.buildWithParameters' : 'projectDetail.buildNow')}</button>}
+      {editable && <button type="button" onClick={onBuildNow} disabled={building || !projectEnabled || busyAction !== null} aria-busy={building || undefined} title={!projectEnabled ? t('common.disabled') : undefined}>{building ? <LoaderCircle className="timeline-spinner" size={16} /> : <Play size={16} />}{t(building ? 'projects.startingBuild' : 'projectDetail.buildNow')}</button>}
       {editable && <button type="button" className="danger" onClick={onDelete} disabled={deleting || busyAction !== null} aria-busy={deleting || undefined}>{deleting ? <LoaderCircle className="timeline-spinner" size={16} /> : <Trash2 size={16} />}{t('projectDetail.deletePipeline')}</button>}
       {editable && <Link to={`/projects/${projectId}/configure`}><Settings2 size={16} />{t('projectDetail.configure')}</Link>}
       {editable && <button type="button" onClick={openRename} disabled={busyAction !== null}><Pencil size={16} />{t('projectDetail.rename')}</button>}

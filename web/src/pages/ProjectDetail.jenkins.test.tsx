@@ -10,6 +10,7 @@ import { formatDateTime, formatDate } from '../lib/dateTime'
 import ProjectDetail from './ProjectDetail'
 
 vi.mock('../api', () => ({
+  getToken: () => localStorage.getItem('token'),
   api: {
     getProject: vi.fn(),
     listReleaseTargets: vi.fn(),

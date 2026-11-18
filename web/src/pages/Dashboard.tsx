@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowDown, ArrowUp, Folder, GripVertical, HardDrive, LoaderCircle, MoreHorizontal, Play, Plus, RefreshCw, Star, Trash2, X } from 'lucide-react'
 import { FiEdit2 } from 'react-icons/fi'
 import { IoLogoGithub } from 'react-icons/io5'
@@ -10,7 +10,7 @@ import JenkinsHomeRail from '../components/JenkinsHomeRail'
 import { ModalDialog } from '../components/ModalDialog'
 import { PageState } from '../components/PageState'
 import ProjectGroupsDialog from '../components/ProjectGroupsDialog'
-import { useApi } from '../hooks'
+import { useApi, useVisiblePolling } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { formatDateTime } from '../lib/dateTime'
@@ -38,9 +38,10 @@ function initialActiveView() {
 
 function BuildReference({ build, emptyLabel }: { build?: any; emptyLabel: string }) {
   if (!build) return <span className="jenkins-empty-value">{emptyLabel}</span>
+  const started = formatDateTime(build.started_at)
   return <span className="jenkins-build-reference">
     <Link to={`/builds/${build.id}`}>#{build.number}</Link>
-    <small title={formatDateTime(build.started_at)}>{formatDateTime(build.started_at)}</small>
+    <small title={started}>{started}</small>
   </span>
 }
 
@@ -68,14 +69,8 @@ function formatBytes(value: number, locale: string) {
 
 function StorageMonitor() {
   const { t, locale } = useI18n()
-  const { data, loading, error, reload } = useApi(() => api.getStorageUsage(), [])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') reload()
-    }, STORAGE_REFRESH_INTERVAL_MS)
-    return () => window.clearInterval(timer)
-  }, [reload])
+  const { data, loading, error, reload, poll } = useApi(api.getStorageUsage)
+  useVisiblePolling(poll, STORAGE_REFRESH_INTERVAL_MS)
 
   if (loading) return <section className="jenkins-storage-monitor loading" aria-label={t('dashboard.diskUsage')} aria-busy="true">
     <HardDrive size={17} aria-hidden="true" />
@@ -144,34 +139,32 @@ export default function Dashboard() {
   const [groupPendingDeletion, setGroupPendingDeletion] = useState<ProjectGroup | null>(null)
   const [deleteGroupProjects, setDeleteGroupProjects] = useState(false)
   const [deletingGroup, setDeletingGroup] = useState<number | null>(null)
-  const { data, loading, error, reload } = useApi(async () => {
-    const [projects, overviews, groups, builds] = await Promise.all([
-      api.listProjects(),
-      api.listProjectBuildOverviews(),
-      api.listProjectGroups(),
-      api.listBuilds(30),
-    ])
-    return { projects, overviews, groups, builds }
-  })
-  const { isParameterized, start } = useJenkinsBuildFlow(navigate)
-  const hasActiveBuilds = (data?.overviews || []).some(overview => ACTIVE_BUILD_STATUSES.has(overview.latest?.status || ''))
+  const { data: projectData, loading, error, reload: reloadProjects, poll: pollProjects } = useApi(api.listProjects)
+  const { data: groupData, error: groupsError, reload: reloadGroups, poll: pollGroups } = useApi(api.listProjectGroups)
+  const { data: overviews, error: overviewsError, reload: reloadOverviews, poll: pollOverviews } = useApi(api.listProjectBuildOverviews)
+  const { start } = useJenkinsBuildFlow(navigate)
+  const hasActiveBuilds = overviews?.some(overview => ACTIVE_BUILD_STATUSES.has(overview.latest?.status || ''))
+  const reload = useCallback(async () => {
+    await Promise.all([reloadProjects(), reloadGroups(), reloadOverviews()])
+  }, [reloadProjects, reloadGroups, reloadOverviews])
+  const pollMetadata = useCallback(() => {
+    void pollProjects()
+    void pollGroups()
+  }, [pollGroups, pollProjects])
+
+  useVisiblePolling(pollOverviews, hasActiveBuilds ? ACTIVE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS)
+  useVisiblePolling(pollMetadata, reordering ? null : IDLE_REFRESH_INTERVAL_MS)
 
   useEffect(() => {
-    const refreshInterval = hasActiveBuilds ? ACTIVE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') reload()
-    }, refreshInterval)
-    return () => window.clearInterval(timer)
-  }, [hasActiveBuilds, reload])
+    if (projectData && !reordering) setProjectOrder(projectData.map(project => project.id))
+  }, [projectData, reordering])
 
   useEffect(() => {
-    if (!data) return
-    setProjectOrder(data.projects.map(project => project.id))
-    const validViews = new Set(['all', 'favorites', ...(data.groups || []).map(group => `group-${group.id}`)])
-    if (validViews.has(activeView)) return
+    if (!groupData || activeView === 'all' || activeView === 'favorites') return
+    if (groupData.some(group => `group-${group.id}` === activeView)) return
     setActiveView('all')
     localStorage.setItem(ACTIVE_VIEW_KEY, 'all')
-  }, [activeView, data])
+  }, [activeView, groupData])
 
   useEffect(() => {
     if (!groupContextMenu) return
@@ -195,17 +188,11 @@ export default function Dashboard() {
     }
   }, [groupContextMenu])
 
-  if (loading) return <PageState />
-  if (error) return <PageState error={error} onRetry={reload} />
-
-  const projects = (data?.projects || []).map(project => ({ ...project, name: String(project.name || '').trim() || `#${project.id}` }))
-  const groups = sortProjectGroups(data?.groups || [])
-  const overviewsByProject = new Map((data?.overviews || []).map(overview => [overview.project_id, overview]))
-  const projectsByID = new Map(projects.map(project => [project.id, project]))
-  const recentBuilds = (data?.builds || []).map(build => ({
-    ...build,
-    project_name: projectsByID.get(build.project_id)?.name || `#${build.project_id}`,
-  }))
+  const projects = useMemo(() => (projectData || []).map(project => ({
+    ...project, name: String(project.name || '').trim() || `#${project.id}`,
+  })), [projectData])
+  const groups = useMemo(() => sortProjectGroups(groupData || []), [groupData])
+  const overviewsByProject = useMemo(() => new Map((overviews || []).map(overview => [overview.project_id, overview])), [overviews])
 
   const views = [
     { id: 'all', label: t('common.all'), group: undefined, favorite: false, matches: () => true },
@@ -277,12 +264,13 @@ export default function Dashboard() {
   }
 
   const dropProject = (targetID: number) => {
-    if (draggingID === null || draggingID === targetID) return
-    const visibleIDs = visibleProjects.map(project => project.id)
-    const from = visibleIDs.indexOf(draggingID)
-    if (from < 0 || !visibleIDs.includes(targetID)) return
-    const next = visibleIDs.filter(id => id !== draggingID)
-    next.unshift(draggingID)
+    if (!editable || reordering || draggingID === null || draggingID === targetID) return
+    const next = visibleProjects.map(project => project.id)
+    const from = next.indexOf(draggingID)
+    const to = next.indexOf(targetID)
+    if (from < 0 || to < 0) return
+    next.splice(from, 1)
+    next.splice(to, 0, draggingID)
     setDraggingID(null)
     void persistVisibleOrder(next)
   }
@@ -330,9 +318,12 @@ export default function Dashboard() {
 
   return <section className="jenkins-home">
     <h1 className="sr-only">{t('nav.dashboard')}</h1>
-    <JenkinsHomeRail recentBuilds={recentBuilds} />
+    <JenkinsHomeRail />
     <div className="jenkins-home-main">
       <StorageMonitor />
+      {projectData && error && <div className="build-history-inline-error" role="alert"><span>{error}</span><button type="button" onClick={reloadProjects}>{t('common.retry')}</button></div>}
+      {groupsError && <div className="build-history-inline-error" role="alert"><span>{groupsError}</span><button type="button" onClick={reloadGroups}>{t('common.retry')}</button></div>}
+      {overviewsError && <div className="build-history-inline-error" role="alert"><span>{overviewsError}</span><button type="button" onClick={reloadOverviews}>{t('common.retry')}</button></div>}
       <div className="jenkins-home-toolbar">
         <nav className="jenkins-view-tabs" aria-label={t('nav.dashboard')}>
           {views.map(view => <button key={view.id} type="button" className={[view.id === selectedView.id && 'active', view.favorite && 'jenkins-view-favorites'].filter(Boolean).join(' ')} aria-pressed={view.id === selectedView.id} aria-haspopup={view.group && editable ? 'menu' : undefined} onClick={() => {
@@ -354,7 +345,7 @@ export default function Dashboard() {
         </nav>
       </div>
 
-      <div className="jenkins-job-table-wrap">
+      {!projectData && (loading || error) ? <PageState error={error} onRetry={reloadProjects} /> : <div className="jenkins-job-table-wrap" aria-busy={!overviews && !overviewsError}>
         <table className="jenkins-job-table">
           <thead><tr>
             <th className="jenkins-id-column"><span aria-label={t('projects.identifier')}>ID</span></th>
@@ -364,7 +355,7 @@ export default function Dashboard() {
             <th>{t('projectDetail.lastSuccessfulBuild')}</th>
             <th>{t('projectDetail.lastFailedBuild')}</th>
             <th>{t('builds.duration')}</th>
-            <th aria-label={t('projects.actions')} />
+            <th>{t('projects.actions')}</th>
           </tr></thead>
           <tbody>
             {!visibleProjects.length && <tr><td className="jenkins-job-empty" colSpan={8}><Folder size={20} /><span>{t('common.noData')}</span></td></tr>}
@@ -375,8 +366,7 @@ export default function Dashboard() {
               const lastFailure = overview?.last_failure
               const status = latest ? buildStatusTone(latest.status) : 'cancelled'
               const statusLabel = latest ? buildStatusLabel(t, latest.status) : t('dashboard.noBuilds')
-              const buildLabel = t(isParameterized(project) ? 'builds.buildWithParameters' : 'projects.build')
-              const visibleIndex = visibleProjects.findIndex(candidate => candidate.id === project.id)
+              const buildLabel = t('projects.build')
               return <tr
                 key={project.id}
                 className={draggingID === project.id ? 'dragging' : ''}
@@ -412,8 +402,8 @@ export default function Dashboard() {
                 <td className="jenkins-duration">{formatDuration(latest?.duration_ms)}</td>
                 <td><div className="jenkins-row-actions">
                   <button type="button" className={project.favorite ? 'active' : ''} disabled={flagBusy !== null} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'favorite'} aria-label={`${project.favorite ? t('projects.unfavorite') : t('projects.favorite')} ${project.name}`} title={project.favorite ? t('projects.unfavorite') : t('projects.favorite')} onClick={() => toggleFavorite(project)}>{flagBusy?.id === project.id && flagBusy?.flag === 'favorite' ? <LoaderCircle className="timeline-spinner" size={15} /> : <Star size={15} />}</button>
-                  {editable && <button type="button" disabled={reordering || visibleIndex === 0} aria-label={`${t('buildQueue.moveUp')} ${project.name}`} title={t('buildQueue.moveUp')} onClick={() => moveProject(project.id, -1)}><ArrowUp size={15} /></button>}
-                  {editable && <button type="button" disabled={reordering || visibleIndex === visibleProjects.length - 1} aria-label={`${t('buildQueue.moveDown')} ${project.name}`} title={t('buildQueue.moveDown')} onClick={() => moveProject(project.id, 1)}><ArrowDown size={15} /></button>}
+                  {editable && <button type="button" disabled={reordering || projectIndex === 0} aria-label={`${t('buildQueue.moveUp')} ${project.name}`} title={t('buildQueue.moveUp')} onClick={() => moveProject(project.id, -1)}><ArrowUp size={15} /></button>}
+                  {editable && <button type="button" disabled={reordering || projectIndex === visibleProjects.length - 1} aria-label={`${t('buildQueue.moveDown')} ${project.name}`} title={t('buildQueue.moveDown')} onClick={() => moveProject(project.id, 1)}><ArrowDown size={15} /></button>}
                   {editable && <button type="button" disabled={building !== null || project.enabled === false} aria-busy={building === project.id} aria-label={`${buildLabel} ${project.name}`} title={project.enabled === false ? t('common.disabled') : buildLabel} onClick={() => handleBuild(project)}>{building === project.id ? <LoaderCircle className="timeline-spinner" size={15} /> : <Play size={15} />}</button>}
                   {editable && <button type="button" className="danger" disabled={deleting !== null} aria-busy={deleting === project.id} aria-label={`${t('projects.delete')} ${project.name}`} title={t('projects.delete')} onClick={() => deleteProject(project)}>{deleting === project.id ? <LoaderCircle className="timeline-spinner" size={15} /> : <Trash2 size={15} />}</button>}
                 </div></td>
@@ -421,7 +411,7 @@ export default function Dashboard() {
             })}
           </tbody>
         </table>
-      </div>
+      </div>}
 
       <footer className="jenkins-table-footer">
         <Link to="/projects" className="jenkins-more" aria-label={t('nav.projects')} title={t('nav.projects')}><MoreHorizontal size={18} /></Link>

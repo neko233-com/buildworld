@@ -8,6 +8,7 @@ import { api } from '../api'
 import ProjectChanges from './ProjectChanges'
 
 vi.mock('../api', () => ({
+  getToken: () => localStorage.getItem('token'),
   api: {
     getProject: vi.fn(),
     listProjectChanges: vi.fn(),
@@ -142,10 +143,11 @@ describe('ProjectChanges', () => {
     expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/builds/520')
   })
 
-  it('labels and routes parameterized builds from the Changes action rail', async () => {
+  it('routes parameterized builds from the Changes action rail', async () => {
     vi.mocked(api.validateProject).mockResolvedValue({ valid: true, format: 'yaml', stages: 1, steps: 1, parameters: [{ name: 'ENV', type: 'choice', choices: ['dev'] }], allow_long_running: false })
     await renderPage()
 
+    expect(api.validateProject).not.toHaveBeenCalled()
     await act(async () => button('Build Now').click())
 
     expect(api.triggerBuild).not.toHaveBeenCalled()

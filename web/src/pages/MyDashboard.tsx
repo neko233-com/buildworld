@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Activity, Boxes, CheckCircle2, Gauge, LoaderCircle, Maximize2, RefreshCw, ServerCog, UserRound, XCircle } from 'lucide-react'
 import { motion } from 'motion/react'
 import { Link } from 'react-router-dom'
@@ -11,7 +11,9 @@ import { formatDuration } from '../lib/durationPresentation'
 import { currentRole, isAdmin } from '../authz'
 import JenkinsHomeRail from '../components/JenkinsHomeRail'
 import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
-import { BuildTrendEChart } from '../components/BuildTrendEChart'
+import { useApi, useVisiblePolling } from '../hooks'
+
+const BuildTrendEChart = lazy(() => import('../components/BuildTrendEChart').then(module => ({ default: module.BuildTrendEChart })))
 
 interface DashboardData {
   summary: {
@@ -42,7 +44,9 @@ function Metric({ icon: Icon, label, value, detail, tone = '' }: { icon: typeof 
 export default function MyDashboard() {
   const { t } = useI18n()
   const [data, setData] = useState<DashboardData>(emptyData)
-  const [projects, setProjects] = useState<any[]>([])
+  const { data: quickAccess, error: projectsError, loading: projectsLoading, poll: pollProjects, reload: reloadProjects } = useApi(api.listQuickAccess)
+  const projects = quickAccess || []
+  const loadingRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -52,34 +56,33 @@ export default function MyDashboard() {
   const admin = isAdmin(role)
 
   const fetchData = useCallback(async (background = false) => {
+    if (loadingRef.current) return
+    loadingRef.current = true
     if (background) setRefreshing(true)
     else setLoading(true)
     try {
-      const [dashboard, quick] = await Promise.all([
-        api.getBigScreenData(),
-        api.listQuickAccess(),
-      ])
+      const dashboard = await api.getBigScreenData()
       setData({
         summary: dashboard.summary,
         recent_builds: dashboard.recent_builds,
         trend_data: dashboard.trend_data,
       })
-      setProjects(quick || [])
       setError('')
       setLastUpdate(new Date())
     } catch (reason: any) {
       setError(reason.message || t('bigScreen.loadFailed'))
     } finally {
+      loadingRef.current = false
       setLoading(false)
       setRefreshing(false)
     }
   }, [t])
 
   useEffect(() => {
-    fetchData()
-    const timer = window.setInterval(() => fetchData(true), 15000)
-    return () => window.clearInterval(timer)
+    void fetchData()
   }, [fetchData])
+  const refresh = useCallback(() => { void fetchData(true); void pollProjects() }, [fetchData, pollProjects])
+  useVisiblePolling(refresh, 15_000)
 
   const visibleRecentBuilds = data.recent_builds.slice(0, 8)
   if (loading) return <PageState />
@@ -90,7 +93,7 @@ export default function MyDashboard() {
     <div className="operations-page data-dashboard-page">
     <header className="jenkins-page-heading data-dashboard-heading">
       <div><p>{t('nav.myDashboard')}</p><h1>{t('myDashboard.title')}</h1><small>{t('myDashboard.subtitle')}</small></div>
-      <div><span>{t('bigScreen.lastUpdate')}: {formatDateTime(lastUpdate)}</span><Link className="secondary-command" to="/bigscreen"><Maximize2 size={15} />{t('bigScreen.openWall')}</Link><button className="secondary-command" onClick={() => fetchData(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
+      <div><span>{t('bigScreen.lastUpdate')}: {formatDateTime(lastUpdate)}</span><Link className="secondary-command" to="/bigscreen"><Maximize2 size={15} />{t('bigScreen.openWall')}</Link><button className="secondary-command" onClick={refresh} disabled={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('bigScreen.refresh')}</button></div>
     </header>
 
     {error && !lastUpdate && <PageState error={error} onRetry={() => fetchData()} />}
@@ -112,12 +115,13 @@ export default function MyDashboard() {
 
       <motion.section className="data-panel trend-panel" initial={{ opacity: 0, scale: .98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: .28, ease: 'easeOut' }}>
         <header><div><Gauge size={16} /><h2>{t('bigScreen.trend7d')}</h2></div></header>
-        {data.trend_data.length ? <BuildTrendEChart data={data.trend_data} /> : <p className="data-panel-empty">{t('common.noData')}</p>}
+        {data.trend_data.length ? <Suspense fallback={<div className="build-trend-echart" role="status">{t('common.loading')}</div>}><BuildTrendEChart data={data.trend_data} /></Suspense> : <p className="data-panel-empty">{t('common.noData')}</p>}
       </motion.section>
 
       <section className="data-panel my-projects-panel" style={{ gridColumn: '1 / -1' }}>
         <header><div><Boxes size={16} /><h2>{t('myDashboard.myProjects')}</h2></div><span>{projects.length}</span></header>
-        {projects.length ? <div className="my-projects-grid">{projects.map(project => <article key={project.id} className="my-project-card"><div><strong>{project.name}</strong>{project.favorite && <span className="my-project-fav" title={t('dashboard.favorites')}>★</span>}</div><Link className="secondary-command compact" to={`/projects/${project.id}`}>{t('myDashboard.openProject')}</Link></article>)}</div> : <p className="data-panel-empty">{t('myDashboard.myProjectsEmpty')}</p>}
+        {projectsError && <div className="build-history-inline-error" role="alert"><span>{projectsError}</span><button type="button" onClick={reloadProjects}>{t('common.retry')}</button></div>}
+        {projectsLoading ? <p className="data-panel-empty" role="status">{t('common.loading')}</p> : projects.length ? <div className="my-projects-grid">{projects.map(project => <article key={project.id} className="my-project-card"><div><strong>{project.name}</strong>{project.favorite && <span className="my-project-fav" title={t('dashboard.favorites')}>★</span>}</div><Link className="secondary-command compact" to={`/projects/${project.id}`}>{t('myDashboard.openProject')}</Link></article>)}</div> : !projectsError && <p className="data-panel-empty">{t('myDashboard.myProjectsEmpty')}</p>}
       </section>
 
       <section className="data-panel my-account-panel">

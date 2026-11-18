@@ -1,10 +1,10 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Activity, AlertTriangle, Ban, Check, Circle, Copy, Download, Eraser, ExternalLink, FileText, Filter, FlaskConical, GitBranch, GitCommitHorizontal, LoaderCircle, Package, Palette, PanelRightClose, PanelRightOpen, Pause, Pin, PinOff, Play, RotateCcw, Search, Settings2, SlidersHorizontal, Square, Upload, UserRound, X } from 'lucide-react'
 import { useI18n } from '../i18n'
 import { api, type BuildLogResponse } from '../api'
-import { useApi } from '../hooks'
+import { useApi, useVisiblePolling } from '../hooks'
 import { useBuildLogStream } from '../useBuildLogStream'
 import { dialogs } from '../components/AppDialogs'
 import { PageState } from '../components/PageState'
@@ -108,6 +108,11 @@ function stageRailItems(steps: BuildTimelineStep[]): StageRailItem[] {
 type BuildDetailTab = 'current' | 'problems' | 'artifacts'
 
 export default function BuildDetail() {
+  const { id } = useParams<{ id: string }>()
+  return <BuildDetailPage key={id} />
+}
+
+function BuildDetailPage() {
   const { locale, t } = useI18n()
   const editable = canEdit()
   const { id } = useParams<{ id: string }>()
@@ -117,15 +122,16 @@ export default function BuildDetail() {
   const validBuildId = Number.isSafeInteger(buildId) && buildId > 0
   const requestedTab = searchParams.get('tab')
   const activeTab: BuildDetailTab = requestedTab === 'problems' || requestedTab === 'artifacts' ? requestedTab : 'current'
-  const { data: build, loading, error, reload: reloadBuild } = useApi(() => validBuildId ? api.getBuild(buildId, { includeLog: false }) : Promise.resolve(null), [buildId, validBuildId])
+  const { data: build, loading, error, reload: reloadBuild, poll: pollBuild } = useApi(() => validBuildId ? api.getBuild(buildId, { includeLog: false }) : Promise.resolve(null), [buildId, validBuildId])
   const projectId = Number(build?.project_id)
   const { data: buildProject } = useApi(() => Number.isSafeInteger(projectId) && projectId > 0 ? api.getProject(projectId) : Promise.resolve(null), [projectId])
-  const { data: logsResp, error: logsError, reload: reloadLogs } = useApi<BuildLogResponse>(() => validBuildId
+  const { data: logsResp, loading: logsLoading, error: logsError, reload: reloadLogs, poll: pollLogs } = useApi<BuildLogResponse>(() => validBuildId
     ? api.getBuildLogs(buildId, { tailLines: BUILD_LOG_WINDOW_MAX_LINES, tailCharacters: BUILD_LOG_WINDOW_MAX_CHARACTERS })
     : Promise.resolve({ log: '' }), [buildId, validBuildId])
-  const { data: timeline, error: timelineError, reload: reloadTimeline } = useApi(() => validBuildId ? api.getBuildTimeline(buildId) : Promise.resolve(null), [buildId, validBuildId])
-  const { data: problems, loading: problemsLoading, error: problemsError, reload: reloadProblems } = useApi(() => validBuildId && build ? api.getBuildProblems(buildId) : Promise.resolve(null), [build?.id, buildId, validBuildId])
-  const { data: artifacts, error: artifactsError, reload: reloadArtifacts } = useApi(() => validBuildId ? api.listArtifacts(buildId) : Promise.resolve([]), [buildId, validBuildId])
+  const { data: timeline, error: timelineError, reload: reloadTimeline, poll: pollTimeline } = useApi(() => validBuildId ? api.getBuildTimeline(buildId) : Promise.resolve(null), [buildId, validBuildId])
+  const loadProblems = activeTab === 'problems' || ['failed', 'test_failed', 'unstable'].includes(build?.status)
+  const { data: problems, loading: problemsLoading, error: problemsError, reload: reloadProblems, poll: pollProblems } = useApi(() => validBuildId && loadProblems ? api.getBuildProblems(buildId) : Promise.resolve(null), [loadProblems, buildId, validBuildId])
+  const { data: artifacts, loading: artifactsLoading, error: artifactsError, reload: reloadArtifacts, poll: pollArtifacts } = useApi(() => validBuildId ? api.listArtifacts(buildId) : Promise.resolve([]), [buildId, validBuildId])
   const [retrying, setRetrying] = useState(false)
   const [replayOpen, setReplayOpen] = useState(false)
   const [pinning, setPinning] = useState(false)
@@ -158,41 +164,31 @@ export default function BuildDetail() {
   const displayedLog = useMemo(() => visibleBuildLog(liveLog), [liveLog])
   const rawConsoleLines = useMemo(() => displayedLog ? displayedLog.split(/\r?\n/) : [], [displayedLog])
   const consoleLines = useMemo(() => rawConsoleLines.map(buildLogMessage), [rawConsoleLines])
-  const consoleTones = useMemo(() => logTones(rawConsoleLines), [rawConsoleLines])
+  const consoleTones = useMemo(() => colorizeLogs ? logTones(rawConsoleLines) : [], [colorizeLogs, rawConsoleLines])
   const logLines = useMemo(() => consoleLines.filter(Boolean), [consoleLines])
-  const normalizedLogQuery = logQuery.trim().toLocaleLowerCase()
+  const normalizedLogQuery = useDeferredValue(logQuery.trim().toLowerCase())
   const logMatches = useMemo(() => normalizedLogQuery
-    ? consoleLines.flatMap((line, index) => line.toLocaleLowerCase().includes(normalizedLogQuery) ? [index] : [])
+    ? consoleLines.flatMap((line, index) => line.toLowerCase().includes(normalizedLogQuery) ? [index] : [])
     : [], [consoleLines, normalizedLogQuery])
-  const visibleConsoleLines = useMemo(() => {
-    const entries = consoleLines.map((line, index) => ({ line, index }))
-    return filterLogMatches && normalizedLogQuery
-      ? entries.filter(entry => entry.line.toLocaleLowerCase().includes(normalizedLogQuery))
-      : entries
-  }, [consoleLines, filterLogMatches, normalizedLogQuery])
+  const visibleConsoleLines = useMemo(() => filterLogMatches && normalizedLogQuery
+    ? logMatches.map(index => ({ line: consoleLines[index], index }))
+    : consoleLines.map((line, index) => ({ line, index })), [consoleLines, filterLogMatches, logMatches, normalizedLogQuery])
   const virtualizeConsoleLog = visibleConsoleLines.length > LOG_VIRTUALIZATION_THRESHOLD
   const virtualConsoleLog = useVirtualLogWindow(consoleRef, visibleConsoleLines.length, 14 * 1.66, virtualizeConsoleLog)
   const renderedConsoleLines = useMemo(() => visibleConsoleLines.slice(virtualConsoleLog.start, virtualConsoleLog.end), [virtualConsoleLog.end, virtualConsoleLog.start, visibleConsoleLines])
   const liveLogStatus = t(`builds.${liveLogState}`)
   const problemsPending = problemsLoading || (!!build && !problems && !problemsError)
 
-  useEffect(() => {
-    if (!isActive) return
-    const refreshActiveBuild = () => {
-      if (document.visibilityState !== 'visible') return
-      reloadBuild()
-      if (liveLogState !== 'live') reloadLogs()
-      reloadTimeline()
-      if (activeTab === 'problems') reloadProblems()
-      reloadArtifacts()
+  const refreshActiveBuild = useCallback(() => {
+    void pollBuild()
+    if (activeTab === 'current') {
+      void pollTimeline()
+      if (liveLogState !== 'live') void pollLogs()
     }
-    const timer = setInterval(refreshActiveBuild, 2000)
-    document.addEventListener('visibilitychange', refreshActiveBuild)
-    return () => {
-      clearInterval(timer)
-      document.removeEventListener('visibilitychange', refreshActiveBuild)
-    }
-  }, [activeTab, isActive, liveLogState, reloadArtifacts, reloadBuild, reloadLogs, reloadProblems, reloadTimeline])
+    if (activeTab === 'problems') void pollProblems()
+    if (activeTab === 'artifacts') void pollArtifacts()
+  }, [activeTab, liveLogState, pollArtifacts, pollBuild, pollLogs, pollProblems, pollTimeline])
+  useVisiblePolling(refreshActiveBuild, isActive ? 2_000 : null)
 
   useEffect(() => {
     const wasActive = activeBuildRef.current === buildId
@@ -229,19 +225,19 @@ export default function BuildDetail() {
 
   useLayoutEffect(() => {
     if (activeTab !== 'current' || !normalizedLogQuery || !logMatches.length) return
-    const lineIndex = logMatches[Math.min(activeLogMatch, logMatches.length - 1)]
-    const target = document.getElementById(`build-log-line-${lineIndex}`)
-    if (target) {
-      target.scrollIntoView?.({ block: 'center' })
-      return
-    }
-    const targetPosition = visibleConsoleLines.findIndex(entry => entry.index === lineIndex)
-    const consoleOutput = consoleRef.current
-    if (targetPosition >= 0 && consoleOutput) {
-      consoleOutput.scrollTop = targetPosition * (14 * 1.66)
+    const match = Math.min(activeLogMatch, logMatches.length - 1)
+    const lineIndex = logMatches[match]
+    const viewport = consoleRef.current
+    if (!viewport) return
+    if (virtualizeConsoleLog) {
+      const lineHeight = 14 * 1.66
+      const position = filterLogMatches ? match : lineIndex
+      viewport.scrollTop = Math.max(0, position * lineHeight - (viewport.clientHeight - lineHeight) / 2)
       virtualConsoleLog.onScroll()
+    } else {
+      viewport.querySelector(`#build-log-line-${lineIndex}`)?.scrollIntoView?.({ block: 'nearest' })
     }
-  }, [activeLogMatch, activeTab, displayedLog, logMatches, normalizedLogQuery, virtualConsoleLog.onScroll, virtualConsoleLog.start, visibleConsoleLines])
+  }, [activeLogMatch, activeTab, filterLogMatches, logMatches, normalizedLogQuery, virtualConsoleLog.onScroll, virtualizeConsoleLog])
 
   useEffect(() => {
     if (activeTab !== 'current') return
@@ -414,7 +410,7 @@ export default function BuildDetail() {
 
   if (!validBuildId) return <Navigate to="/builds" replace />
   if (loading) return <PageState />
-  if (error) return <PageState error={error} onRetry={reloadBuild} />
+  if (error && !build) return <PageState error={error} onRetry={reloadBuild} />
   if (!build) return null
 
   const timelineSteps = timeline?.steps || []
@@ -430,7 +426,7 @@ export default function BuildDetail() {
   const currentBuildLabel = locale === 'zh-CN'
     ? `${t('builds.currentBuild')}${t('builds.build')}`
     : `${t('builds.currentBuild')} ${t('builds.build')}`
-  const currentBuildErrors = [logsError, timelineError].filter(Boolean)
+  const currentBuildErrors = [error, logsError, timelineError].filter(Boolean)
   const reloadCurrentBuildData = () => {
     reloadLogs()
     reloadTimeline()
@@ -519,7 +515,7 @@ export default function BuildDetail() {
           <header className="jenkins-run-section-heading">
             <h2><FileText size={20} />{t('builds.logs')}</h2>
             <div className="jenkins-console-controls">
-              <label className="jenkins-console-search"><Search size={14} /><input value={logQuery} onChange={event => { const next = event.target.value; setLogQuery(next); if (next.trim()) setConsoleFollowing(false) }} placeholder={t('builds.searchLogs')} aria-label={t('builds.searchLogs')} /><span aria-live="polite">{normalizedLogQuery ? t('builds.matchProgress').replace('{current}', logMatches.length ? String(activeLogMatch + 1) : '0').replace('{total}', String(logMatches.length)) : ''}</span></label>
+              <label className="jenkins-console-search"><Search size={14} /><input value={logQuery} onChange={event => { const next = event.target.value; setLogQuery(next); if (next.trim()) setConsoleFollowing(false) }} placeholder={t('builds.searchLogs')} aria-label={t('builds.searchLogs')} /><span aria-live="polite">{normalizedLogQuery ? t('builds.matchProgress').replace('{current}', logMatches.length ? String(Math.min(activeLogMatch + 1, logMatches.length)) : '0').replace('{total}', String(logMatches.length)) : ''}</span></label>
               <button type="button" className="clear-screen" onClick={clearScreenLogs} disabled={!displayedLog} aria-label={t('builds.clearScreenLogs')} title={t('builds.clearScreenLogs')}><Eraser size={14} />{t('builds.clearScreenLogs')}</button>
               <button type="button" className={`filter-action ${filterLogMatches ? 'selected' : ''}`} onClick={() => setFilterLogMatches(current => !current)} disabled={!normalizedLogQuery} aria-pressed={filterLogMatches} aria-label={t('builds.filterLogMatches')} title={t('builds.filterLogMatches')}><Filter size={14} />{t('builds.filterLogMatches')}</button>
               {isActive && <button type="button" className={`follow-action ${followConsole ? 'selected' : ''}`} aria-pressed={followConsole} onClick={() => setConsoleFollowing(!followConsole)}>{followConsole ? <Pause size={14} /> : <Play size={14} />}{followConsole ? t('builds.pauseFollow') : t('builds.resumeFollow')}</button>}
@@ -535,7 +531,7 @@ export default function BuildDetail() {
             const consoleOutput = consoleRef.current
             if (!consoleOutput) return
             if (followConsoleRef.current && !isNearLogBottom(consoleOutput)) setConsoleFollowing(false)
-          }}>{consoleLines.length ? virtualizeConsoleLog ? <><span className="jenkins-console-spacer" style={{ height: `${virtualConsoleLog.offsetTop}px` }} aria-hidden="true" />{renderedConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>)}<span className="jenkins-console-spacer" style={{ height: `${Math.max(0, virtualConsoleLog.totalHeight - virtualConsoleLog.end * (14 * 1.66))}px` }} aria-hidden="true" /></> : visibleConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>) : t('builds.noLogs')}</pre>
+          }}>{visibleConsoleLines.length ? virtualizeConsoleLog ? <><span className="jenkins-console-spacer" style={{ height: `${virtualConsoleLog.offsetTop}px` }} aria-hidden="true" />{renderedConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>)}<span className="jenkins-console-spacer" style={{ height: `${Math.max(0, virtualConsoleLog.totalHeight - virtualConsoleLog.end * (14 * 1.66))}px` }} aria-hidden="true" /></> : visibleConsoleLines.map(({ line, index }) => <span id={`build-log-line-${index}`} className={`jenkins-console-line ${colorizeLogs ? consoleTones[index] : ''} ${logMatches[activeLogMatch] === index ? 'active-match' : ''}`} key={index}>{line ? highlightLogLine(line, normalizedLogQuery) : '\u00a0'}</span>) : logsLoading ? t('common.loading') : filterLogMatches && normalizedLogQuery ? t('common.noData') : isActive ? t('builds.waitingForLogs') : t('builds.noLogs')}</pre>
           {isExecuting && <div className="jenkins-console-progress" role="status" aria-live="polite">{followConsole ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pause size={16} />}{followConsole ? liveLogStatus : t('builds.followPaused')}</div>}
         </section>
         </div>
@@ -555,7 +551,7 @@ export default function BuildDetail() {
         <div className="jenkins-run-tab-panel jenkins-artifact-tab-panel" id="build-panel-artifacts" role="tabpanel" aria-labelledby="build-tab-artifacts" hidden={activeTab !== 'artifacts'}>
         {artifactsError && <div className="jenkins-run-data-warning" role="alert"><span>{artifactsError}</span><button type="button" onClick={reloadArtifacts}>{t('common.retry')}</button></div>}
         <section className="detail-panel artifacts-panel jenkins-run-section" id="artifacts"><header><div><Package size={17} /><h2>{t('builds.artifacts')}</h2><span>{(artifacts || []).length}</span></div>{editable && <><input ref={fileInputRef} type="file" onChange={handleUpload} disabled={uploading} className="visually-hidden" id="artifact-upload" /><label htmlFor="artifact-upload" className={`jenkins-artifact-upload ${uploading ? 'is-disabled' : ''}`}><Upload size={15} />{uploading ? t('builds.uploading') : t('builds.uploadArtifact')}</label></>}</header>
-          {(artifacts || []).length === 0 ? <p className="detail-empty">{t('builds.noArtifacts')}</p> : <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>{t('builds.name')}</th><th>{t('builds.size')}</th><th>{t('builds.downloads')}</th><th aria-label={t('builds.download')} /></tr></thead><tbody>{(artifacts || []).map((artifact: any) => <tr key={artifact.id}><td><strong>{artifact.name}</strong></td><td className="muted-cell">{formatSize(artifact.size)}</td><td className="muted-cell">{artifact.download_count || artifact.downloads || 0}</td><td><button type="button" onClick={() => handleArtifactDownload(artifact)} disabled={downloading !== null} aria-busy={downloading === `artifact-${artifact.id}`} className="table-link">{downloading === `artifact-${artifact.id}` ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}{downloading === `artifact-${artifact.id}` ? t('builds.downloading') : t('builds.download')}</button></td></tr>)}</tbody></table></div>}
+          {artifactsLoading ? <p className="detail-empty" role="status">{t('common.loading')}</p> : !artifacts?.length ? !artifactsError && <p className="detail-empty">{t('builds.noArtifacts')}</p> : <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>{t('builds.name')}</th><th>{t('builds.size')}</th><th>{t('builds.downloads')}</th><th aria-label={t('builds.download')} /></tr></thead><tbody>{(artifacts || []).map((artifact: any) => <tr key={artifact.id}><td><strong>{artifact.name}</strong></td><td className="muted-cell">{formatSize(artifact.size)}</td><td className="muted-cell">{artifact.download_count || artifact.downloads || 0}</td><td><button type="button" onClick={() => handleArtifactDownload(artifact)} disabled={downloading !== null} aria-busy={downloading === `artifact-${artifact.id}`} className="table-link">{downloading === `artifact-${artifact.id}` ? <LoaderCircle className="timeline-spinner" size={14} /> : <Download size={14} />}{downloading === `artifact-${artifact.id}` ? t('builds.downloading') : t('builds.download')}</button></td></tr>)}</tbody></table></div>}
         </section>
         </div>
       </div>

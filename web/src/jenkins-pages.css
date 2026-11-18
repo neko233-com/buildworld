@@ -404,14 +404,14 @@
 }
 
 [data-skin="jenkins"] .jenkins-job-table {
-  min-width: 1320px;
+  min-width: 880px;
   font-size: 14px;
 }
 
 [data-skin="jenkins"] .jenkins-job-table th {
   height: 47px;
-  padding: 0 13px;
-  white-space: nowrap;
+  padding: 0 8px;
+  line-height: 1.2;
   color: #343d46;
   border-bottom-color: #e2e6eb;
   background: #f4f6f9;
@@ -421,7 +421,7 @@
 
 [data-skin="jenkins"] .jenkins-job-table td {
   height: 49px;
-  padding: 0 13px;
+  padding: 0 8px;
   border-bottom-color: #e7ebef;
 }
 
@@ -433,14 +433,24 @@
   height: 57px;
 }
 
-[data-skin="jenkins"] .jenkins-job-table th:nth-child(1) { width: 90px; }
-[data-skin="jenkins"] .jenkins-job-table th:nth-child(2) { width: 44px; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(1) { width: 74px; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(2) { width: 40px; }
 [data-skin="jenkins"] .jenkins-job-table th:nth-child(3) { width: auto; }
-[data-skin="jenkins"] .jenkins-job-table th:nth-child(4) { width: 145px; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(4) { width: 112px; }
 [data-skin="jenkins"] .jenkins-job-table th:nth-child(5),
-[data-skin="jenkins"] .jenkins-job-table th:nth-child(6) { width: 230px; }
-[data-skin="jenkins"] .jenkins-job-table th:nth-child(7) { width: 90px; }
-[data-skin="jenkins"] .jenkins-job-table th:nth-child(8) { width: 190px; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(6) { width: 148px; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(7) { width: 68px; }
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(8) { width: 178px; }
+
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(8),
+[data-skin="jenkins"] .jenkins-job-table td:nth-child(8) {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  border-left: 1px solid #e7ebef;
+}
+
+[data-skin="jenkins"] .jenkins-job-table th:nth-child(8) { text-align: center; }
 
 [data-skin="jenkins"] .jenkins-status-orb {
   width: 20px;
@@ -502,6 +512,19 @@
 [data-skin="jenkins"] .jenkins-build-reference small {
   margin-top: 3px;
   font-size: 11px;
+}
+
+[data-skin="jenkins"] .jenkins-build-reference {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+[data-skin="jenkins"] .jenkins-build-reference small {
+  display: block;
+  max-width: 100%;
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
 }
 
 [data-skin="jenkins"] .jenkins-home-main .jenkins-row-actions {

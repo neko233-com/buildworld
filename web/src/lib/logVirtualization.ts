@@ -30,13 +30,17 @@ export function useVirtualLogWindow(
   }, [viewportRef])
 
   useLayoutEffect(() => {
-    measure()
+    if (enabled) measure()
+  }, [enabled, itemCount, measure])
+
+  useLayoutEffect(() => {
+    if (!enabled) return
     const viewport = viewportRef.current
     if (!viewport || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measure)
     observer.observe(viewport)
     return () => observer.disconnect()
-  }, [itemCount, measure, viewportRef])
+  }, [enabled, measure, viewportRef])
 
   useLayoutEffect(() => () => {
     if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current)

@@ -1,36 +1,76 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, type SetStateAction } from 'react'
 
 // useApi: simple data fetching hook with loading/error state
 export function useApi<T>(fetcher: () => Promise<T>, deps: any[] = []) {
-  const [data, setData] = useState<T | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const hasData = useRef(false)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const scope = useCallback(() => fetcher(), deps)
+  const [result, setResult] = useState<{ scope: typeof scope; data: T | null; error: string | null; settled: boolean }>()
   const requestID = useRef(0)
+  const active = useRef<number | null>(null)
 
-  const reload = useCallback(() => {
+  const run = useCallback(async (background: boolean) => {
+    if (background && active.current !== null) return
     const activeRequest = ++requestID.current
-    if (!hasData.current) setLoading(true)
-    setError(null)
-    fetcher()
-      .then(value => {
-        if (activeRequest !== requestID.current) return
-        hasData.current = true
-        setData(value)
-      })
-      .catch(e => {
-        if (activeRequest === requestID.current) setError(e.message)
-      })
-      .finally(() => {
-        if (activeRequest === requestID.current) setLoading(false)
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps)
+    active.current = activeRequest
+    if (!background) {
+      setResult(current => current?.scope === scope
+        ? { ...current, error: null, settled: current.data !== null }
+        : current)
+    }
+    try {
+      const data = await scope()
+      if (activeRequest === requestID.current) setResult({ scope, data, error: null, settled: true })
+    } catch (reason) {
+      const error = reason instanceof Error ? reason.message : String(reason)
+      if (activeRequest === requestID.current) {
+        setResult(current => ({ scope, data: current?.scope === scope ? current.data : null, error, settled: true }))
+      }
+    } finally {
+      if (active.current === activeRequest) active.current = null
+    }
+  }, [scope])
+  const reload = useCallback(() => run(false), [run])
+  const poll = useCallback(() => run(true), [run])
+  const setData = useCallback((update: SetStateAction<T | null>) => {
+    requestID.current++
+    active.current = null
+    setResult(current => ({
+      scope,
+      data: typeof update === 'function' ? (update as (data: T | null) => T | null)(current?.scope === scope ? current.data : null) : update,
+      error: null,
+      settled: true,
+    }))
+  }, [scope])
 
   useEffect(() => {
-    reload()
-    return () => { requestID.current++ }
+    void reload()
+    return () => {
+      requestID.current++
+      active.current = null
+    }
   }, [reload])
 
-  return { data, loading, error, reload, setData }
+  const current = result?.scope === scope ? result : undefined
+  return { data: current?.data ?? null, loading: !current?.settled, error: current?.error ?? null, reload, poll, setData }
+}
+
+export function useVisiblePolling(refresh: () => void, interval: number | null) {
+  useEffect(() => {
+    if (interval === null) return
+    const tick = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    let timer = window.setInterval(tick, interval)
+    const visibilityChanged = () => {
+      window.clearInterval(timer)
+      if (document.visibilityState !== 'visible') return
+      tick()
+      timer = window.setInterval(tick, interval)
+    }
+    document.addEventListener('visibilitychange', visibilityChanged)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', visibilityChanged)
+    }
+  }, [refresh, interval])
 }

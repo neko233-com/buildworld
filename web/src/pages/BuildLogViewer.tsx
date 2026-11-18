@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { ArrowDown, ArrowLeft, ArrowUp, Download, Eraser, FileText, Filter, LoaderCircle, Moon, Palette, Pause, Play, Search, Sun, WrapText } from 'lucide-react'
 import { api, type BuildLogResponse } from '../api'
-import { useApi } from '../hooks'
+import { useApi, useVisiblePolling } from '../hooks'
 import { useBuildLogStream } from '../useBuildLogStream'
 import { useI18n } from '../i18n'
 import { buildLogMessage, visibleBuildLog } from '../lib/buildTimeline'
@@ -37,17 +37,22 @@ function readLogViewerTheme(): LogViewerTheme {
 }
 
 export default function BuildLogViewer() {
+  const { id } = useParams<{ id: string }>()
+  return <BuildLogViewerPage key={id} />
+}
+
+function BuildLogViewerPage() {
   const { t } = useI18n()
   const { id } = useParams<{ id: string }>()
   const buildID = Number(id)
   const authenticated = !!localStorage.getItem('token')
   const validBuildID = Number.isSafeInteger(buildID) && buildID > 0
   const canLoad = authenticated && validBuildID
-  const { data: build, loading: buildLoading, error: buildError, reload: reloadBuild } = useApi(
+  const { data: build, loading: buildLoading, error: buildError, reload: reloadBuild, poll: pollBuild } = useApi(
     () => canLoad ? api.getBuild(buildID, { includeLog: false }) : Promise.resolve(null),
     [buildID, canLoad],
   )
-  const { data: logs, loading: logsLoading, error: logsError, reload: reloadLogs } = useApi(
+  const { data: logs, loading: logsLoading, error: logsError, reload: reloadLogs, poll: pollLogs } = useApi(
     () => canLoad
       ? api.getBuildLogs(buildID, { tailLines: BUILD_LOG_WINDOW_MAX_LINES, tailCharacters: BUILD_LOG_WINDOW_MAX_CHARACTERS })
       : Promise.resolve<BuildLogResponse>({ log: '' }),
@@ -78,20 +83,17 @@ export default function BuildLogViewer() {
     reloadSnapshot: reloadLogs,
     onBuildStatus: reloadBuild,
   })
-  const source = visibleBuildLog(streamLog)
+  const source = useMemo(() => visibleBuildLog(streamLog), [streamLog])
   const rawLines = useMemo(() => source ? source.split('\n') : [], [source])
   const lines = useMemo(() => rawLines.map(buildLogMessage), [rawLines])
-  const lineTones = useMemo(() => logTones(rawLines), [rawLines])
-  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const lineTones = useMemo(() => colorizeLogs ? logTones(rawLines) : [], [colorizeLogs, rawLines])
+  const normalizedQuery = useDeferredValue(query.trim().toLowerCase())
   const matches = useMemo(() => normalizedQuery
-    ? lines.flatMap((line, index) => line.toLocaleLowerCase().includes(normalizedQuery) ? [index] : [])
+    ? lines.flatMap((line, index) => line.toLowerCase().includes(normalizedQuery) ? [index] : [])
     : [], [lines, normalizedQuery])
-  const visibleLines = useMemo(() => {
-    const entries = lines.map((line, index) => ({ line, index }))
-    return filterLogMatches && normalizedQuery
-      ? entries.filter(entry => entry.line.toLocaleLowerCase().includes(normalizedQuery))
-      : entries
-  }, [filterLogMatches, lines, normalizedQuery])
+  const visibleLines = useMemo(() => filterLogMatches && normalizedQuery
+    ? matches.map(index => ({ line: lines[index], index }))
+    : lines.map((line, index) => ({ line, index })), [filterLogMatches, lines, matches, normalizedQuery])
   const virtualizeLog = !wrap && visibleLines.length > LOG_VIRTUALIZATION_THRESHOLD
   const virtualLog = useVirtualLogWindow(logViewportRef, visibleLines.length, 20, virtualizeLog)
   const renderedLines = useMemo(() => visibleLines.slice(virtualLog.start, virtualLog.end), [virtualLog.end, virtualLog.start, visibleLines])
@@ -114,14 +116,11 @@ export default function BuildLogViewer() {
     }
   }, [query, scrollToLatest])
 
-  useEffect(() => {
-    if (!running) return
-    const timer = window.setInterval(() => {
-      reloadBuild()
-      if (streamState !== 'live') reloadLogs()
-    }, streamState === 'live' ? 5000 : 3000)
-    return () => window.clearInterval(timer)
-  }, [reloadBuild, reloadLogs, running, streamState])
+  const refreshActiveLog = useCallback(() => {
+    void pollBuild()
+    if (streamState !== 'live') void pollLogs()
+  }, [pollBuild, pollLogs, streamState])
+  useVisiblePolling(refreshActiveLog, running ? (streamState === 'live' ? 5000 : 3000) : null)
 
   useEffect(() => {
     const wasRunning = wasRunningRef.current
@@ -140,24 +139,22 @@ export default function BuildLogViewer() {
 
   useLayoutEffect(() => {
     if (normalizedQuery && matches.length) {
-      const targetIndex = matches[Math.min(activeMatch, matches.length - 1)]
-      const target = lineRefs.current.get(targetIndex)
-      if (target) {
-        target.scrollIntoView?.({ block: 'center' })
+      const match = Math.min(activeMatch, matches.length - 1)
+      const lineIndex = matches[match]
+      const viewport = logViewportRef.current
+      if (virtualizeLog && viewport) {
+        const position = filterLogMatches ? match : lineIndex
+        viewport.scrollTop = Math.max(0, position * 20 - (viewport.clientHeight - 20) / 2)
+        virtualLog.onScroll()
       } else {
-        const targetPosition = visibleLines.findIndex(entry => entry.index === targetIndex)
-        const viewport = logViewportRef.current
-        if (targetPosition >= 0 && viewport) {
-          viewport.scrollTop = targetPosition * 20
-          virtualLog.onScroll()
-        }
+        lineRefs.current.get(lineIndex)?.scrollIntoView?.({ block: 'nearest' })
       }
       return
     }
     if (!normalizedQuery && followRef.current) {
       scrollToLatest()
     }
-  }, [activeMatch, matches, normalizedQuery, scrollToLatest, source, virtualLog.onScroll, virtualLog.start, visibleLines])
+  }, [activeMatch, filterLogMatches, matches, normalizedQuery, scrollToLatest, source, virtualLog.onScroll, virtualizeLog])
 
   useEffect(() => {
     const viewport = logViewportRef.current
@@ -197,7 +194,7 @@ export default function BuildLogViewer() {
   if (!authenticated) return <Navigate to="/login" replace />
   if (!validBuildID) return <Navigate to="/builds" replace />
   if ((buildLoading && !build) || (logsLoading && !logs)) return <div className="plain-log-state"><PageState /></div>
-  if (buildError || logsError || !build) return <div className="plain-log-state"><PageState error={buildError || logsError || t('builds.logLoadFailed')} onRetry={() => { reloadBuild(); reloadLogs() }} /></div>
+  if (!build || (logsError && !logs && !source)) return <div className="plain-log-state"><PageState error={buildError || logsError || t('builds.logLoadFailed')} onRetry={() => { void reloadBuild(); void reloadLogs() }} /></div>
 
   const moveMatch = (direction: -1 | 1) => {
     if (!matches.length) return
@@ -246,6 +243,7 @@ export default function BuildLogViewer() {
       </div>
     </header>
     <div className="plain-log-message">
+      {(buildError || logsError) && <span role="alert">{buildError || logsError} <button type="button" onClick={() => { if (buildError) void reloadBuild(); if (logsError) void reloadLogs() }}>{t('common.retry')}</button></span>}
       {logs?.truncated && <span className="retention-warning" role="status">{t('builds.logTruncated').replace('{count}', String(logs.retention_characters || 1_000_000))}</span>}
       {logs?.window_truncated && <span className="retention-warning" role="status">{t('builds.logWindowed').replace('{lines}', String(logs.window_lines || BUILD_LOG_WINDOW_MAX_LINES)).replace('{characters}', String(logs.window_characters || BUILD_LOG_WINDOW_MAX_CHARACTERS))}</span>}
       {downloadError && <span role="alert">{downloadError}</span>}
@@ -255,7 +253,7 @@ export default function BuildLogViewer() {
       <label><Search size={15} /><input ref={searchRef} value={query} onChange={event => { setQuery(event.target.value); if (event.target.value.trim()) setFollowing(false) }} placeholder={t('builds.searchLogs')} aria-label={t('builds.searchLogs')} /><kbd>/</kbd></label>
       <button type="button" className="clear-screen" onClick={clearScreenLogs} disabled={!source} aria-label={t('builds.clearScreenLogs')} title={t('builds.clearScreenLogs')}><Eraser size={14} />{t('builds.clearScreenLogs')}</button>
       <button type="button" className={`filter-action ${filterLogMatches ? 'selected' : ''}`} onClick={() => setFilterLogMatches(current => !current)} disabled={!normalizedQuery} aria-pressed={filterLogMatches} aria-label={t('builds.filterLogMatches')} title={t('builds.filterLogMatches')}><Filter size={14} />{t('builds.filterLogMatches')}</button>
-      <span>{normalizedQuery ? t('builds.matchProgress').replace('{current}', matches.length ? String(activeMatch + 1) : '0').replace('{total}', String(matches.length)) : t('builds.lineCount').replace('{count}', String(lines.length))}</span>
+      <span>{normalizedQuery ? t('builds.matchProgress').replace('{current}', matches.length ? String(Math.min(activeMatch + 1, matches.length)) : '0').replace('{total}', String(matches.length)) : t('builds.lineCount').replace('{count}', String(lines.length))}</span>
       <button type="button" className="match-nav" aria-label={t('builds.previousMatch')} title={t('builds.previousMatch')} disabled={!matches.length} onClick={() => moveMatch(-1)}><ArrowUp size={14} /></button>
       <button type="button" className="match-nav" aria-label={t('builds.nextMatch')} title={t('builds.nextMatch')} disabled={!matches.length} onClick={() => moveMatch(1)}><ArrowDown size={14} /></button>
       {running && <strong role="status" aria-live="polite" aria-atomic="true"><i />{t(`builds.${streamState}`)}</strong>}
@@ -266,9 +264,9 @@ export default function BuildLogViewer() {
       const viewport = logViewportRef.current
       if (viewport && followRef.current && !isNearLogBottom(viewport)) setFollowing(false)
     }}>
-      {lines.length ? <div className={`plain-log-lines ${virtualizeLog ? 'is-virtualized' : ''}`} style={virtualizeLog ? { height: `${virtualLog.totalHeight}px` } : undefined}>
+      {visibleLines.length ? <div className={`plain-log-lines ${virtualizeLog ? 'is-virtualized' : ''}`} style={virtualizeLog ? { height: `${virtualLog.totalHeight}px` } : undefined}>
         {virtualizeLog ? <div className="plain-log-lines-window" style={{ transform: `translateY(${virtualLog.offsetTop}px)` }}>{renderedLines.map(renderLogLine)}</div> : visibleLines.map(renderLogLine)}
-      </div> : <div className="plain-log-empty"><FileText size={22} /><span>{running ? t('builds.waitingForLogs') : t('builds.noLogs')}</span></div>}
+      </div> : <div className="plain-log-empty"><FileText size={22} /><span>{filterLogMatches && normalizedQuery ? t('common.noData') : running ? t('builds.waitingForLogs') : t('builds.noLogs')}</span></div>}
     </div>
     <footer className="plain-log-footer"><span>{t('builds.outputLines')}: {lines.length}</span><span>{follow ? t('builds.followingOutput') : t('builds.followPaused')}</span><span>UTF-8</span></footer>
   </main>

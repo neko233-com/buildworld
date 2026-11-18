@@ -18,7 +18,6 @@ type ProjectTableProps = {
   editable: boolean
   building: number | null
   emptyLabel: string
-  isParameterized: (project: any) => boolean
   onBuild: (project: any) => void
   onCustomBuild: (project: any) => void
   onDelete: (project: any) => void
@@ -29,7 +28,7 @@ type ProjectTableProps = {
   deleting: number | null
 }
 
-function ProjectTable({ caption, projects, editable, building, emptyLabel, isParameterized, onBuild, onCustomBuild, onDelete, onToggleTag, onToggleFavorite, onToggleQuickAccess, flagBusy, deleting }: ProjectTableProps) {
+function ProjectTable({ caption, projects, editable, building, emptyLabel, onBuild, onCustomBuild, onDelete, onToggleTag, onToggleFavorite, onToggleQuickAccess, flagBusy, deleting }: ProjectTableProps) {
   const { t } = useI18n()
   return <div className="operations-table-wrap project-list-table">
     <table className="operations-table projects-table">
@@ -43,7 +42,7 @@ function ProjectTable({ caption, projects, editable, building, emptyLabel, isPar
             <td><span className="repo-cell" title={project.repo_url || '-'}>{project.repo_url || '-'}</span></td>
             <td><span className="branch-cell"><GitBranch size={13} />{project.default_branch || '-'}</span></td>
             <td className="muted-cell">{formatDateTime(project.created_at)}</td>
-            <td><div className="row-actions">{editable && <><button type="button" className={`row-icon favorite${project.favorite ? ' active' : ''}`} title={project.favorite ? t('projects.unfavorite') : t('projects.favorite')} aria-label={`${project.favorite ? t('projects.unfavorite') : t('projects.favorite')} ${project.name}`} aria-pressed={project.favorite} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'favorite'} disabled={flagBusy !== null} onClick={() => onToggleFavorite(project)}>{flagBusy?.id === project.id && flagBusy?.flag === 'favorite' ? <LoaderCircle className="timeline-spinner" size={16} /> : <Star size={16} />}</button><button type="button" className={`row-icon quick-access${project.quick_access ? ' active' : ''}`} title={project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} aria-label={`${project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} ${project.name}`} aria-pressed={project.quick_access} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'quick_access'} disabled={flagBusy !== null} onClick={() => onToggleQuickAccess(project)}>{flagBusy?.id === project.id && flagBusy?.flag === 'quick_access' ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pin size={16} />}</button></>}<Link className="row-settings" title={t('projects.openSettings')} to={`/projects/${project.id}/configure`}><Settings2 size={16} />{t('projects.settings')}</Link>{editable && <><button type="button" className="row-icon custom-build" title={project.enabled === false ? t('common.disabled') : t('builds.customBuild')} aria-label={`${t('builds.customBuild')} ${project.name}`} disabled={building !== null || deleting !== null || project.enabled === false} onClick={() => onCustomBuild(project)}><SlidersHorizontal size={16} /></button><button type="button" className="row-run" title={project.enabled === false ? t('common.disabled') : undefined} disabled={building !== null || deleting !== null || project.enabled === false} aria-busy={building === project.id} onClick={() => onBuild(project)}>{building === project.id ? <LoaderCircle className="timeline-spinner" size={16} /> : <CirclePlay size={16} />}{building === project.id ? t('projects.startingBuild') : t(isParameterized(project) ? 'builds.buildWithParameters' : 'projects.build')}</button><button type="button" className="row-icon danger" disabled={deleting !== null} aria-busy={deleting === project.id} title={t('projects.delete')} aria-label={`${t('projects.delete')} ${project.name}`} onClick={() => onDelete(project)}>{deleting === project.id ? <LoaderCircle className="timeline-spinner" size={16} /> : <Trash2 size={16} />}</button></>}</div></td>
+            <td><div className="row-actions">{editable && <><button type="button" className={`row-icon favorite${project.favorite ? ' active' : ''}`} title={project.favorite ? t('projects.unfavorite') : t('projects.favorite')} aria-label={`${project.favorite ? t('projects.unfavorite') : t('projects.favorite')} ${project.name}`} aria-pressed={project.favorite} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'favorite'} disabled={flagBusy !== null} onClick={() => onToggleFavorite(project)}>{flagBusy?.id === project.id && flagBusy?.flag === 'favorite' ? <LoaderCircle className="timeline-spinner" size={16} /> : <Star size={16} />}</button><button type="button" className={`row-icon quick-access${project.quick_access ? ' active' : ''}`} title={project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} aria-label={`${project.quick_access ? t('projects.quickAccessRemove') : t('projects.quickAccessAdd')} ${project.name}`} aria-pressed={project.quick_access} aria-busy={flagBusy?.id === project.id && flagBusy?.flag === 'quick_access'} disabled={flagBusy !== null} onClick={() => onToggleQuickAccess(project)}>{flagBusy?.id === project.id && flagBusy?.flag === 'quick_access' ? <LoaderCircle className="timeline-spinner" size={16} /> : <Pin size={16} />}</button></>}<Link className="row-settings" title={t('projects.openSettings')} to={`/projects/${project.id}/configure`}><Settings2 size={16} />{t('projects.settings')}</Link>{editable && <><button type="button" className="row-icon custom-build" title={project.enabled === false ? t('common.disabled') : t('builds.customBuild')} aria-label={`${t('builds.customBuild')} ${project.name}`} disabled={building !== null || deleting !== null || project.enabled === false} onClick={() => onCustomBuild(project)}><SlidersHorizontal size={16} /></button><button type="button" className="row-run" title={project.enabled === false ? t('common.disabled') : undefined} disabled={building !== null || deleting !== null || project.enabled === false} aria-busy={building === project.id} onClick={() => onBuild(project)}>{building === project.id ? <LoaderCircle className="timeline-spinner" size={16} /> : <CirclePlay size={16} />}{building === project.id ? t('projects.startingBuild') : t('projects.build')}</button><button type="button" className="row-icon danger" disabled={deleting !== null} aria-busy={deleting === project.id} title={t('projects.delete')} aria-label={`${t('projects.delete')} ${project.name}`} onClick={() => onDelete(project)}>{deleting === project.id ? <LoaderCircle className="timeline-spinner" size={16} /> : <Trash2 size={16} />}</button></>}</div></td>
           </tr>)}
       </tbody>
     </table>
@@ -60,7 +59,7 @@ export default function Projects() {
   const [flagBusy, setFlagBusy] = useState<{ id: number; flag: 'favorite' | 'quick_access' } | null>(null)
   const [deleting, setDeleting] = useState<number | null>(null)
   const editable = canEdit()
-  const { isParameterized, start } = useJenkinsBuildFlow(navigate)
+  const { start } = useJenkinsBuildFlow(navigate)
   const deferredSearch = useDeferredValue(searchInput.trim().toLocaleLowerCase())
 
   const handleBuild = async (project: any) => {
@@ -149,7 +148,7 @@ export default function Projects() {
         </div>
         {editable && <div className="jenkins-page-actions"><Link className="primary-command" to="/projects/new"><Plus size={16} />{t('projects.newProject')}</Link></div>}
       </header>
-      <ProjectTable caption={t('projects.title')} projects={filtered} editable={editable} building={building} emptyLabel={searchTokens.length ? t('projects.noSearchMatches') : selectedTags.length ? t('projects.noTagMatches') : t('common.noData')} isParameterized={isParameterized} onBuild={handleBuild} onCustomBuild={handleCustomBuild} onDelete={handleDelete} onToggleTag={toggleTag} onToggleFavorite={handleToggleFavorite} onToggleQuickAccess={handleToggleQuickAccess} flagBusy={flagBusy} deleting={deleting} />
+      <ProjectTable caption={t('projects.title')} projects={filtered} editable={editable} building={building} emptyLabel={searchTokens.length ? t('projects.noSearchMatches') : selectedTags.length ? t('projects.noTagMatches') : t('common.noData')} onBuild={handleBuild} onCustomBuild={handleCustomBuild} onDelete={handleDelete} onToggleTag={toggleTag} onToggleFavorite={handleToggleFavorite} onToggleQuickAccess={handleToggleQuickAccess} flagBusy={flagBusy} deleting={deleting} />
       </div>
       </JenkinsPageShell>
     </div>

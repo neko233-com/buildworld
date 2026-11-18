@@ -1,66 +1,34 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback } from 'react'
 import type { NavigateFunction } from 'react-router-dom'
-import { api } from '../api'
-import { normalizeBuildParameterDefinitions } from '../components/RunBuildDialog'
+import { api, getToken, type PipelineValidation } from '../api'
 
-export type JenkinsBuildProject = {
-  id: number
-  enabled?: boolean
-  updated_at?: string
-}
+let nextValidationID = 0
+let prefetchedValidation: { id: number; projectID: number; token: ReturnType<typeof getToken>; value: PipelineValidation } | undefined
+let expiry: number | undefined
 
-type JenkinsBuildMode = 'immediate' | 'parameters'
-
-function projectModeKey(project: JenkinsBuildProject): string {
-  return `${project.id}:${project.updated_at || ''}`
+export function getPrefetchedBuildValidation(projectID: number, validationID: unknown) {
+  const entry = prefetchedValidation
+  return entry && entry.id === validationID && entry.projectID === projectID && entry.token === getToken() ? entry.value : undefined
 }
 
 export function useJenkinsBuildFlow(navigate: NavigateFunction) {
-  const [modes, setModes] = useState<Record<string, JenkinsBuildMode>>({})
-  const requests = useRef(new Map<string, Promise<JenkinsBuildMode>>())
-  const mounted = useRef(true)
-
-  const inspect = useCallback((project: JenkinsBuildProject): Promise<JenkinsBuildMode> => {
-    const key = projectModeKey(project)
-    const current = requests.current.get(key)
-    if (current) return current
-
-    const request = api.validateProject(project.id)
-      .then(metadata => normalizeBuildParameterDefinitions(metadata.parameters).length > 0 ? 'parameters' as const : 'immediate' as const)
-      .then(mode => {
-        if (mounted.current) setModes(previous => previous[key] === mode ? previous : { ...previous, [key]: mode })
-        return mode
-      })
-      .catch(reason => {
-        requests.current.delete(key)
-        throw reason
-      })
-    requests.current.set(key, request)
-    return request
-  }, [])
-
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
-
-  const isParameterized = useCallback(
-    (project: JenkinsBuildProject) => modes[projectModeKey(project)] === 'parameters',
-    [modes],
-  )
-
-  const start = useCallback(async (project: JenkinsBuildProject) => {
-    const mode = modes[projectModeKey(project)] || await inspect(project)
-    if (mode === 'parameters') {
-      navigate(`/projects/${project.id}/build`)
+  const start = useCallback(async (project: { id: number }) => {
+    const token = getToken()
+    const metadata = await api.validateProject(project.id)
+    if (token !== getToken()) return null
+    if (metadata.parameters?.some(parameter => String(parameter?.name || '').trim())) {
+      // Keep validation in memory. Browser history receives only its lookup ID.
+      const id = ++nextValidationID
+      prefetchedValidation = { id, projectID: project.id, token, value: metadata }
+      window.clearTimeout(expiry)
+      expiry = window.setTimeout(() => { prefetchedValidation = undefined }, 10_000)
+      navigate(`/projects/${project.id}/build`, { state: { validationID: id } })
       return null
     }
     const build = await api.triggerBuild(project.id)
     navigate(`/builds/${build.id}`)
     return build
-  }, [inspect, modes, navigate])
+  }, [navigate])
 
-  return { inspect, isParameterized, start }
+  return { start }
 }

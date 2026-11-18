@@ -54,6 +54,16 @@ export type BuildOverview = {
   release_results?: BuildReleaseResult[]
 }
 
+export type RecentBuild = {
+  id: number
+  project_id: number
+  project_name: string
+  number: number
+  status: string
+  branch?: string | null
+  started_at?: string | null
+}
+
 export type BuildReleaseResult = {
   sourceCommit?: string
   configCommit?: string
@@ -194,7 +204,7 @@ export class ApiError extends Error {
   }
 }
 
-function getToken(): string | null {
+export function getToken(): string | null {
   return localStorage.getItem('token')
 }
 
@@ -331,13 +341,47 @@ export async function downloadAuthenticated(path: string, fallbackFilename: stri
   return filename
 }
 
-async function retryDelay(attempt: number) {
-  await new Promise(resolve => window.setTimeout(resolve, RETRY_DELAYS[attempt]))
+function retryDelay(attempt: number, signal?: AbortSignal) {
+  signal?.throwIfAborted()
+  return new Promise<void>((resolve, reject) => {
+    const cancel = () => {
+      window.clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener('abort', cancel)
+      resolve()
+    }, RETRY_DELAYS[attempt])
+    signal?.addEventListener('abort', cancel, { once: true })
+  })
 }
 
-export async function request<T = any>(method: string, path: string, body?: any, options: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = {}
+const pendingReads = new Map<string, Promise<unknown>>()
+
+export function request<T = any>(method: string, path: string, body?: any, options: RequestOptions = {}): Promise<T> {
   const token = getToken()
+  if ((method !== 'GET' && method !== 'HEAD') || options.signal || body != null) {
+    return sendRequest<T>(method, path, body, options, token)
+  }
+  const key = JSON.stringify([token, method, path])
+  const pending = pendingReads.get(key)
+  if (pending) return pending as Promise<T>
+  const deadline = AbortSignal.timeout(20_000)
+  const response = sendRequest<T>(method, path, body, { ...options, signal: deadline }, token).catch(reason => {
+    if (!deadline.aborted) throw reason
+    dispatchAPIStatus('unavailable')
+    throw new ApiError(prefersChinese() ? '请求超时，请重试。' : 'The request timed out. Please retry.', 0, 'request_timeout')
+  })
+  pendingReads.set(key, response)
+  const forget = () => {
+    if (pendingReads.get(key) === response) pendingReads.delete(key)
+  }
+  void response.then(forget, forget)
+  return response
+}
+
+async function sendRequest<T>(method: string, path: string, body: any, options: RequestOptions, token: ReturnType<typeof getToken>): Promise<T> {
+  const headers: Record<string, string> = {}
   if (token) headers['Authorization'] = `Bearer ${token}`
   const hasBody = body !== undefined && body !== null
   if (hasBody) headers['Content-Type'] = options.contentType || 'application/json'
@@ -356,7 +400,7 @@ export async function request<T = any>(method: string, path: string, body?: any,
     } catch (reason) {
       if (options.signal?.aborted) throw reason
       if (retryableMethod && attempt < RETRY_DELAYS.length) {
-        await retryDelay(attempt)
+        await retryDelay(attempt, options.signal)
         continue
       }
       dispatchAPIStatus('unavailable')
@@ -376,7 +420,7 @@ export async function request<T = any>(method: string, path: string, body?: any,
     }
     if (!resp.ok) {
       if (retryableMethod && RETRYABLE_STATUS.has(resp.status) && attempt < RETRY_DELAYS.length) {
-        await retryDelay(attempt)
+        await retryDelay(attempt, options.signal)
         continue
       }
       const payload = await parseResponseBody(resp)
@@ -393,6 +437,7 @@ export async function request<T = any>(method: string, path: string, body?: any,
       throw new ApiError(errorMessage, resp.status, errorCode)
     }
     dispatchAPIStatus('available')
+    if (operationId || path === '/notifications/in-app/read') pendingReads.clear()
     const payload = await parseResponseBody(resp) as T
     dispatchAPIFeedback(operationId, 'success')
     return payload
@@ -430,6 +475,7 @@ export const api = {
 
   // builds
   listBuilds: (limit = 100) => request<any[]>('GET', `/builds/?limit=${limit}`),
+  listRecentBuilds: (limit = 30) => request<RecentBuild[]>('GET', `/builds/recent?limit=${limit}`),
   searchBuilds: (filters: BuildSearchFilters) =>
     request<BuildSearchResponse>('GET', `/builds/search?${buildSearchQuery(filters)}`),
   getBuild: (id: number, options?: { includeLog?: boolean }) => request<any>('GET', `/builds/${id}${options?.includeLog === false ? '?include_log=false' : ''}`),
@@ -572,7 +618,7 @@ export const api = {
     request('DELETE', `/project-groups/${id}?delete_projects=${deleteProjects}`),
 
   // build queue
-  listBuildQueue: () => request<any[]>('GET', '/build-queue'),
+  listBuildQueue: () => request<any[] | null>('GET', '/build-queue').then(items => items ?? []),
   getBuildQueueCapacity: () => request<BuildQueueCapacity>('GET', '/build-queue/capacity'),
   reorderBuildQueue: (id: number, operation: QueueMoveOperation) =>
     request<{ version: number; status: string; operation: string; position: number; items: any[] }>('PUT', `/build-queue/${id}`, { operation }),

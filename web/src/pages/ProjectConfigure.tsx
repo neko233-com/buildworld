@@ -87,6 +87,11 @@ function configureSnapshot(form: ProjectConfigureForm, scheduleEnabled: boolean,
 }
 
 export default function ProjectConfigure() {
+  const { id } = useParams<{ id: string }>()
+  return <ProjectConfigurePage key={id} />
+}
+
+function ProjectConfigurePage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
@@ -97,15 +102,9 @@ export default function ProjectConfigure() {
     () => validProjectID ? api.getProject(projectID) : Promise.resolve(null),
     [projectID, validProjectID],
   )
-  const {
-    data: supportingData,
-    loading: supportingLoading,
-    error: supportingError,
-    reload: reloadSupportingData,
-  } = useApi(
-    () => Promise.all([api.listProjectGroups(), api.listVCSRoots(), api.listTemplates()]),
-    [],
-  )
+  const { data: groupData, error: groupsError, reload: reloadGroups } = useApi(api.listProjectGroups)
+  const { data: vcsRoots, error: vcsError, reload: reloadVCS } = useApi(api.listVCSRoots)
+  const { data: templates, error: templatesError, reload: reloadTemplates } = useApi(api.listTemplates)
   const [form, setForm] = useState<ProjectConfigureForm | null>(null)
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
   const [scheduleCron, setScheduleCron] = useState('0 2 * * *')
@@ -135,9 +134,7 @@ export default function ProjectConfigure() {
     setValidationErrors({})
   }, [project])
 
-  const groups = useMemo(() => sortProjectGroups(supportingData?.[0] || []), [supportingData])
-  const vcsRoots = supportingData?.[1] || []
-  const templates = supportingData?.[2] || []
+  const groups = useMemo(() => sortProjectGroups(groupData || []), [groupData])
   const effectiveFormat = form?.pipeline_format === 'auto'
     ? resolvePipelineSourceLanguage(form.config)
     : form?.pipeline_format || 'yaml'
@@ -385,10 +382,8 @@ export default function ProjectConfigure() {
   }
 
   if (!validProjectID) return <Navigate to="/projects" replace />
-  if (loading || supportingLoading) return <PageState />
-  if (error || supportingError) {
-    return <PageState error={error || supportingError || t('common.loadFailed')} onRetry={() => { reload(); reloadSupportingData() }} />
-  }
+  if (loading) return <PageState />
+  if (error) return <PageState error={error} onRetry={reload} />
   if (!project || !form) return null
 
   return <section className="jenkins-configure-page">
@@ -410,6 +405,14 @@ export default function ProjectConfigure() {
     </aside>
 
     <div className="jenkins-configure-main">
+      {(groupsError || vcsError || templatesError) && <div className="build-history-inline-error" role="alert">
+        <span>{[groupsError, vcsError, templatesError].filter(Boolean).join(' · ')}</span>
+        <button type="button" onClick={() => {
+          if (groupsError) void reloadGroups()
+          if (vcsError) void reloadVCS()
+          if (templatesError) void reloadTemplates()
+        }}>{t('common.retry')}</button>
+      </div>}
       {notice && <p className="jenkins-configure-notice" role="status">{notice}</p>}
       {formError && <p id="jenkins-configure-form-error" className="jenkins-configure-error" role="alert">{formError}</p>}
       <form onSubmit={handleSubmit} noValidate aria-busy={Boolean(savingIntent)}>
@@ -427,8 +430,8 @@ export default function ProjectConfigure() {
             <label className="jenkins-configure-wide"><span>{t('projectDetail.description')}</span><textarea id="jenkins-configure-description" readOnly={!editable} rows={4} value={form.description} onChange={setText('description')} /></label>
             <label className="jenkins-configure-wide"><span>{t('projectDetail.repositoryUrl')}</span><input readOnly={!editable} value={form.repo_url} onChange={setText('repo_url')} /></label>
             <label><span>{t('projects.defaultBranch')}</span><input readOnly={!editable} value={form.default_branch} onChange={setText('default_branch')} /></label>
-            <label><span>{t('projectGroups.title')}</span><select disabled={!editable} value={form.group_id ?? ''} onChange={setID('group_id')}><option value="">{t('projectGroups.ungrouped')}</option>{groups.map((group: any) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-            <label><span>{t('templates.title')}</span><select id="jenkins-configure-template" disabled={!editable} value={form.template_id ?? ''} onChange={setID('template_id')}><option value="">{t('templates.none')}</option>{templates.map((template: any) => <option key={template.id} value={template.id}>{template.name}</option>)}</select><small>{t('templates.selectionHelp')}</small></label>
+            <label><span>{t('projectGroups.title')}</span><select disabled={!editable || !groupData} aria-busy={!groupData && !groupsError} value={form.group_id ?? ''} onChange={setID('group_id')}><option value="">{t('projectGroups.ungrouped')}</option>{form.group_id != null && !groups.some(group => group.id === form.group_id) && <option value={form.group_id}>#{form.group_id}</option>}{groups.map((group: any) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+            <label><span>{t('templates.title')}</span><select id="jenkins-configure-template" disabled={!editable || !templates} aria-busy={!templates && !templatesError} value={form.template_id ?? ''} onChange={setID('template_id')}><option value="">{t('templates.none')}</option>{form.template_id != null && !templates?.some(template => template.id === form.template_id) && <option value={form.template_id}>#{form.template_id}</option>}{templates?.map((template: any) => <option key={template.id} value={template.id}>{template.name}</option>)}</select><small>{t('templates.selectionHelp')}</small></label>
             <label className="jenkins-configure-wide"><span>{t('projects.tags')}</span><input readOnly={!editable} value={form.tags} onChange={setText('tags')} placeholder={t('projectDetail.tagsPlaceholder')} /><small>{t('projects.tagsHelp')}</small></label>
           </div>
         </section>
@@ -473,7 +476,7 @@ export default function ProjectConfigure() {
             <label><span>{t('projects.repositoryType')}</span><input id="jenkins-configure-repository-type" value={t('projects.gitOnly')} readOnly aria-readonly="true" /></label>
             <label><span>{t('projectDetail.definition')}</span><select disabled={!editable} value={form.pipeline_source_mode} onChange={setSourceMode}><option value="inline">{t('projectDetail.pipelineScript')}</option><option value="scm">{t('projectDetail.pipelineScriptFromSCM')}</option></select></label>
             <label><span>{t('projects.sourceFormat')}</span><select disabled={!editable} value={form.pipeline_format} onChange={setPipelineFormat}><option value="auto">{t('projectDetail.autoDetect')}</option><option value="yaml">YAML</option><option value="typescript">TypeScript</option><option value="jenkinsfile">Jenkinsfile</option></select></label>
-            <label><span>{t('vcsRoots.title')}</span><select disabled={!editable} value={form.vcs_root_id ?? ''} onChange={setID('vcs_root_id')}><option value="">{t('vcsRoots.none')}</option>{vcsRoots.map((root: any) => <option key={root.id} value={root.id}>{root.name}</option>)}</select></label>
+            <label><span>{t('vcsRoots.title')}</span><select disabled={!editable || !vcsRoots} aria-busy={!vcsRoots && !vcsError} value={form.vcs_root_id ?? ''} onChange={setID('vcs_root_id')}><option value="">{t('vcsRoots.none')}</option>{form.vcs_root_id != null && !vcsRoots?.some(root => root.id === form.vcs_root_id) && <option value={form.vcs_root_id}>#{form.vcs_root_id}</option>}{vcsRoots?.map((root: any) => <option key={root.id} value={root.id}>{root.name}</option>)}</select></label>
             {form.pipeline_source_mode === 'scm' && <>
               <label className="jenkins-configure-wide"><span>{t('projectDetail.repositoryUrl')}</span><input id="jenkins-configure-scm-repo" required readOnly={!editable} aria-invalid={validationErrors.scmRepo || undefined} aria-describedby={validationErrors.scmRepo ? 'jenkins-configure-form-error' : undefined} value={form.pipeline_scm_repo} onChange={setText('pipeline_scm_repo')} /></label>
               <label><span>{t('vcsRoots.branch')}</span><input readOnly={!editable} value={form.pipeline_scm_branch} onChange={setText('pipeline_scm_branch')} placeholder="main" /></label>

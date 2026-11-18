@@ -124,6 +124,58 @@ func TestJobOverviewRouteReturnsOnlyBoundedBuildData(t *testing.T) {
 	})
 }
 
+func TestRecentBuildRouteReturnsNewestSummaryWithoutLogOrParameters(t *testing.T) {
+	data, err := store.New(filepath.Join(t.TempDir(), "recent-builds.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = data.Close() })
+	viewer, err := data.CreateUser("recent-viewer", "recent@example.test", "unused", "viewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := data.CreateProject("recent-project", "", "", "git", "main", "{}", viewer.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 3; i++ {
+		build, err := data.CreateBuild(project.ID, i, "manual", "main", "private-commit", `{"name":"private-param"}`, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := data.DB().Exec("UPDATE builds SET log = ? WHERE id = ?", strings.Repeat("private-log", 1000), build.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	jwt := auth.NewJWT("recent-build-route-test-secret")
+	token, err := jwt.Generate(viewer.ID, viewer.Role, viewer.SessionVersion, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(Deps{Cfg: &config.Config{}, Store: data, JWT: jwt})
+	request := httptest.NewRequest(http.MethodGet, "/api/builds/recent?limit=2", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var result []store.RecentBuild
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 2 || result[0].Number != 3 || result[1].Number != 2 || result[0].ProjectName != project.Name {
+		t.Fatalf("unexpected recent builds: %+v", result)
+	}
+	var raw []map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range raw {
+		assertJSONKeys(t, item, []string{"id", "project_id", "project_name", "number", "status", "branch", "started_at"})
+	}
+}
+
 func assertJSONKeys(t *testing.T, value map[string]json.RawMessage, expected []string) {
 	t.Helper()
 	if len(value) != len(expected) {

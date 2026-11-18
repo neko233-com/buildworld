@@ -2514,17 +2514,22 @@ func (s *Store) ListAuditLogs(limit, offset int) ([]*AuditLog, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var logs []*AuditLog
+	logs := make([]*AuditLog, 0)
 	for rows.Next() {
 		a := &AuditLog{}
-		var detail, ip sql.NullString
-		if err := rows.Scan(&a.ID, &a.UserID, &a.Username, &a.Action, &a.ResourceType, &a.ResourceID, &detail, &ip, &a.CreatedAt); err != nil {
+		var userID sql.NullInt64
+		var username, resourceType, resourceID, detail, ip sql.NullString
+		var createdAt sql.NullTime
+		if err := rows.Scan(&a.ID, &userID, &username, &a.Action, &resourceType, &resourceID, &detail, &ip, &createdAt); err != nil {
 			return nil, err
 		}
+		a.UserID, a.Username = userID.Int64, username.String
+		a.ResourceType, a.ResourceID = resourceType.String, resourceID.String
 		a.Detail, a.IP = detail.String, ip.String
+		a.CreatedAt = createdAt.Time
 		logs = append(logs, a)
 	}
-	return logs, nil
+	return logs, rows.Err()
 }
 
 // ---------------- API Tokens ----------------

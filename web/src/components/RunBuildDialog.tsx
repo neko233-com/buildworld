@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { CirclePlay, GitBranch, KeyRound, LoaderCircle, RefreshCw, SlidersHorizontal, X } from 'lucide-react'
 import { parse as parseYAML } from 'yaml'
-import { api, type BuildReleaseResult } from '../api'
+import { api, type BuildReleaseResult, type PipelineValidation } from '../api'
 import { useI18n } from '../i18n'
 import { isTypeScriptPipelineSource } from '../lib/configFormat'
 import { releaseActionLabel, validReleaseEnvironment } from '../lib/releasePresentation'
@@ -41,6 +41,7 @@ type BuildParametersFormProps = {
   onBusyChange?: (busy: boolean) => void
   variant?: 'dialog' | 'page'
   initialParameters?: Record<string, string>
+  prefetchedValidation?: PipelineValidation
 }
 
 const supportedTypes = new Set<BuildParameterDefinition['type']>([
@@ -114,6 +115,7 @@ export function BuildParametersForm({
   onBusyChange,
   variant = 'dialog',
   initialParameters,
+  prefetchedValidation,
 }: BuildParametersFormProps) {
   const { t } = useI18n()
   const formID = useId().replace(/:/g, '')
@@ -148,7 +150,10 @@ export function BuildParametersForm({
     setLoadingDefinitions(true)
     setDefinitionsFailed(false)
     setError('')
-    api.validateProject(project.id).then(async metadata => {
+    const request = definitionRequest === 0 && prefetchedValidation
+      ? Promise.resolve(prefetchedValidation)
+      : api.validateProject(project.id)
+    request.then(async metadata => {
       if (!active) return
       if (metadata.valid === false) throw new Error(t('config.invalid'))
       const next = normalizeBuildParameterDefinitions(metadata.parameters)
@@ -179,7 +184,7 @@ export function BuildParametersForm({
     return () => {
       active = false
     }
-  }, [definitionRequest, project.id, t, initialParameters, initialTargetKey])
+  }, [definitionRequest, project.id, t, initialParameters, initialTargetKey, prefetchedValidation])
 
   useEffect(() => {
     onBusyChange?.(saving)

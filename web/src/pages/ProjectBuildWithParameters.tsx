@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, CirclePlay, LoaderCircle, RefreshCw, Settings2 } from 'lucide-react'
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { BuildParametersForm, type BuildProject } from '../components/RunBuildDialog'
 import JenkinsPageShell from '../components/JenkinsPageShell'
 import { useI18n } from '../i18n'
+import { getPrefetchedBuildValidation } from './projectBuildFlow'
 import './ProjectBuildWithParameters.css'
 
 function BuildTasks({ project }: { project?: BuildProject | null }) {
@@ -18,6 +19,11 @@ function BuildTasks({ project }: { project?: BuildProject | null }) {
 }
 
 export default function ProjectBuildWithParameters() {
+  const { id } = useParams<{ id: string }>()
+  return <ProjectBuildWithParametersPage key={id} />
+}
+
+function ProjectBuildWithParametersPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
@@ -32,6 +38,8 @@ export default function ProjectBuildWithParameters() {
     return parameters
   }, [searchParams])
   const projectID = Number(id)
+  const { state } = useLocation()
+  const [prefetchedValidation] = useState(() => getPrefetchedBuildValidation(projectID, state?.validationID))
   const validProjectID = Number.isSafeInteger(projectID) && projectID > 0
   const [project, setProject] = useState<BuildProject | null>(null)
   const [loading, setLoading] = useState(true)
@@ -75,6 +83,7 @@ export default function ProjectBuildWithParameters() {
         <p className="jenkins-parameter-intro">{t('builds.customBuildHelp').replace('{project}', project.name)}</p>
         <BuildParametersForm
           project={project}
+          prefetchedValidation={prefetchedValidation}
           variant="page"
           initialParameters={initialParameters}
           onCancel={() => navigate(`/projects/${project.id}`)}

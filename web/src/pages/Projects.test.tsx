@@ -8,6 +8,7 @@ import { api } from '../api'
 import Projects from './Projects'
 
 vi.mock('../api', () => ({
+  getToken: () => localStorage.getItem('token'),
   api: {
     listProjects: vi.fn(),
     getProject: vi.fn(),
@@ -129,14 +130,13 @@ export default definePipeline({ parameters: [parameter('signing_token', 'passwor
     })
     const quickBuild = container.querySelector<HTMLButtonElement>('button.row-run')
     expect(quickBuild).not.toBeNull()
-    expect(validateProject).not.toHaveBeenCalled()
     await act(async () => {
       quickBuild?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       await Promise.resolve()
     })
     await flushRequests()
 
-    expect(quickBuild?.textContent).toMatch(/Build with Parameters|参数化构建/)
+    expect(validateProject).toHaveBeenCalledExactlyOnceWith(4)
     expect(getProject).not.toHaveBeenCalled()
     expect(triggerBuild).not.toHaveBeenCalled()
     expect(container.querySelector('output[aria-label="location"]')?.textContent).toBe('/projects/4/build')

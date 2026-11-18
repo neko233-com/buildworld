@@ -234,7 +234,7 @@ export function Layout() {
   const accountPopoverRef = useRef<HTMLDivElement | null>(null)
   const mainRef = useRef<HTMLElement | null>(null)
 
-  useRouteFocus(mainRef, `${location.pathname}${location.search}`)
+  useRouteFocus(mainRef, location.pathname)
 
   const openPalette = useCallback(() => {
     if (paletteOpen) return
@@ -252,7 +252,8 @@ export function Layout() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      if (!event.defaultPrevented && !event.isComposing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' &&
+        !document.querySelector('[role="dialog"][aria-modal="true"]')) {
         event.preventDefault()
         openPalette()
       }
@@ -324,16 +325,18 @@ export function Layout() {
     let active = true
     setSearchError('')
     setSearchLoading(true)
-    Promise.all([api.listProjects(), api.listBuilds(30)])
-      .then(([nextProjects, nextBuilds]) => {
+    Promise.allSettled([
+      api.listProjects().then(next => { if (active) setProjects(next) }),
+      api.listRecentBuilds(30).then(next => { if (active) setBuilds(next) }),
+    ])
+      .then(results => {
         if (!active) return
-        setProjects(nextProjects)
-        setBuilds(nextBuilds)
+        const failure = results.find(result => result.status === 'rejected')
+        if (failure) setSearchError(failure.reason?.message || t('common.loadFailed'))
       })
-      .catch((error: Error) => { if (active) setSearchError(error.message || 'Unable to load search results') })
       .finally(() => { if (active) setSearchLoading(false) })
     return () => { active = false }
-  }, [paletteOpen])
+  }, [paletteOpen, t])
   const handleLogout = () => {
     closeAccount()
     clearToken()
@@ -349,9 +352,8 @@ export function Layout() {
 
   const normalizedQuery = query.trim().toLowerCase()
   const matches = (value: string) => !normalizedQuery || value.toLowerCase().includes(normalizedQuery)
-  const projectResults = projects.filter((project) => matches(project.name)).slice(0, 6)
-  const projectNames = new Map(projects.map(project => [project.id, project.name]))
-  const buildResults = builds.filter((build) => matches(`${projectNames.get(build.project_id) || ''} #${build.number} ${build.status} ${build.branch || ''}`)).slice(0, 6)
+  const projectResults = paletteOpen ? projects.filter(project => matches(`${project.name} #${project.id} ${project.description || ''}`)).slice(0, 6) : []
+  const buildResults = paletteOpen ? builds.filter(build => matches(`${build.project_name} #${build.number} ${build.status} ${buildStatusLabel(t, build.status)} ${build.branch || ''}`)).slice(0, 6) : []
   const pageCommands = [
     { label: t('nav.dashboard'), detail: t('shell.navigationDetail'), href: '/', icon: LayoutDashboard },
     { label: t('shell.projects'), detail: t('shell.projectsDetail'), href: '/projects', icon: Boxes },
@@ -395,7 +397,7 @@ export function Layout() {
       label: t('shell.builds'),
       items: buildResults.map(build => ({
         id: `build-${build.id}`,
-        label: `${projectNames.get(build.project_id) || `#${build.project_id}`} · #${build.number}`,
+        label: `${build.project_name || `#${build.project_id}`} · #${build.number}`,
         detail: `${buildStatusLabel(t, build.status)}${build.branch ? ` · ${build.branch}` : ''}`,
         href: `/builds/${build.id}`,
         icon: Activity,
@@ -448,7 +450,7 @@ export function Layout() {
         {apiUnavailable && <div className="service-status-banner" role="alert"><CloudOff size={15} /><span><strong>{t('shell.serviceUnavailable')}</strong>{t('shell.serviceUnavailableHint')}</span></div>}
         <main ref={mainRef} className="app-main" tabIndex={-1} style={{ outline: 'none' }}><RouteErrorBoundary resetKey={location.pathname}><Suspense fallback={<RouteLoading />}><Outlet /></Suspense></RouteErrorBoundary></main>
       </section>
-      {paletteOpen && <CommandPalette ariaLabel={t('shell.globalSearch')} placeholder={t('shell.searchPlaceholder')} query={query} groups={commandGroups} loading={searchLoading} loadingLabel={t('shell.searchLoading')} emptyLabel={t('shell.noResults')} keyboardHint={t('shell.searchKeyboardHint')} error={searchError} onQueryChange={setQuery} onNavigate={navigateFromPalette} onClose={closePalette} />}
+      {paletteOpen && <CommandPalette ariaLabel={t('shell.globalSearch')} placeholder={t('shell.searchPlaceholder')} query={query} groups={commandGroups} loading={searchLoading} loadingLabel={t('shell.searchLoading')} emptyLabel={t('shell.noResults')} closeLabel={t('common.close')} keyboardHint={t('shell.searchKeyboardHint')} error={searchError} onQueryChange={setQuery} onNavigate={navigateFromPalette} onClose={closePalette} />}
     </div>
   )
 }

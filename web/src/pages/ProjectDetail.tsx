@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   CircleCheckBig,
   CircleDashed,
@@ -16,7 +16,7 @@ import { dialogs } from '../components/AppDialogs'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { PageState } from '../components/PageState'
 import ProjectReleaseTargets from '../components/ProjectReleaseTargets'
-import { useApi } from '../hooks'
+import { useApi, useVisiblePolling } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { formatDate, formatDateTime } from '../lib/dateTime'
@@ -39,7 +39,7 @@ function JobStatusIcon({ status, size = 24 }: { status?: string; size?: number }
 
 function buildDayGroup(value: string | undefined): { key: string; label: string } {
   const key = formatDate(value)
-  return { key: key === '-' ? 'unknown' : key, label: formatDate(value) }
+  return { key: key === '-' ? 'unknown' : key, label: key }
 }
 
 export default function ProjectDetail() {
@@ -55,7 +55,7 @@ function ProjectDetailPage() {
   const validProjectId = Number.isSafeInteger(projectId) && projectId > 0
   const editable = canEdit()
   const { data: project, loading, error, reload, setData: setProject } = useApi(() => validProjectId ? loadProjectDetail(projectId) : Promise.resolve(null), [projectId, validProjectId])
-  const { data: buildResult, loading: buildsLoading, error: buildsError, reload: reloadBuilds } = useApi(() => validProjectId ? api.searchBuilds({
+  const { data: buildResult, loading: buildsLoading, error: buildsError, reload: reloadBuilds, poll: pollBuilds } = useApi(() => validProjectId ? api.searchBuilds({
     q: '', projectId, status: '', trigger: '', branch: '', pinned: false, page: 1, limit: 100,
   }) : Promise.resolve({ version: 1, items: [], total: 0, limit: 100, offset: 0 }), [projectId, validProjectId])
   const { data: projectGroups } = useApi(() => api.listProjectGroups())
@@ -64,7 +64,7 @@ function ProjectDetailPage() {
   const [building, setBuilding] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [stopping, setStopping] = useState<number | null>(null)
-  const { isParameterized, start } = useJenkinsBuildFlow(navigate)
+  const { start } = useJenkinsBuildFlow(navigate)
 
   const buildList = useMemo(() => [...(buildResult?.items || [])].sort((left, right) => (right.number - left.number) || (right.id - left.id)), [buildResult])
   const visibleBuilds = useMemo(() => {
@@ -90,18 +90,7 @@ function ProjectDetailPage() {
   }, [pagedBuilds])
   const hasActiveBuild = buildList.some(build => activeStatuses.has(build.status))
 
-  useEffect(() => {
-    if (!hasActiveBuild) return
-    const pollVisibleBuilds = () => {
-      if (document.visibilityState === 'visible') reloadBuilds()
-    }
-    const interval = window.setInterval(pollVisibleBuilds, 2_000)
-    document.addEventListener('visibilitychange', pollVisibleBuilds)
-    return () => {
-      window.clearInterval(interval)
-      document.removeEventListener('visibilitychange', pollVisibleBuilds)
-    }
-  }, [hasActiveBuild, reloadBuilds])
+  useVisiblePolling(pollBuilds, validProjectId ? (hasActiveBuild ? 2_000 : 15_000) : null)
 
   if (!validProjectId) return <Navigate to="/projects" replace />
   if (loading) return <PageState />
@@ -194,7 +183,6 @@ function ProjectDetailPage() {
           activeView="status"
           editable={editable}
           building={building}
-          parameterized={isParameterized(project)}
           deleting={deleting}
           onBuildNow={handleBuildNow}
           onDelete={handleDelete}

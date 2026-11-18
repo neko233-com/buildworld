@@ -47,8 +47,7 @@ export function useBuildLogStream({
   }, [])
 
   useEffect(() => {
-    // useApi intentionally keeps the previous response during route changes.
-    // Ignore that one stale snapshot rather than flashing another build's log.
+    // Reset the browser window before reconciling a different build.
     if (snapshotBuildID.current !== buildID) {
       snapshotBuildID.current = buildID
       logRef.current = ''

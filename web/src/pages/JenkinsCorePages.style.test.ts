@@ -9,8 +9,8 @@ describe('Jenkins 2.563 core page geometry', () => {
     expect(styles).toMatch(/\.jenkins-view-tabs\s*\{[^}]*min-height:\s*38px[^}]*border-radius:\s*20px/s)
     expect(styles).toMatch(/\.jenkins-view-tabs button\s*\{[^}]*height:\s*32px[^}]*font-size:\s*14px/s)
     expect(styles).toMatch(/\.jenkins-job-table-wrap\s*\{[^}]*border-radius:\s*var\(--jenkins-table-radius\)/s)
-    expect(styles).toMatch(/\.jenkins-job-table\s*\{[^}]*min-width:\s*1320px/s)
-    expect(styles).toMatch(/\.jenkins-job-table td\s*\{[^}]*height:\s*49px[^}]*padding:\s*0 13px/s)
+    expect(styles).toMatch(/\.jenkins-job-table\s*\{[^}]*min-width:\s*880px/s)
+    expect(styles).toMatch(/\.jenkins-job-table td\s*\{[^}]*height:\s*49px[^}]*padding:\s*0 8px/s)
     expect(styles).toMatch(/\.jenkins-status-orb\s*\{[^}]*width:\s*20px[^}]*height:\s*20px/s)
   })
 

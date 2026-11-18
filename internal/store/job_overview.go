@@ -30,6 +30,43 @@ type ProjectBuildOverview struct {
 	RecentStatuses []string       `json:"recent_statuses"`
 }
 
+type RecentBuild struct {
+	ID          int64      `json:"id"`
+	ProjectID   int64      `json:"project_id"`
+	ProjectName string     `json:"project_name"`
+	Number      int        `json:"number"`
+	Status      string     `json:"status"`
+	Branch      string     `json:"branch,omitempty"`
+	StartedAt   *time.Time `json:"started_at"`
+}
+
+// ListRecentBuilds serves navigation and the queue rail with a bounded
+// projection. It never reads persisted logs, build parameters or pipeline SCM.
+func (s *Store) ListRecentBuilds(limit int) ([]RecentBuild, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	rows, err := s.db.Query(`
+		SELECT b.id, b.project_id, p.name, b.number, b.status, COALESCE(b.branch, ''), b.started_at
+		FROM builds AS b JOIN projects AS p ON p.id = b.project_id
+		ORDER BY b.id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list recent builds: %w", err)
+	}
+	defer rows.Close()
+
+	builds := make([]RecentBuild, 0, limit)
+	for rows.Next() {
+		var build RecentBuild
+		if err := rows.Scan(&build.ID, &build.ProjectID, &build.ProjectName, &build.Number,
+			&build.Status, &build.Branch, &build.StartedAt); err != nil {
+			return nil, fmt.Errorf("scan recent build: %w", err)
+		}
+		builds = append(builds, build)
+	}
+	return builds, rows.Err()
+}
+
 type nullableBuildOverview struct {
 	id         sql.NullInt64
 	number     sql.NullInt64

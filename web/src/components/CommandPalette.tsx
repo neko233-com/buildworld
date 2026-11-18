@@ -26,6 +26,7 @@ type CommandPaletteProps = {
   loading?: boolean
   loadingLabel: string
   emptyLabel: string
+  closeLabel?: string
   keyboardHint: string
   error?: string
   onQueryChange: (value: string) => void
@@ -41,6 +42,7 @@ export function CommandPalette({
   loading = false,
   loadingLabel,
   emptyLabel,
+  closeLabel = 'Close',
   keyboardHint,
   error,
   onQueryChange,
@@ -48,7 +50,8 @@ export function CommandPalette({
   onClose,
 }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null)
-  const dialogRef = useRef<HTMLElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const keyboardNavigation = useRef(false)
   const listboxId = useId()
   const [activeIndex, setActiveIndex] = useState(0)
   const items = useMemo(() => groups.flatMap(group => group.items), [groups])
@@ -66,19 +69,35 @@ export function CommandPalette({
     setActiveIndex(0)
   }, [query])
 
+  useEffect(() => {
+    if (!keyboardNavigation.current) return
+    keyboardNavigation.current = false
+    document.getElementById(`${listboxId}-option-${activeIndex}`)?.scrollIntoView?.({ block: 'nearest' })
+  }, [activeIndex, listboxId])
+
   const optionId = (index: number) => `${listboxId}-option-${index}`
   const moveSelection = (direction: 1 | -1) => {
     if (!items.length) return
+    keyboardNavigation.current = true
     setActiveIndex(current => (current + direction + items.length) % items.length)
     inputRef.current?.focus()
   }
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if (event.key === 'Escape') {
       event.preventDefault()
+      event.stopPropagation()
       onClose()
       return
     }
+    if (event.key === 'Tab') {
+      event.preventDefault()
+      if (document.activeElement === inputRef.current) closeRef.current?.focus()
+      else inputRef.current?.focus()
+      return
+    }
+    if (event.target !== inputRef.current) return
     if (event.key === 'ArrowDown') {
       event.preventDefault()
       moveSelection(1)
@@ -91,12 +110,14 @@ export function CommandPalette({
     }
     if (event.key === 'Home' && items.length) {
       event.preventDefault()
+      keyboardNavigation.current = true
       setActiveIndex(0)
       inputRef.current?.focus()
       return
     }
     if (event.key === 'End' && items.length) {
       event.preventDefault()
+      keyboardNavigation.current = true
       setActiveIndex(items.length - 1)
       inputRef.current?.focus()
       return
@@ -106,26 +127,12 @@ export function CommandPalette({
       onNavigate(activeItem.href)
       return
     }
-    if (event.key !== 'Tab') return
-
-    const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('input, button:not(:disabled)') || [])
-    if (!focusable.length) return
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
   }
 
   let renderedIndex = 0
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
       <section
-        ref={dialogRef}
         className="command-palette global-command-palette"
         role="dialog"
         aria-modal="true"
@@ -147,7 +154,7 @@ export function CommandPalette({
             onChange={event => onQueryChange(event.target.value)}
             placeholder={placeholder}
           />
-          <kbd>Esc</kbd>
+          <button ref={closeRef} className="command-search-close" type="button" onClick={onClose} aria-label={closeLabel}><kbd>Esc</kbd></button>
         </div>
         <div id={listboxId} className="palette-results" role="listbox" aria-busy={loading}>
           {loading && <p className="palette-loading" role="status">{loadingLabel}</p>}
@@ -167,8 +174,10 @@ export function CommandPalette({
                       id={optionId(index)}
                       type="button"
                       role="option"
+                      tabIndex={-1}
                       aria-selected={index === activeIndex}
                       className={index === activeIndex ? 'active' : ''}
+                      onMouseDown={event => event.preventDefault()}
                       onMouseEnter={() => setActiveIndex(index)}
                       onClick={() => onNavigate(item.href)}
                     >

@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Activity, ChevronLeft, ChevronRight, FileClock, FileText, FolderTree, LayoutDashboard, LoaderCircle, Pin, PinOff, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { api } from '../api'
-import { useApi } from '../hooks'
+import { useApi, useVisiblePolling } from '../hooks'
 import { dialogs } from '../components/AppDialogs'
 import { buildStatusLabel, buildStatusTone, buildTriggerLabel } from '../lib/buildPresentation'
 import { canEdit } from '../authz'
@@ -25,14 +25,14 @@ export default function Builds() {
   const [searchParams, setSearchParams] = useSearchParams()
   const serializedParams = searchParams.toString()
   const filters = readBuildSearchParams(searchParams)
-  const { data: result, loading, error, reload } = useApi(() => api.searchBuilds(filters), [serializedParams])
+  const { data: result, loading, error, reload, poll } = useApi(() => api.searchBuilds(filters), [serializedParams])
   const { data: projects } = useApi(() => api.listProjects())
   const [pinning, setPinning] = useState<number | null>(null)
   const [retrying, setRetrying] = useState<number | null>(null)
   const [replayTarget, setReplayTarget] = useState<ReplayBuildTarget | null>(null)
   const [queryDraft, setQueryDraft] = useState(filters.q)
   const [branchDraft, setBranchDraft] = useState(filters.branch)
-  const projectMap = new Map((projects || []).map(project => [project.id, project.name]))
+  const projectMap = useMemo(() => new Map((projects || []).map(project => [project.id, project.name])), [projects])
   const totalPages = Math.max(1, Math.ceil((result?.total || 0) / filters.limit))
   const filterCount = activeBuildFilterCount(filters)
   const hasActiveBuilds = (result?.items || []).some(build => ACTIVE_BUILD_STATUSES.has(build.status))
@@ -50,13 +50,7 @@ export default function Builds() {
     setSearchParams(next, { replace: true })
   }, [filters.page, result, searchParams, setSearchParams, totalPages])
 
-  useEffect(() => {
-    if (!hasActiveBuilds) return
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') reload()
-    }, 2000)
-    return () => window.clearInterval(timer)
-  }, [hasActiveBuilds, reload])
+  useVisiblePolling(poll, hasActiveBuilds ? 2_000 : 15_000)
 
   const updateFilters = (updates: Record<string, string | number | boolean>) => {
     const next = new URLSearchParams(searchParams)
@@ -91,9 +85,6 @@ export default function Builds() {
       setPinning(null)
     }
   }
-
-  if (loading && !result) return <PageState />
-  if (error && !result) return <PageState error={error} onRetry={reload} />
 
   const list = result?.items || []
   const firstItem = result?.total ? result.offset + 1 : 0
@@ -135,7 +126,8 @@ export default function Builds() {
     </section>
 
     {error && <div className="build-history-inline-error" role="alert"><span>{error}</span><button type="button" onClick={reload}>{t('common.retry')}</button></div>}
-    <section className="operations-table-wrap build-history-results" aria-busy={loading}>
+    {loading && !result && <PageState />}
+    {result && <section className="operations-table-wrap build-history-results">
       <table className="operations-table builds-table">
         <caption className="sr-only">{t('builds.title')}</caption>
         <thead><tr><th>{t('builds.buildNumber')}</th><th>{t('builds.project')}</th><th>{t('builds.status')}</th><th>{t('builds.trigger')}</th><th>{t('builds.branch')}</th><th>{t('builds.commit')}</th><th>{t('builds.duration')}</th><th aria-label={t('projects.actions')} /></tr></thead>
@@ -161,7 +153,7 @@ export default function Builds() {
           <button type="button" onClick={() => changePage(filters.page + 1)} disabled={filters.page >= totalPages} aria-label={t('builds.nextPage')}><ChevronRight size={15} /></button>
         </div>
       </footer>
-    </section>
+    </section>}
     </div>
     </JenkinsPageShell>
     {replayTarget && <ReplayBuildDialog

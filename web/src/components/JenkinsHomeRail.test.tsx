@@ -14,8 +14,7 @@ vi.mock('../api', () => ({
     listBuildQueue: vi.fn(),
     getBuildQueueCapacity: vi.fn(),
     listAgents: vi.fn(),
-    listBuilds: vi.fn(),
-    listProjects: vi.fn(),
+    listRecentBuilds: vi.fn(),
     getBuildTimeline: vi.fn(),
     retryBuild: vi.fn(),
   },
@@ -27,8 +26,7 @@ vi.mock('./AppDialogs', () => ({ dialogs: { confirm: vi.fn(), notify: vi.fn() } 
 const listBuildQueue = vi.mocked(api.listBuildQueue)
 const getBuildQueueCapacity = vi.mocked(api.getBuildQueueCapacity)
 const listAgents = vi.mocked(api.listAgents)
-const listBuilds = vi.mocked(api.listBuilds)
-const listProjects = vi.mocked(api.listProjects)
+const listRecentBuilds = vi.mocked(api.listRecentBuilds)
 const getBuildTimeline = vi.mocked(api.getBuildTimeline)
 const retryBuild = vi.mocked(api.retryBuild)
 const mockedCanEdit = vi.mocked(canEdit)
@@ -72,8 +70,7 @@ describe('JenkinsHomeRail', () => {
     listBuildQueue.mockReset().mockResolvedValue(queue)
     getBuildQueueCapacity.mockReset().mockResolvedValue({ executor: 'builtin', max_concurrent_builds: 4 })
     listAgents.mockReset().mockResolvedValue(agents)
-    listBuilds.mockReset().mockResolvedValue(recentBuilds)
-    listProjects.mockReset().mockResolvedValue([{ id: 1, name: 'Alpha' }, { id: 2, name: 'Beta' }, { id: 3, name: 'Gamma' }])
+    listRecentBuilds.mockReset().mockResolvedValue(recentBuilds)
     getBuildTimeline.mockReset().mockResolvedValue({ build_status: 'running', current_step: 1, total_steps: 4, completed_steps: 1, steps: [{ index: 1, stage: 'Compile', name: 'Compile', status: 'running' }] })
     retryBuild.mockReset().mockResolvedValue({ id: 301 })
     vi.mocked(dialogs.confirm).mockReset().mockResolvedValue(false)
@@ -91,9 +88,9 @@ describe('JenkinsHomeRail', () => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
   })
 
-  async function render(editable?: boolean, builds = recentBuilds) {
+  async function render(editable?: boolean) {
     await act(async () => {
-      root.render(<MemoryRouter><JenkinsHomeRail editable={editable} recentBuilds={builds} /><LocationProbe /></MemoryRouter>)
+      root.render(<MemoryRouter><JenkinsHomeRail editable={editable} /><LocationProbe /></MemoryRouter>)
     })
   }
 
@@ -109,8 +106,7 @@ describe('JenkinsHomeRail', () => {
     }
     expect(container.querySelector('a[href="/agents"]')).toBeNull()
     expect(listAgents).not.toHaveBeenCalled()
-    expect(listBuilds).toHaveBeenCalledWith(30)
-    expect(listProjects).toHaveBeenCalledOnce()
+    expect(listRecentBuilds).toHaveBeenCalledWith(30)
     expect(Array.from(container.querySelectorAll<HTMLAnchorElement>('.jenkins-rail-links a')).map(link => link.getAttribute('href'))).toEqual([
       '/builds',
       '/templates',

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Activity, Boxes, CheckCircle2, Clock3, Cpu, Gauge, Maximize2, Minimize2, RefreshCw, ServerCog, XCircle } from 'lucide-react'
 import { motion } from 'motion/react'
 import { Link } from 'react-router-dom'
@@ -10,8 +10,10 @@ import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
 import { JenkinsHeaderBreadcrumb } from '../components/JenkinsPageShell'
 import { formatDateTime } from '../lib/dateTime'
 import { formatDuration } from '../lib/durationPresentation'
-import { BuildTrendEChart } from '../components/BuildTrendEChart'
+import { useVisiblePolling } from '../hooks'
 import './ManagementPages.jenkins.css'
+
+const BuildTrendEChart = lazy(() => import('../components/BuildTrendEChart').then(module => ({ default: module.BuildTrendEChart })))
 
 interface DashboardData {
   summary: {
@@ -58,8 +60,11 @@ export default function BigScreen() {
   const [error, setError] = useState('')
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
+  const loadingRef = useRef(false)
 
   const fetchData = useCallback(async (background = false) => {
+    if (loadingRef.current) return
+    loadingRef.current = true
     if (background) setRefreshing(true)
     else setLoading(true)
     try {
@@ -69,16 +74,17 @@ export default function BigScreen() {
     } catch (reason: any) {
       setError(reason.message || t('bigScreen.loadFailed'))
     } finally {
+      loadingRef.current = false
       setLoading(false)
       setRefreshing(false)
     }
   }, [t])
 
   useEffect(() => {
-    fetchData()
-    const timer = window.setInterval(() => fetchData(true), 15000)
-    return () => window.clearInterval(timer)
+    void fetchData()
   }, [fetchData])
+  const refresh = useCallback(() => { void fetchData(true) }, [fetchData])
+  useVisiblePolling(refresh, 15_000)
 
   useEffect(() => {
     const syncFullscreen = () => setFullscreen(Boolean(document.fullscreenElement))
@@ -123,7 +129,7 @@ export default function BigScreen() {
 
       <motion.section className="data-panel trend-panel" initial={{ opacity: 0, scale: .98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: .28, ease: 'easeOut' }}>
         <header><div><Gauge size={16} /><h2>{t('bigScreen.trend7d')}</h2></div></header>
-        {data.trend_data.length ? <BuildTrendEChart data={data.trend_data} dark /> : <p className="data-panel-empty">{t('common.noData')}</p>}
+        {data.trend_data.length ? <Suspense fallback={<div className="build-trend-echart" role="status">{t('common.loading')}</div>}><BuildTrendEChart data={data.trend_data} dark /></Suspense> : <p className="data-panel-empty">{t('common.noData')}</p>}
       </motion.section>
 
       {DISTRIBUTED_WORKERS_ENABLED && <section className="data-panel worker-panel">

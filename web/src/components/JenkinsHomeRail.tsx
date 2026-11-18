@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import {
   IoAdd,
   IoAlbumsOutline,
@@ -12,10 +12,11 @@ import {
   IoTimeOutline,
 } from 'react-icons/io5'
 import { Link, useNavigate } from 'react-router-dom'
-import { api, type BuildQueueCapacity } from '../api'
+import { api, type BuildQueueCapacity, type RecentBuild } from '../api'
 import { canEdit } from '../authz'
 import { dialogs } from './AppDialogs'
 import { DISTRIBUTED_WORKERS_ENABLED } from '../featureFlags'
+import { useApi, useVisiblePolling } from '../hooks'
 import { useI18n } from '../i18n'
 import { buildStatusLabel, buildStatusTone } from '../lib/buildPresentation'
 import { timelineProgress, type BuildTimeline } from '../lib/buildTimeline'
@@ -23,17 +24,6 @@ import { formatDateTime } from '../lib/dateTime'
 
 type JenkinsHomeRailProps = {
   editable?: boolean
-  recentBuilds?: JenkinsRecentBuild[]
-}
-
-export type JenkinsRecentBuild = {
-  id: number
-  project_id: number
-  project_name: string
-  number: number
-  status: string
-  branch?: string | null
-  started_at?: string | null
 }
 
 type QueueItem = {
@@ -61,7 +51,6 @@ type RunningBuildProgress = {
 const BUILD_QUEUE_COLLAPSED_KEY = 'buildworld.jenkins.pane.buildQueue.collapsed'
 const RECENT_BUILDS_COLLAPSED_KEY = 'buildworld.jenkins.pane.recentBuilds.collapsed'
 const ACTIVE_BUILD_STATUSES = new Set(['running', 'pending', 'pending_approval', 'queued'])
-const EMPTY_RECENT_BUILDS: JenkinsRecentBuild[] = []
 
 function initialQueueOpen(): boolean {
   if (typeof localStorage === 'undefined') return true
@@ -82,120 +71,40 @@ function errorMessage(reason: unknown, fallback: string): string {
   return reason instanceof Error && reason.message ? reason.message : fallback
 }
 
-export default function JenkinsHomeRail({ editable: editableOverride, recentBuilds = EMPTY_RECENT_BUILDS }: JenkinsHomeRailProps) {
+export default function JenkinsHomeRail({ editable: editableOverride }: JenkinsHomeRailProps) {
   const { t } = useI18n()
   const navigate = useNavigate()
   const authorizedToEdit = useMemo(() => canEdit(), [])
   const editable = editableOverride ?? authorizedToEdit
   const agentsPanelId = useId()
   const recentBuildsPanelId = useId()
-  const [queue, setQueue] = useState<QueueItem[] | null>(null)
-  const [builtinCapacity, setBuiltinCapacity] = useState<BuildQueueCapacity>({ executor: 'builtin', max_concurrent_builds: 1 })
-  const [history, setHistory] = useState<JenkinsRecentBuild[] | null>(null)
-  const [agents, setAgents] = useState<Agent[] | null>(DISTRIBUTED_WORKERS_ENABLED ? null : [])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [reloadVersion, setReloadVersion] = useState(0)
   const [queueOpen, setQueueOpen] = useState(initialQueueOpen)
   const [recentBuildsOpen, setRecentBuildsOpen] = useState(initialRecentBuildsOpen)
   const [agentsOpen, setAgentsOpen] = useState(true)
   const [rebuilding, setRebuilding] = useState<number | null>(null)
-  const [runningProgress, setRunningProgress] = useState<Record<number, RunningBuildProgress>>({})
-
-  useEffect(() => {
-    let active = true
-    let inFlight = false
-    let timer: number | undefined
-
-    const clearTimer = () => {
-      if (timer !== undefined) window.clearTimeout(timer)
-      timer = undefined
-    }
-
-    const schedule = () => {
-      clearTimer()
-      if (!active || document.visibilityState !== 'visible') return
-      timer = window.setTimeout(load, 5000)
-    }
-
-    const load = async () => {
-      if (!active || inFlight || document.visibilityState !== 'visible') return
-      inFlight = true
-      setError('')
-      try {
-        const [nextQueue, nextCapacity, nextAgents, nextBuilds, nextProjects] = await Promise.all([
-          api.listBuildQueue(),
-          api.getBuildQueueCapacity().catch(() => null),
-          DISTRIBUTED_WORKERS_ENABLED ? api.listAgents() : Promise.resolve([]),
-          api.listBuilds(30),
-          api.listProjects(),
-        ])
-        if (!active) return
-        const normalizedQueue = Array.isArray(nextQueue) ? nextQueue : []
-        const runningIDs = normalizedQueue
-          .filter(item => item.status === 'running')
-          .map(item => Number(item.build_id))
-          .filter(Number.isFinite)
-          .slice(0, 4)
-        const progressEntries = await Promise.all(runningIDs.map(async buildID => {
-          try {
-            const timeline = await api.getBuildTimeline(buildID) as BuildTimeline
-            const step = timeline.steps.find(candidate => candidate.status === 'running')
-            return [buildID, { percent: timelineProgress(timeline), stage: step?.stage || step?.name || '' }] as const
-          } catch {
-            return null
-          }
-        }))
-        const normalizedAgents = Array.isArray(nextAgents) ? nextAgents : []
-        const projectNames = new Map((Array.isArray(nextProjects) ? nextProjects : []).map(project => [Number(project.id), String(project.name || `#${project.id}`)]))
-        const normalizedHistory = (Array.isArray(nextBuilds) ? nextBuilds : []).map(build => ({
-          id: Number(build.id),
-          project_id: Number(build.project_id),
-          project_name: projectNames.get(Number(build.project_id)) || `#${build.project_id}`,
-          number: Number(build.number),
-          status: String(build.status || 'pending'),
-          branch: build.branch,
-          started_at: build.started_at,
-        }))
-        setQueue(normalizedQueue)
-        if (nextCapacity && count(nextCapacity.max_concurrent_builds)) {
-          setBuiltinCapacity(nextCapacity)
-        }
-        setAgents(normalizedAgents)
-        setHistory(normalizedHistory)
-        setRunningProgress(Object.fromEntries(progressEntries.filter((entry): entry is readonly [number, RunningBuildProgress] => entry !== null)))
-        setLoading(false)
-        schedule()
-      } catch (reason) {
-        if (!active) return
-        setError(errorMessage(reason, t('common.loadFailed')))
-        setLoading(false)
-        schedule()
-      } finally {
-        inFlight = false
-      }
-    }
-
-    const handleVisibilityChange = () => {
-      clearTimer()
-      if (document.visibilityState === 'visible') void load()
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    if (document.visibilityState === 'visible') void load()
-
-    return () => {
-      active = false
-      clearTimer()
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [reloadVersion, t])
-
-  const retry = () => {
-    setError('')
-    setLoading(true)
-    setReloadVersion(version => version + 1)
-  }
+  const { data: queue, error: queueError, loading, reload: reloadQueue, poll: pollQueue } = useApi<QueueItem[]>(api.listBuildQueue)
+  const { data: builtinCapacity, poll: pollCapacity } = useApi<BuildQueueCapacity>(api.getBuildQueueCapacity)
+  const { data: agents, poll: pollAgents } = useApi<Agent[]>(() => DISTRIBUTED_WORKERS_ENABLED ? api.listAgents() : Promise.resolve([]))
+  const { data: builds, error: historyError, reload: reloadHistory, poll: pollHistory } = useApi(() => api.listRecentBuilds(30))
+  const runningIDs = (queue || [])
+    .filter(item => item.status === 'running' && Number(item.build_id) > 0)
+    .slice(0, 4)
+    .map(item => item.build_id)
+    .join(',')
+  const { data: runningProgress, poll: pollProgress } = useApi<Record<number, RunningBuildProgress>>(async () => {
+    if (!queueOpen || !runningIDs) return {}
+    const entries = await Promise.allSettled(runningIDs.split(',').map(async id => {
+      const timeline = await api.getBuildTimeline(Number(id)) as BuildTimeline
+      const step = timeline.steps.find(candidate => candidate.status === 'running')
+      return [id, { percent: timelineProgress(timeline), stage: step?.stage || step?.name || '' }] as const
+    }))
+    return Object.fromEntries(entries.flatMap(entry => entry.status === 'fulfilled' ? [entry.value] : []))
+  }, [queueOpen, runningIDs])
+  useVisiblePolling(pollQueue, 5000)
+  useVisiblePolling(pollHistory, 5000)
+  useVisiblePolling(pollProgress, queueOpen && runningIDs ? 5000 : null)
+  useVisiblePolling(pollCapacity, 30_000)
+  useVisiblePolling(pollAgents, DISTRIBUTED_WORKERS_ENABLED ? 5000 : null)
 
   const toggleQueue = () => {
     setQueueOpen(open => {
@@ -214,16 +123,16 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
   }
 
   const recentBuildHistory = useMemo(() => {
-    return [...(history || recentBuilds)]
+    return [...(builds || [])]
       .sort((left, right) => {
         const leftStarted = left.started_at ? Date.parse(left.started_at) : 0
         const rightStarted = right.started_at ? Date.parse(right.started_at) : 0
         return (rightStarted || right.id) - (leftStarted || left.id)
       })
       .slice(0, 8)
-  }, [history, recentBuilds])
+  }, [builds])
 
-  const rebuild = async (build: JenkinsRecentBuild) => {
+  const rebuild = async (build: RecentBuild) => {
     if (ACTIVE_BUILD_STATUSES.has(build.status) || rebuilding !== null) return
     const confirmed = await dialogs.confirm(
       t('dashboard.rebuildConfirm')
@@ -259,7 +168,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
   ]
   const queueList = (queue || []).filter(item => item.build_id !== undefined && item.build_id !== null)
   const runningBuilds = queueList.filter(item => item.status === 'running').length
-  const builtinLimit = Math.max(count(builtinCapacity.max_concurrent_builds), 1)
+  const builtinLimit = Math.max(count(builtinCapacity?.max_concurrent_builds), 1)
   const builtinCapacityLabel = t('buildQueue.builtinCapacity')
     .replace('{active}', String(runningBuilds))
     .replace('{limit}', String(builtinLimit))
@@ -285,10 +194,13 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
         </div>
       )}
 
-      {error && (
+      {(queueError || historyError) && (
         <div className="jenkins-rail-error" role="alert">
-          <p className="jenkins-rail-error-message">{error}</p>
-          <button className="jenkins-rail-retry" type="button" onClick={retry}>
+          <p className="jenkins-rail-error-message">{queueError || historyError}</p>
+          <button className="jenkins-rail-retry" type="button" onClick={() => {
+            if (queueError) void reloadQueue()
+            if (historyError) void reloadHistory()
+          }}>
             <IoReload size={14} aria-hidden="true" />
             <span className="jenkins-rail-retry-label">{t('common.retry')}</span>
           </button>
@@ -332,7 +244,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                             <span className="jenkins-rail-queue-status">{buildStatusLabel(t, item.status === 'queued' ? 'pending' : item.status)}</span>
                           </small>
                           {item.status === 'running' && (() => {
-                            const progress = runningProgress[Number(item.build_id)]
+                            const progress = runningProgress?.[Number(item.build_id)]
                             return <span className="jenkins-rail-queue-progress">
                               <progress aria-label={`${item.project_name || item.build_id} ${t('builds.progressLabel')}`} value={progress ? progress.percent : undefined} max={100} />
                               <small>{progress?.stage || (progress ? `${progress.percent}%` : t('buildQueue.reasonRunning'))}</small>
@@ -343,7 +255,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                     ))}
                   </ul>
                 ) : (
-                  <p className="jenkins-rail-empty">{t('buildQueue.emptyTitle')}</p>
+                  <p className="jenkins-rail-empty">{queue ? t('buildQueue.emptyTitle') : queueError ? t('common.loadFailed') : t('common.loading')}</p>
                 )}
               </div>
             )}
@@ -468,7 +380,7 @@ export default function JenkinsHomeRail({ editable: editableOverride, recentBuil
                     })}
                   </ul>
                 ) : (
-                  <p className="jenkins-rail-empty">{t('common.noData')}</p>
+                  <p className="jenkins-rail-empty">{builds ? t('common.noData') : historyError ? t('common.loadFailed') : t('common.loading')}</p>
                 )}
               </div>
             )}

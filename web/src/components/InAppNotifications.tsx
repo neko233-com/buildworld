@@ -4,6 +4,7 @@ import { Bell, CheckCircle2, CircleDot, LoaderCircle, X, XCircle } from 'lucide-
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useI18n } from '../i18n'
+import { useVisiblePolling } from '../hooks'
 import { buildStatusLabel } from '../lib/buildPresentation'
 import { formatDateTime } from '../lib/dateTime'
 
@@ -58,17 +59,21 @@ export default function InAppNotifications({ menu = false, menuOpen = true }: In
   const wrapperRef = useRef<HTMLDivElement>(null)
   const initializedRef = useRef(false)
   const latestEventRef = useRef(0)
+  const loadingRef = useRef(false)
+  const bellRef = useRef<HTMLButtonElement>(null)
   const [feed, setFeed] = useState<NotificationFeed>({ items: [], unread_count: 0, last_read_id: 0 })
   const [open, setOpen] = useState(false)
   const [toasts, setToasts] = useState<InAppNotification[]>([])
 
   const load = useCallback(async () => {
+    if (loadingRef.current) return
+    loadingRef.current = true
     try {
       const next = await api.listInAppNotifications(30) as NotificationFeed
       const items = next.items || []
       const latest = items[0]?.id || 0
-      if (initializedRef.current && latestEventRef.current > 0) {
-        const fresh = items.filter(item => item.id > latestEventRef.current).reverse()
+      if (initializedRef.current) {
+        const fresh = items.filter(item => item.id > latestEventRef.current).slice(0, 4).reverse()
         if (fresh.length) {
           setToasts(current => [...current, ...fresh].slice(-4))
           for (const item of fresh) {
@@ -82,27 +87,24 @@ export default function InAppNotifications({ menu = false, menuOpen = true }: In
     } catch {
       // The global API status banner handles availability. Notification polling
       // remains silent so it never interrupts project work.
+    } finally {
+      loadingRef.current = false
     }
   }, [])
 
   useEffect(() => {
-    void load()
-    const timer = window.setInterval(load, 7000)
-    const onFocus = () => { void load() }
-    window.addEventListener('focus', onFocus)
-    return () => {
-      window.clearInterval(timer)
-      window.removeEventListener('focus', onFocus)
-    }
+    if (document.visibilityState === 'visible') void load()
   }, [load])
+  useVisiblePolling(load, 7000)
 
   useEffect(() => {
+    if (!open) return
     const closeOutside = (event: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) setOpen(false)
     }
     document.addEventListener('mousedown', closeOutside)
     return () => document.removeEventListener('mousedown', closeOutside)
-  }, [])
+  }, [open])
 
   useEffect(() => {
     if (!menuOpen) setOpen(false)
@@ -146,6 +148,7 @@ export default function InAppNotifications({ menu = false, menuOpen = true }: In
   return <>
     <div className="in-app-notification-center" ref={wrapperRef}>
       <button
+        ref={bellRef}
         type="button"
         className={`notification-bell ${menu ? 'notification-bell-menu' : ''} ${open ? 'active' : ''}`}
         aria-label={t('notifications.webTitle')}
@@ -156,8 +159,13 @@ export default function InAppNotifications({ menu = false, menuOpen = true }: In
         {menu && <span className="notification-menu-label">{t('notifications.webTitle')}</span>}
         {feed.unread_count > 0 && <span className="notification-unread-count">{feed.unread_count > 99 ? '99+' : feed.unread_count}</span>}
       </button>
-      {open && <section className="notification-popover" role="dialog" aria-label={t('notifications.webTitle')}>
-        <header><div><Bell size={16} /><div><h2>{t('notifications.webTitle')}</h2><p>{feed.unread_count ? t('notifications.webUnread').replace('{count}', String(feed.unread_count)) : t('notifications.webAllRead')}</p></div></div><button type="button" onClick={() => setOpen(false)} aria-label={t('common.close')}><X size={16} /></button></header>
+      {open && <section className="notification-popover" role="dialog" aria-label={t('notifications.webTitle')} onKeyDown={event => {
+        if (event.key !== 'Escape' || event.nativeEvent.isComposing) return
+        event.stopPropagation()
+        setOpen(false)
+        bellRef.current?.focus()
+      }}>
+        <header><div><Bell size={16} /><div><h2>{t('notifications.webTitle')}</h2><p>{feed.unread_count ? t('notifications.webUnread').replace('{count}', String(feed.unread_count)) : t('notifications.webAllRead')}</p></div></div><button type="button" onClick={() => { setOpen(false); bellRef.current?.focus() }} aria-label={t('common.close')}><X size={16} /></button></header>
         <div className="notification-popover-list">
           {!feed.items.length && <p className="notification-popover-empty">{t('notifications.webEmpty')}</p>}
           {feed.items.map(item => {

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type Ref } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type Ref } from 'react'
 import { FiCheck, FiChevronDown, FiSearch } from 'react-icons/fi'
 import './SearchableSelect.css'
 
@@ -25,7 +25,10 @@ export function SearchableSelect({ id, value, options, onChange, placeholder, em
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
-  const filtered = options.filter(option => `${option.label} ${option.value} ${option.detail || ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+  const normalizedQuery = query.trim().toLowerCase()
+  const filtered = useMemo(() => normalizedQuery
+    ? options.filter(option => `${option.label} ${option.value} ${option.detail || ''}`.toLowerCase().includes(normalizedQuery))
+    : options, [normalizedQuery, options])
   const selected = options.find(option => option.value === value)
   const currentIndex = Math.min(activeIndex, Math.max(0, filtered.length - 1))
   const expanded = open && !disabled

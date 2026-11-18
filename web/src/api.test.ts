@@ -10,6 +10,11 @@ describe('API request resilience', () => {
     localStorage.clear()
   })
 
+  it('treats a legacy null build queue as an empty list', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('null'))
+    await expect(api.listBuildQueue()).resolves.toEqual([])
+  })
+
   it('retries transient gateway failures for reads', async () => {
     vi.useFakeTimers()
     const fetchMock = vi.spyOn(globalThis, 'fetch')
@@ -22,6 +27,41 @@ describe('API request resilience', () => {
 
     await expect(pending).resolves.toEqual({ status: 'ok' })
     expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('shares concurrent reads within a session and refreshes after a write', async () => {
+    let respond!: (response: Response) => void
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockReturnValueOnce(new Promise(resolve => { respond = resolve }))
+      .mockResolvedValueOnce(new Response('{}'))
+      .mockResolvedValueOnce(new Response('[{"id":2}]'))
+      .mockResolvedValueOnce(new Response('[{"id":3}]'))
+
+    setToken('first-session')
+    const earlier = api.listProjects()
+    const duplicate = api.listProjects()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await api.updateProject(2, { name: 'Updated' })
+    await expect(api.listProjects()).resolves.toEqual([{ id: 2 }])
+
+    setToken('second-session')
+    await expect(api.listProjects()).resolves.toEqual([{ id: 3 }])
+    respond(new Response('[{"id":1}]'))
+    await expect(Promise.all([earlier, duplicate])).resolves.toEqual([[{ id: 1 }], [{ id: 1 }]])
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('cancels retry backoff immediately when the route aborts a request', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('Unavailable', { status: 503 }))
+    const pending = api.getProject(7, { signal: controller.signal })
+    const aborted = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    await Promise.resolve()
+    controller.abort()
+    await aborted
+    await vi.runAllTimersAsync()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('propagates project cancellation without retrying an aborted request', async () => {

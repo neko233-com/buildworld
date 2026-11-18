@@ -8,6 +8,7 @@ import { api } from '../api'
 import ProjectBuildWithParameters from './ProjectBuildWithParameters'
 
 vi.mock('../api', () => ({
+  getToken: () => localStorage.getItem('token'),
   api: {
     getProject: vi.fn(),
     validateProject: vi.fn(),

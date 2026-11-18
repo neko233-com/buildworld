@@ -70,6 +70,7 @@ describe('BigScreen', () => {
     await act(async () => {
       root.render(<MemoryRouter><BigScreen /></MemoryRouter>)
     })
+    await act(async () => { await vi.dynamicImportSettled() })
 
     expect(container.querySelectorAll('a[href^="/builds/"]')).toHaveLength(8)
     expect(container.querySelector('a[href="/builds"]')).not.toBeNull()

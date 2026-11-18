@@ -36,6 +36,11 @@ function JobStatusIcon({ status, size = 16 }: { status?: string; size?: number }
 }
 
 export default function ProjectChanges() {
+  const { id } = useParams<{ id: string }>()
+  return <ProjectChangesPage key={id} />
+}
+
+function ProjectChangesPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -72,7 +77,7 @@ export default function ProjectChanges() {
   const [building, setBuilding] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [stopping, setStopping] = useState<number | null>(null)
-  const { isParameterized, start } = useJenkinsBuildFlow(navigate)
+  const { start } = useJenkinsBuildFlow(navigate)
   const requestedBuildId = Number(searchParams.get('build'))
   const filteredChanges = Number.isSafeInteger(requestedBuildId) && requestedBuildId > 0
     ? (changes || []).filter(change => change.build_id === requestedBuildId)
@@ -156,7 +161,6 @@ export default function ProjectChanges() {
           activeView="changes"
           editable={editable}
           building={building}
-          parameterized={isParameterized(project)}
           deleting={deleting}
           onBuildNow={handleBuildNow}
           onDelete={handleDelete}

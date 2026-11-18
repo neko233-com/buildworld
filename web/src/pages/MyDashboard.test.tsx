@@ -12,6 +12,8 @@ vi.mock('../api', () => ({
     getBigScreenData: vi.fn(),
     listQuickAccess: vi.fn(),
     listBuildQueue: vi.fn(),
+    listRecentBuilds: vi.fn().mockResolvedValue([]),
+    getBuildQueueCapacity: vi.fn().mockResolvedValue({ executor: 'builtin', max_concurrent_builds: 1 }),
     listAgents: vi.fn(),
   },
 }))

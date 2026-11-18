@@ -11,19 +11,30 @@ type ModalDialogProps = {
   onClose: () => void
 }
 
-const focusableSelector = [
-  '[data-dialog-initial-focus]',
-  'button:not(:disabled)',
-  'input:not(:disabled):not([type="hidden"])',
-  'select:not(:disabled)',
-  'textarea:not(:disabled)',
-  '[href]',
-  '[tabindex]:not([tabindex="-1"])',
-].join(',')
+const focusableSelector = 'button, input, select, textarea, a[href], area[href], summary, iframe, [tabindex]'
 
 function getFocusable(dialog: HTMLElement | null): HTMLElement[] {
-  return Array.from(dialog?.querySelectorAll<HTMLElement>('*') || [])
-    .filter(element => element.matches(focusableSelector) && element.getAttribute('aria-hidden') !== 'true')
+  return Array.from(dialog?.querySelectorAll<HTMLElement>(focusableSelector) || [])
+    .filter(element => element.tabIndex >= 0 && !element.matches(':disabled, input[type="hidden"]') && !element.closest('[hidden], [inert], [aria-hidden="true"]'))
+}
+
+const modalStack: HTMLElement[] = []
+let unlockPage: (() => void) | undefined
+
+function lockPage() {
+  const appRoot = document.getElementById('root')
+  const previousAriaHidden = appRoot?.getAttribute('aria-hidden')
+  const previousInert = appRoot?.hasAttribute('inert')
+  const previousOverflow = document.body.style.overflow
+  document.body.style.overflow = 'hidden'
+  appRoot?.setAttribute('aria-hidden', 'true')
+  appRoot?.setAttribute('inert', '')
+  return () => {
+    document.body.style.overflow = previousOverflow
+    if (previousAriaHidden == null) appRoot?.removeAttribute('aria-hidden')
+    else appRoot?.setAttribute('aria-hidden', previousAriaHidden)
+    if (!previousInert) appRoot?.removeAttribute('inert')
+  }
 }
 
 export function ModalDialog({
@@ -38,7 +49,6 @@ export function ModalDialog({
   const originRef = useRef<HTMLElement | null>(
     typeof document !== 'undefined' && document.activeElement instanceof HTMLElement ? document.activeElement : null,
   )
-  const originalOverflowRef = useRef(typeof document !== 'undefined' ? document.body.style.overflow : '')
   const restoreTimerRef = useRef<number | undefined>(undefined)
   const busyRef = useRef(busy)
   const onCloseRef = useRef(onClose)
@@ -46,19 +56,18 @@ export function ModalDialog({
   onCloseRef.current = onClose
 
   useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
     window.clearTimeout(restoreTimerRef.current)
-    const appRoot = document.getElementById('root')
-    const rootAriaHidden = appRoot?.getAttribute('aria-hidden')
-    const rootWasInert = appRoot?.hasAttribute('inert') ?? false
-    document.body.style.overflow = 'hidden'
-    appRoot?.setAttribute('aria-hidden', 'true')
-    appRoot?.setAttribute('inert', '')
-    const frame = window.requestAnimationFrame(() => {
-      const preferred = dialogRef.current?.querySelector<HTMLElement>('[data-dialog-initial-focus]')
-      const first = preferred || getFocusable(dialogRef.current)[0]
-      first?.focus()
-    })
+    const parent = modalStack.at(-1)
+    modalStack.push(dialog)
+    const focusable = getFocusable(dialog)
+    const target = focusable.find(element => element.hasAttribute('data-dialog-initial-focus')) || focusable[0] || dialog
+    target.focus()
+    if (parent) parent.setAttribute('inert', '')
+    else unlockPage = lockPage()
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (modalStack.at(-1) !== dialog || event.defaultPrevented || event.isComposing || event.keyCode === 229) return
       if (event.key === 'Escape') {
         event.preventDefault()
         if (!busyRef.current) onCloseRef.current()
@@ -73,7 +82,11 @@ export function ModalDialog({
       }
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
-      if (event.shiftKey && document.activeElement === first) {
+      if (!dialog.contains(document.activeElement) || document.activeElement === dialog) {
+        event.preventDefault()
+        const target = event.shiftKey ? last : first
+        target.focus()
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault()
         last.focus()
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -83,14 +96,21 @@ export function ModalDialog({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
-      window.cancelAnimationFrame(frame)
       window.removeEventListener('keydown', handleKeyDown)
-      if (rootAriaHidden === null) appRoot?.removeAttribute('aria-hidden')
-      else if (rootAriaHidden !== undefined) appRoot?.setAttribute('aria-hidden', rootAriaHidden)
-      if (!rootWasInert) appRoot?.removeAttribute('inert')
+      const wasTop = modalStack.at(-1) === dialog
+      modalStack.splice(modalStack.indexOf(dialog), 1)
+      if (!wasTop) return
+      const next = modalStack.at(-1)
+      next?.removeAttribute('inert')
+      if (!next) {
+        unlockPage?.()
+        unlockPage = undefined
+      }
       restoreTimerRef.current = window.setTimeout(() => {
-        document.body.style.overflow = originalOverflowRef.current
-        if (originRef.current?.isConnected) originRef.current.focus()
+        if (modalStack.at(-1) !== next) return
+        const origin = originRef.current
+        if (origin?.isConnected && (!next || next.contains(origin))) origin.focus()
+        else if (next) (getFocusable(next)[0] || next).focus()
       }, 0)
     }
   }, [])

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
@@ -10,8 +11,11 @@ import './ProjectReleaseTargets.css'
 
 export default function ProjectReleaseTargets({ projectId, refreshKey }: { projectId: number; refreshKey?: string }) {
   const { t } = useI18n()
+  const [recordsOpened, setRecordsOpened] = useState(false)
   const { data: targets, loading, error, reload } = useApi(() => api.listReleaseTargets(projectId), [projectId, refreshKey])
-  const { data: records, loading: recordsLoading, error: recordsError, reload: reloadRecords } = useApi(() => api.listReleaseRecords(projectId), [projectId, refreshKey])
+  const { data: records, loading: recordsLoading, error: recordsError, reload: reloadRecords } = useApi(
+    () => recordsOpened ? api.listReleaseRecords(projectId) : Promise.resolve(null), [projectId, refreshKey, recordsOpened],
+  )
   if (!loading && !error && !targets?.length) return null
 
   return <section className="project-release-targets" aria-label={t('projectDetail.releaseTargets')}>
@@ -34,10 +38,11 @@ export default function ProjectReleaseTargets({ projectId, refreshKey }: { proje
               </tr>
             })}</tbody>
           </table></div>
-          <details className="project-release-records">
-            <summary>{t('projectDetail.releaseRecords')} ({records?.length || 0})</summary>
+          <details className="project-release-records" onToggle={event => { if (event.currentTarget.open) setRecordsOpened(true) }}>
+            <summary>{t('projectDetail.releaseRecords')}{records && ` (${records.length})`}</summary>
             {recordsError ? <div role="alert">{recordsError}<button type="button" className="secondary-command" onClick={reloadRecords}>{t('common.retry')}</button></div>
-              : recordsLoading ? <p role="status">{t('common.loading')}</p>
+              : !recordsOpened || recordsLoading ? <p role="status">{t('common.loading')}</p>
+                : !records?.length ? <p>{t('common.noData')}</p>
                 : <div className="project-release-target-table"><table>
                   <thead><tr><th>{t('projectDetail.releaseRecordBranch')}</th><th>{t('projectDetail.releaseConfigVersion')}</th><th>{t('projectDetail.sourceCommit')}</th><th>{t('projectDetail.restartVersion')}</th></tr></thead>
                   <tbody>{records?.map(record => <tr key={record.branch}>

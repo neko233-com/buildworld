@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Activity, ArrowDown, ArrowUp, ChevronsDown, ChevronsUp, Clock3, FileClock, FolderTree, GitBranch, History, Hourglass, LayoutDashboard, LoaderCircle, RotateCw, ServerCog, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { api } from '../api'
-import { useApi } from '../hooks'
+import { useApi, useVisiblePolling } from '../hooks'
 import { dialogs } from '../components/AppDialogs'
 import { buildStatusLabel, buildStatusTone, buildTriggerLabel } from '../lib/buildPresentation'
 import { canEdit } from '../authz'
@@ -17,29 +17,22 @@ import { formatDateTime } from '../lib/dateTime'
 export default function BuildQueue() {
   const { t } = useI18n()
   const editable = canEdit()
-  const { data, loading, error, reload, setData } = useApi(async () => {
-    const [queue, approvals] = await Promise.all([api.listBuildQueue(), api.listPendingApprovals()])
-    return { queue, approvals }
-  }, [])
+  const { data: queue, loading, error, reload, poll, setData } = useApi(api.listBuildQueue)
+  const { data: pendingApprovals, error: approvalsError, reload: reloadApprovals, poll: pollApprovals } = useApi(api.listPendingApprovals)
   const [refreshing, setRefreshing] = useState(false)
   const [moving, setMoving] = useState<number | null>(null)
   const [cancelling, setCancelling] = useState<number | null>(null)
   const [moveMessage, setMoveMessage] = useState('')
 
-  const list = data?.queue || []
-  const approvals = data?.approvals || []
+  const list = queue || []
+  const approvals = pendingApprovals || []
   const running = list.filter((item: any) => item.status === 'running')
   const waiting = list.filter((item: any) => item.status !== 'running')
   const dispatchWaiting = list.filter((item: any) => item.status === 'queued').length
   const approvalWaiting = list.filter((item: any) => item.status === 'pending_approval').length
   const hasActiveQueue = list.some((item: any) => ['running', 'pending', 'pending_approval', 'queued'].includes(item.status))
-  useEffect(() => {
-    if (!hasActiveQueue) return
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') reload()
-    }, 2000)
-    return () => window.clearInterval(timer)
-  }, [hasActiveQueue, reload])
+  useVisiblePolling(poll, moving === null ? (hasActiveQueue ? 2_000 : 10_000) : null)
+  useVisiblePolling(pollApprovals, hasActiveQueue ? 5_000 : 15_000)
 
   const move = async (id: number, operation: QueueMoveOperation) => {
     if (!canMoveQueueItem(list, id, operation)) return
@@ -47,13 +40,13 @@ export default function BuildQueue() {
     const optimistic = moveQueueItem(list, id, operation)
     setMoving(id)
     setMoveMessage('')
-    setData({ queue: optimistic, approvals })
+    setData(optimistic)
     try {
       const result = await api.reorderBuildQueue(id, operation)
-      setData({ queue: result.items, approvals })
+      setData(result.items)
       setMoveMessage(t('buildQueue.moved'))
     } catch (e: any) {
-      setData({ queue: previous, approvals })
+      setData(previous)
       dialogs.notify(e.message)
     } finally {
       setMoving(null)
@@ -75,17 +68,14 @@ export default function BuildQueue() {
     if (refreshing) return
     setRefreshing(true)
     try {
-      const [queue, nextApprovals] = await Promise.all([api.listBuildQueue(), api.listPendingApprovals()])
-      setData({ queue, approvals: nextApprovals })
-    } catch (e: any) {
-      dialogs.notify(e.message || t('common.error'))
+      await Promise.all([reload(), reloadApprovals()])
     } finally {
       setRefreshing(false)
     }
   }
 
   if (loading) return <PageState />
-  if (error) return <PageState error={error} onRetry={reload} />
+  if (error && !queue) return <PageState error={error} onRetry={reload} />
 
   return (
     <div>
@@ -103,6 +93,8 @@ export default function BuildQueue() {
         </nav>}
       >
       <div className="operations-page jenkins-queue-content">
+      {error && <div className="build-history-inline-error" role="alert"><span>{error}</span><button type="button" onClick={reload}>{t('common.retry')}</button></div>}
+      {approvalsError && <div className="build-history-inline-error" role="alert"><span>{approvalsError}</span><button type="button" onClick={reloadApprovals}>{t('common.retry')}</button></div>}
       <header className="jenkins-page-heading">
         <div><p className="jenkins-page-heading-count">{waiting.length}</p><h1>{t('buildQueue.title')}</h1></div>
         <button type="button" className="secondary-command" onClick={refresh} disabled={refreshing} aria-busy={refreshing}><RotateCw className={refreshing ? 'timeline-spinner' : ''} size={15} />{t('buildQueue.refresh')}</button>

@@ -150,6 +150,7 @@ func NewRouter(d Deps) http.Handler {
 			// --- builds ---
 			r.Route("/builds", func(r chi.Router) {
 				r.Get("/", h.listBuilds)
+				r.Get("/recent", h.listRecentBuilds)
 				r.Get("/search", h.searchBuilds)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.getBuild)
