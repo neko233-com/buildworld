@@ -37,6 +37,7 @@ export default function AuditLog() {
   const [actionFilter, setActionFilter] = useState('')
   const [userFilter, setUserFilter] = useState('')
   const [applied, setApplied] = useState({ action: '', actor: '' })
+  const [refreshing, setRefreshing] = useState(false)
   const [cursors, setCursors] = useState<Array<number | undefined>>([undefined])
   const beforeID = cursors.at(-1)
   const { data: logs, loading, error, reload } = useApi<AuditEntry[]>(
@@ -50,13 +51,24 @@ export default function AuditLog() {
     actors: new Set(rows.map(entry => entry.username || entry.user || entry.user_id).filter(Boolean)).size,
   }), [rows])
   const hasNext = (logs?.length ?? 0) > PAGE_SIZE
+  const busy = loading || refreshing
+  const refresh = async () => {
+    if (busy) return
+    setRefreshing(true)
+    try {
+      await reload()
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const search = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (busy) return
     const action = actionFilter.trim()
     const actor = userFilter.trim()
     if (!beforeID && action === applied.action && actor === applied.actor) {
-      void reload()
+      void refresh()
     } else {
       setApplied({ action, actor })
       setCursors([undefined])
@@ -66,26 +78,26 @@ export default function AuditLog() {
   return (
     <>{breadcrumb}<section className="operations-page audit-workbench jenkins-management-page">
       <header className="operations-heading">
-        <div><p>{pageLabel} · {rows.length} {t('auditLog.events')}</p><h1>{t('auditLog.title')}</h1></div>
-        <button className="secondary-command" type="button" onClick={reload}><RefreshCw size={14} />{t('auditLog.refresh')}</button>
+        <div><p>{pageLabel}{logs && ` · ${rows.length} ${t('auditLog.events')}`}</p><h1>{t('auditLog.title')}</h1></div>
+        <button className="secondary-command" type="button" onClick={refresh} disabled={busy} aria-busy={refreshing}><RefreshCw className={refreshing ? 'timeline-spinner' : ''} size={14} />{refreshing ? t('common.loading') : t('auditLog.refresh')}</button>
       </header>
 
       <section className="notification-summary audit-summary">
-        <article><span><ClipboardList size={15} />{t('auditLog.pageEvents')}</span><strong>{rows.length}</strong><small>{pageLabel}</small></article>
-        <article><span><Activity size={15} />{t('auditLog.actions')}</span><strong>{actions.length}</strong><small>{t('auditLog.actionsHelp')}</small></article>
-        <article><span><UserRound size={15} />{t('auditLog.actors')}</span><strong>{actors}</strong><small>{t('auditLog.actorsHelp')}</small></article>
+        <article><span><ClipboardList size={15} />{t('auditLog.pageEvents')}</span><strong>{logs ? rows.length : '—'}</strong><small>{pageLabel}</small></article>
+        <article><span><Activity size={15} />{t('auditLog.actions')}</span><strong>{logs ? actions.length : '—'}</strong><small>{t('auditLog.actionsHelp')}</small></article>
+        <article><span><UserRound size={15} />{t('auditLog.actors')}</span><strong>{logs ? actors : '—'}</strong><small>{t('auditLog.actorsHelp')}</small></article>
       </section>
 
       <form className="audit-filters" onSubmit={search}>
         <label><span>{t('auditLog.filterAction')}</span><div><Search size={14} /><input value={actionFilter} onChange={event => setActionFilter(event.target.value)} maxLength={128} list="audit-actions" placeholder={t('auditLog.actionSearch')} /></div></label>
         <datalist id="audit-actions">{actions.map(action => <option key={action} value={action} />)}</datalist>
         <label><span>{t('auditLog.filterUser')}</span><div><Search size={14} /><input value={userFilter} onChange={event => setUserFilter(event.target.value)} maxLength={128} placeholder={t('auditLog.userSearch')} /></div></label>
-        <button className="secondary-command" type="submit">{t('builds.applyFilters')}</button>
+        <button className="secondary-command" type="submit" disabled={busy}>{t('builds.applyFilters')}</button>
       </form>
 
       {loading && <PageState />}
-      {error && <div className="build-history-inline-error" role="alert"><span>{error}</span><button type="button" onClick={reload}>{t('common.retry')}</button></div>}
-      {logs && <section className="operations-table-wrap audit-table-wrap">
+      {error && <div className="build-history-inline-error" role="alert"><span>{error}</span><button type="button" onClick={refresh} disabled={busy}>{t('common.retry')}</button></div>}
+      {logs && <section className="operations-table-wrap audit-table-wrap" aria-busy={refreshing}>
         <table className="operations-table audit-table">
           <thead><tr><th>{t('auditLog.time')}</th><th>{t('auditLog.user')}</th><th>{t('auditLog.action')}</th><th>{t('auditLog.resourceType')}</th><th>{t('auditLog.resourceId')}</th><th>{t('auditLog.details')}</th><th>IP</th></tr></thead>
           <tbody>
@@ -108,8 +120,8 @@ export default function AuditLog() {
       <footer className="build-history-pagination" aria-label={t('auditLog.title')}>
         <span role="status">{pageLabel}</span>
         <div>
-          <button type="button" aria-label={t('builds.previousPage')} disabled={cursors.length === 1} onClick={() => setCursors(stack => stack.slice(0, -1))}><ChevronLeft size={15} /></button>
-          <button type="button" aria-label={t('builds.nextPage')} disabled={!hasNext || loading} onClick={() => { const lastID = rows.at(-1)?.id; if (lastID) setCursors(stack => [...stack, lastID]) }}><ChevronRight size={15} /></button>
+          <button type="button" aria-label={t('builds.previousPage')} disabled={busy || cursors.length === 1} onClick={() => setCursors(stack => stack.slice(0, -1))}><ChevronLeft size={15} /></button>
+          <button type="button" aria-label={t('builds.nextPage')} disabled={!hasNext || busy} onClick={() => { const lastID = rows.at(-1)?.id; if (lastID) setCursors(stack => [...stack, lastID]) }}><ChevronRight size={15} /></button>
         </div>
       </footer>
     </section></>

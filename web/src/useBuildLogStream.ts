@@ -36,45 +36,56 @@ export function useBuildLogStream({
   const [state, setState] = useState<BuildLogStreamState>('fallback')
   const logRef = useRef('')
   const snapshotBuildID = useRef(buildID)
-  const clearActiveRef = useRef(false)
   const snapshotCursorRef = useRef<string | null>(null)
+  const takePendingLogRef = useRef<(() => string) | null>(null)
+
+  const publishLog = useCallback((next: string) => {
+    if (next === logRef.current) return
+    logRef.current = next
+    setLog(next)
+  }, [])
+
+  const appendEntries = useCallback((entries: string) => {
+    if (!entries) return
+    if (snapshotCursorRef.current !== null) {
+      snapshotCursorRef.current = appendLiveLog(snapshotCursorRef.current, entries, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
+    }
+    publishLog(appendLiveLog(logRef.current, entries, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES))
+  }, [publishLog])
 
   const clearLog = useCallback(() => {
-    snapshotCursorRef.current = logRef.current
-    clearActiveRef.current = true
-    logRef.current = ''
-    setLog('')
-  }, [])
+    const cursor = snapshotCursorRef.current ?? logRef.current
+    const pending = takePendingLogRef.current?.() || ''
+    snapshotCursorRef.current = pending
+      ? appendLiveLog(cursor, pending, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
+      : cursor
+    publishLog('')
+  }, [publishLog])
 
   useEffect(() => {
     // Reset the browser window before reconciling a different build.
     if (snapshotBuildID.current !== buildID) {
       snapshotBuildID.current = buildID
-      logRef.current = ''
-      clearActiveRef.current = false
       snapshotCursorRef.current = null
-      setLog('')
+      publishLog('')
       return
     }
-    if (clearActiveRef.current) {
-      const cursor = snapshotCursorRef.current || ''
+    if (!snapshot) return
+    // Reconcile already-received frames before the persisted snapshot arrives.
+    appendEntries(takePendingLogRef.current?.() || '')
+    const cursor = snapshotCursorRef.current
+    if (cursor !== null) {
       const delta = extractLiveLogDelta(cursor, snapshot)
       if (delta === null) return
       snapshotCursorRef.current = mergeLiveLog(cursor, snapshot, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
       if (!delta) return
-      setLog(current => {
-        const next = appendLiveLog(current, delta, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
-        logRef.current = next
-        return next
-      })
+      publishLog(appendLiveLog(logRef.current, delta, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES))
       return
     }
-    setLog(current => {
-      const next = mergeLiveLog(current, snapshot, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
-      logRef.current = next
-      return next
-    })
-  }, [buildID, snapshot])
+    if (snapshot !== logRef.current) {
+      publishLog(mergeLiveLog(logRef.current, snapshot, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES))
+    }
+  }, [appendEntries, buildID, publishLog, snapshot])
 
   useEffect(() => {
     if (!enabled || !Number.isSafeInteger(buildID) || buildID <= 0 || typeof WebSocket === 'undefined') {
@@ -86,33 +97,33 @@ export function useBuildLogStream({
     let socket: WebSocket | undefined
     let retryTimer: number | undefined
     let logBatchTimer: number | undefined
-    let logBatch: string[] = []
+    const logBatch: string[] = []
+    let logBatchCharacters = 0
     let attempts = 0
 
-    const flushLogBatch = () => {
+    const takePendingLog = () => {
       if (logBatchTimer !== undefined) {
         window.clearTimeout(logBatchTimer)
         logBatchTimer = undefined
       }
-      if (disposed || logBatch.length === 0) {
-        logBatch = []
-        return
-      }
       const entries = logBatch.join('')
-      logBatch = []
-      if (clearActiveRef.current && snapshotCursorRef.current !== null) {
-        snapshotCursorRef.current = appendLiveLog(snapshotCursorRef.current, entries, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
-      }
-      setLog(current => {
-        const next = appendLiveLog(current, entries, BROWSER_LIVE_LOG_MAX_CHARACTERS, BROWSER_LIVE_LOG_MAX_LINES)
-        logRef.current = next
-        return next
-      })
+      logBatch.length = 0
+      logBatchCharacters = 0
+      return entries
+    }
+    takePendingLogRef.current = takePendingLog
+
+    const flushLogBatch = () => {
+      if (!disposed) appendEntries(takePendingLog())
     }
 
     const queueLogEntry = (entry: string) => {
       logBatch.push(entry)
-      if (logBatchTimer === undefined) {
+      logBatchCharacters += entry.length
+      // Hidden-tab timer throttling can stretch the batching interval.
+      if (logBatchCharacters >= BROWSER_LIVE_LOG_MAX_CHARACTERS || logBatch.length >= BROWSER_LIVE_LOG_MAX_LINES) {
+        flushLogBatch()
+      } else if (logBatchTimer === undefined) {
         logBatchTimer = window.setTimeout(flushLogBatch, LIVE_LOG_BATCH_INTERVAL_MS)
       }
     }
@@ -125,11 +136,13 @@ export function useBuildLogStream({
       socket = connection
 
       connection.onopen = () => {
+        if (disposed || socket !== connection) return
         attempts = 0
         setState('live')
         reloadSnapshot()
       }
       connection.onmessage = event => {
+        if (disposed || socket !== connection) return
         try {
           const message = JSON.parse(String(event.data)) as { type?: string, payload?: unknown }
           if (message.type === 'build:log') {
@@ -148,7 +161,8 @@ export function useBuildLogStream({
       }
       connection.onerror = () => connection.close()
       connection.onclose = () => {
-        if (disposed) return
+        if (disposed || socket !== connection) return
+        socket = undefined
         flushLogBatch()
         setState('fallback')
         const delay = Math.min(5000, 1000 * 2 ** attempts)
@@ -162,10 +176,11 @@ export function useBuildLogStream({
       disposed = true
       if (retryTimer !== undefined) window.clearTimeout(retryTimer)
       if (logBatchTimer !== undefined) window.clearTimeout(logBatchTimer)
-      logBatch = []
+      takePendingLogRef.current = null
+      logBatch.length = 0
       socket?.close()
     }
-  }, [buildID, enabled, onBuildStatus, reloadSnapshot])
+  }, [appendEntries, buildID, enabled, onBuildStatus, reloadSnapshot])
 
   return { log, state, clearLog }
 }

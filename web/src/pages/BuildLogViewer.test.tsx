@@ -211,6 +211,40 @@ describe('BuildLogViewer', () => {
     expect(container.textContent).not.toContain('exit status 7')
   })
 
+  it('keeps pre-clear frames out and reconciles new frames with an overlapping snapshot', async () => {
+    getBuild.mockResolvedValue({ id: 42, number: 7, project_id: 3, status: 'running' })
+    await renderViewer()
+    vi.useFakeTimers()
+    const socket = MockWebSocket.instances[0]
+    const clear = container.querySelector<HTMLButtonElement>('button[aria-label="Clear current screen logs"]')!
+
+    act(() => socket.emitMessage({
+      type: 'build:log',
+      payload: { timestamp: '10:00:02', stage: 'Build', line: 'received before clear' },
+    }))
+    act(() => clear.click())
+    act(() => socket.emitMessage({
+      type: 'build:log',
+      payload: { timestamp: '10:00:03', stage: 'Build', line: 'received after clear' },
+    }))
+    getBuildLogs.mockResolvedValueOnce({ log: [
+      '[10:00:00] [Prepare] === Stage: Prepare ===',
+      '[10:00:01] [Verify] ERROR: exit status 7',
+      '[10:00:01] [] BUILD FAILED: verification failed',
+      '[10:00:02] [Build] received before clear',
+      '[10:00:03] [Build] received after clear',
+      '[10:00:04] [Build] recovered from snapshot',
+      '',
+    ].join('\n') })
+    await act(async () => socket.emitOpen())
+    await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+
+    const content = container.querySelector('.plain-log-lines')?.textContent || ''
+    expect(content).not.toContain('received before clear')
+    expect(content.match(/received after clear/g)).toHaveLength(1)
+    expect(content).toContain('recovered from snapshot')
+  })
+
   it('filters the log viewport to matching lines when enabled', async () => {
     await renderViewer()
 

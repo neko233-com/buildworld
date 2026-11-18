@@ -153,13 +153,18 @@ try {
 
     New-Item -ItemType Directory -Force -Path $stagingOutput | Out-Null
     $assets = [System.Collections.Generic.List[string]]::new()
+    $packagingClock = [Diagnostics.Stopwatch]::StartNew()
+    $targetIndex = 0
     foreach ($target in $targets) {
+        $targetIndex++
         $os = $target.Os
         $arch = $target.Arch
         $extension = if ($os -eq 'windows') { '.exe' } else { '' }
         $stage = Assert-ChildPath (Join-Path $stagingOutput "stage-$os-$arch") $stagingOutput 'target staging'
         $archive = Assert-ChildPath (Join-Path $stagingOutput "buildworld-$os-$arch.$($target.Archive)") $stagingOutput 'target archive'
-        Write-Host "Packaging $os/$arch ..."
+        $targetLabel = "[$targetIndex/$($targets.Count)] $os/$arch"
+        $phaseClock = [Diagnostics.Stopwatch]::StartNew()
+        Write-Host "$targetLabel Building CLI, server and worker ..."
         New-Item -ItemType Directory -Force -Path (Join-Path $stage 'web') | Out-Null
         New-Item -ItemType Directory -Force -Path (Join-Path $stage 'sdk\pipeline') | Out-Null
         [IO.File]::WriteAllText((Join-Path $stage 'release-info.json'), ($releaseMetadata | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
@@ -171,15 +176,18 @@ try {
 
         Push-Location $repoRoot
         try {
-            & go build -trimpath -buildvcs=false -ldflags $ldflags -o (Join-Path $stage "buildworld$extension") ./cmd/cli
-            if ($LASTEXITCODE -ne 0) { throw "CLI build failed for $os/$arch with exit code $LASTEXITCODE" }
-            & go build -trimpath -buildvcs=false -ldflags $ldflags -o (Join-Path $stage "buildworld-server$extension") ./cmd/server
-            if ($LASTEXITCODE -ne 0) { throw "server build failed for $os/$arch with exit code $LASTEXITCODE" }
-            & go build -trimpath -buildvcs=false -ldflags $ldflags -o (Join-Path $stage "buildworld-worker$extension") ./cmd/worker
-            if ($LASTEXITCODE -ne 0) { throw "worker build failed for $os/$arch with exit code $LASTEXITCODE" }
+            # Build the shared dependency graph once, then preserve the public binary names.
+            & go build -trimpath -buildvcs=false -ldflags $ldflags -o $stage ./cmd/cli ./cmd/server ./cmd/worker
+            if ($LASTEXITCODE -ne 0) { throw "CLI/server/worker build failed for $os/$arch with exit code $LASTEXITCODE" }
         } finally {
             Pop-Location
         }
+
+        Move-Item -LiteralPath (Join-Path $stage "cli$extension") -Destination (Join-Path $stage "buildworld$extension")
+        Move-Item -LiteralPath (Join-Path $stage "server$extension") -Destination (Join-Path $stage "buildworld-server$extension")
+        Move-Item -LiteralPath (Join-Path $stage "worker$extension") -Destination (Join-Path $stage "buildworld-worker$extension")
+        Write-Host ('{0} Compiled in {1:F1}s. Assembling and compressing bundle ...' -f $targetLabel, $phaseClock.Elapsed.TotalSeconds)
+        $phaseClock.Restart()
 
         Copy-Item -Path (Join-Path $webRoot 'dist') -Destination (Join-Path $stage 'web') -Recurse -Force
         Copy-Item -Path (Join-Path $repoRoot 'sdk\pipeline\*') -Destination (Join-Path $stage 'sdk\pipeline') -Recurse -Force
@@ -201,7 +209,7 @@ try {
         }
 
         if ($target.Archive -eq 'zip') {
-            Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive -Force
+            [IO.Compression.ZipFile]::CreateFromDirectory($stage, $archive, [IO.Compression.CompressionLevel]::Optimal, $false)
         } else {
             New-UnixReleaseArchive $stage $archive
         }
@@ -215,6 +223,7 @@ try {
             $assets.Add($part)
         }
         Remove-SafeDirectory $stage $stagingOutput 'target staging cleanup'
+        Write-Host ('{0} Bundle and {1} parts ready in {2:F1}s.' -f $targetLabel, $parts.Count, $phaseClock.Elapsed.TotalSeconds)
     }
 
     Copy-Item (Join-Path $PSScriptRoot 'install.ps1') (Join-Path $stagingOutput 'install.ps1') -Force
@@ -265,7 +274,7 @@ try {
         }
     }
 
-    Write-Host "Release assets are ready in $output"
+    Write-Host ('Release assets are ready in {0} (packaging and checksums: {1:F1}s)' -f $output, $packagingClock.Elapsed.TotalSeconds)
     Get-ChildItem -LiteralPath $output -File | Select-Object Name, Length
 } finally {
     if ($null -eq $previousGoos) { Remove-Item Env:GOOS -ErrorAction SilentlyContinue } else { $env:GOOS = $previousGoos }

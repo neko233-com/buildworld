@@ -6,6 +6,17 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.17.5] - 2026-11-18
+
+### Changed
+
+- Build the three release executables together per platform, write Windows ZIPs directly, and report compilation and packaging times.
+- Keep existing audit rows visible while refreshing and show when a query or page request is pending.
+
+### Fixed
+
+- Clear queued console output along with visible lines, bound queued log data in inactive tabs, and reconcile overlapping WebSocket and REST output before rendering.
+
 ## [1.17.4] - 2026-11-18
 
 ### Added
