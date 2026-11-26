@@ -44,6 +44,8 @@ type BuildRunner struct {
 	runsMu                  sync.Mutex
 	runs                    map[int64]context.CancelCauseFunc
 	runsWG                  sync.WaitGroup
+	executionGroupOwners    map[string]int64 // guarded by runsMu
+	executionGroupWaiters   map[int64]string // guarded by runsMu
 	shuttingDown            bool
 	startupOnce             sync.Once
 	startupWG               sync.WaitGroup
@@ -94,17 +96,19 @@ const DefaultBuildConcurrency = 16
 func NewBuildRunner(s *store.Store, hub *ws.Hub, wsRoot string, plugins *plugin.Loader) *BuildRunner {
 	buildRoot := filepath.Dir(wsRoot)
 	runner := &BuildRunner{
-		store:            s,
-		hub:              hub,
-		workspaces:       NewWorkspaceManager(wsRoot),
-		buildEnvironment: NewBuildEnvironment(buildRoot),
-		executor:         NewExecutor(),
-		gitClient:        git.NewClient(),
-		plugins:          plugins,
-		runs:             make(map[int64]context.CancelCauseFunc),
-		queueWake:        make(chan struct{}, 1),
-		remoteWaiting:    make(map[int64]bool),
-		poolCursor:       make(map[string]int),
+		store:                 s,
+		hub:                   hub,
+		workspaces:            NewWorkspaceManager(wsRoot),
+		buildEnvironment:      NewBuildEnvironment(buildRoot),
+		executor:              NewExecutor(),
+		gitClient:             git.NewClient(),
+		plugins:               plugins,
+		runs:                  make(map[int64]context.CancelCauseFunc),
+		executionGroupOwners:  make(map[string]int64),
+		executionGroupWaiters: make(map[int64]string),
+		queueWake:             make(chan struct{}, 1),
+		remoteWaiting:         make(map[int64]bool),
+		poolCursor:            make(map[string]int),
 		executionPolicy: ExecutionPolicy{
 			DefaultTimeoutSec:        1800,
 			MaxConcurrentBuilds:      DefaultBuildConcurrency,
@@ -454,7 +458,9 @@ func (r *BuildRunner) dispatchPending() {
 		if localExecution && localAvailable <= 0 {
 			continue
 		}
-		r.Run(build.ID)
+		if !r.startBuild(build) {
+			continue
+		}
 		globalAvailable--
 		if localExecution {
 			localAvailable--
@@ -467,6 +473,13 @@ func (r *BuildRunner) dispatchPending() {
 		}
 	}
 	r.remoteWaitMu.Unlock()
+	r.runsMu.Lock()
+	for buildID := range r.executionGroupWaiters {
+		if !pending[buildID] {
+			delete(r.executionGroupWaiters, buildID)
+		}
+	}
+	r.runsMu.Unlock()
 }
 
 func (r *BuildRunner) isBuildRunning(buildID int64) bool {
@@ -510,12 +523,44 @@ func (r *BuildRunner) Enqueue(buildID int64) error {
 }
 
 func (r *BuildRunner) Run(buildID int64) {
+	build, err := r.store.GetBuild(buildID)
+	if err == nil && build.Status == "pending" {
+		r.startBuild(build)
+	}
+}
+
+func (r *BuildRunner) startBuild(build *store.Build) bool {
+	group, valid, err := r.resolveExecutionGroup(build.ProjectID)
+	if err != nil {
+		// Leave the durable queue item available for the next scan on a store error.
+		return false
+	}
+	if !valid {
+		project, _ := r.store.GetProject(build.ProjectID)
+		r.failWithoutRetry(build.ID, time.Now(), "Invalid project execution group. Use a non-secret, lowercase group name.", project)
+		return false
+	}
+	buildID := build.ID
 	ctx, cancel := context.WithCancelCause(context.Background())
 	r.runsMu.Lock()
 	if r.shuttingDown || r.runs[buildID] != nil {
 		r.runsMu.Unlock()
 		cancel(nil)
-		return
+		return false
+	}
+	if ownerID := r.executionGroupOwners[group]; ownerID != 0 {
+		firstWait := r.executionGroupWaiters[buildID] != group
+		r.executionGroupWaiters[buildID] = group
+		r.runsMu.Unlock()
+		cancel(nil)
+		if firstWait {
+			r.log(buildID, "queue", fmt.Sprintf("Waiting for execution group %q (build #%d)", group, ownerID))
+		}
+		return false
+	}
+	delete(r.executionGroupWaiters, buildID)
+	if group != "" {
+		r.executionGroupOwners[group] = buildID
 	}
 	r.runs[buildID] = cancel
 	r.runsWG.Add(1)
@@ -524,12 +569,16 @@ func (r *BuildRunner) Run(buildID int64) {
 		defer func() {
 			r.runsMu.Lock()
 			delete(r.runs, buildID)
+			if group != "" {
+				delete(r.executionGroupOwners, group)
+			}
 			r.runsMu.Unlock()
 			cancel(nil)
 			r.runsWG.Done()
 		}()
 		r.run(ctx, buildID)
 	}()
+	return true
 }
 
 // Stop cancels the live process context, including intentional long-running

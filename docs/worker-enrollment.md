@@ -33,6 +33,23 @@ slot atomically before it dispatches. `active_builds` is displayed beside
 the build remains pending and Buildworld retries assignment instead of running
 it on the embedded executor.
 
+## Project execution groups
+
+Worker capacity limits the number of jobs on a node. Set the non-secret project
+environment variable `BUILDWORLD_EXECUTION_GROUP` on jobs that need exclusive
+access to a shared toolchain or publication process. Use the same lowercase
+group name (up to 64 characters, starting with a letter or digit, followed by
+letters, digits, dots, underscores or hyphens) on all participating projects.
+
+A group owns one execution at a time across the controller, including source
+checkout, platform preparation, execution and cleanup. The dispatcher leaves
+other jobs in that group pending, logs the reason, and considers the next
+eligible jobs in queue order. Waiting jobs reserve no worker slot. Projects
+without the variable and jobs in other groups can use available capacity. The
+setting is read from project metadata, so ordinary build parameters cannot
+override group admission. Update group membership when the jobs involved are
+idle. Keep native host locks for tools shared with out-of-band processes.
+
 ## Remote Go plugins
 
 When a pipeline uses a Go binary plugin installed from a GitHub URL,

@@ -6,6 +6,12 @@ All notable BuildWorld changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [1.17.6] - 2026-11-26
+
+### Added
+
+- Allow projects to share an execution group. A waiting project keeps its place in the queue while other groups and independent jobs use free worker capacity.
+
 ## [1.17.5] - 2026-11-18
 
 ### Changed
